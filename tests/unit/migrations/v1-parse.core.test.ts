@@ -89,6 +89,49 @@ const ledgerEvent = {
 };
 
 describe("migration v1 hostile parsers", () => {
+  test("admits only canonical persisted parameter spellings", () => {
+    const admitted = [
+      { kind: "target-namespace" as const },
+      { kind: "bigint" as const, value: "-9007199254740993" },
+      { kind: "bytes" as const, value: "AAE=" },
+      { kind: "date-time" as const, value: "2026-08-29T12:34:56.789Z" },
+      { kind: "decimal" as const, value: "-12.34" },
+    ];
+    const dispatch = {
+      sqlHash: SHA256,
+      offset: 0,
+      length: 0,
+      parameters: admitted,
+      dispatchId: encodeDispatchIdentity(SHA256, 0, 0, admitted),
+    };
+    expect(parseDispatch(dispatch, "dispatch").parameters).toEqual(admitted);
+
+    for (const parameter of [
+      { kind: "target-namespace", value: "tenant" },
+      { kind: "bigint", value: "01" },
+      { kind: "bigint", value: "-0" },
+      { kind: "bytes", value: "not base64" },
+      { kind: "bytes", value: "AAE" },
+      { kind: "date-time", value: "2026-08-29" },
+      { kind: "date-time", value: "not-a-date" },
+      { kind: "decimal", value: "+12.340" },
+      { kind: "decimal", value: "1e2" },
+    ]) {
+      expect(() =>
+        parseDispatch(
+          {
+            dispatchId: SHA256,
+            sqlHash: SHA256,
+            offset: 0,
+            length: 0,
+            parameters: [parameter],
+          },
+          "dispatch"
+        )
+      ).toThrow(MigrationError);
+    }
+  });
+
   test("admits a structurally complete snapshot", () => {
     expect(parseSnapshot(completeSnapshot)).toEqual(completeSnapshot);
   });

@@ -26,23 +26,27 @@ export async function executeExactSql(
 export async function executeDispatch(
   producer: AnyDriver,
   blob: Uint8Array,
-  dispatch: MigrationDispatchV1
+  dispatch: MigrationDispatchV1,
+  targetNamespace?: string
 ): Promise<void> {
   await executeExactSql(
     producer,
     sliceDispatch(blob, dispatch),
-    dispatch.parameters.map((parameter) => decodeParameter(parameter))
+    dispatch.parameters.map((parameter) =>
+      decodeParameter(parameter, targetNamespace)
+    )
   );
 }
 
 export async function evaluateCheck(
   producer: AnyDriver,
   blob: Uint8Array,
-  check: MigrationBooleanCheckV1
+  check: MigrationBooleanCheckV1,
+  targetNamespace?: string
 ): Promise<boolean> {
   const sql = sliceDispatch(blob, check.query);
   const params = check.query.parameters.map((parameter) =>
-    decodeParameter(parameter)
+    decodeParameter(parameter, targetNamespace)
   );
   const result = await producer._executeRaw<Record<string, unknown>>(
     sql,
@@ -105,7 +109,8 @@ export async function executeOperations(
   onProgress?: (
     progress: StepProgress,
     effect: LedgerEffectStateV1
-  ) => Promise<void>
+  ) => Promise<void>,
+  targetNamespace?: string
 ): Promise<void> {
   for (const operation of operations) {
     for (const step of operation.steps) {
@@ -115,7 +120,8 @@ export async function executeOperations(
         operation.id,
         step,
         boundary,
-        onProgress
+        onProgress,
+        targetNamespace
       );
     }
   }
@@ -130,25 +136,30 @@ async function executeStep(
   onProgress?: (
     progress: StepProgress,
     effect: LedgerEffectStateV1
-  ) => Promise<void>
+  ) => Promise<void>,
+  targetNamespace?: string
 ): Promise<void> {
   if (step.retry === "proven") {
-    if (await evaluateCheck(producer, blob, step.postcheck)) {
+    if (await evaluateCheck(producer, blob, step.postcheck, targetNamespace)) {
       await onProgress?.(
         { operationId, dispatchId: step.execute.dispatchId, skipped: true },
         "none"
       );
       return;
     }
-    if (!(await evaluateCheck(producer, blob, step.precheck))) {
+    if (
+      !(await evaluateCheck(producer, blob, step.precheck, targetNamespace))
+    ) {
       throw new MigrationError(
         `Proven step ${operationId} is neither at origin nor destination`,
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { lastConfirmedStep: step.execute.dispatchId } }
       );
     }
-    await executeDispatch(producer, blob, step.execute);
-    if (!(await evaluateCheck(producer, blob, step.postcheck))) {
+    await executeDispatch(producer, blob, step.execute, targetNamespace);
+    if (
+      !(await evaluateCheck(producer, blob, step.postcheck, targetNamespace))
+    ) {
       throw new MigrationError(
         `Proven step ${operationId} failed its postcheck`,
         VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
@@ -174,7 +185,7 @@ async function executeStep(
       "none"
     );
     try {
-      await executeDispatch(producer, blob, step.execute);
+      await executeDispatch(producer, blob, step.execute, targetNamespace);
     } catch (error) {
       throw new MigrationError(
         `Opaque stepwise dispatch ${step.execute.dispatchId} failed with an ambiguous outcome`,
@@ -196,7 +207,7 @@ async function executeStep(
     return;
   }
 
-  await executeDispatch(producer, blob, step.execute);
+  await executeDispatch(producer, blob, step.execute, targetNamespace);
   await onProgress?.(
     { operationId, dispatchId: step.execute.dispatchId, skipped: false },
     "committed"
@@ -206,10 +217,13 @@ async function executeStep(
 export async function evaluateAllChecks(
   producer: AnyDriver,
   blob: Uint8Array,
-  checks: readonly MigrationBooleanCheckV1[]
+  checks: readonly MigrationBooleanCheckV1[],
+  targetNamespace?: string
 ): Promise<boolean> {
   for (const check of checks) {
-    if (!(await evaluateCheck(producer, blob, check))) return false;
+    if (!(await evaluateCheck(producer, blob, check, targetNamespace))) {
+      return false;
+    }
   }
   return true;
 }

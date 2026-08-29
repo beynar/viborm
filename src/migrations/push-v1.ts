@@ -18,9 +18,7 @@ import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
 import {
   DEFAULT_CONTROL_BASE,
-  inspectControlPresence,
-  readLedger,
-  readMarker,
+  readControlState,
   refuseIncompatibleHistory,
   refusePartialControl,
   unfinishedAttempts,
@@ -259,7 +257,12 @@ async function executeLockedPlan(
   if (command.target.dialect === "mysql") {
     await runSequentialProgram(pinned, command, async (producer) => {
       for (const statement of plan.statements) {
-        await executeDispatch(producer, plan.sqlBlob, statement.dispatch);
+        await executeDispatch(
+          producer,
+          plan.sqlBlob,
+          statement.dispatch,
+          command.namespace
+        );
       }
     });
     const fingerprint = await attestFinalFingerprint(pinned, command, plan);
@@ -276,7 +279,12 @@ async function executeAndAttest(
   statements: readonly PlannedStatement[]
 ): Promise<Sha256> {
   for (const statement of statements) {
-    await executeDispatch(producer, plan.sqlBlob, statement.dispatch);
+    await executeDispatch(
+      producer,
+      plan.sqlBlob,
+      statement.dispatch,
+      command.namespace
+    );
   }
   return attestFinalFingerprint(producer, command, plan);
 }
@@ -302,17 +310,32 @@ async function executeTransactional(
     disable.dispatch.dispatchId,
     enable.dispatch.dispatchId,
   ]);
-  await executeDispatch(pinned, plan.sqlBlob, disable.dispatch);
+  await executeDispatch(
+    pinned,
+    plan.sqlBlob,
+    disable.dispatch,
+    command.namespace
+  );
   try {
     return await pinned.withTransaction(async (transaction) => {
       for (const statement of remaining) {
-        await executeDispatch(transaction, plan.sqlBlob, statement.dispatch);
+        await executeDispatch(
+          transaction,
+          plan.sqlBlob,
+          statement.dispatch,
+          command.namespace
+        );
       }
       await assertForeignKeysIntact(transaction, lifted.bracket);
       return attestFinalFingerprint(transaction, command, plan);
     });
   } finally {
-    await executeDispatch(pinned, plan.sqlBlob, enable.dispatch);
+    await executeDispatch(
+      pinned,
+      plan.sqlBlob,
+      enable.dispatch,
+      command.namespace
+    );
   }
 }
 
@@ -399,18 +422,16 @@ async function assertPushControlInterlock(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<void> {
-  const presence = await inspectControlPresence(
+  const control = await readControlState(
     producer,
     command,
     DEFAULT_CONTROL_BASE
   );
-  if (presence.kind === "missing-table") {
-    refusePartialControl(presence);
+  if (control.presence.kind !== "present") {
+    refusePartialControl(control.presence);
     return;
   }
-
-  const marker = await readMarker(producer, command, DEFAULT_CONTROL_BASE);
-  const ledger = await readLedger(producer, command, DEFAULT_CONTROL_BASE);
+  const { marker, ledger } = control;
   if (unfinishedAttempts(ledger).length > 0) {
     throw new MigrationError(
       "An unfinished migration attempt is blocking push",

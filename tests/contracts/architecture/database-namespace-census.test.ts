@@ -85,10 +85,11 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * producer its caller hands it, which under a locked command is the pinned
  * session. CLI commands are absent because they hold confirmation and
  * presentation only. Live clear belongs to `live-reset.ts`. Dispatch belongs
- * to `execute-dispatch.ts`. Marker and ledger I/O belong to `control.ts`.
+ * to `execute-dispatch.ts`. Control discovery, authentication, marker, and
+ * ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
-  "src/migrations/control.ts executeRaw 8",
+  "src/migrations/control.ts executeRaw 18",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   "src/migrations/foreign-keys.ts executeRaw 3",
   "src/migrations/live-reset.ts executeRaw 4",
@@ -97,14 +98,11 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
   // of the recovery statements before the caller's program. Query executors
-  // remain here too: strict-mode proof, pinned context, lock acquisition, and
-  // lock release. The manifest counts sites so a new parallel path is red even
-  // when it is added to an already admitted file.
+  // remain here too: strict-mode proof, lock acquisition, and lock release.
+  // The manifest counts sites so a new parallel path is red even when it is
+  // added to an already admitted file.
   "src/migrations/pinned-session.ts executeRaw 5",
-  "src/migrations/pinned-session.ts queryExecutorFactory 4",
-  // The MySQL sequential arm executes beside the transactional arm (§3.5:
-  // no manufactured atomicity), so the executor carries both spellings.
-  "src/migrations/push/executor.ts executeRaw 3",
+  "src/migrations/pinned-session.ts queryExecutorFactory 3",
   "src/migrations/push-fingerprint.ts executeRaw 2",
   "src/migrations/push-plan.ts executeRaw 1",
   "src/migrations/push/planner.ts executeRaw 2",

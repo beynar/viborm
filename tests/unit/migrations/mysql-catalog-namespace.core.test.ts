@@ -11,7 +11,14 @@
 import { getMigrationDriver } from "@migrations/drivers";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { readsCommandNamespace } from "@migrations/target";
+import {
+  probeForGeneratedStatement,
+  tableExistsProbe,
+} from "@src/migrations/catalog-probes";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
+import { evaluateCheck } from "@src/migrations/execute-dispatch";
+import { composeSqlBlob } from "@src/migrations/sql-blob";
+import { encodeDispatchIdentity } from "@src/migrations/v1-parse";
 import { describe, expect, it } from "vitest";
 import { mysqlEstateDriver } from "./_estate";
 
@@ -243,6 +250,93 @@ describe("MySQL introspection binds the resolved database", () => {
       "(tc.TABLE_SCHEMA = ? OR kcu.REFERENCED_TABLE_SCHEMA = ?)"
     );
     expect(fkQuery?.params).toEqual(["billing", "billing"]);
+  });
+});
+
+describe("MySQL stored catalog probes remain portable", () => {
+  it("binds live probes now and resolves stored probes at execution", async () => {
+    expect(tableExistsProbe(BILLING, "users", true).parameters).toEqual([
+      { kind: "string", value: "billing" },
+      { kind: "string", value: "users" },
+    ]);
+
+    const probes = probeForGeneratedStatement(
+      BILLING,
+      { type: "dropTable", tableName: "users" },
+      "DROP TABLE `billing`.`users`"
+    );
+    expect(probes?.pre.parameters).toEqual([
+      { kind: "target-namespace" },
+      { kind: "string", value: "users" },
+    ]);
+    if (!probes) throw new Error("drop-table probes must be generated");
+
+    const blob = composeSqlBlob([probes.pre.sql]);
+    const range = blob.ranges[0];
+    if (!range) throw new Error("expected a probe SQL range");
+    const query = {
+      ...range,
+      sqlHash: blob.sqlHash,
+      parameters: probes.pre.parameters,
+      dispatchId: encodeDispatchIdentity(
+        blob.sqlHash,
+        range.offset,
+        range.length,
+        probes.pre.parameters
+      ),
+    };
+    const executor = mysqlEstateDriver({
+      namespace: "tenant_two",
+      attested: true,
+    });
+    executor.respond = () => [{ exists: 1 }];
+
+    await expect(
+      evaluateCheck(
+        executor,
+        blob.bytes,
+        { kind: "driver", id: probes.pre.id, query, equals: true },
+        "tenant_two"
+      )
+    ).resolves.toBe(true);
+    expect(executor.parameters.at(-1)).toEqual(["tenant_two", "users"]);
+  });
+
+  it("refuses an unresolved stored namespace before provider execution", async () => {
+    const probes = probeForGeneratedStatement(
+      BILLING,
+      { type: "dropTable", tableName: "users" },
+      "DROP TABLE `billing`.`users`"
+    );
+    if (!probes) throw new Error("drop-table probes must be generated");
+    const blob = composeSqlBlob([probes.pre.sql]);
+    const range = blob.ranges[0];
+    if (!range) throw new Error("expected a probe SQL range");
+    const query = {
+      ...range,
+      sqlHash: blob.sqlHash,
+      parameters: probes.pre.parameters,
+      dispatchId: encodeDispatchIdentity(
+        blob.sqlHash,
+        range.offset,
+        range.length,
+        probes.pre.parameters
+      ),
+    };
+    const executor = mysqlEstateDriver({
+      namespace: "tenant_two",
+      attested: true,
+    });
+
+    await expect(
+      evaluateCheck(executor, blob.bytes, {
+        kind: "driver",
+        id: probes.pre.id,
+        query,
+        equals: true,
+      })
+    ).rejects.toMatchObject({ code: "V11009" });
+    expect(executor.statements).toEqual([]);
   });
 });
 

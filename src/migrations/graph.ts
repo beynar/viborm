@@ -6,7 +6,8 @@
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import type { Sha256 } from "./identity";
-import { validateSqlRanges } from "./sql-blob";
+import { sliceDispatch, validateSqlRanges } from "./sql-blob";
+import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
 import type { SchemaSnapshot } from "./types";
 import {
@@ -122,6 +123,16 @@ export async function loadMigrationGraph(
     }
     collectChecks(manifest.destinationChecks, dispatches);
     validateSqlRanges(blob, dispatches);
+    assertStoredParameterDialect(
+      dispatches,
+      descriptor.target.dialect,
+      manifest.name
+    );
+    assertArtifactExecutionSafe(
+      dispatches.map((dispatch) => sliceDispatch(blob, dispatch)),
+      descriptor.target.dialect,
+      manifest.name
+    );
   }
 
   const outgoing = new Map<Sha256, Sha256[]>();
@@ -168,6 +179,34 @@ export async function loadMigrationGraph(
     leaves,
     emptySnapshotHash,
   };
+}
+
+/**
+ * The symbolic namespace is one portable MySQL artifact value. PostgreSQL
+ * stores its schema in the estate target and SQLite has no namespace, so the
+ * tag in either estate is corruption rather than an executable parameter.
+ */
+function assertStoredParameterDialect(
+  dispatches: readonly MigrationDispatchV1[],
+  dialect: MigrationEstateDescriptorV1["target"]["dialect"],
+  artifact: string
+): void {
+  if (dialect === "mysql") {
+    return;
+  }
+  for (const dispatch of dispatches) {
+    if (
+      dispatch.parameters.some(
+        (parameter) => parameter.kind === "target-namespace"
+      )
+    ) {
+      throw new MigrationError(
+        `Migration "${artifact}" contains a target-namespace parameter outside a MySQL estate`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { migrationName: artifact } }
+      );
+    }
+  }
 }
 
 function collectDispatches(

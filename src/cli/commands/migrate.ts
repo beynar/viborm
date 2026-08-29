@@ -3,13 +3,21 @@
  */
 
 import { resolve } from "node:path";
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import type { StateSelector } from "../../migrations";
 import { createFsStorageWriter, createMigrationClient } from "../../migrations";
 import { isSha256 } from "../../migrations/identity";
 import { failCli, loadConfig } from "../utils";
 
 const STATE_ID_PREFIX = /^[0-9a-f]{8,63}$/;
+
+function positiveInteger(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new InvalidArgumentError("must be a positive safe integer");
+  }
+  return parsed;
+}
 
 function selector(value: string | undefined): StateSelector | undefined {
   if (!value) return undefined;
@@ -211,9 +219,7 @@ export function createMigrateCommand(): Command {
     .description("Roll back along the recorded arrival path")
     .option("-d, --dir <dir>", "Estate directory")
     .option("--to <selector>", "Roll back to this state")
-    .option("--steps <n>", "Number of states to roll back", (value) =>
-      Number(value)
-    )
+    .option("--steps <n>", "Number of states to roll back", positiveInteger)
     .option("--dry-run", "Plan without executing")
     .option("--json", "Print machine-readable output")
     .action(

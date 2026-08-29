@@ -15,6 +15,8 @@ export interface CatalogProbe {
   readonly equals: boolean;
 }
 
+type CatalogProbeLifetime = "live-command" | "stored-artifact";
+
 function namespace(driver: MigrationDriver): string | undefined {
   return (
     driver.namespace ??
@@ -38,10 +40,20 @@ function stringParam(value: string): MigrationParameterV1 {
   return { kind: "string", value };
 }
 
+function mysqlNamespaceParam(
+  driver: MigrationDriver,
+  lifetime: CatalogProbeLifetime
+): MigrationParameterV1 {
+  return lifetime === "stored-artifact"
+    ? { kind: "target-namespace" }
+    : stringParam(boundCatalogNamespace(driver));
+}
+
 export function tableExistsProbe(
   driver: MigrationDriver,
   tableName: string,
-  exists: boolean
+  exists: boolean,
+  lifetime: CatalogProbeLifetime = "live-command"
 ): CatalogProbe {
   const dialect = driver.dialect;
   if (dialect === "postgresql") {
@@ -58,7 +70,7 @@ export function tableExistsProbe(
       id: `table:${exists ? "exists" : "absent"}:${tableName}`,
       sql: "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?)",
       parameters: [
-        stringParam(boundCatalogNamespace(driver)),
+        mysqlNamespaceParam(driver, lifetime),
         stringParam(tableName),
       ],
       equals: exists,
@@ -76,7 +88,8 @@ export function columnExistsProbe(
   driver: MigrationDriver,
   tableName: string,
   columnName: string,
-  exists: boolean
+  exists: boolean,
+  lifetime: CatalogProbeLifetime = "live-command"
 ): CatalogProbe {
   const dialect = driver.dialect;
   if (dialect === "postgresql") {
@@ -97,7 +110,7 @@ export function columnExistsProbe(
       id: `column:${exists ? "exists" : "absent"}:${tableName}.${columnName}`,
       sql: "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ?)",
       parameters: [
-        stringParam(boundCatalogNamespace(driver)),
+        mysqlNamespaceParam(driver, lifetime),
         stringParam(tableName),
         stringParam(columnName),
       ],
@@ -116,7 +129,8 @@ export function indexExistsProbe(
   driver: MigrationDriver,
   tableName: string,
   indexName: string,
-  exists: boolean
+  exists: boolean,
+  lifetime: CatalogProbeLifetime = "live-command"
 ): CatalogProbe {
   const dialect = driver.dialect;
   if (dialect === "postgresql") {
@@ -133,7 +147,7 @@ export function indexExistsProbe(
       id: `index:${exists ? "exists" : "absent"}:${indexName}`,
       sql: "SELECT EXISTS (SELECT 1 FROM information_schema.statistics WHERE table_schema = ? AND table_name = ? AND index_name = ?)",
       parameters: [
-        stringParam(boundCatalogNamespace(driver)),
+        mysqlNamespaceParam(driver, lifetime),
         stringParam(tableName),
         stringParam(indexName),
       ],
@@ -171,8 +185,18 @@ export function probeForGeneratedStatement(
     case "createTable":
       if (text.startsWith("CREATE TABLE")) {
         return {
-          pre: tableExistsProbe(driver, operation.table.name, false),
-          post: tableExistsProbe(driver, operation.table.name, true),
+          pre: tableExistsProbe(
+            driver,
+            operation.table.name,
+            false,
+            "stored-artifact"
+          ),
+          post: tableExistsProbe(
+            driver,
+            operation.table.name,
+            true,
+            "stored-artifact"
+          ),
         };
       }
       if (text.startsWith("CREATE ") && text.includes("INDEX")) {
@@ -185,21 +209,33 @@ export function probeForGeneratedStatement(
             driver,
             operation.table.name,
             index.name,
-            false
+            false,
+            "stored-artifact"
           ),
           post: indexExistsProbe(
             driver,
             operation.table.name,
             index.name,
-            true
+            true,
+            "stored-artifact"
           ),
         };
       }
       return null;
     case "dropTable":
       return {
-        pre: tableExistsProbe(driver, operation.tableName, true),
-        post: tableExistsProbe(driver, operation.tableName, false),
+        pre: tableExistsProbe(
+          driver,
+          operation.tableName,
+          true,
+          "stored-artifact"
+        ),
+        post: tableExistsProbe(
+          driver,
+          operation.tableName,
+          false,
+          "stored-artifact"
+        ),
       };
     case "addColumn":
       return {
@@ -207,13 +243,15 @@ export function probeForGeneratedStatement(
           driver,
           operation.tableName,
           operation.column.name,
-          false
+          false,
+          "stored-artifact"
         ),
         post: columnExistsProbe(
           driver,
           operation.tableName,
           operation.column.name,
-          true
+          true,
+          "stored-artifact"
         ),
       };
     case "dropColumn":
@@ -222,13 +260,15 @@ export function probeForGeneratedStatement(
           driver,
           operation.tableName,
           operation.columnName,
-          true
+          true,
+          "stored-artifact"
         ),
         post: columnExistsProbe(
           driver,
           operation.tableName,
           operation.columnName,
-          false
+          false,
+          "stored-artifact"
         ),
       };
     case "createIndex":
@@ -237,13 +277,15 @@ export function probeForGeneratedStatement(
           driver,
           operation.tableName,
           operation.index.name,
-          false
+          false,
+          "stored-artifact"
         ),
         post: indexExistsProbe(
           driver,
           operation.tableName,
           operation.index.name,
-          true
+          true,
+          "stored-artifact"
         ),
       };
     case "dropIndex":
@@ -252,13 +294,15 @@ export function probeForGeneratedStatement(
           driver,
           operation.tableName,
           operation.indexName,
-          true
+          true,
+          "stored-artifact"
         ),
         post: indexExistsProbe(
           driver,
           operation.tableName,
           operation.indexName,
-          false
+          false,
+          "stored-artifact"
         ),
       };
     default:

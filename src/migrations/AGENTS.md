@@ -295,7 +295,20 @@ no terminal event for the same attempt id — membership, not row or
 timestamp order. Started and applied often share one millisecond, so a
 sort by `startedAt` then `eventId` can put the closer first. Read-only
 commands never bootstrap missing control tables or translate arbitrary
-provider failures into an empty history.
+provider failures into an empty history. Bootstrap creates the state table
+before the log table. An empty state-only table is therefore the one recognized
+interrupted-bootstrap shape only after the dialect introspector and the native
+CHECK catalog prove its exact definition and the attachment probe proves that
+no trigger, rule, policy, or row-security behavior can alter recovery. This
+state remains distinct from total absence. Only the bootstrap owner may drop
+and recreate it; push and every other command refuse it. A colliding or
+malformed empty table, a state table with a marker, or a log-only shape remains
+corrupt partial history. `readControlState` is the one reader: it authenticates
+a present pair once before returning marker and ledger truth. Transactional
+apply, baseline, and reset perform a required bootstrap inside their first real
+effect/publication transaction, so a failed first migration cannot leave new
+control tables behind. Stepwise providers retain the recoverable bootstrap
+protocol.
 
 `apply-v1.ts` owns forward application. Before effects it authenticates the
 complete selected graph, path, state manifests, snapshots, SQL blobs, ranges,
@@ -327,9 +340,15 @@ by `down()`. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
 manual opaque work still needs state checks. `reset` preloads and authenticates
 the complete clear-and-replay program before the first drop, classifies every
-replay transition before clearing, and if the marker already names the target
-after a crashed CAS it attests and appends `reset-applied` without clearing
-again.
+replay transition before clearing, and executes contiguous transactional replay
+groups in real transactions without letting one stepwise edge flatten the whole
+path. Resume accepts only an exact contiguous confirmed-dispatch prefix. It
+never replays a committed opaque dispatch, and an announced stepwise opaque
+dispatch without committed evidence is an ambiguous outcome. If the marker
+already names the target after a crashed CAS, reset closes the exact sole reset
+attempt only when the marker revision and arrival path prove that reset's CAS
+advanced. An unchanged same-target source marker is not success and still runs
+clear-and-replay.
 
 ## Shared live infrastructure — no second engine
 

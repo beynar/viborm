@@ -62,6 +62,12 @@ describe("read-only commands render from the spelling the server answered", () =
     expect(storage.writes).toEqual([]);
     expect(driver.sessions).toEqual([]);
     expect(driver.adapter.namespace).toBe("Alpha");
+    const controlProbe = driver.statements.findIndex((sql) =>
+      sql.includes("information_schema.tables")
+    );
+    expect(controlProbe).toBeGreaterThanOrEqual(0);
+    expect(driver.parameters[controlProbe]).toContain("alpha");
+    expect(driver.parameters[controlProbe]).not.toContain("Alpha");
   });
 
   it("a dry push RETURNS SQL carrying the resolved database", async () => {

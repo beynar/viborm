@@ -19,6 +19,7 @@ export interface MigrationEstateDescriptorV1 {
 
 export type MigrationParameterV1 =
   | { readonly kind: "null" }
+  | { readonly kind: "target-namespace" }
   | { readonly kind: "boolean"; readonly value: boolean }
   | { readonly kind: "string"; readonly value: string }
   | { readonly kind: "number"; readonly value: number }

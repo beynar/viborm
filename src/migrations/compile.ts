@@ -3,9 +3,10 @@
  * that share one SQL blob. No delimiter split.
  */
 
-import { Sql } from "@sql";
+import type { Sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { canonicalizeDecimalValue } from "../validation/primitives/decimal-codec";
+import { decodeCanonicalBase64, encodeBase64 } from "./base64";
 import {
   type CatalogProbe,
   probeForGeneratedStatement,
@@ -46,6 +47,29 @@ export interface CompiledTransition {
   readonly originChecks: readonly MigrationBooleanCheckV1[];
   readonly requestedForwardBoundary: "transactional" | "stepwise" | null;
   readonly atomicity: AtomicityClass;
+}
+
+export function groupContiguousAtomicity<
+  T extends { readonly boundary: string },
+>(
+  items: readonly T[]
+): readonly {
+  readonly boundary: T["boundary"];
+  readonly items: readonly T[];
+}[] {
+  const groups: {
+    boundary: T["boundary"];
+    items: T[];
+  }[] = [];
+  for (const item of items) {
+    const current = groups.at(-1);
+    if (current?.boundary === item.boundary) {
+      current.items.push(item);
+    } else {
+      groups.push({ boundary: item.boundary, items: [item] });
+    }
+  }
+  return groups;
 }
 
 export function compileGeneratedTransition(
@@ -214,12 +238,6 @@ function compileManualOperations(
   prefix: string
 ): MigrationOperationV1[] {
   return fragments.map((fragment, index) => {
-    if (!(fragment instanceof Sql)) {
-      throw new MigrationError(
-        "Manual migration fragments must be Sql values",
-        VibORMErrorCode.MIGRATION_INVALID_ESTATE
-      );
-    }
     const text = fragment.toStatement(dialect === "postgresql" ? "$n" : "?");
     const parameters = fragment.values.map((value) => encodeParameter(value));
     return {
@@ -243,12 +261,6 @@ export function compileTrustedCheck(
   assembly: SqlAssembly,
   id: string
 ): MigrationBooleanCheckV1 & { readonly kind: "trusted-read" } {
-  if (!(input.query instanceof Sql)) {
-    throw new MigrationError(
-      "Trusted-read checks must be Sql values",
-      VibORMErrorCode.MIGRATION_INVALID_ESTATE
-    );
-  }
   const text = input.query.toStatement(dialect === "postgresql" ? "$n" : "?");
   const parameters = input.query.values.map((value) => encodeParameter(value));
   return {
@@ -459,7 +471,7 @@ export function encodeParameter(value: unknown): MigrationParameterV1 {
   if (value instanceof Date)
     return { kind: "date-time", value: value.toISOString() };
   if (value instanceof Uint8Array) {
-    return { kind: "bytes", value: Buffer.from(value).toString("base64") };
+    return { kind: "bytes", value: encodeBase64(value) };
   }
   const decimal = canonicalizeDecimalValue(value);
   if (decimal !== undefined) return { kind: "decimal", value: decimal };
@@ -472,10 +484,21 @@ export function encodeParameter(value: unknown): MigrationParameterV1 {
   return { kind: "json", value };
 }
 
-export function decodeParameter(parameter: MigrationParameterV1): unknown {
+export function decodeParameter(
+  parameter: MigrationParameterV1,
+  targetNamespace?: string
+): unknown {
   switch (parameter.kind) {
     case "null":
       return null;
+    case "target-namespace":
+      if (targetNamespace === undefined) {
+        throw new MigrationError(
+          "A stored target-namespace parameter requires a resolved migration namespace",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      return targetNamespace;
     case "boolean":
     case "string":
     case "number":
@@ -483,8 +506,16 @@ export function decodeParameter(parameter: MigrationParameterV1): unknown {
       return parameter.value;
     case "bigint":
       return BigInt(parameter.value);
-    case "bytes":
-      return Buffer.from(parameter.value, "base64");
+    case "bytes": {
+      const bytes = decodeCanonicalBase64(parameter.value);
+      if (bytes === undefined) {
+        throw new MigrationError(
+          "Stored bytes parameter is not canonical Base64",
+          VibORMErrorCode.MIGRATION_INVALID_ESTATE
+        );
+      }
+      return bytes;
+    }
     case "date-time":
       return new Date(parameter.value);
     case "decimal":

@@ -22,6 +22,7 @@ import {
 } from "./compile";
 import { diff } from "./differ";
 import { emptyManagedSnapshot } from "./empty-snapshot";
+import { normalizeGenerateOptions } from "./generate-input";
 import { loadMigrationGraph, type MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -36,6 +37,8 @@ import {
   serializeResolvedModels,
 } from "./serializer";
 import { SqlAssembly } from "./sql-assembly";
+import { sliceDispatch } from "./sql-blob";
+import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { isMigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
@@ -72,6 +75,7 @@ export async function generateV1(
   storage: MigrationStorageWriter,
   options: GenerateV1Options = {}
 ): Promise<GenerateV1Result> {
+  const request = normalizeGenerateOptions(options);
   if (!isMigrationStorageWriter(storage)) {
     throw new MigrationError(
       "generate requires a storage writer",
@@ -79,7 +83,7 @@ export async function generateV1(
     );
   }
   hydrateSchemaNames(client.$schema);
-  const relations = options.skipValidation
+  const relations = request.skipValidation
     ? resolveSchemaOrThrow(client.$schema)
     : validateSchemaOrThrow(client.$schema);
   const driver = getPushMigrationDriver(client);
@@ -87,22 +91,20 @@ export async function generateV1(
   let estateBytes = await storage.readEstate();
   if (!estateBytes) {
     const encoded = encodeEstateDescriptor(driver.target);
-    if (!options.dryRun) {
-      await storage.publishEstate(encoded.bytes);
-    }
     estateBytes = encoded.bytes;
   }
+  const publishedEstate = await storage.readEstate();
+  if (publishedEstate) estateBytes = publishedEstate;
   const { estateHash, descriptor } = parseEstateDescriptor(estateBytes);
   assertEstateTargetMatches(descriptor.target, driver.target);
-  const publishedEstate = await storage.readEstate();
   const loaded = publishedEstate
     ? await loadMigrationGraph(storage)
     : emptyGraph(estateHash, descriptor);
 
   const desired = serializeResolvedModels(client.$schema, driver, relations);
   const desiredEncoded = encodeSnapshot(desired);
-  const parents = resolveParents(loaded, options);
-  refuseUnprovedMerge(loaded, parents, options.manualMigration);
+  const parents = resolveParents(loaded, request);
+  refuseUnprovedMerge(loaded, parents, request.manualMigration);
 
   const assembly = new SqlAssembly();
   const parentBodies: Omit<MigrationParentTransitionV1, "transitionHash">[] =
@@ -110,9 +112,9 @@ export async function generateV1(
   let reported: DiffOperation[] = [];
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
 
-  if (options.manualMigration) {
-    assertManualParents(loaded, options.manualMigration.transitions);
-    for (const transition of options.manualMigration.transitions) {
+  if (request.manualMigration) {
+    assertManualParents(loaded, request.manualMigration.transitions);
+    for (const transition of request.manualMigration.transitions) {
       const compiled = compileManualTransition(
         transition.up,
         transition.rollback,
@@ -124,7 +126,7 @@ export async function generateV1(
       parentBodies.push(sealParent(transition.from, compiled));
     }
     for (const [index, check] of (
-      options.manualMigration.destinationChecks ?? []
+      request.manualMigration.destinationChecks ?? []
     ).entries()) {
       destinationPlaceholders.push(
         compileTrustedCheck(
@@ -159,8 +161,8 @@ export async function generateV1(
         diffed,
         current,
         desired,
-        options.resolve
-          ? callbackAsResolver(options.resolve)
+        request.resolve
+          ? callbackAsResolver(request.resolve)
           : parents.length > 1
             ? alwaysAddDropResolver
             : strictResolver
@@ -180,6 +182,12 @@ export async function generateV1(
   }
 
   const sealed = assembly.seal();
+  const named = request.name?.trim() || generateMigrationName(reported);
+  assertArtifactExecutionSafe(
+    sealed.dispatches.map((dispatch) => sliceDispatch(sealed.bytes, dispatch)),
+    driver.target.dialect,
+    named
+  );
 
   const hashedParents = parentBodies
     .map((parent) => ({
@@ -199,7 +207,7 @@ export async function generateV1(
   const emptyProgram = hashedParents.every((parent) =>
     parent.operations.every((operation) => operation.steps.length === 0)
   );
-  if (!options.manualMigration && unchangedSnapshot && emptyProgram) {
+  if (!request.manualMigration && unchangedSnapshot && emptyProgram) {
     return {
       outcome: "noop",
       stateId: null,
@@ -212,7 +220,6 @@ export async function generateV1(
     };
   }
 
-  const named = options.name?.trim() || generateMigrationName(reported);
   const withoutId: Omit<MigrationStateManifestV1, "stateId"> = {
     format: "1",
     estateHash,
@@ -224,7 +231,7 @@ export async function generateV1(
   };
   const encoded = encodeStateManifest(withoutId);
   const sqlText = new TextDecoder().decode(sealed.bytes);
-  if (options.dryRun) {
+  if (request.dryRun) {
     return {
       outcome: "preview",
       stateId: encoded.stateId,
@@ -237,6 +244,9 @@ export async function generateV1(
     };
   }
 
+  if (!publishedEstate) {
+    await storage.publishEstate(estateBytes);
+  }
   await storage.publishSnapshot(
     desiredEncoded.snapshotHash,
     desiredEncoded.bytes

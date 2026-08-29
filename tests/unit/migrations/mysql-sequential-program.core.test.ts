@@ -129,6 +129,14 @@ function estateServer(
         payload: canonicalizeJsonText(event),
       }));
     }
+    if (
+      sql.includes("CHECK_CONSTRAINTS") &&
+      sql.includes("tc.TABLE_NAME = ?")
+    ) {
+      return tables.has("_viborm_migration_state")
+        ? [{ definition: "singleton = 1" }]
+        : [];
+    }
     if (sql.includes("CHECK_CONSTRAINTS")) {
       return [...(options.decimalConstraints ?? [])];
     }
@@ -158,31 +166,55 @@ function estateServer(
       return [...tables].map((name) => ({ name }));
     }
     if (sql.includes("information_schema.COLUMNS")) {
-      return [...tables]
-        .filter((table) => !table.startsWith("_viborm_migration_"))
-        .map((TABLE_NAME) => ({
-          TABLE_NAME,
-          COLUMN_NAME: "id",
-          DATA_TYPE: "varchar",
-          COLUMN_TYPE: "varchar(191)",
-          IS_NULLABLE: "NO",
-          COLUMN_DEFAULT: null,
-          CHARACTER_MAXIMUM_LENGTH: 191,
-          NUMERIC_PRECISION: null,
-          NUMERIC_SCALE: null,
-          EXTRA: "",
-          COLUMN_COMMENT: "",
-        }));
+      return [...tables].flatMap((TABLE_NAME) => {
+        const columns =
+          TABLE_NAME === "_viborm_migration_state"
+            ? [
+                ["singleton", "int", "int", null],
+                ["payload", "text", "text", null],
+              ]
+            : TABLE_NAME === "_viborm_migration_log"
+              ? [
+                  ["event_id", "varchar", "varchar(64)", 64],
+                  ["attempt_id", "varchar", "varchar(64)", 64],
+                  ["kind", "varchar", "varchar(32)", 32],
+                  ["payload", "text", "text", null],
+                ]
+              : [["id", "varchar", "varchar(191)", 191]];
+        return columns.map(
+          ([
+            COLUMN_NAME,
+            DATA_TYPE,
+            COLUMN_TYPE,
+            CHARACTER_MAXIMUM_LENGTH,
+          ]) => ({
+            TABLE_NAME,
+            COLUMN_NAME,
+            DATA_TYPE,
+            COLUMN_TYPE,
+            IS_NULLABLE: "NO",
+            COLUMN_DEFAULT: null,
+            CHARACTER_MAXIMUM_LENGTH,
+            NUMERIC_PRECISION: null,
+            NUMERIC_SCALE: null,
+            EXTRA: "",
+            COLUMN_COMMENT: "",
+          })
+        );
+      });
     }
     if (sql.includes("CONSTRAINT_TYPE = 'PRIMARY KEY'")) {
-      return [...tables]
-        .filter((table) => !table.startsWith("_viborm_migration_"))
-        .map((TABLE_NAME) => ({
-          TABLE_NAME,
-          CONSTRAINT_NAME: "PRIMARY",
-          COLUMN_NAME: "id",
-          ORDINAL_POSITION: 1,
-        }));
+      return [...tables].map((TABLE_NAME) => ({
+        TABLE_NAME,
+        CONSTRAINT_NAME: "PRIMARY",
+        COLUMN_NAME:
+          TABLE_NAME === "_viborm_migration_state"
+            ? "singleton"
+            : TABLE_NAME === "_viborm_migration_log"
+              ? "event_id"
+              : "id",
+        ORDINAL_POSITION: 1,
+      }));
     }
     if (sql.includes("information_schema.STATISTICS")) {
       return [];

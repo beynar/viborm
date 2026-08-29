@@ -101,6 +101,16 @@ const MYSQL_TRANSACTION_LEADERS = new Set([
   "XA",
 ]);
 
+/** SQLite controls over the transaction boundary owned by the migration run. */
+const SQLITE_TRANSACTION_LEADERS = new Set([
+  "BEGIN",
+  "COMMIT",
+  "END",
+  "RELEASE",
+  "ROLLBACK",
+  "SAVEPOINT",
+]);
+
 /**
  * PostgreSQL's advisory-lock family, by prefix.
  *
@@ -171,13 +181,9 @@ const VERSION_DIGIT = /[0-9]/;
 const SYSTEM_VARIABLE_SIGIL = /^@@/;
 
 /**
- * The two dialects this classifier reads.
- *
- * SQLite is deliberately absent: it has neither an advisory lock nor a manual
- * transaction-control problem this can express, so
- * {@link assertArtifactExecutionSafe} returns before any scan begins.
+ * The dialects this classifier reads.
  */
-export type ClassifiedDialect = "postgresql" | "mysql";
+export type ClassifiedDialect = "postgresql" | "mysql" | "sqlite";
 
 /**
  * The characters that make a bare word, per dialect.
@@ -195,6 +201,7 @@ const WORD_CHARACTERS: Record<
 > = {
   mysql: { start: /[A-Za-z_@]/, part: /[A-Za-z0-9_$@]/ },
   postgresql: { start: /[A-Za-z_]/, part: /[A-Za-z0-9_$]/ },
+  sqlite: { start: /[A-Za-z_]/, part: /[A-Za-z0-9_$]/ },
 };
 
 /**
@@ -324,7 +331,12 @@ function scanStatements(
       index = quoteEnd;
       continue;
     }
-    if (char === "$") {
+    if (dialect === "sqlite" && char === "[") {
+      index = skipBracketQuoted(sql, index);
+      preceding = "other";
+      continue;
+    }
+    if (dialect === "postgresql" && char === "$") {
       const dollarEnd = skipDollarQuoted(sql, index);
       if (dollarEnd !== null) {
         index = dollarEnd;
@@ -514,7 +526,7 @@ function opensLineComment(
   start: number,
   dialect: ClassifiedDialect
 ): boolean {
-  if (dialect === "postgresql") {
+  if (dialect !== "mysql") {
     return true;
   }
   const after = sql[start + 2];
@@ -522,6 +534,12 @@ function opensLineComment(
     return true;
   }
   return after.trim() === "" || after.charCodeAt(0) < 0x20;
+}
+
+/** Past SQLite's square-bracket identifier quote. */
+function skipBracketQuoted(sql: string, start: number): number {
+  const end = sql.indexOf("]", start + 1);
+  return end < 0 ? sql.length : end + 1;
 }
 
 /** Past a line comment, including its newline. */
@@ -676,24 +694,40 @@ function refuse(
  * Refuses an artifact that DIRECTLY reframes the execution boundary.
  *
  * Runs BEFORE any of the artifact's effects, so a refusal leaves the estate
- * exactly as it was. SQLite has neither an advisory lock nor a manual
- * transaction-control problem this can express — its migration path owns a
- * single connection and its own queue — so it classifies nothing.
+ * exactly as it was. SQLite has no advisory lock, but the migration runner
+ * still owns its transaction and savepoint boundary.
  */
 export function assertArtifactExecutionSafe(
   statements: readonly string[],
   dialect: MigrationTarget["dialect"],
   artifact: string
 ): void {
-  if (dialect === "sqlite") {
-    return;
-  }
-
   for (const chunk of statements) {
-    for (const words of scanStatements(chunk, dialect)) {
+    const scanned = scanStatements(chunk, dialect);
+    if (dialect === "sqlite" && isSqliteTrigger(scanned[0])) {
+      continue;
+    }
+    for (const words of scanned) {
       classifyOne(words, chunk, dialect, artifact);
     }
   }
+}
+
+/**
+ * A SQLite trigger body uses `BEGIN … END` as grammar, not transaction control.
+ * Stock SQLite execution accepts one prepared statement per dispatch, so the
+ * whole trigger is the provider statement and its body controls stay inside it.
+ */
+function isSqliteTrigger(first: readonly ScannedWord[] | undefined): boolean {
+  if (first?.[0]?.text !== "CREATE") {
+    return false;
+  }
+  const second = first[1]?.text;
+  return (
+    second === "TRIGGER" ||
+    ((second === "TEMP" || second === "TEMPORARY") &&
+      first[2]?.text === "TRIGGER")
+  );
 }
 
 /**
@@ -757,6 +791,21 @@ function classifyOne(
         artifact,
         statement,
         `a call to "${advisory.text.toLowerCase()}", which would change the advisory-lock state this migration command holds`
+      );
+    }
+    return;
+  }
+
+  if (dialect === "sqlite") {
+    const control = leadingTransactionCommand(
+      words,
+      SQLITE_TRANSACTION_LEADERS
+    );
+    if (control !== undefined) {
+      throw refuse(
+        artifact,
+        statement,
+        `the transaction-control statement "${control}", which would change the transaction boundary this migration runs inside`
       );
     }
     return;

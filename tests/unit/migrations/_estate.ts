@@ -74,6 +74,7 @@ function adapterBoundTo(
 export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
   readonly adapter: DatabaseAdapter;
   readonly statements: string[] = [];
+  readonly parameters: unknown[][] = [];
   /**
    * The producer object each statement actually ran on, in order.
    *
@@ -112,6 +113,7 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
 
   protected initClient(): Promise<{ tag: "client" }> {
     this.statements.push("<connect>");
+    this.parameters.push([]);
     return Promise.resolve({ tag: "client" });
   }
 
@@ -140,6 +142,7 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
     fn: (tx: { tag: "tx" }) => Promise<T>
   ): Promise<T> {
     this.statements.push("<begin>");
+    this.parameters.push([]);
     return fn({ tag: "tx" });
   }
 
@@ -169,10 +172,23 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
     params: unknown[]
   ): Promise<QueryResult<T>> {
     this.statements.push(sql);
+    this.parameters.push([...params]);
     this.producers.push(client);
     const simulated = this.simulateLockAnswer(sql);
     let answer =
       simulated === undefined ? this.respond(sql, params) : simulated;
+    if (
+      !(answer instanceof Error) &&
+      sql.includes("AS attached") &&
+      !(
+        answer.length === 1 &&
+        typeof answer[0] === "object" &&
+        answer[0] !== null &&
+        Object.hasOwn(answer[0], "attached")
+      )
+    ) {
+      answer = [{ attached: 0 }];
+    }
     if (!(answer instanceof Error) && answer.length === 0) {
       const catalog = controlCatalogAnswer(sql, params, {
         state: false,
@@ -271,6 +287,89 @@ export function controlCatalogAnswer(
   if (name.endsWith("_state")) return [{ exists: presence.state ? 1 : 0 }];
   if (name.endsWith("_log")) return [{ exists: presence.log ? 1 : 0 }];
   return [{ exists: 0 }];
+}
+
+/** Answers SQLite introspection for the exact reserved control-table shapes. */
+export function sqliteControlDefinitionAnswer(
+  sql: string,
+  presence: { readonly state: boolean; readonly log: boolean }
+): unknown[] | undefined {
+  const definitions = [
+    ...(presence.state
+      ? [
+          {
+            name: "_viborm_migration_state",
+            sql: "CREATE TABLE _viborm_migration_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), payload TEXT NOT NULL)",
+          },
+        ]
+      : []),
+    ...(presence.log
+      ? [
+          {
+            name: "_viborm_migration_log",
+            sql: "CREATE TABLE _viborm_migration_log (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)",
+          },
+        ]
+      : []),
+  ];
+  if (
+    sql.includes("SELECT name, sql") &&
+    sql.includes("FROM sqlite_master") &&
+    sql.includes("type = 'table'")
+  ) {
+    return definitions;
+  }
+  if (
+    sql.includes("SELECT sql FROM sqlite_master") &&
+    sql.includes("type = 'table'")
+  ) {
+    return definitions
+      .filter((definition) => definition.name.endsWith("_state"))
+      .map(({ sql: definition }) => ({ sql: definition }));
+  }
+  const table = sql.includes("_viborm_migration_state")
+    ? "state"
+    : sql.includes("_viborm_migration_log")
+      ? "log"
+      : undefined;
+  if (sql.startsWith("PRAGMA table_info") && table === "state") {
+    return [
+      {
+        cid: 0,
+        name: "singleton",
+        type: "INTEGER",
+        notnull: 0,
+        dflt_value: null,
+        pk: 1,
+      },
+      {
+        cid: 1,
+        name: "payload",
+        type: "TEXT",
+        notnull: 1,
+        dflt_value: null,
+        pk: 0,
+      },
+    ];
+  }
+  if (sql.startsWith("PRAGMA table_info") && table === "log") {
+    return ["event_id", "attempt_id", "kind", "payload"].map((name, index) => ({
+      cid: index,
+      name,
+      type: "TEXT",
+      notnull: index === 0 ? 0 : 1,
+      dflt_value: null,
+      pk: index === 0 ? 1 : 0,
+    }));
+  }
+  if (
+    sql.startsWith("PRAGMA index_list") ||
+    sql.startsWith("PRAGMA foreign_key_list") ||
+    (sql.includes("FROM sqlite_master") && sql.includes("type = 'index'"))
+  ) {
+    return [];
+  }
+  return undefined;
 }
 
 /** A SQLite recording driver. SQLite estates have no namespace at all. */

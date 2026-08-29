@@ -3,12 +3,13 @@ import { MigrationError, VibORMErrorCode } from "@src/errors";
 import {
   classifyStoredAtomicity,
   compileManualTransition,
+  decodeParameter,
   encodeParameter,
 } from "@src/migrations/compile";
 import { invertOperations } from "@src/migrations/invert";
 import { SqlAssembly } from "@src/migrations/sql-assembly";
-import { describe, expect, test } from "vitest";
 import Decimal from "decimal.js";
+import { describe, expect, test } from "vitest";
 
 const NO_DATA_PRESERVED = /No data is preserved/;
 
@@ -22,6 +23,23 @@ describe("migration v1 compiler", () => {
       kind: "decimal",
       value: "12.34",
     });
+  });
+
+  test("byte parameters round-trip without a Buffer global", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "Buffer");
+    Reflect.deleteProperty(globalThis, "Buffer");
+    let encoded: ReturnType<typeof encodeParameter> | undefined;
+    let decoded: unknown;
+    try {
+      encoded = encodeParameter(Uint8Array.of(0, 1, 254, 255));
+      decoded = decodeParameter(encoded);
+    } finally {
+      if (descriptor) {
+        Object.defineProperty(globalThis, "Buffer", descriptor);
+      }
+    }
+    expect(encoded).toEqual({ kind: "bytes", value: "AAH+/w==" });
+    expect(decoded).toEqual(Uint8Array.of(0, 1, 254, 255));
   });
 
   test("manual Sql is one opaque dispatch and never splits", () => {

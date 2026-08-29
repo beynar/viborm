@@ -4,12 +4,14 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { canonicalizeDecimal } from "../validation/primitives/decimal-codec";
 import {
   isBoolean,
   isNumber,
   isRecord,
   isString,
 } from "../validation/value-guards";
+import { decodeCanonicalBase64 } from "./base64";
 import { canonicalizeJson } from "./canonical-json";
 import { domainHash, HASH_DOMAIN, parseSha256, type Sha256 } from "./identity";
 import { exactObject, parseFiniteInteger, refuse } from "./v1-parse-shared";
@@ -22,6 +24,8 @@ const DISPATCH_KEYS = [
   "parameters",
   "sqlHash",
 ] as const;
+
+const CANONICAL_BIGINT = /^(?:0|-?[1-9]\d*)$/;
 
 export function encodeDispatchIdentity(
   sqlHash: Sha256,
@@ -68,6 +72,9 @@ function parseParameter(value: unknown, label: string): MigrationParameterV1 {
     case "null":
       exactObject(value, ["kind"], ["kind"], label);
       return { kind: "null" };
+    case "target-namespace":
+      exactObject(value, ["kind"], ["kind"], label);
+      return { kind: "target-namespace" };
     case "boolean": {
       const record = exactObject(
         value,
@@ -112,6 +119,7 @@ function parseParameter(value: unknown, label: string): MigrationParameterV1 {
       );
       if (!isString(record.value))
         refuse(`${label}.value must be canonical text`);
+      assertCanonicalParameterText(value.kind, record.value, label);
       return { kind: value.kind, value: record.value };
     }
     case "json": {
@@ -125,5 +133,30 @@ function parseParameter(value: unknown, label: string): MigrationParameterV1 {
     }
     default:
       refuse(`${label}.kind is not a V1 parameter tag`);
+  }
+}
+
+function assertCanonicalParameterText(
+  kind: "bigint" | "bytes" | "date-time" | "decimal",
+  value: string,
+  label: string
+): void {
+  if (kind === "bigint" && !CANONICAL_BIGINT.test(value)) {
+    refuse(`${label}.value must be canonical bigint text`);
+  }
+  if (kind === "bytes" && decodeCanonicalBase64(value) === undefined) {
+    refuse(`${label}.value must be canonical base64 text`);
+  }
+  if (kind === "date-time") {
+    try {
+      if (new Date(value).toISOString() !== value) {
+        refuse(`${label}.value must be canonical date-time text`);
+      }
+    } catch {
+      refuse(`${label}.value must be canonical date-time text`);
+    }
+  }
+  if (kind === "decimal" && canonicalizeDecimal(value) !== value) {
+    refuse(`${label}.value must be canonical decimal text`);
   }
 }

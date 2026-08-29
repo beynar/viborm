@@ -20,6 +20,7 @@ import {
 import type {
   MigrationBooleanCheckV1,
   MigrationDispatchV1,
+  MigrationParameterV1,
   MigrationParentTransitionV1,
   MigrationStateManifestV1,
 } from "@src/migrations/v1-types";
@@ -27,11 +28,11 @@ import { describe, expect, test } from "vitest";
 
 function dispatchAt(
   blob: ReturnType<typeof composeSqlBlob>,
-  index: number
+  index: number,
+  parameters: readonly MigrationParameterV1[] = []
 ): MigrationDispatchV1 {
   const range = blob.ranges[index];
   if (!range) throw new Error(`Missing SQL range ${index}`);
-  const parameters: MigrationDispatchV1["parameters"] = [];
   return {
     dispatchId: encodeDispatchIdentity(
       blob.sqlHash,
@@ -107,6 +108,196 @@ async function publishLinear(name = "root") {
 }
 
 describe("migration v1 graph", () => {
+  test.each([
+    ["generated", "COMMIT"],
+    ["manual", "PREPARE TRANSACTION 'viborm'"],
+    ["generated", "SELECT pg_advisory_unlock(1)"],
+  ] as const)("refuses authenticated %s boundary control before execution", async (origin, statement) => {
+    const storage = new MemoryEstateStorage();
+    const estate = encodeEstateDescriptor({
+      dialect: "postgresql",
+      namespace: "public",
+    });
+    const snapshot = encodeSnapshot(emptyManagedSnapshot());
+    const blob = composeSqlBlob([statement]);
+    const operation = {
+      id: "unsafe",
+      label: "unsafe",
+      origin,
+      risk: origin === "manual" ? ("opaque" as const) : ("safe" as const),
+      steps: [{ retry: "opaque" as const, execute: dispatchAt(blob, 0) }],
+    };
+    const parent = {
+      fromState: null,
+      originChecks: [],
+      requestedForwardBoundary:
+        origin === "manual" ? ("transactional" as const) : null,
+      operations: [operation],
+      rollback: { kind: "irreversible" as const, reason: "test" },
+    };
+    const encoded = encodeStateManifest({
+      format: "1",
+      estateHash: estate.estateHash,
+      name: "unsafe-artifact",
+      snapshotHash: snapshot.snapshotHash,
+      sqlHash: blob.sqlHash,
+      destinationChecks: [],
+      parents: [{ ...parent, transitionHash: encodeTransitionHash(parent) }],
+    });
+    await storage.publishEstate(estate.bytes);
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(blob.sqlHash, blob.bytes);
+    await storage.publishState(encoded.stateId, encoded.bytes);
+
+    await expect(loadMigrationGraph(storage)).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("unsafe-artifact"),
+    });
+  });
+
+  test.each([
+    "BEGIN",
+    "COMMIT",
+    "END",
+    "ROLLBACK",
+    "SAVEPOINT s",
+    "RELEASE s",
+  ])("refuses authenticated SQLite boundary control %s", async (statement) => {
+    const storage = new MemoryEstateStorage();
+    const estate = encodeEstateDescriptor({ dialect: "sqlite" });
+    const snapshot = encodeSnapshot(emptyManagedSnapshot());
+    const blob = composeSqlBlob([statement]);
+    const parent = {
+      fromState: null,
+      originChecks: [],
+      requestedForwardBoundary: null,
+      operations: [
+        {
+          id: "unsafe",
+          label: "unsafe",
+          origin: "manual" as const,
+          risk: "opaque" as const,
+          steps: [{ retry: "opaque" as const, execute: dispatchAt(blob, 0) }],
+        },
+      ],
+      rollback: { kind: "irreversible" as const, reason: "test" },
+    };
+    const encoded = encodeStateManifest({
+      format: "1",
+      estateHash: estate.estateHash,
+      name: "unsafe-sqlite",
+      snapshotHash: snapshot.snapshotHash,
+      sqlHash: blob.sqlHash,
+      destinationChecks: [],
+      parents: [{ ...parent, transitionHash: encodeTransitionHash(parent) }],
+    });
+    await storage.publishEstate(estate.bytes);
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(blob.sqlHash, blob.bytes);
+    await storage.publishState(encoded.stateId, encoded.bytes);
+
+    await expect(loadMigrationGraph(storage)).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("unsafe-sqlite"),
+    });
+  });
+
+  test("accepts SQLite control words in data, identifiers, and trigger grammar", async () => {
+    const storage = new MemoryEstateStorage();
+    const estate = encodeEstateDescriptor({ dialect: "sqlite" });
+    const snapshot = encodeSnapshot(emptyManagedSnapshot());
+    const blob = composeSqlBlob([
+      "CREATE TABLE [begin] ([commit] TEXT DEFAULT 'ROLLBACK')",
+      "CREATE TRIGGER savepoint AFTER INSERT ON [begin] BEGIN SELECT 'RELEASE'; END",
+    ]);
+    const parent = {
+      fromState: null,
+      originChecks: [],
+      requestedForwardBoundary: null,
+      operations: [
+        {
+          id: "safe",
+          label: "safe",
+          origin: "manual" as const,
+          risk: "opaque" as const,
+          steps: [
+            { retry: "opaque" as const, execute: dispatchAt(blob, 0) },
+            { retry: "opaque" as const, execute: dispatchAt(blob, 1) },
+          ],
+        },
+      ],
+      rollback: { kind: "irreversible" as const, reason: "test" },
+    };
+    const encoded = encodeStateManifest({
+      format: "1",
+      estateHash: estate.estateHash,
+      name: "safe-sqlite",
+      snapshotHash: snapshot.snapshotHash,
+      sqlHash: blob.sqlHash,
+      destinationChecks: [],
+      parents: [{ ...parent, transitionHash: encodeTransitionHash(parent) }],
+    });
+    await storage.publishEstate(estate.bytes);
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(blob.sqlHash, blob.bytes);
+    await storage.publishState(encoded.stateId, encoded.bytes);
+
+    await expect(loadMigrationGraph(storage)).resolves.toMatchObject({
+      leaves: [encoded.stateId],
+    });
+  });
+
+  test.each([
+    "postgresql",
+    "sqlite",
+  ] as const)("refuses a target-namespace parameter in a %s estate before exposing the graph", async (dialect) => {
+    const storage = new MemoryEstateStorage();
+    const estate = encodeEstateDescriptor(
+      dialect === "postgresql" ? { dialect, namespace: "public" } : { dialect }
+    );
+    const snapshot = encodeSnapshot(emptyManagedSnapshot());
+    const blob = composeSqlBlob(["SELECT 1", "SELECT ?"]);
+    const parent = {
+      fromState: null,
+      originChecks: [],
+      requestedForwardBoundary: null,
+      operations: [
+        {
+          id: "crafted",
+          label: "crafted",
+          origin: "manual" as const,
+          risk: "opaque" as const,
+          steps: [
+            { retry: "opaque" as const, execute: dispatchAt(blob, 0) },
+            {
+              retry: "opaque" as const,
+              execute: dispatchAt(blob, 1, [{ kind: "target-namespace" }]),
+            },
+          ],
+        },
+      ],
+      rollback: { kind: "irreversible" as const, reason: "test" },
+    };
+    const encoded = encodeStateManifest({
+      format: "1",
+      estateHash: estate.estateHash,
+      name: "foreign-namespace-tag",
+      snapshotHash: snapshot.snapshotHash,
+      sqlHash: blob.sqlHash,
+      destinationChecks: [],
+      parents: [{ ...parent, transitionHash: encodeTransitionHash(parent) }],
+    });
+    await storage.publishEstate(estate.bytes);
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(blob.sqlHash, blob.bytes);
+    await storage.publishState(encoded.stateId, encoded.bytes);
+
+    await expect(loadMigrationGraph(storage)).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("target-namespace"),
+    });
+  });
+
   test("loads a linear estate and selects the unique leaf", async () => {
     const published = await publishLinear("initial");
     const graph = await loadMigrationGraph(published.storage);

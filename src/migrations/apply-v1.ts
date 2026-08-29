@@ -8,16 +8,15 @@ import { admitLiveMigrationCapability } from "./admission";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
+  groupContiguousAtomicity,
 } from "./compile";
 import {
   appendLedger,
   casMarker,
   DEFAULT_CONTROL_BASE,
   ensureControlTables,
-  inspectControlPresence,
   markerFromPath,
-  readLedger,
-  readMarker,
+  readControlState,
   refuseIncompatibleHistory,
   refusePartialControl,
   unfinishedAttempts,
@@ -53,7 +52,9 @@ import { eventIdFor } from "./v1-parse";
 import type {
   ApplyV1Options,
   LedgerEventV1,
+  MarkerPathEdgeV1,
   MigrationMarkerV1,
+  MigrationStateManifestV1,
 } from "./v1-types";
 
 export interface ApplyV1Result {
@@ -79,11 +80,13 @@ export async function applyV1(
   );
 
   if (dryRun) {
-    const marker = await readMarker(
+    const control = await readControlState(
       client.$driver,
       driver,
       DEFAULT_CONTROL_BASE
     );
+    refusePartialControl(control.presence);
+    const { marker } = control;
     const origin = marker?.stateId ?? null;
     if (origin === target) return { outcome: "noop", path: [], statements: [] };
     const path = selectRoute(graph, origin, target, options.via);
@@ -99,19 +102,16 @@ export async function applyV1(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const presence = await inspectControlPresence(
+      const control = await readControlState(
         pinned,
         command,
         DEFAULT_CONTROL_BASE
       );
-      refusePartialControl(presence);
-      const controlsExist = presence.kind === "present";
-      const marker = controlsExist
-        ? await readMarker(pinned, command, DEFAULT_CONTROL_BASE)
-        : null;
-      const ledger = controlsExist
-        ? await readLedger(pinned, command, DEFAULT_CONTROL_BASE)
-        : [];
+      if (control.presence.kind === "missing-table") {
+        refusePartialControl(control.presence);
+      }
+      const { marker, ledger } = control;
+      const needsBootstrap = control.presence.kind !== "present";
       refuseIncompatibleHistory(marker, ledger);
       const unfinished = unfinishedAttempts(ledger);
       if (unfinished.length > 0) {
@@ -132,19 +132,15 @@ export async function applyV1(
       const path = selectRoute(graph, origin, target, options.via);
       assertPathArtifacts(graph, origin, path);
       const statements = previewStatements(graph, origin, path);
-      const run = async (
-        producer: Parameters<typeof ensureControlTables>[0]
-      ): Promise<void> => {
-        if (!controlsExist) {
-          await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
-        }
+      const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         await applyPathUnderLock(
           producer,
           command,
           graph,
           marker,
           origin,
-          path
+          path,
+          needsBootstrap
         );
       };
       if (command.target.dialect === "mysql") {
@@ -163,136 +159,156 @@ export async function applyPathUnderLock(
   graph: MigrationGraph,
   marker: MigrationMarkerV1 | null,
   origin: Sha256 | null,
-  path: readonly Sha256[]
+  path: readonly Sha256[],
+  needsBootstrap = false
 ): Promise<void> {
-  const transactional = path.every((to, index) => {
+  const prepared = path.map((to, index) => {
     const from = index === 0 ? origin : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
+    const state = graph.states.get(to)!;
+    const blob = graph.sql.get(state.sqlHash);
+    if (!blob) {
+      throw new MigrationError(
+        "Selected transition is missing its SQL blob",
+        VibORMErrorCode.MIGRATION_CORRUPTION
+      );
+    }
     assertTransactionalBoundaryHonored(
       pinned.supportsTransactions,
       transition.requestedForwardBoundary
     );
-    return (
-      classifyStoredAtomicity(
-        command,
-        transition.requestedForwardBoundary,
-        transition.operations,
-        graph.sql.get(graph.states.get(to)!.sqlHash)
-      ) === "transactional"
-    );
-  });
-  const run = async (producer: Parameters<typeof appendLedger>[0]) => {
-    let from = origin;
-    let current = marker;
-    const nextPath = marker ? [...marker.path] : [];
-    for (const to of path) {
-      const transition = parentTransition(graph, from, to);
-      const state = graph.states.get(to)!;
-      const blob = graph.sql.get(state.sqlHash);
-      if (!blob) {
-        throw new MigrationError(
-          "Selected transition is missing its SQL blob",
-          VibORMErrorCode.MIGRATION_CORRUPTION
-        );
-      }
-      const attemptId = eventIdFor({
-        format: "1",
-        attemptId: "0".repeat(64),
-        kind: "started",
-        estateHash: graph.estateHash,
-        snapshotHash: state.snapshotHash,
-        sqlHash: state.sqlHash,
-        fromState: from,
-        toState: to,
-        transitionHash: transition.transitionHash,
-        direction: "forward",
-        operationId: null,
-        dispatchId: null,
-        effectState: "none",
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        toolVersion: "v1",
-        failure: null,
-      });
-      await appendLedger(
-        producer,
-        command,
-        DEFAULT_CONTROL_BASE,
-        ledgerEvent(
-          graph,
-          attemptId,
-          "started",
-          from,
-          to,
-          "none",
-          null,
-          null,
-          transition.transitionHash
-        )
-      );
-      const boundary = classifyStoredAtomicity(
+    return {
+      from,
+      to,
+      transition,
+      state,
+      blob,
+      boundary: classifyStoredAtomicity(
         command,
         transition.requestedForwardBoundary,
         transition.operations,
         blob
-      );
-      if (!(await evaluateAllChecks(producer, blob, transition.originChecks))) {
-        throw new MigrationError(
-          "Origin checks failed before the first dispatch",
-          VibORMErrorCode.MIGRATION_DRIFT
+      ),
+    };
+  });
+
+  let current = marker;
+  const nextPath = marker ? [...marker.path] : [];
+  let bootstrapPending = needsBootstrap;
+  for (const group of groupContiguousAtomicity(prepared)) {
+    const statements = group.items.flatMap(({ transition, blob }) =>
+      transition.operations.flatMap((operation) =>
+        operation.steps.map((step) => sliceDispatch(blob, step.execute))
+      )
+    );
+    const lifted = liftForeignKeyPragmas(pinned, statements);
+    const run = async (producer: Parameters<typeof appendLedger>[0]) => {
+      if (bootstrapPending) {
+        await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
+        bootstrapPending = false;
+      }
+      for (const item of group.items) {
+        current = await executeForwardEdge(
+          producer,
+          command,
+          graph,
+          item,
+          current,
+          nextPath
         );
       }
-      await executeOperations(
-        producer,
-        blob,
-        transition.operations,
-        boundary,
-        async (progress, effect) => {
-          await appendLedger(
-            producer,
-            command,
-            DEFAULT_CONTROL_BASE,
-            ledgerEvent(
-              graph,
-              attemptId,
-              "step-confirmed",
-              from,
-              to,
-              effect,
-              progress.operationId,
-              progress.dispatchId,
-              transition.transitionHash
-            )
-          );
-        }
+    };
+    if (
+      mayWrapTransaction(
+        pinned,
+        command.target.dialect,
+        group.boundary === "transactional"
+      )
+    ) {
+      await withForeignKeysLifted(pinned, lifted.bracket, () =>
+        pinned.withTransaction(async (transaction) => {
+          await run(transaction);
+          await assertForeignKeysIntact(transaction, lifted.bracket);
+        })
       );
-      if (!(await evaluateAllChecks(producer, blob, state.destinationChecks))) {
-        throw new MigrationError(
-          "Destination checks failed before the marker could advance",
-          VibORMErrorCode.MIGRATION_DRIFT
-        );
-      }
-      await assertFingerprint(producer, command, graph, state.snapshotHash);
-      nextPath.push({
-        stateId: to,
-        transitionHash: transition.transitionHash,
-        baselineBoundary: false,
-      });
-      const next = markerFromPath(
-        graph.estateHash,
-        state.snapshotHash,
-        nextPath,
-        (current?.revision ?? 0) + 1
-      );
-      await casMarker(
-        producer,
-        command,
-        DEFAULT_CONTROL_BASE,
-        current
-          ? { revision: current.revision, pathHash: current.pathHash }
-          : null,
-        next
-      );
+    } else {
+      await run(pinned);
+    }
+  }
+}
+
+interface PreparedForwardEdge {
+  readonly from: Sha256 | null;
+  readonly to: Sha256;
+  readonly transition: ReturnType<typeof parentTransition>;
+  readonly state: MigrationStateManifestV1;
+  readonly blob: Uint8Array;
+  readonly boundary: "transactional" | "stepwise";
+}
+
+async function executeForwardEdge(
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  item: PreparedForwardEdge,
+  current: MigrationMarkerV1 | null,
+  nextPath: MarkerPathEdgeV1[]
+): Promise<MigrationMarkerV1> {
+  const { from, to, transition, state, blob, boundary } = item;
+  const attemptId = eventIdFor({
+    format: "1",
+    attemptId: "0".repeat(64),
+    kind: "started",
+    estateHash: graph.estateHash,
+    snapshotHash: state.snapshotHash,
+    sqlHash: state.sqlHash,
+    fromState: from,
+    toState: to,
+    transitionHash: transition.transitionHash,
+    direction: "forward",
+    operationId: null,
+    dispatchId: null,
+    effectState: "none",
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    toolVersion: "v1",
+    failure: null,
+  });
+  await appendLedger(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE,
+    ledgerEvent(
+      graph,
+      attemptId,
+      "started",
+      from,
+      to,
+      "none",
+      null,
+      null,
+      transition.transitionHash
+    )
+  );
+  if (
+    !(await evaluateAllChecks(
+      producer,
+      blob,
+      transition.originChecks,
+      command.namespace
+    ))
+  ) {
+    throw new MigrationError(
+      "Origin checks failed before the first dispatch",
+      VibORMErrorCode.MIGRATION_DRIFT
+    );
+  }
+  await executeOperations(
+    producer,
+    blob,
+    transition.operations,
+    boundary,
+    async (progress, effect) => {
       await appendLedger(
         producer,
         command,
@@ -300,34 +316,67 @@ export async function applyPathUnderLock(
         ledgerEvent(
           graph,
           attemptId,
-          "applied",
+          "step-confirmed",
           from,
           to,
-          "committed",
-          null,
-          null,
+          effect,
+          progress.operationId,
+          progress.dispatchId,
           transition.transitionHash
         )
       );
-      current = next;
-      from = to;
-    }
-  };
-
-  const lifted = liftForeignKeyPragmas(
-    pinned,
-    previewStatements(graph, origin, path)
+    },
+    command.namespace
   );
-  if (mayWrapTransaction(pinned, command.target.dialect, transactional)) {
-    await withForeignKeysLifted(pinned, lifted.bracket, () =>
-      pinned.withTransaction(async (transaction) => {
-        await run(transaction);
-        await assertForeignKeysIntact(transaction, lifted.bracket);
-      })
+  if (
+    !(await evaluateAllChecks(
+      producer,
+      blob,
+      state.destinationChecks,
+      command.namespace
+    ))
+  ) {
+    throw new MigrationError(
+      "Destination checks failed before the marker could advance",
+      VibORMErrorCode.MIGRATION_DRIFT
     );
-  } else {
-    await run(pinned);
   }
+  await assertFingerprint(producer, command, graph, state.snapshotHash);
+  nextPath.push({
+    stateId: to,
+    transitionHash: transition.transitionHash,
+    baselineBoundary: false,
+  });
+  const next = markerFromPath(
+    graph.estateHash,
+    state.snapshotHash,
+    nextPath,
+    (current?.revision ?? 0) + 1
+  );
+  await casMarker(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE,
+    current ? { revision: current.revision, pathHash: current.pathHash } : null,
+    next
+  );
+  await appendLedger(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE,
+    ledgerEvent(
+      graph,
+      attemptId,
+      "applied",
+      from,
+      to,
+      "committed",
+      null,
+      null,
+      transition.transitionHash
+    )
+  );
+  return next;
 }
 
 function assertPathArtifacts(
