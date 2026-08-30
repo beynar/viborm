@@ -80,8 +80,8 @@ export default defineConfig({
   // Generate sourcemaps for debugging
   sourcemap: true,
 
-  // Target modern Node.js (matches your engines.node >= 18)
-  target: "node18",
+  // Target the oldest runtime promised by package.json.
+  target: "node22",
 
   // Output directory
   outDir: "./dist",

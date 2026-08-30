@@ -1,0 +1,301 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  NPM_VERSION: "11.15.0"
+  PNPM_VERSION: "10.11.0"
+
+jobs:
+  quality:
+    name: Types, format, and docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QUALITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check public types
+        run: pnpm test:types
+
+      - name: Check changed formatting and lint rules
+        run: >-
+          pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"
+          --no-errors-on-unmatched
+
+      - name: Check documentation
+        run: pnpm --dir docs validate
+
+      - name: Check whitespace
+        run: git diff --check "${QUALITY_BASE_SHA}" HEAD
+
+  core:
+    name: Core tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run core tests
+        run: pnpm test:core
+
+  coverage:
+    name: Coverage gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run coverage gates
+        run: pnpm test:coverage
+
+  package:
+    name: Package contract (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - "22.12.0"
+          - "24"
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install exact npm
+        run: npm install --global "npm@${NPM_VERSION}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test the package surface
+        run: pnpm test:package
+
+      - name: Lint the package contract
+        run: pnpm package:lint
+
+      - name: Check bundle-size budgets
+        run: pnpm size
+
+  local-providers:
+    name: Local providers
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run local provider contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs --wall-limit-ms=2400000 run
+          --workspace vitest.workspace.ts
+          --project=extended-local
+          --project=provider-pglite
+          --project=provider-sqlite3
+          --project=provider-libsql
+
+  docker-providers:
+    name: PostgreSQL and MySQL providers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
+        env:
+          POSTGRES_DB: viborm
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d viborm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb # 8.4
+        env:
+          MYSQL_DATABASE: viborm
+          MYSQL_ROOT_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ppassword"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      PG_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:5432/viborm
+      MYSQL_TEST_CONNECTION_STRING: mysql://root:password@127.0.0.1:3306/viborm
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Docker provider contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs --wall-limit-ms=1800000 run
+          --workspace vitest.workspace.ts
+          --project=provider-pg
+          --project=provider-postgres
+          --project=provider-mysql2
+          --project=provider-transaction-options
+
+  platform-providers:
+    name: Bun and D1 providers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
+        env:
+          POSTGRES_DB: viborm
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d viborm"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PG_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:5432/viborm
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Bun contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-bun
+
+      - name: Run D1 contracts
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-d1

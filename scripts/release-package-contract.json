@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "name": "viborm",
+    "bin": "dist/cli.mjs",
+    "repository": "git+https://github.com/beynar/viborm.git",
+    "homepage": "https://viborm.dev",
+    "bugs": "https://github.com/beynar/viborm/issues",
+    "license": "MIT",
+    "node": ">=22",
+    "packageManager": "pnpm@10.11.0",
+    "publishAccess": "public"
+  },
+  "artifact": {
+    "requiredFiles": ["LICENSE", "README.md", "package.json"],
+    "allowedRootFiles": ["LICENSE", "README.md", "package.json"],
+    "allowedDistSuffixes": [".d.mts", ".mjs", ".mjs.map"],
+    "forbiddenPrefixes": [
+      ".env",
+      ".git/",
+      ".github/",
+      "coverage/",
+      "dist/internal/",
+      "docs/",
+      "node_modules/",
+      "readme/",
+      "scripts/",
+      "src/",
+      "tests/"
+    ],
+    "maximumCompressedBytes": 2500000,
+    "maximumUnpackedBytes": 9000000,
+    "maximumFileCount": 220
+  }
+}

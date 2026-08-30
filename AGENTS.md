@@ -617,6 +617,23 @@ pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never k
 # process group on timeout or interruption so workers cannot survive.
 ```
 
+## Release Ownership
+
+[`RELEASING.md`](RELEASING.md) is the one maintainer runbook for npm and GitHub
+publication. The `Release` workflow on protected `main` is the sole publication
+owner: it builds one tarball, tests those exact bytes, publishes them through
+npm OIDC with automatic provenance, verifies registry integrity and that
+provenance, and only then creates the matching immutable GitHub tag and release.
+Never publish from a worktree, use an
+`NPM_TOKEN`, rebuild between testing and publication, or create the version tag
+by hand.
+
+For V1, `1.0.0-rc.N` publishes under `next` and stable `1.0.0` publishes under
+`latest`; all other prerelease spellings are refused. A release-required
+provider that does not execute is a failed gate, not a skip. A preview or
+conditional provider can remain non-blocking only when the public support table
+states the same limitation.
+
 Operation-pipeline comparisons use explicit clean worktrees at explicit
 commits. Declare the exact workload, stage, mode, and target metric before the
 run. Collect five alternating samples per side in fresh processes and accept a

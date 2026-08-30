@@ -35,5 +35,22 @@
         "noUnusedVariables": "info"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      // Blume page overrides use PascalCase component names, and Biome does not
+      // connect Astro frontmatter imports to their template references.
+      "includes": ["docs/**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedImports": "off"
+          },
+          "style": {
+            "useFilenamingConvention": "off"
+          }
+        }
+      }
+    }
+  ]
 }

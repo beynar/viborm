@@ -94,15 +94,18 @@ function classifyDeclaration(checker, symbol) {
 
 const consumerRoot = mkdtempSync(join(tmpdir(), "viborm-package-golden-"));
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", consumerRoot], {
-    cwd: repositoryRoot,
-    stdio: "pipe",
-  });
-  const archives = readdirSync(consumerRoot).filter((name) =>
-    name.endsWith(".tgz")
-  );
-  assert.equal(archives.length, 1, "pnpm pack must produce one archive");
-  const archive = join(consumerRoot, archives[0]);
+  let archive = process.env.VIBORM_PACKAGE_TARBALL;
+  if (archive === undefined) {
+    execFileSync("pnpm", ["pack", "--pack-destination", consumerRoot], {
+      cwd: repositoryRoot,
+      stdio: "pipe",
+    });
+    const archives = readdirSync(consumerRoot).filter((name) =>
+      name.endsWith(".tgz")
+    );
+    assert.equal(archives.length, 1, "pnpm pack must produce one archive");
+    archive = join(consumerRoot, archives[0]);
+  }
   const linkedDependencies = Object.fromEntries(
     Object.keys({
       ...repositoryPackage.devDependencies,

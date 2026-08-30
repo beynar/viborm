@@ -257,3 +257,21 @@
   Sol-high agents in parallel for reproduction, owner analysis, and adversarial
   coverage. The root agent still inspects each artifact and reruns the decisive
   validation; delegation changes latency, not accountability.
+- In CI, `git diff --check` on a clean checkout proves nothing, and a full-estate
+  formatter can turn historical debt into an unrelated permanent red gate.
+  Resolve the event's exact base commit, fetch it, and run whitespace and
+  formatting checks over that committed delta.
+- Test a declared runtime floor at the exact minimum version against the packed
+  consumer artifact. The repository's development toolchain can require a
+  newer patch without raising the package runtime floor; do not conflate those
+  two contracts.
+- A publication workflow must resume from every partially durable external
+  state. Verify an existing registry version, draft release, published release,
+  tag, and asset by identity before deciding to create, complete, or refuse;
+  retrying a multi-call `create` command is not idempotency.
+- `npm pack` does not prove the manifest that `npm publish` accepts. Run npm's
+  package-metadata normalization against the packed package before publication
+  and refuse any semantic rewrite; bin paths are a concrete failure mode.
+- A documented release protection is not an implemented protection until the
+  live repository or registry setting is provisioned. Separate code readiness
+  from one-time control-plane setup and name both before the first release.

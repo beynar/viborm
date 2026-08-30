@@ -2,55 +2,49 @@
 
 ## Status
 
-Release-readiness record, 2026-08-27. Implementation is pending.
+Release-readiness record, updated 2026-08-30. The database namespace, exact
+decimal, authenticated migration V1, stable GeoPoint, approximate-number
+rename, and upstream defect-closure programs are merged into `main`.
 
-This record assumes that both of these programs have been implemented and
-validated completely:
-
-- [Definitive Exact Decimal Plan](./fixed-decimal-plan.md)
-- [Database Namespace Support Plan](./database-namespace-plan.md)
-
-The approximate-number public rename (`s.float()` to `s.number()`) is already
-merged into `main` at `138ab075`. It is not remaining V1 work.
+The remaining release program is operational: close the final public package
+contract, enforce provider evidence, install the publication pipeline, and
+complete the RC-to-stable rehearsal. [Releasing VibORM](../../RELEASING.md) is
+the maintainer-owned publication and recovery runbook.
 
 ## Verdict
 
-After exact decimals and namespaces land, VibORM has enough ORM capability for
-V1. No further large query-engine or relation program is required before the
-release.
+VibORM has enough ORM capability for V1. No further large query-engine,
+relation, scalar, or migration program is required before the release.
 
 The remaining work is a release-closure program:
 
-1. make migration estates verifiably intact and recoverable;
-2. cut the final public API;
-3. prove or accurately tier every advertised provider;
-4. install an enforceable build and publication pipeline; and
-5. make the public documentation executable, then complete one release-candidate
-   rehearsal.
+1. cut the final public package and API contract;
+2. prove or accurately tier every advertised provider;
+3. install an enforceable build and publication pipeline;
+4. make the public documentation executable; and
+5. complete one release-candidate rehearsal.
 
 Full-text search, recursive queries, complete RBAC, and the other deferred
 features in this record are not V1 blockers.
 
-## 1. Migration estate integrity
-
-This is the strongest remaining technical blocker.
+## 1. Migration estate integrity — implemented
 
 The canonical implementation program is
 [Migration V1: Authenticated State Graph and Safe Push](./migration-v1-plan.md),
 backed by the current Prisma/Drizzle/source research in
 [Migration V1 Systems Research](./migration-v1-systems-research.md).
 
-It replaces the mutable global journal and latest snapshot with an immutable
-target descriptor, content-addressed snapshots and SQL, atomically published
-state manifests, a database current-state marker, and an append-only execution
-ledger. It also closes SQL framing, branch convergence, live drift,
-non-transactional recovery, baseline, rollback, and stale push consent as one
-coherent program.
+The implemented system replaces the mutable global journal and latest snapshot
+with an immutable target descriptor, content-addressed snapshots and SQL,
+atomically published state manifests, a database current-state marker, and an
+append-only execution ledger. It also closes SQL framing, branch convergence,
+live drift, non-transactional recovery, baseline, rollback, and stale push
+consent as one coherent program.
 
-That dedicated plan supersedes the namespace plan's proposed version-3 journal
-shape, but retains its exact migration target, bound driver, pinned session,
-lock, containment, and reset decisions. The ORM is unreleased, so V1 ships no
-legacy journal reader or conversion layer.
+That dedicated implementation supersedes the namespace plan's proposed
+version-3 journal shape, but retains its exact migration target, bound driver,
+pinned session, lock, containment, and reset decisions. V1 is unreleased, so it
+ships no legacy journal reader or conversion layer.
 
 ## 2. Final public API cut
 
@@ -71,22 +65,13 @@ The exact retained exports must be intentional and pinned through the built
 package. Add a golden entry-point/member inventory and declaration comparison so
 an accidental export becomes a failing change rather than a new public promise.
 
-### Experimental point scalar
+### GeoPoint scalar — implemented
 
-`s.point()` is currently public, while the scalar documentation calls it
-experimental and the README says it is not exposed on `s`. The exported
-`ScalarTypeToTS` has no `point` result arm, and the full provider scalar contract
-does not cover it.
-
-The preferred V1 decision is to remove `point` from the stable public surface
-and deliver geospatial values later as one complete feature. Retaining it instead
-requires all of the following before the API freeze:
-
-- one exact public value and query contract;
-- correct public type mapping;
-- migration and result behavior for every admitted provider;
-- real provider round trips; and
-- complete public documentation.
+`s.point()` and `v.point()` now form one stable GeoPoint language with exact
+public values, query operators, provider tiers, migration behavior, result
+types, executed provider evidence, and public documentation. Conditional and
+preview providers remain named as such; their narrower evidence must not be
+promoted by the release pipeline.
 
 ## 3. Provider qualification and support tiers
 
@@ -137,13 +122,16 @@ Define and test the actual support contract:
 - Bun versions for both Bun providers; and
 - the Workers compatibility date/runtime used by D1.
 
-The current global Node `>=18` and TypeScript `5.0+` documentation must either be
-proven against the packed artifact or replaced with accurate per-surface floors.
+The package now promises Node `>=22` and TypeScript `5.8+`. Both floors are
+tested against the built declarations; TypeScript 5.0 was measured and refused
+the public client types with TS2589/TS2590, so the earlier claim was retired.
 
 ## 4. Release and publication pipeline
 
-V1 requires an automated release gate. The repository currently has no GitHub
-Actions workflow, and the complete provider suite is separate from `test:all`.
+V1 requires the automated release gate specified by
+[Releasing VibORM](../../RELEASING.md). Publication uses a manually authorized
+workflow on protected `main`, one exact tested tarball, npm OIDC trusted
+publishing, registry verification, and a final immutable GitHub release.
 
 Required jobs are:
 
@@ -155,22 +143,27 @@ Required jobs are:
 - Docker PostgreSQL, postgres.js, and MySQL2 providers;
 - Bun SQL and Bun SQLite runtime jobs;
 - the D1 Workers job;
-- credential-protected Neon and PlanetScale jobs; and
-- fixed-decimal and namespace performance/non-regression gates.
+- the deterministic Neon HTTP transport contract; and
+- Node 22/24 plus TypeScript 5.8/current package-floor probes.
 
-Protect `main` with the required release checks. Publication must run from a
-clean tagged commit, rebuild the package, inspect the tarball, install that
-tarball in fresh consumer projects, run the CLI, and only then publish it.
-`dist` from a developer worktree must never be accepted as publication input.
+Hosted Neon remains conditional and PlanetScale remains preview in the public
+support tables, so absent hosted credentials do not produce a counterfeit
+green release job. Their hosted legs become required when those tiers are
+promoted. Fixed-decimal, namespace, and GeoPoint performance evidence belongs
+to the V1 RC report; noisy cross-provider benchmarks are not rerun as a package
+publication authority.
 
-Before publication, also:
+Protect `main` with the required release checks. Publication must build from a
+clean protected commit, inspect the tarball, install that exact tarball in fresh
+consumer projects, run the CLI, and only then publish it. `dist` from a
+developer worktree must never be accepted as publication input. The workflow
+creates the version tag only after npm accepts and verifies the package.
 
-- choose the actual license, add its `LICENSE` file, and make `package.json`,
-  README, and the website agree;
-- add author/organization, repository, homepage, and issue metadata;
-- add release notes and a changelog;
-- configure npm trusted publishing/provenance; and
-- record dependency and package-size checks.
+MIT, the root `LICENSE`, repository/homepage/issue metadata, changelog,
+deterministic package allowlist, and size budgets are now checked release
+facts. npm trusted publishing, the protected GitHub environment, branch rules,
+and immutable releases remain one-time repository settings documented in the
+maintainer runbook.
 
 ## 5. Executable documentation and release candidate
 
@@ -230,18 +223,19 @@ sites are retained only where the engine lacks a required identity, atomicity
 proof, or non-contradictory assignment. Each must remain fail-closed and
 falsified, but their mere existence does not block V1.
 
-## Execution order
+## Remaining execution order
 
-1. Finish and validate namespaces.
-2. Implement and validate exact decimals.
-3. Implement the dedicated migration V1 program and close LibSQL constraint
-   changes.
-4. Make the final API/removal decisions, including `point`, and freeze exports.
-5. Establish provider tiers and complete the selected provider evidence.
-6. Install CI, packed publication, metadata, license, and provenance.
-7. Make documentation examples executable and publish the upgrade guide.
-8. Run `1.0.0-rc.1`, repair only release blockers, and repeat the complete gate.
-9. Publish `1.0.0`.
+1. Freeze the final export inventory and remove or explicitly retain every
+   transitional public spelling.
+2. Establish the release-blocking provider matrix and prove every required job
+   executes rather than silently skips.
+3. Install CI, exact-tarball publication, package metadata, the chosen license,
+   trusted publishing, and immutable releases.
+4. Make the remaining documentation examples executable and publish the
+   `0.1.0` upgrade guide.
+5. Run `1.0.0-rc.1`, repair only release blockers, and repeat the complete gate
+   with a later RC when needed.
+6. Publish `1.0.0` through the same gate.
 
 ## Completion criteria
 

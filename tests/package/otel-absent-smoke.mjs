@@ -18,17 +18,20 @@ const repositoryRoot = realpathSync(
 const fixtureRoot = mkdtempSync(join(tmpdir(), "viborm-otel-absent-"));
 
 try {
-  execFileSync("pnpm", ["pack", "--pack-destination", fixtureRoot], {
-    cwd: repositoryRoot,
-    stdio: "pipe",
-  });
-  const archives = readdirSync(fixtureRoot).filter((name) =>
-    name.endsWith(".tgz")
-  );
-  if (archives.length !== 1) {
-    throw new Error(`Expected one packed archive, found ${archives.length}`);
+  let archive = process.env.VIBORM_PACKAGE_TARBALL;
+  if (archive === undefined) {
+    execFileSync("pnpm", ["pack", "--pack-destination", fixtureRoot], {
+      cwd: repositoryRoot,
+      stdio: "pipe",
+    });
+    const archives = readdirSync(fixtureRoot).filter((name) =>
+      name.endsWith(".tgz")
+    );
+    if (archives.length !== 1) {
+      throw new Error(`Expected one packed archive, found ${archives.length}`);
+    }
+    archive = join(fixtureRoot, archives[0]);
   }
-  const archive = join(fixtureRoot, archives[0]);
 
   const consumerRoot = join(fixtureRoot, "consumer");
   mkdirSync(consumerRoot);

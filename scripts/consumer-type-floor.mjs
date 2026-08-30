@@ -24,12 +24,15 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = join(repoRoot, "dist");
-const tsc = join(repoRoot, "node_modules", ".bin", "tsc");
+const tsc =
+  process.env.VIBORM_TYPESCRIPT_BIN === undefined
+    ? join(repoRoot, "node_modules", ".bin", "tsc")
+    : resolve(repoRoot, process.env.VIBORM_TYPESCRIPT_BIN);
 
 const BASE_FLAGS = [
   "--noEmit",
