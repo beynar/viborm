@@ -1,6 +1,7 @@
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import { isSql, type Sql } from "@sql";
+import { dateTimeNativeTypeOf } from "../builders/datetime-field";
 import { decimalDescriptorOfScalar } from "../builders/decimal-field";
 import {
   decimalLiteral,
@@ -102,7 +103,10 @@ export function referenceScalarSql(
     getScalarTypeForScalar(scalar) === "datetime" &&
     typeof value === "string"
   ) {
-    return engine.adapter.literals.dateTime(value);
+    return engine.adapter.literals.dateTime(
+      value,
+      dateTimeNativeTypeOf(scalar)
+    );
   }
   const sqlValue = engine.adapter.literals.value(value);
   return cast ? engine.adapter.expressions.cast(sqlValue, cast) : sqlValue;

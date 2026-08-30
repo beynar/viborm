@@ -261,6 +261,7 @@ export class RelationUpsertPart implements Part {
     this.find = {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFindUnique(
         childScope,
         {
@@ -644,6 +645,7 @@ export class RelationUpsertPart implements Part {
     const step: WriteStep = {
       id: this.updateId,
       kind: "write",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildUpdate(childScope, {
         where: address,
         data: {

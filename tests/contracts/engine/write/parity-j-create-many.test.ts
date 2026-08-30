@@ -3,6 +3,11 @@ import type { AnyDriver } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import type { QueryExecutionContext, QueryResult } from "@drivers/types";
+import type {
+  PGlite,
+  Transaction as PGliteTransaction,
+} from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -224,6 +229,7 @@ function stepContract(driver: AnyDriver, current: OperationStep): unknown {
   return {
     id: current.id,
     kind: current.kind,
+    ...(current.model === undefined ? {} : { model: current.model }),
     ...prepared(driver, current),
     outputs: normalized(current.outputs),
     expects: current.expects ?? null,
@@ -257,6 +263,19 @@ const THREE_ROWS = [
   { id: 2, label: "two" },
   { id: 3, label: "three" },
 ];
+
+class FailingBulkTargetProbeDriver extends PGliteDriver {
+  protected override async execute<T>(
+    _client: PGlite | PGliteTransaction,
+    _sql: string,
+    _params: unknown[],
+    _context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    throw Object.assign(new Error("target probe provider failure"), {
+      code: "XX000",
+    });
+  }
+}
 
 describe("parity J — the scalar grouped multi-row INSERT", () => {
   test("PostgreSQL: three rows ride ONE statement, and nothing is planned", () => {
@@ -607,21 +626,27 @@ describe("parity J — the atomic-batch substrate plans nothing either", () => {
  * every target gets its own presence guard AHEAD of the write.
  */
 describe("parity J — the direct-polymorphic bulk connect route", () => {
+  const LABEL_VARIANT = "label";
+  const STICKER_VARIANT = "sticker";
+  const connectVariant = <Variant extends "label" | "sticker">(
+    type: Variant,
+    id: number
+  ) => ({ connect: { type, where: { id } } });
   const POLY_ROWS = [
     {
       id: 1,
       note: "a",
-      subject: { connect: { type: "label", where: { id: 10 } } },
+      subject: connectVariant(LABEL_VARIANT, 10),
     },
     {
       id: 2,
       note: "b",
-      subject: { connect: { type: "sticker", where: { id: 20 } } },
+      subject: connectVariant(STICKER_VARIANT, 20),
     },
     {
       id: 3,
       note: "c",
-      subject: { connect: { type: "label", where: { id: 11 } } },
+      subject: connectVariant(LABEL_VARIANT, 11),
     },
   ];
   /** What the two probes answered: every named target exists. */
@@ -662,6 +687,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "label.find",
           kind: "read",
+          model: "label",
           sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2) FOR UPDATE',
           params: [10, 11],
           outputs: { rows: { kind: "rows" } },
@@ -670,6 +696,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "sticker.find",
           kind: "read",
+          model: "sticker",
           sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_stickers" AS "t0" WHERE "t0"."id" = $1 FOR UPDATE',
           params: [20],
           outputs: { rows: { kind: "rows" } },
@@ -696,6 +723,29 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
     });
   });
 
+  test("a public returning call attributes target-probe provider failure to the target model", async () => {
+    const client = createClient({
+      schema: parityJSchema,
+      driver: new FailingBulkTargetProbeDriver(),
+    });
+
+    const error = await client.tag
+      .createMany({
+        data: POLY_ROWS,
+        select: { id: true },
+      })
+      .catch((caught) => caught);
+
+    expect(error).toMatchObject({
+      name: "QueryError",
+      meta: {
+        driver: "pglite",
+        model: "label",
+        operation: "createMany",
+      },
+    });
+  });
+
   test("forced batch: no lock, so each target gets its own guard before the write", () => {
     const driver = new BatchOnlyPGliteDriver();
     const operation = route(driver, parityJSchema.tag, { data: POLY_ROWS });
@@ -705,6 +755,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "label.find",
           kind: "read",
+          model: "label",
           sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_labels" AS "t0" WHERE ("t0"."id" = $1 OR "t0"."id" = $2)',
           params: [10, 11],
           outputs: { rows: { kind: "rows" } },
@@ -713,6 +764,7 @@ describe("parity J — the direct-polymorphic bulk connect route", () => {
         {
           id: "sticker.find",
           kind: "read",
+          model: "sticker",
           sql: 'SELECT "t0"."id" AS "id" FROM "public"."pj_stickers" AS "t0" WHERE "t0"."id" = $1',
           params: [20],
           outputs: { rows: { kind: "rows" } },

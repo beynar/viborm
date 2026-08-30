@@ -344,6 +344,7 @@ export class NestedSelectedRecordSeries implements RecordSeriesOperation {
     const locate: ReadStep = {
       id: compiler.targetReadId,
       kind: "read",
+      model: getStepModelName(this.input.targetScope.model, "record"),
       statement: buildFindUnique(
         this.input.targetScope,
         {

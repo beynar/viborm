@@ -1,4 +1,4 @@
-import type { Sql } from "@sql";
+import { Sql } from "@sql";
 
 const preparedStatements = new WeakMap<object, Sql>();
 
@@ -14,6 +14,22 @@ export function transferPreparedStatement<Output extends object>(
 ): Output {
   const statement = preparedStatements.get(source);
   if (statement !== undefined) preparedStatements.set(output, statement);
+  return output;
+}
+
+/** Preserve provenance with the exact detached values a batch will execute. */
+export function snapshotPreparedStatement<Output extends object>(
+  source: object,
+  output: Output,
+  values: readonly unknown[]
+): Output {
+  const statement = preparedStatements.get(source);
+  if (statement !== undefined) {
+    preparedStatements.set(
+      output,
+      new Sql([...statement.strings], [...values])
+    );
+  }
   return output;
 }
 

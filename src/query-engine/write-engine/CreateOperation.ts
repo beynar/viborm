@@ -681,6 +681,7 @@ export class CreateOperation {
         ? {
             id: this.root.writeStepId,
             kind: "write",
+            model: getStepModelName(model, "record"),
             statement: foldsProjectionIntoCte
               ? buildMutationProjectionFold(parent, {
                   mutation: buildInsertStatement(parent, this.root.scalarData),
@@ -950,6 +951,12 @@ export class CreateOperation {
     return {
       id: this.root.writeStepId,
       kind: "write",
+      // The merge costs per-arm attribution: several models' rows are written by
+      // ONE statement, and only the provider's own table text could tell the arms
+      // apart afterwards — an unsound basis for choosing a model once physical
+      // names and namespaces are in play. A merged statement therefore keeps the
+      // root's attribution, and the provider's table/constraint stay exact.
+      model: getStepModelName(this.model, "record"),
       statement: buildMutationProjectionFold(parent, {
         mutation: buildInsertStatement(
           parent,
@@ -1292,6 +1299,7 @@ export class CreateOperation {
       this.planningSteps.push({
         id: probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement: buildFindUnique(childScope, {
           where: spec.where,
           select,
@@ -1366,6 +1374,7 @@ export class CreateOperation {
     this.planningSteps.push({
       id: probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFindUnique(childScope, {
         where,
         select,
@@ -2002,6 +2011,7 @@ export class CreateOperation {
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFindUnique(childScope, {
         where,
         select: pkSelect,
@@ -2139,6 +2149,7 @@ export class CreateOperation {
     this.planningSteps.push({
       id: probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFindUnique(childScope, {
         where,
         select: pkSelect,
@@ -2584,6 +2595,7 @@ export class CreateOperation {
           (statement): WriteStep => ({
             id: this.scope.allocate(`${base}.createMany`),
             kind: "write",
+            model: getStepModelName(childScope.model, "record"),
             statement: statement.sql,
             outputs: {},
             ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
@@ -3307,6 +3319,7 @@ export class CreateOperation {
       return {
         id: writeStepId,
         kind: "write",
+        model: getStepModelName(plan.model, "record"),
         statement: buildInsert(
           childScope,
           getTableName(childScope.model),
@@ -3374,6 +3387,7 @@ export class CreateOperation {
     return {
       id: writeStepId,
       kind: "write",
+      model: getStepModelName(plan.model, "record"),
       statement,
       outputs,
       ...((capturedIdentity !== undefined ||
@@ -3427,6 +3441,7 @@ export class CreateOperation {
     return {
       id: read.stepId,
       kind: "read",
+      model: getStepModelName(plan.model, "record"),
       statement: buildFindUnique(createQueryScope(this.engine, plan.model), {
         where: this.createdRowWhere(plan),
         select,
@@ -3772,6 +3787,7 @@ export class CreateOperation {
     return {
       id: this.terminalId,
       kind: "read",
+      model: getStepModelName(this.model, "record"),
       statement: buildFindUnique(parent, {
         where: this.createdRowWhere(plan),
         ...(this.parsedSelect ? { select: this.parsedSelect } : {}),
@@ -4140,6 +4156,7 @@ class ChildConnectPart implements Part {
     this.probe = {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(config.childScope.model, "record"),
       statement:
         config.wheres.length === 1
           ? buildFindUnique(config.childScope, {
@@ -4210,6 +4227,7 @@ class ChildConnectPart implements Part {
     steps.push({
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement:
         this.config.wheres.length === 1
           ? buildUpdate(this.config.childScope, {

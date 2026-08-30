@@ -12,6 +12,7 @@ import {
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import {
   bindExecutionTransactionPhases,
+  deriveStatementExecutionContext,
   getExecutionExtensionChain,
   getExecutionInstrumentation,
 } from "@drivers/execution-context";
@@ -1516,8 +1517,16 @@ export class OperationExecutor {
         "query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."
       );
     }
+    // The same per-statement derivation the executed path uses, so a provider
+    // failure names the same model whether the operation runs standalone or
+    // inside `$transaction([...])`. Guards and postconditions are engine-owned
+    // and keep the operation's attribution on both routes.
     const queries: PreparedQuery[] = plan.entries.map((entry) =>
-      prepareBatchQuery(entry.statement, driver, context)
+      prepareBatchQuery(
+        entry.statement,
+        driver,
+        statementExecutionContext(entry.step, context)
+      )
     );
     const guards: PreparedBatchGuard[] = [];
     plan.entries.forEach((entry, queryIndex) => {
@@ -1876,7 +1885,11 @@ export class OperationExecutor {
     context: QueryExecutionContext
   ): Promise<void> {
     const queries = level.map((step) =>
-      driver._prepare(materializeLinearSql(step.statement, values), context)
+      prepareBatchQuery(
+        materializeLinearSql(step.statement, values),
+        driver,
+        statementExecutionContext(step, context)
+      )
     );
     const results = await driver._executeBatch(queries, undefined, context);
     assertNormalizedBatchResults(results, level.length, {
@@ -1959,11 +1972,12 @@ export class OperationExecutor {
     driver: AnyDriver,
     context: QueryExecutionContext
   ): Promise<QueryResult<unknown>> {
+    const stepContext = statementExecutionContext(step, context);
     try {
       if (step.kind === "write" && step.onUniqueConflict === "skip") {
-        return await executeSkippableWrite(driver, statement, context);
+        return await executeSkippableWrite(driver, statement, stepContext);
       }
-      return await driver._execute(statement, context);
+      return await driver._execute(statement, stepContext);
     } catch (error) {
       if (step.kind === "write" && step.racePin) {
         markRaceIfPinned(error, step.racePin);
@@ -2088,7 +2102,11 @@ export class OperationExecutor {
   ): Promise<AtomicExecutionResult> {
     const { entries } = plan;
     const queries = entries.map((entry) =>
-      driver._prepare(entry.statement, context)
+      prepareBatchQuery(
+        entry.statement,
+        driver,
+        statementExecutionContext(entry.step, context)
+      )
     );
 
     let results: QueryResult<unknown>[];
@@ -2763,6 +2781,22 @@ function stepUsesInsertIdScratch(step: StatementStep | undefined): boolean {
   return Object.values(step.outputs).some(
     (source) => source.kind === "insertId"
   );
+}
+
+/**
+ * The attribution one statement executes under. A step compiled for a nested
+ * record names that record's model, and the driver reads a statement's own
+ * context when it normalizes a provider failure — so a child's unique violation
+ * reports the child. A step that names no model, or the operation's own model,
+ * runs under the operation context unchanged.
+ */
+function statementExecutionContext(
+  step: { readonly model?: string } | undefined,
+  context: QueryExecutionContext
+): QueryExecutionContext {
+  const model = step?.model;
+  if (model === undefined || model === context.model) return context;
+  return deriveStatementExecutionContext(context, model);
 }
 
 function prepareBatchQuery(

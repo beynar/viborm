@@ -1,3 +1,4 @@
+import type { NativeType } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import type {
@@ -137,8 +138,19 @@ export interface DatabaseAdapter {
     list: (values: Sql[]) => Sql;
     /** JSON value (PG: native, MySQL/SQLite: JSON.stringify) */
     json: (v: unknown) => Sql;
-    /** Datetime value from a validated ISO-8601 string (PG/SQLite: as-is, MySQL: naive UTC 'YYYY-MM-DD HH:MM:SS.mmm') */
-    dateTime: (iso: string) => Sql;
+    /**
+     * Datetime operand from a validated ISO-8601 string, in the PHYSICAL form
+     * the destination column holds (PG: as-is, MySQL: naive UTC
+     * 'YYYY-MM-DD HH:MM:SS.mmm').
+     *
+     * `nativeType` is the field's own declaration, threaded because SQLite has
+     * no temporal type: a `s.dateTime(SQLITE.DATETIME.INTEGER)` column holds
+     * epoch milliseconds and a `REAL` one holds a Julian day, so an ISO string
+     * bound into either compares against nothing and stores text the typed read
+     * then refuses. The dialects that DO have a temporal type ignore it — their
+     * own native types all name a column that accepts this same spelling.
+     */
+    dateTime: (iso: string, nativeType?: NativeType) => Sql;
     /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.
@@ -416,6 +428,20 @@ export interface DatabaseAdapter {
      * JSON text param (SQLite). Used for list writes and equals/not filters.
      */
     value: (values: unknown[]) => Sql;
+    /**
+     * Parameterized value for a complete ENUM list.
+     *
+     * The one list whose element type no driver can serialize: a PostgreSQL
+     * managed enum is created by the estate, so its array OID is in no driver's
+     * serializer table and the native array parameter above reaches the server
+     * as `ADMIN,USER` (22P02). PostgreSQL binds the array literal as ONE
+     * untyped parameter and lets the column or operand it meets resolve the
+     * type, so the enum's NAME stays with the migration driver that generated
+     * it and never appears in runtime SQL. The JSON-backed dialects answer with
+     * the same container every other list uses — there, an enum list has no
+     * element type to spell at all.
+     */
+    enumValue: (values: unknown[]) => Sql;
     /** Check if array contains value */
     has: (column: Sql, value: Sql) => Sql;
     /** Check if array contains all values */
@@ -517,13 +543,13 @@ export interface DatabaseAdapter {
      */
     divide: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
     /**
-     * Array push: append each element of `values` to the list column
-     * (PG: array_cat, MySQL: JSON_MERGE_PRESERVE, SQLite: JSON text concat).
-     * Takes raw JS values so each dialect can serialize the whole list.
+     * Array push: append the complete provider-encoded `values` container.
+     * The query engine selects the scalar's list vocabulary once; the adapter
+     * owns only how its dialect concatenates two containers.
      */
-    push: (column: Sql, values: unknown[]) => Sql;
-    /** Array unshift: prepend each element of `values` to the list column */
-    unshift: (column: Sql, values: unknown[]) => Sql;
+    push: (column: Sql, values: Sql) => Sql;
+    /** Array unshift: prepend the complete provider-encoded container. */
+    unshift: (column: Sql, values: Sql) => Sql;
   };
 
   /**

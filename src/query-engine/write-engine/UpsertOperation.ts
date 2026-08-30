@@ -896,12 +896,27 @@ export class UpsertOperation {
     };
   }
 
-  /** All conditionals match (or none present) → UPDATE the located row. */
+  /**
+   * All conditionals match (or none present) → the found arm.
+   *
+   * The first branch is every arm for which this shell spells no inline scalar
+   * `UPDATE`: a relation-bearing arm, whose {@link RecordUpdateCompiler} owns the
+   * SET, and an arm that assigns nothing. The two meet because
+   * `buildRecordUpdateCompiler` returns no compiler for an empty record, so a
+   * relation payload whose program is empty arrives with the same `updateData` an
+   * `update: {}` does. The scalar-update parse drops keys whose value is
+   * `undefined`, so `{ name: undefined }` is that same empty payload.
+   *
+   * An assignment-free found arm is a READ: the located row is returned
+   * unchanged, exactly as `update({ data: {} })` answers, while the missing arm
+   * still creates (ATOM §20). Nothing assigned means no primary key moves, so
+   * {@link UpsertOperation.updatedTerminalWhere} answers with the located key.
+   */
   private compileUpdateArm(
     known: Readonly<Record<string, unknown>>,
     locatedRow: Record<string, unknown>
   ): ArmResult {
-    if (Object.keys(this.locate.outputs).length > 1) {
+    if (this.updateCompiler || Object.keys(this.updateData).length === 0) {
       const parent = createQueryScope(this.engine, this.model);
       const guards = this.conditionalMatchGuards(locatedRow);
       if (this.mode === "batch" && this.conditionals.length === 0) {
@@ -1482,8 +1497,11 @@ export class UpsertOperation {
  * the fold states what it can spell instead of guessing; the payload keeps the
  * probe-first path, which is correct on every dialect.
  *
- * An EMPTY payload is also excluded: `buildSet` throws `No fields to update` on
- * one, and the probe path reaches that throw through its own arm.
+ * An EMPTY payload is also excluded, for the same reason stated differently:
+ * `DO UPDATE` has no assignment to spell. Its meaning stays two-armed — create
+ * when missing, answer the found row unchanged — and the probe path's
+ * assignment-free found arm is what expresses that half (see
+ * {@link UpsertOperation.compileUpdateArm}).
  */
 function isPlainSetUpdate(data: Record<string, unknown>): boolean {
   const assignments = Object.values(data).filter(

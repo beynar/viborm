@@ -192,6 +192,7 @@ function normalizeTransactionBatchPhaseError(
 ) {
   return normalizeDriverError(error, {
     driverName: driver.driverName,
+    dialect: driver.dialect,
     model: executionContext.model,
     operation: executionContext.operation,
     correlationId: executionContext.correlationId,

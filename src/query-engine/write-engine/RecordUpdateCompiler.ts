@@ -1639,6 +1639,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       const probe: ReadStep = {
         id: probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement: buildFindUnique(childScope, {
           where: spec.where,
           select,
@@ -1763,6 +1764,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         probe: {
           id: probeId,
           kind: "read",
+          model: getStepModelName(childScope.model, "record"),
           statement: buildFindUnique(childScope, {
             where,
             select,
@@ -1933,6 +1935,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     return {
       id,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFind(
         childScope,
         {
@@ -3400,6 +3403,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement: occupiedFind(
           planningMembershipCondition(
             this.engine,
@@ -3806,6 +3810,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: this.parentHeldProbeStatement(
         childScope,
         correlation,
@@ -3967,6 +3972,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement: this.parentHeldProbeStatement(
           childScope,
           correlation,
@@ -4199,6 +4205,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement: buildFindUnique(childScope, {
           where,
           select: pkSelect,
@@ -4516,6 +4523,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
           writes.push({
             id: target.deleteWriteId,
             kind: "write",
+            model: getStepModelName(target.childScope.model, "record"),
             statement: buildDeleteMany(target.childScope, {
               where: {
                 [target.edge.member.referencedField]: { equals: identity },
@@ -4850,6 +4858,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       writes.push({
         id: target.nullWriteId,
         kind: "write",
+        model: getStepModelName(this.model, "record"),
         statement: buildUpdate(createQueryScope(this.engine, this.model), {
           where: this.parentPrimaryKeyWhere(locatedRow),
           // The clearable subset only: a parent-held delete empties the slot
@@ -4869,6 +4878,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     writes.push({
       id: target.deleteWriteId,
       kind: "write",
+      model: getStepModelName(target.childScope.model, "record"),
       statement: buildDeleteMany(target.childScope, {
         where: this.parentHeldCorrelationWhere(
           target.correlation,
@@ -4921,6 +4931,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
         writes.push({
           id: target.parentSetId,
           kind: "write",
+          model: getStepModelName(this.model, "record"),
           statement: buildUpdate(createQueryScope(this.engine, this.model), {
             where: this.parentPrimaryKeyWhere(locatedRow),
             data: missingAssignment.data,
@@ -5181,6 +5192,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFindUnique(childScope, {
         where: connect,
         select: Object.fromEntries(
@@ -5446,6 +5458,7 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
     return {
       id: this.writeId,
       kind: "write",
+      model: parentName,
       statement: buildUpdate(parent, {
         // Address the row by the PK captured at the locate — V1's `WHERE id`
         // mechanic (locate by an alternate unique, mutate by the immutable

@@ -1,3 +1,5 @@
+import type { NativeType } from "@schema/scalars/native-types";
+import type { DateTimePhysicalForm } from "@validation/primitives/datetime-physical-codec";
 import type { DecimalPhysicalRepresentation } from "@validation/primitives/decimal-codec";
 
 export interface AdapterResultParser {
@@ -36,6 +38,47 @@ export interface AdapterResultParser {
    * other.
    */
   decimalListRepresentation?: DecimalPhysicalRepresentation;
+
+  /**
+   * How this dialect physically spells a datetime column that DECLARES the given
+   * native type. Unset means timestamp text for every field, which is what every
+   * dialect with a temporal column type stores.
+   *
+   * A function rather than a value because this promise is per FIELD, not per
+   * dialect: SQLite has no temporal type at all, so `s.dateTime()` accepts a
+   * declaration choosing between TEXT, an INTEGER count of epoch milliseconds
+   * and a REAL Julian day, and the DDL already builds the column that way. The
+   * adapter is asked because the declaration is dialect vocabulary — a
+   * PostgreSQL native type reaching a SQLite adapter describes no column here
+   * and answers `"text"` like an undeclared field.
+   *
+   * It is DECLARED and never inferred for the same reason
+   * {@link AdapterResultParser.decimalRepresentation} is: the number
+   * `2460324.9375` is one instant as a Julian day and a completely different one
+   * as milliseconds, so a value cannot be read without knowing which promise
+   * produced it.
+   */
+  dateTimeRepresentation?: (
+    nativeType: NativeType | undefined
+  ) => DateTimePhysicalForm;
+
+  /**
+   * How this dialect physically spells an enum LIST on the way back.
+   *
+   * `"arrayText"` means the column is a native enum array whose element type no
+   * driver's result-type table knows, so the provider answers the array's own
+   * text (`{ADMIN,USER}`) — PostgreSQL. Unset means the column is the dialect's
+   * JSON list container and the members arrive through the JSON reading like
+   * every other list.
+   *
+   * It is DECLARED and never inferred for the same reason
+   * {@link AdapterResultParser.decimalRepresentation} is: the two spellings
+   * collide on the empty container — `{}` is an empty PostgreSQL array AND a
+   * valid JSON object — so a value cannot be read without knowing which promise
+   * produced it, and reading array text on a JSON dialect would accept
+   * malformed rows every other list type refuses.
+   */
+  enumListRepresentation?: "arrayText";
 
   /**
    * When `true`, {@link AdapterResultParser.parseField} performs NO

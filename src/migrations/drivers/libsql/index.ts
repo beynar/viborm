@@ -22,6 +22,7 @@ import type {
   DropForeignKeyOperation,
 } from "../base";
 import { SQLite3MigrationDriver } from "../sqlite";
+import { sqliteDateTimeTargetRequiresRecreation } from "../sqlite/datetime";
 import { sqliteDecimalCheck } from "../sqlite/decimal";
 import {
   SQLITE_GEO_POINT_TYPE,
@@ -73,7 +74,10 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     // is the only route that carries the values across; §9.6 states it as a
     // falsifier ("LibSQL cannot take a native ALTER route that skips
     // conversion").
-    if (decimalConversionRequired(op.from, op.to)) {
+    if (
+      decimalConversionRequired(op.from, op.to) ||
+      sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
+    ) {
       return this.compileAlterColumnByRecreation(op, context).join(";\n");
     }
 
@@ -92,7 +96,10 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
-    if (decimalConversionRequired(op.from, op.to)) {
+    if (
+      decimalConversionRequired(op.from, op.to) ||
+      sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
+    ) {
       return this.compileAlterColumnByRecreation(op, context);
     }
     return super.compileAlterColumn(op, context);

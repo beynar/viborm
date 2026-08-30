@@ -1,3 +1,4 @@
+import vm from "node:vm";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { MemoryCache } from "@cache/drivers/memory";
@@ -397,15 +398,463 @@ describe("public query-interceptor integration", () => {
     expect([...directBytes]).toEqual([4, 5, 6]);
   });
 
-  test("discloses accessors, callables, and hostile prototypes opaquely", async () => {
-    let getterReads = 0;
-    const accessorParameter = Object.defineProperty({}, "secret", {
-      enumerable: true,
-      get: () => {
-        getterReads += 1;
-        return "caller-secret";
+  test("owns a prebuilt Sql projection before async query inspection", async () => {
+    let markInspectionStarted = (): void => undefined;
+    const inspectionStarted = new Promise<void>((resolve) => {
+      markInspectionStarted = resolve;
+    });
+    let releaseInspection = (): void => undefined;
+    const inspectionReleased = new Promise<void>((resolve) => {
+      releaseInspection = resolve;
+    });
+    const fragment = sql`SELECT ${"original"}`;
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-fragment-operation-authority",
+      async query({ kind, input, proceed }) {
+        if (kind !== "queryRaw") return proceed();
+        const inspectionQuery = Reflect.get(input, "query");
+        if (!(inspectionQuery instanceof Sql)) throw new Error("Expected Sql");
+        expect(inspectionQuery.toStatement("?")).toBe("SELECT ?");
+        expect(inspectionQuery.values).toEqual(["original"]);
+        markInspectionStarted();
+        await inspectionReleased;
+        return proceed();
       },
     });
+
+    const execution = client.$queryRaw(fragment).then();
+    await inspectionStarted;
+    fragment.strings[0] = "SELECT 'mutated', ";
+    fragment.values[0] = "replacement";
+    releaseInspection();
+    await execution;
+
+    expect(driver.submissions).toEqual([
+      { sql: "SELECT ?", params: ["original"] },
+    ]);
+  });
+
+  test("refuses a prebuilt Sql string accessor without invoking it", async () => {
+    let getterReads = 0;
+    const fragment = sql`SELECT ${"original"}`;
+    Object.defineProperty(fragment.strings, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return "SELECT ";
+      },
+    });
+    const { client, driver } = integrationClient();
+
+    await expect((async () => client.$queryRaw(fragment))()).rejects.toThrow(
+      "Sql fragment strings must be plain string values"
+    );
+
+    expect(getterReads).toBe(0);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("refuses a Date invalidated after raw preparation and before proceed", async () => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-date-toctou",
+      async query({ kind, proceed }) {
+        if (kind === "queryRaw") parameter.setTime(Number.NaN);
+        return proceed();
+      },
+    });
+
+    await expect(client.$queryRaw`SELECT ${parameter}`).rejects.toBeInstanceOf(
+      QueryError
+    );
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("isolates direct provider input from a Date invalidated after execution starts", async () => {
+    const instant = "2026-08-25T13:00:00.000Z";
+    const parameter = new Date(instant);
+    const { client, driver } = integrationClient();
+
+    const execution = client.$queryRaw`SELECT ${parameter}`.then();
+    queueMicrotask(() => parameter.setTime(Number.NaN));
+    await execution;
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(submitted).toBeInstanceOf(Date);
+    expect(Date.prototype.toISOString.call(submitted)).toBe(instant);
+    expect(submitted).not.toBe(parameter);
+  });
+
+  test("snapshots nested Date graphs without losing aliases or cycles", async () => {
+    const instant = "2026-08-25T13:00:00.000Z";
+    const date = new Date(instant);
+    const unchanged = { label: "provider-owned" };
+    const parameter: Record<string, unknown> = {
+      alias: date,
+      date,
+      nested: [date],
+      unchanged,
+    };
+    parameter.self = parameter;
+    const { client, driver } = integrationClient();
+
+    const execution = client.$queryRaw(sql`SELECT ${parameter}`).then();
+    queueMicrotask(() => date.setTime(Number.NaN));
+    await execution;
+
+    const submitted = driver.submissions[0]?.params[0];
+    if (submitted === null || typeof submitted !== "object") {
+      throw new Error("Expected a nested raw parameter graph");
+    }
+    const submittedDate = Reflect.get(submitted, "date");
+    const submittedNested = Reflect.get(submitted, "nested");
+    expect(submitted).not.toBe(parameter);
+    expect(Reflect.get(submitted, "self")).toBe(submitted);
+    expect(submittedDate).toBeInstanceOf(Date);
+    expect(Date.prototype.toISOString.call(submittedDate)).toBe(instant);
+    expect(submittedDate).not.toBe(date);
+    expect(Reflect.get(submitted, "alias")).toBe(submittedDate);
+    expect(Array.isArray(submittedNested)).toBe(true);
+    if (!Array.isArray(submittedNested)) {
+      throw new Error("Expected a nested raw parameter array");
+    }
+    expect(submittedNested[0]).toBe(submittedDate);
+    expect(Reflect.get(submitted, "unchanged")).toEqual(unchanged);
+    expect(Reflect.get(submitted, "unchanged")).not.toBe(unchanged);
+  });
+
+  test("submits one stable descriptor view of a raw Proxy", async () => {
+    const source = { at: new Date(Number.NaN) };
+    let descriptorReads = 0;
+    const parameter = new Proxy(source, {
+      getOwnPropertyDescriptor(target, key) {
+        descriptorReads += 1;
+        if (key === "at") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "captured-view",
+            writable: true,
+          };
+        }
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    const { client, driver } = integrationClient();
+
+    await client.$queryRaw(sql`SELECT ${parameter}`);
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(descriptorReads).toBeGreaterThan(0);
+    expect(submitted).not.toBe(parameter);
+    expect(submitted).toEqual({ at: "captured-view" });
+    expect(Number.isNaN(Date.prototype.getTime.call(source.at))).toBe(true);
+  });
+
+  test("preserves a root array cycle until the final parameter snapshot", async () => {
+    const parameter: unknown[] = [];
+    parameter[0] = parameter;
+    const { client, driver } = integrationClient();
+
+    await client.$queryRaw`SELECT ${parameter}`;
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(Array.isArray(submitted)).toBe(true);
+    if (!Array.isArray(submitted)) throw new Error("Expected an array");
+    expect(submitted).not.toBe(parameter);
+    expect(submitted[0]).toBe(submitted);
+  });
+
+  test("does not read a root array accessor during operation construction", async () => {
+    let getterReads = 0;
+    const parameter = new Array<unknown>(1);
+    Object.defineProperty(parameter, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return "caller-value";
+      },
+    });
+    const { client, driver } = integrationClient();
+
+    const operation = client.$queryRaw`SELECT ${parameter}`;
+    expect(getterReads).toBe(0);
+    await expect((async () => operation)()).rejects.toBeInstanceOf(QueryError);
+
+    expect(getterReads).toBe(0);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("refuses inherited toJSON without changing its receiver", async () => {
+    const parameter: unknown = vm.runInNewContext(`
+      const parameter = [new Date("2026-08-25T13:00:00.000Z")];
+      Array.prototype.toJSON = function () {
+        return this === parameter ? "original-receiver" : "wrong-receiver";
+      };
+      parameter;
+    `);
+    if (!Array.isArray(parameter)) throw new Error("Expected a foreign array");
+    const { client, driver } = integrationClient();
+
+    await expect(
+      (async () => client.$queryRaw(sql`SELECT ${parameter}`))()
+    ).rejects.toBeInstanceOf(QueryError);
+
+    expect(driver.submissions).toEqual([]);
+    expect(Reflect.apply(Reflect.get(parameter, "toJSON"), parameter, [])).toBe(
+      "original-receiver"
+    );
+  });
+
+  test("refuses inherited array index behavior without invoking it", async () => {
+    const fixture: unknown = vm.runInNewContext(`
+      let reads = 0;
+      Object.defineProperty(Array.prototype, "0", {
+        configurable: true,
+        get() {
+          reads += 1;
+          return new Date(Number.NaN);
+        },
+      });
+      ({ parameter: new Array(1), reads: () => reads });
+    `);
+    if (fixture === null || typeof fixture !== "object") {
+      throw new Error("Expected a foreign fixture");
+    }
+    const parameter = Reflect.get(fixture, "parameter");
+    const readCount = Reflect.get(fixture, "reads");
+    if (!Array.isArray(parameter) || typeof readCount !== "function") {
+      throw new Error("Expected a foreign sparse array fixture");
+    }
+    const { client, driver } = integrationClient();
+
+    await expect(
+      (async () => client.$queryRaw(sql`SELECT ${parameter}`))()
+    ).rejects.toBeInstanceOf(QueryError);
+
+    expect(Reflect.apply(readCount, undefined, [])).toBe(0);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("does not admit a structurally forged Object prototype", async () => {
+    const forgedPrototype = Object.create(null);
+    Object.defineProperty(forgedPrototype, "constructor", {
+      configurable: true,
+      value: Object,
+      writable: true,
+    });
+    const parameter = Object.create(forgedPrototype);
+    Object.defineProperty(parameter, "at", {
+      configurable: true,
+      enumerable: true,
+      value: new Date("2026-08-25T13:00:00.000Z"),
+      writable: true,
+    });
+    const { client, driver } = integrationClient();
+
+    await client.$queryRaw(sql`SELECT ${parameter}`);
+
+    expect(driver.submissions[0]?.params[0]).toBe(parameter);
+  });
+
+  test("keeps non-raw provider parameters on the shallow identity path", async () => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const { driver } = integrationClient();
+
+    await driver._execute(sql`SELECT ${parameter}`, {
+      model: "record",
+      operation: "findMany",
+    });
+
+    expect(driver.submissions[0]?.params[0]).toBe(parameter);
+  });
+
+  test.each([
+    { label: "without", observed: false },
+    { label: "with", observed: true },
+  ])("refuses a Date injected by a direct statement transform $label observers", async ({
+    observed,
+  }) => {
+    const { client: base, driver } = integrationClient();
+    const transform = {
+      name: `raw-invalid-date-statement-${observed}`,
+      statement() {
+        return sql`SELECT ${new Date(Number.NaN)}`;
+      },
+    };
+    const client = observed
+      ? base.$extends({
+          ...transform,
+          observe(_unit, proceed) {
+            return proceed();
+          },
+        })
+      : base.$extends(transform);
+
+    await expect(
+      (async () => client.$queryRaw`SELECT ${1}`)()
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("refuses custom array behavior introduced by a statement transform", async () => {
+    let getterReads = 0;
+    const parameter = new Array<unknown>(1);
+    Object.defineProperty(parameter, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return new Date(Number.NaN);
+      },
+    });
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-custom-array-statement",
+      statement() {
+        return sql`SELECT ${parameter}`;
+      },
+    });
+
+    await expect(
+      (async () => client.$queryRaw`SELECT ${1}`)()
+    ).rejects.toBeInstanceOf(QueryError);
+
+    expect(getterReads).toBe(0);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("detaches a valid Date returned by a direct statement transform", async () => {
+    const instant = "2026-08-25T13:00:00.000Z";
+    const replacement = new Date(instant);
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-valid-date-statement",
+      statement() {
+        queueMicrotask(() => replacement.setTime(Number.NaN));
+        return sql`SELECT ${replacement}`;
+      },
+    });
+
+    await client.$queryRaw`SELECT ${1}`;
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(submitted).toBeInstanceOf(Date);
+    expect(Date.prototype.toISOString.call(submitted)).toBe(instant);
+    expect(submitted).not.toBe(replacement);
+  });
+
+  test("isolates provider input from a Date invalidated after proceed starts", async () => {
+    const instant = "2026-08-25T13:00:00.000Z";
+    const parameter = new Date(instant);
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-date-after-proceed",
+      async query({ kind, proceed }) {
+        const provider = proceed();
+        if (kind === "queryRaw") parameter.setTime(Number.NaN);
+        return provider;
+      },
+    });
+
+    await client.$queryRaw`SELECT ${parameter}`;
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(submitted).toBeInstanceOf(Date);
+    expect(Date.prototype.toISOString.call(submitted)).toBe(instant);
+    expect(submitted).not.toBe(parameter);
+  });
+
+  test("keeps valid Dates in all four intercepted raw call shapes", async () => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-date-controls",
+      async query({ proceed }) {
+        return proceed();
+      },
+    });
+
+    await client.$queryRaw`SELECT ${parameter}`;
+    await client.$executeRaw`UPDATE record SET name = ${parameter}`;
+    await client.$queryRawUnsafe("SELECT ?", parameter);
+    await client.$executeRawUnsafe("UPDATE record SET name = ?", parameter);
+
+    expect(driver.submissions.map(({ params }) => params)).toEqual([
+      [parameter],
+      [parameter],
+      [parameter],
+      [parameter],
+    ]);
+  });
+
+  test("reads array parameters by index when a caller iterator hides an invalid Date", async () => {
+    const parameter = [1, new Date(Number.NaN)];
+    Object.defineProperty(parameter, Symbol.iterator, {
+      value: () => [1][Symbol.iterator](),
+    });
+    const { client, driver } = integrationClient();
+
+    await expect(
+      (async () => client.$queryRawUnsafe("SELECT ?", parameter))()
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("refuses an invalid Date inside a cyclic JSON parameter graph", async () => {
+    const parameter: Record<string, unknown> = {
+      nested: [[{ at: new Date(Number.NaN) }]],
+    };
+    parameter.self = parameter;
+    const { client, driver } = integrationClient();
+
+    await expect(
+      (async () => client.$queryRaw(sql`SELECT ${parameter}`))()
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.submissions).toEqual([]);
+  });
+
+  test("reads sparse array parameters by index without calling a poisoned map", async () => {
+    const parameter = new Array<number>(3);
+    parameter[0] = 1;
+    parameter[2] = 2;
+    Object.defineProperty(parameter, "map", {
+      value: () => [999],
+    });
+    const { client: base, driver } = integrationClient();
+    const client = base.$extends({
+      name: "raw-array-indexed-snapshot",
+      async query({ proceed }) {
+        return proceed();
+      },
+    });
+
+    await client.$queryRaw(sql`SELECT ${parameter}`);
+
+    const submitted = driver.submissions[0]?.params[0];
+    expect(Array.isArray(submitted)).toBe(true);
+    if (!Array.isArray(submitted)) throw new Error("Expected an array");
+    expect(submitted).toHaveLength(3);
+    expect(submitted[0]).toBe(1);
+    expect(1 in submitted).toBe(false);
+    expect(submitted[2]).toBe(2);
+  });
+
+  test("discloses accessors, callables, and hostile prototypes opaquely", async () => {
+    let getterReads = 0;
+    const receiverValues = new WeakMap<object, string>();
+    const accessorParameter = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return receiverValues.get(this) ?? "wrong-receiver";
+      },
+    });
+    receiverValues.set(accessorParameter, "caller-secret");
     const callableParameter = vi.fn(() => "caller-authority");
     class CallerPrototype {
       readonly exposed = "caller-prototype";
@@ -445,11 +894,16 @@ describe("public query-interceptor integration", () => {
 
     expect(getterReads).toBe(0);
     expect(callableParameter).not.toHaveBeenCalled();
-    expect(driver.submissions[0]?.params).toEqual([
-      accessorParameter,
-      callableParameter,
-      prototypeParameter,
-    ]);
+    const [submittedAccessor, submittedCallable, submittedPrototype] =
+      driver.submissions[0]?.params ?? [];
+    if (submittedAccessor === null || typeof submittedAccessor !== "object") {
+      throw new Error("Expected a submitted accessor carrier");
+    }
+    expect(submittedAccessor).toBe(accessorParameter);
+    expect(Reflect.get(submittedAccessor, "secret")).toBe("caller-secret");
+    expect(getterReads).toBe(1);
+    expect(submittedCallable).toBe(callableParameter);
+    expect(submittedPrototype).toBe(prototypeParameter);
   });
 
   test("inspects the operation-owned payload without re-reading caller accessors", async () => {

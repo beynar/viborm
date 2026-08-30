@@ -12,6 +12,7 @@
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { isValidSchemaIdentifier } from "../../identifier";
 import { getModelKeyCatalog, type Model } from "../../model";
+import { automaticForeignKeyIndexName } from "../../relation/helpers";
 import {
   type ResolvedJunctionTopology,
   resolveJunctionTopology,
@@ -148,11 +149,17 @@ function automaticForeignKeyIndexNames(
       }
     }
   }
-  const declaredIndexes = state.indexes.map((index) => ({
-    name: index.options.name ?? `${tableName}_${index.fields.join("_")}_idx`,
-    columns: index.fields.map(columnName),
-    where: index.options.where,
-  }));
+  const declaredIndexes = state.indexes.map((index) => {
+    const declaredName = index.options.name;
+    return {
+      name:
+        typeof declaredName === "string"
+          ? declaredName
+          : `${tableName}_${index.fields.join("_")}_idx`,
+      columns: index.fields.map(columnName),
+      where: index.options.where,
+    };
+  });
   const own = storedReferences.filter((fact) => fact.owner === model);
   const coveringColumns = [
     primaryKeyColumns,
@@ -164,7 +171,9 @@ function automaticForeignKeyIndexNames(
       .filter((index) => !index.where)
       .map((index) => index.columns),
   ];
-  const emittedNames = new Set(declaredIndexes.map((index) => index.name));
+  const emittedNames = new Set<string>(
+    declaredIndexes.map((index) => index.name)
+  );
   const automaticNames: string[] = [];
   for (const fact of own) {
     if (fact.unique) continue;
@@ -175,11 +184,12 @@ function automaticForeignKeyIndexNames(
       )
     );
     if (alreadyIndexed) continue;
-    const preferredName = `${tableName}_${foreignKeyColumns.join("_")}_idx`;
-    const name = emittedNames.has(preferredName)
-      ? `${tableName}_${foreignKeyColumns.join("_")}_fkey_idx`
-      : preferredName;
-    if (emittedNames.has(name)) continue;
+    const name = automaticForeignKeyIndexName(
+      tableName,
+      foreignKeyColumns,
+      emittedNames
+    );
+    if (name === undefined) continue;
     emittedNames.add(name);
     automaticNames.push(name);
   }

@@ -20,6 +20,10 @@ import { describe, expect, test } from "vitest";
  * `connectOrCreate` under an update. `score` is used rather than `count` to keep
  * V1's own `ON CONFLICT` SQL free of the `count()`-aggregate column ambiguity —
  * the oracle certifies V2 against a working V1 arm.
+ *
+ * `tagged` adds the one thing `user` and `post` cannot state: a unique selector
+ * whose COLUMN name differs from its field name. Every row shape here stays
+ * separate from the two models above, so it changes no existing expectation.
  */
 export const upsertFamilySchema = (() => {
   const user = s
@@ -42,7 +46,14 @@ export const upsertFamilySchema = (() => {
         .references("id"),
     })
     .map("upsert_family_posts");
-  return { user, post };
+  const tagged = s
+    .model({
+      id: s.string().id().map("tagged_pk"),
+      code: s.string().unique().map("tagged_code"),
+      note: s.string().nullable(),
+    })
+    .map("upsert_family_tagged");
+  return { user, post, tagged };
 })();
 
 hydrateSchemaNames(upsertFamilySchema);
@@ -415,6 +426,174 @@ export function runUpsertFamilyBehavior(
           await expect(
             client.post.findMany({ where: { id: 52 } })
           ).resolves.toEqual([]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    // -----------------------------------------------------------------------
+    // The ASSIGNMENT-FREE found arm (upstream Prisma 3f1f10fd). `update: {}`
+    // asks the found row for nothing, so the arm is a read: the row comes back
+    // unchanged while the missing arm still creates (ATOM §20). Each case is a
+    // falsifier for that classification: route an empty payload back into the
+    // inline `UPDATE` and `buildSet` raises `No fields to update` instead.
+    // `isPlainSetUpdate` keeps an empty payload off the `ON CONFLICT` door, so
+    // these run probe-first on every dialect, and the atomicBatch leg is the one
+    // that exercises the arm's guards.
+    // -----------------------------------------------------------------------
+
+    test(
+      "an EMPTY update arm returns the found row unchanged and writes nothing",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          await client.user.create({
+            data: { id: 1, email: "noop@x", score: 10 },
+          });
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "user",
+            upsertFamilySchema.user,
+            {
+              where: { email: "noop@x" },
+              create: { email: "noop@x", score: 999 },
+              update: {},
+            }
+          );
+          expect(result).toEqual({ id: 1, email: "noop@x", score: 10 });
+          await expect(client.user.findMany()).resolves.toEqual([
+            { id: 1, email: "noop@x", score: 10 },
+          ]);
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "an EMPTY update arm still CREATES when the row is missing",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "user",
+            upsertFamilySchema.user,
+            {
+              where: { email: "noop-new@x" },
+              create: { email: "noop-new@x", score: 3 },
+              update: {},
+              select: { email: true, score: true },
+            }
+          );
+          expect(result).toEqual({ email: "noop-new@x", score: 3 });
+          await expect(
+            client.user.findUnique({ where: { email: "noop-new@x" } })
+          ).resolves.toMatchObject({ email: "noop-new@x", score: 3 });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the EMPTY found arm honors select and include",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          await client.user.create({
+            data: { id: 1, email: "proj@x", score: 10 },
+          });
+          await client.post.create({
+            data: { id: 80, title: "kept", slug: "s80", userId: 1 },
+          });
+          const runner = createUpsertFamilyExecutor(driver);
+          const args = {
+            where: { email: "proj@x" },
+            create: { email: "proj@x", score: 999 },
+            update: {},
+          };
+          await expect(
+            runner.executeUpsert("user", upsertFamilySchema.user, {
+              ...args,
+              select: { score: true },
+            })
+          ).resolves.toEqual({ score: 10 });
+          // `include` forces the terminal read path: a relation projection can
+          // never ride a folded `UPDATE … RETURNING`.
+          await expect(
+            runner.executeUpsert("user", upsertFamilySchema.user, {
+              ...args,
+              include: { posts: { select: { id: true } } },
+            })
+          ).resolves.toEqual({
+            id: 1,
+            email: "proj@x",
+            score: 10,
+            posts: [{ id: 80 }],
+          });
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "the EMPTY found arm locates by a MAPPED unique key",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          await client.tagged.create({
+            data: { id: "t1", code: "c1", note: "kept" },
+          });
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "tagged",
+            upsertFamilySchema.tagged,
+            {
+              where: { code: "c1" },
+              create: { id: "t2", code: "c1", note: "created" },
+              update: {},
+            }
+          );
+          expect(result).toEqual({ id: "t1", code: "c1", note: "kept" });
+          // The create arm never ran: no second row carries its id.
+          await expect(
+            client.tagged.findUnique({ where: { id: "t2" } })
+          ).resolves.toBeNull();
+        } finally {
+          await dispose();
+        }
+      }
+    );
+
+    test(
+      "an EMPTY update arm under a MATCHING conditional still writes nothing",
+      { timeout: 30_000 },
+      async () => {
+        const { driver, client, dispose } = await setup();
+        try {
+          await client.user.create({
+            data: { id: 1, email: "cond@x", score: 10 },
+          });
+          // A matched conditional replaces the found-premise guard with its own
+          // in batch mode, so this is a different compiled arm from the case
+          // above even though it answers the same row.
+          const result = await createUpsertFamilyExecutor(driver).executeUpsert(
+            "user",
+            upsertFamilySchema.user,
+            {
+              where: { email: "cond@x" },
+              targetWhere: { score: 10 },
+              setWhere: { score: 10 },
+              create: { email: "cond@x", score: 999 },
+              update: {},
+              select: { email: true, score: true },
+            }
+          );
+          expect(result).toEqual({ email: "cond@x", score: 10 });
         } finally {
           await dispose();
         }

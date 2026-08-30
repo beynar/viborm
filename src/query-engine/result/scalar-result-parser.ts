@@ -1,5 +1,14 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import {
+  type DateTimeNumericForm,
+  decodePhysicalDateTime,
+} from "@validation/primitives/datetime-physical-codec";
+import {
+  isDateTimeClock,
+  isDateTimeInstant,
+  isGregorianCalendarDate,
+} from "@validation/primitives/datetime-values";
 import type { Operation } from "../types";
 import { QueryEngineError } from "../types";
 import {
@@ -35,11 +44,31 @@ const DATETIME_VALUE_REGEX =
 const TIME_VALUE_REGEX =
   /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
 
-function parseDateTimeString(value: string): Date {
+function parseDateTimeString(value: string): Date | undefined {
+  const match = DATETIME_VALUE_REGEX.exec(value);
+  if (!match) return undefined;
+  const hasValidCalendarAndClock =
+    isGregorianCalendarDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    ) && isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]));
+  if (!hasValidCalendarAndClock) return undefined;
+  const hasZone = match[8] !== undefined || match[9] !== undefined;
+  if (value[10] === " " && hasZone) return undefined;
+  const zoneHour = match[10] === undefined ? 0 : Number(match[10]);
+  const zoneMinute = match[11] === undefined ? 0 : Number(match[11]);
+  if (zoneHour > 23 || zoneMinute > 59) return undefined;
   if (ZONELESS_DATETIME_REGEX.test(value)) {
-    return new Date(`${value.replace(" ", "T")}Z`);
+    const parsed = new Date(`${value.replace(" ", "T")}Z`);
+    return isDateTimeInstant(Date.prototype.getTime.call(parsed))
+      ? parsed
+      : undefined;
   }
-  return new Date(value);
+  const parsed = new Date(value);
+  return isDateTimeInstant(Date.prototype.getTime.call(parsed))
+    ? parsed
+    : undefined;
 }
 
 export function parseFieldValueDefault(
@@ -53,7 +82,9 @@ export function parseFieldValueDefault(
   provider: string,
   operation: Operation,
   decimalColumn: DecimalColumn | undefined,
-  materializeDecimal = false
+  materializeDecimal = false,
+  dateTimeForm?: DateTimeNumericForm,
+  enumListArrayText = false
 ): unknown {
   if (!isList) {
     return parseTypedValueDefault(
@@ -66,7 +97,8 @@ export function parseFieldValueDefault(
       provider,
       operation,
       decimalColumn,
-      materializeDecimal
+      materializeDecimal,
+      dateTimeForm
     );
   }
   if (value === null) {
@@ -99,7 +131,16 @@ export function parseFieldValueDefault(
 
   let items: unknown = value;
   if (typeof items === "string") {
-    const parsed = tryParseJsonString(items);
+    // The provider array reading applies only where the adapter DECLARED that
+    // an enum list answers in array text (PostgreSQL), and comes first there
+    // because the two spellings collide on the empty container: `{}` is an
+    // empty PostgreSQL array AND a valid JSON object. A JSON-dialect enum list
+    // keeps the JSON reading — and its malformed-row refusal — like every
+    // other list.
+    const parsed =
+      (scalarType === "enum" && enumListArrayText
+        ? providerArrayMembers(items)
+        : undefined) ?? tryParseJsonString(items);
     if (parsed !== undefined) {
       items = parsed;
     }
@@ -136,6 +177,73 @@ export function parseFieldValueDefault(
     );
   }
   return parsedItems;
+}
+
+/**
+ * The members of a list a provider answered with in its own array text —
+ * `{ADMIN,"a,b"}`.
+ *
+ * An enum list is the one list a driver can hand back unparsed. PostgreSQL
+ * stores it as an array of a type the ESTATE created, whose OID is in no
+ * driver's result-type table, so the driver returns the array's output text
+ * instead of members. Every other list, on every dialect, arrives as a JS array
+ * or as the JSON container the reader above already opens.
+ *
+ * The grammar is the server's output form: one dimension, comma-separated,
+ * a member quoted when it would otherwise be ambiguous, with `"` and `\`
+ * backslash-escaped inside the quotes, and an unquoted `NULL` for the null
+ * member — which the member decode then refuses for a non-nullable element.
+ */
+function providerArrayMembers(text: string): unknown[] | undefined {
+  if (!(text.startsWith("{") && text.endsWith("}"))) return undefined;
+  const body = text.slice(1, -1);
+  if (body.length === 0) return [];
+
+  const members: unknown[] = [];
+  let cursor = 0;
+  while (cursor <= body.length) {
+    const member =
+      body[cursor] === '"'
+        ? readQuotedMember(body, cursor)
+        : readBareMember(body, cursor);
+    if (member === undefined) return undefined;
+    members.push(member.value);
+    // The member ends the literal, or the delimiter follows it.
+    if (member.next === body.length) return members;
+    if (body[member.next] !== ",") return undefined;
+    cursor = member.next + 1;
+  }
+  return undefined;
+}
+
+/** One `"…"` member, and the offset just past its closing quote. */
+function readQuotedMember(
+  body: string,
+  start: number
+): { value: string; next: number } | undefined {
+  let value = "";
+  let cursor = start + 1;
+  while (cursor < body.length) {
+    const char = body.charAt(cursor);
+    if (char === '"') return { value, next: cursor + 1 };
+    // A backslash escapes exactly the next character, whatever it is.
+    const escaped = char === "\\";
+    value += escaped ? body.charAt(cursor + 1) : char;
+    cursor += escaped ? 2 : 1;
+  }
+  return undefined;
+}
+
+/** One unquoted member, and the offset of the delimiter that ends it. */
+function readBareMember(
+  body: string,
+  start: number
+): { value: unknown; next: number } | undefined {
+  const delimiter = body.indexOf(",", start);
+  const next = delimiter === -1 ? body.length : delimiter;
+  const raw = body.slice(start, next);
+  if (raw.length === 0) return undefined;
+  return { value: raw === "NULL" ? null : raw, next };
 }
 
 /**
@@ -185,7 +293,8 @@ function parseTypedValueDefault(
   provider: string,
   operation: Operation,
   decimalColumn: DecimalColumn | undefined,
-  materializeDecimal = false
+  materializeDecimal = false,
+  dateTimeForm?: DateTimeNumericForm
 ): unknown {
   if (value === null) {
     if (isNullable) return null;
@@ -215,16 +324,34 @@ function parseTypedValueDefault(
 
   switch (scalarType) {
     case "datetime": {
+      // A column whose declared native form is a NUMBER is read by the codec
+      // that wrote it, before the provider-timestamp grammar below can look at
+      // it. Nothing in the value says which form it is — the same number is one
+      // instant as epoch milliseconds and another as a Julian day — so the
+      // declaration is what routes it, and a value outside that form's exact
+      // vocabulary is a malformed row rather than an instant to guess at.
+      if (dateTimeForm !== undefined) {
+        const decoded = decodePhysicalDateTime(value, dateTimeForm);
+        if (decoded === undefined) {
+          return malformedScalarValue(
+            provider,
+            operation,
+            scalarType,
+            "the value is not this column's declared physical timestamp"
+          );
+        }
+        return decoded;
+      }
       if (value instanceof Date) {
-        if (!Number.isNaN(value.getTime())) return value;
+        if (isDateTimeInstant(Date.prototype.getTime.call(value))) return value;
         return malformedScalarValue(
           provider,
           operation,
           scalarType,
-          "the Date is invalid"
+          "the Date is outside the public DateTime domain"
         );
       }
-      if (typeof value !== "string" || !isValidDateTimeString(value)) {
+      if (typeof value !== "string") {
         return malformedScalarValue(
           provider,
           operation,
@@ -233,12 +360,12 @@ function parseTypedValueDefault(
         );
       }
       const parsed = parseDateTimeString(value);
-      if (Number.isNaN(parsed.getTime())) {
+      if (parsed === undefined) {
         return malformedScalarValue(
           provider,
           operation,
           scalarType,
-          "the timestamp is invalid"
+          "the value is not a valid provider timestamp in the public DateTime domain"
         );
       }
       return parsed;
@@ -246,12 +373,13 @@ function parseTypedValueDefault(
 
     case "date": {
       if (value instanceof Date) {
+        const epochMilliseconds = Date.prototype.getTime.call(value);
         if (
-          !Number.isNaN(value.getTime()) &&
-          value.getUTCHours() === 0 &&
-          value.getUTCMinutes() === 0 &&
-          value.getUTCSeconds() === 0 &&
-          value.getUTCMilliseconds() === 0
+          isDateTimeInstant(epochMilliseconds) &&
+          Date.prototype.getUTCHours.call(value) === 0 &&
+          Date.prototype.getUTCMinutes.call(value) === 0 &&
+          Date.prototype.getUTCSeconds.call(value) === 0 &&
+          Date.prototype.getUTCMilliseconds.call(value) === 0
         ) {
           return value;
         }
@@ -264,7 +392,16 @@ function parseTypedValueDefault(
       }
       const match =
         typeof value === "string" ? DATE_VALUE_REGEX.exec(value) : null;
-      if (!(match && isValidCalendarDate(match[1], match[2], match[3]))) {
+      if (
+        !(
+          match &&
+          isGregorianCalendarDate(
+            Number(match[1]),
+            Number(match[2]),
+            Number(match[3])
+          )
+        )
+      ) {
         return malformedScalarValue(
           provider,
           operation,
@@ -382,7 +519,12 @@ function parseTypedValueDefault(
         );
       }
       const match = TIME_VALUE_REGEX.exec(value);
-      if (!(match && isValidClock(match[1], match[2], match[3]))) {
+      if (
+        !(
+          match &&
+          isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
+        )
+      ) {
         return malformedScalarValue(
           provider,
           operation,
@@ -448,60 +590,6 @@ function parseTypedValueDefault(
     default:
       return parseValueWithoutContext(value);
   }
-}
-
-function isValidDateTimeString(value: string): boolean {
-  const match = DATETIME_VALUE_REGEX.exec(value);
-  if (!match) return false;
-  if (!isValidCalendarDate(match[1], match[2], match[3])) return false;
-  if (!isValidClock(match[4], match[5], match[6])) return false;
-  const hasZone = match[8] !== undefined || match[9] !== undefined;
-  const separator = value[10];
-  if (separator === " " && hasZone) return false;
-  const zoneHour = match[10] === undefined ? 0 : Number(match[10]);
-  const zoneMinute = match[11] === undefined ? 0 : Number(match[11]);
-  return zoneHour <= 23 && zoneMinute <= 59;
-}
-
-function isValidCalendarDate(
-  yearValue: string | undefined,
-  monthValue: string | undefined,
-  dayValue: string | undefined
-): boolean {
-  const year = Number(yearValue);
-  const month = Number(monthValue);
-  const day = Number(dayValue);
-  if (month < 1 || month > 12 || day < 1) return false;
-  const daysPerMonth = [
-    31,
-    isLeapYear(year) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31,
-  ];
-  return day <= (daysPerMonth[month - 1] ?? 0);
-}
-
-function isLeapYear(year: number): boolean {
-  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-}
-
-function isValidClock(
-  hourValue: string | undefined,
-  minuteValue: string | undefined,
-  secondValue: string | undefined
-): boolean {
-  const hour = Number(hourValue);
-  const minute = Number(minuteValue);
-  const second = Number(secondValue);
-  return hour <= 23 && minute <= 59 && second <= 59;
 }
 
 function parseValueWithoutContext(value: unknown): unknown {

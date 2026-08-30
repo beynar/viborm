@@ -4,7 +4,6 @@
  * Re-exports common utilities for driver implementations.
  */
 
-export { readCleanupFailures, withCleanupFailure } from "./cleanup-failure";
 export {
   defineImmutableDriverFact,
   type MigrationNamespaceAttestation,
@@ -35,6 +34,10 @@ export {
   sqliteBinaryToUint8Array,
   sqliteResultParser,
 } from "./sqlite-utils";
+export {
+  readSuppressedFailures,
+  withSuppressedFailure,
+} from "./suppressed-failure";
 export {
   acquireWithMaxWait,
   type BatchTransactionOptions,

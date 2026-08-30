@@ -27,6 +27,10 @@ import type { Dialect } from "./types";
 
 const POSTGRES_UNIQUE = "23505";
 const POSTGRES_FOREIGN_KEY = "23503";
+// restrict_violation — a RESTRICT referential action refused the write. Stock
+// PostgreSQL folds it into 23503; pg-wire servers (CockroachDB) raise it as its
+// own SQLSTATE with the same foreign-key metadata.
+const POSTGRES_RESTRICT_VIOLATION = "23001";
 const POSTGRES_NOT_NULL = "23502";
 const POSTGRES_CHECK = "23514";
 // string_data_right_truncation — Prisma maps this SQLSTATE to LengthMismatch/P2000
@@ -48,6 +52,18 @@ const MYSQL_DEADLOCK = 1213;
 const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
+// Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
+// extended family member. The delimiter is load-bearing: startsWith accepted
+// unrelated provider codes such as SQLITE_BUSYWORK and SQLITE_LOCKEDNESS.
+const SQLITE_CONTENTION_FAMILY_PATTERN =
+  /^SQLITE_(?:BUSY|LOCKED)(?:_[A-Z0-9]+)+$/;
+const ASCII_PROVIDER_SYMBOL_PATTERN = /[A-Za-z0-9_]+/g;
+// An extended result code is `base | (sub << 8)`, so the whole family keeps its
+// base in the low byte. That byte alone proves nothing across providers —
+// MySQL errno 1029 also ends in 5 — so numeric recognition needs the dialect.
+const SQLITE_BASE_CODE_MASK = 0xff;
+const SQLITE_BUSY_BASE_CODE = 5;
+const SQLITE_LOCKED_BASE_CODE = 6;
 const MYSQL_ERRNO_IN_MESSAGE_PATTERN = /\(errno (\d+)\)/;
 // Batch-plan assertions (adapter.assertions) fail on purpose with a
 // dialect-specific trick: division by zero on PG (SQLSTATE 22012), invalid
@@ -95,6 +111,51 @@ function isAssertionFailure(
     message.includes("division by zero") ||
     message.includes("malformed JSON") ||
     message.includes("Invalid JSON text")
+  );
+}
+
+function isSQLiteContentionResultCode(
+  value: string | number | undefined
+): boolean {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return false;
+  }
+  // biome-ignore lint/suspicious/noBitwiseOperators: SQLite defines an extended result code as `base | (sub << 8)`.
+  const base = value & SQLITE_BASE_CODE_MASK;
+  return base === SQLITE_BUSY_BASE_CODE || base === SQLITE_LOCKED_BASE_CODE;
+}
+
+function isSQLiteContentionName(value: string): boolean {
+  return (
+    value === "SQLITE_BUSY" ||
+    value === "SQLITE_LOCKED" ||
+    SQLITE_CONTENTION_FAMILY_PATTERN.test(value)
+  );
+}
+
+/**
+ * Report whether a provider error is SQLite lock contention, across the three
+ * shapes drivers use: an extended symbolic code, an extended numeric result
+ * code, or a message carrying the symbol (D1, libsql).
+ */
+function isSQLiteContention(
+  code: string | number | undefined,
+  errno: number | undefined,
+  message: string,
+  dialect: Dialect | undefined
+): boolean {
+  if (dialect !== "sqlite") return false;
+  if (typeof code === "string" && isSQLiteContentionName(code)) {
+    return true;
+  }
+  if (
+    isSQLiteContentionResultCode(code) ||
+    isSQLiteContentionResultCode(errno)
+  ) {
+    return true;
+  }
+  return [...message.matchAll(ASCII_PROVIDER_SYMBOL_PATTERN)].some((match) =>
+    isSQLiteContentionName(match[0])
   );
 }
 
@@ -189,6 +250,7 @@ function mapProviderError(
 
   if (
     code === POSTGRES_FOREIGN_KEY ||
+    code === POSTGRES_RESTRICT_VIOLATION ||
     code === "SQLITE_CONSTRAINT_FOREIGNKEY"
   ) {
     return new ForeignKeyError("Foreign key constraint violation", {
@@ -299,12 +361,7 @@ function mapProviderError(
     });
   }
 
-  if (
-    code === "SQLITE_BUSY" ||
-    code === "SQLITE_LOCKED" ||
-    rawMessage.includes("SQLITE_BUSY") ||
-    rawMessage.includes("SQLITE_LOCKED")
-  ) {
+  if (isSQLiteContention(code, errno, rawMessage, context.dialect)) {
     // DEADLOCK code so the write-race retry logic treats it as retryable
     return new TransactionError("Database is locked", {
       cause,

@@ -17,6 +17,7 @@ export type {
 } from "./helper";
 export {
   findAddressableKey,
+  findReferenceableKey,
   getModelKeyCatalog,
   type ModelKeyCatalog,
   type OrderedModelKey,

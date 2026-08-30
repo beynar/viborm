@@ -172,8 +172,11 @@ const allFieldsModel = s.model({
   enumNullable: s.enum(["LOW", "MEDIUM", "HIGH"]).nullable(),
   // Enum with default
   enumWithDefault: s.enum(["ON", "OFF"]).default("ON"),
-  // Note: Enum arrays are skipped due to a bug in enum array serialization
-  // See: serializer.ts line 335 - enum array types don't get [] suffix
+  // Enum array — a PostgreSQL enum LIST is `enumname[]`, not the scalar enum
+  // type (upstream TypeORM #11865)
+  enumArray: s.enum(["ACTIVE", "INACTIVE", "PENDING"]).array(),
+  // Nullable enum array
+  enumArrayNullable: s.enum(["LOW", "MEDIUM", "HIGH"]).array().nullable(),
 
   // ============= BLOB SCALARS =============
   // Required blob
@@ -320,6 +323,8 @@ describe("All Scalar Types Integration Test", () => {
         // Enum scalars
         enumRequired: "ACTIVE",
         enumNullable: "HIGH",
+        enumArray: ["ACTIVE", "PENDING"],
+        enumArrayNullable: ["LOW", "HIGH"],
         // enumWithDefault uses default
 
         // Blob scalars
@@ -535,6 +540,12 @@ describe("All Scalar Types Integration Test", () => {
 
     expect(found.enumWithDefault).toBe("ON");
 
+    // The list is a list of MEMBERS, not one member and not a container the
+    // decode handed back unopened.
+    expect(found.enumArray).toEqual(["ACTIVE", "PENDING"]);
+
+    expect(found.enumArrayNullable).toEqual(["LOW", "HIGH"]);
+
     // =========================================================================
     // BLOB SCALAR VERIFICATIONS
     // =========================================================================
@@ -546,6 +557,24 @@ describe("All Scalar Types Integration Test", () => {
     ).toBe(true);
 
     expect(Array.from(found.blobNullable as Uint8Array)).toEqual([6, 7, 8]);
+
+    // A managed PostgreSQL enum list crosses update concatenation as one
+    // column-typed array value. Binding each member separately builds an
+    // unbounded SQL tree and loses the enum array type.
+    await client.allFieldsModel.update({
+      where: { id: "test-record-1" },
+      data: { enumArray: { push: ["INACTIVE"] } },
+    });
+    const enumUpdated = await client.allFieldsModel.update({
+      where: { id: "test-record-1" },
+      data: { enumArray: { unshift: ["PENDING"] } },
+    });
+    expect(enumUpdated.enumArray).toEqual([
+      "PENDING",
+      "ACTIVE",
+      "PENDING",
+      "INACTIVE",
+    ]);
   });
 
   test("handles null values for nullable scalars", async () => {
@@ -575,6 +604,7 @@ describe("All Scalar Types Integration Test", () => {
         timeArray: [],
         jsonRequired: { nested: { value: 0 }, array: [] },
         enumRequired: "INACTIVE",
+        enumArray: [],
         blobRequired: new Uint8Array([0]),
 
         // Nullable fields set to null
@@ -599,6 +629,7 @@ describe("All Scalar Types Integration Test", () => {
         // A JSON column has two nulls; `DbNull` names the database one
         jsonNullable: DbNull,
         enumNullable: null,
+        enumArrayNullable: null,
         blobNullable: null,
       },
     });
@@ -631,6 +662,7 @@ describe("All Scalar Types Integration Test", () => {
     expect(found.timeArrayNullable).toBeNull();
     expect(found.jsonNullable).toBeNull();
     expect(found.enumNullable).toBeNull();
+    expect(found.enumArrayNullable).toBeNull();
     expect(found.blobNullable).toBeNull();
   });
 
@@ -673,6 +705,8 @@ describe("All Scalar Types Integration Test", () => {
         dateArrayNullable: [],
         timeArray: [],
         timeArrayNullable: [],
+        enumArray: [],
+        enumArrayNullable: [],
 
         // Nullable non-array scalars
         stringNullable: null,
@@ -717,6 +751,8 @@ describe("All Scalar Types Integration Test", () => {
     expect(found.dateArrayNullable).toEqual([]);
     expect(found.timeArray).toEqual([]);
     expect(found.timeArrayNullable).toEqual([]);
+    expect(found.enumArray).toEqual([]);
+    expect(found.enumArrayNullable).toEqual([]);
 
     // Verify they are actually arrays
     expect(Array.isArray(found.stringArray)).toBe(true);
@@ -728,6 +764,7 @@ describe("All Scalar Types Integration Test", () => {
     expect(Array.isArray(found.datetimeArray)).toBe(true);
     expect(Array.isArray(found.dateArray)).toBe(true);
     expect(Array.isArray(found.timeArray)).toBe(true);
+    expect(Array.isArray(found.enumArray)).toBe(true);
   });
 });
 
@@ -736,9 +773,9 @@ describe("All Scalar Types Integration Test", () => {
 // =============================================================================
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { parse, v } from "@validation";
 import { z } from "zod/v4";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Helper to assert schema validation passes
 const assertValid = <T>(
@@ -903,6 +940,16 @@ describe("Runtime type verification using v validation", () => {
       found.enumWithDefault,
       "enumWithDefault"
     );
+    assertValid(
+      v.enum(["ACTIVE", "INACTIVE", "PENDING"], { array: true }),
+      found.enumArray,
+      "enumArray"
+    );
+    assertValid(
+      v.enum(["LOW", "MEDIUM", "HIGH"], { array: true }),
+      found.enumArrayNullable,
+      "enumArrayNullable"
+    );
 
     // =========================================================================
     // BLOB SCALARS
@@ -1017,6 +1064,13 @@ describe("Runtime type verification using v validation", () => {
       "enumNullable"
     );
     expect(found.enumNullable).toBeNull();
+
+    assertValid(
+      v.enum(["LOW", "MEDIUM", "HIGH"], { array: true, nullable: true }),
+      found.enumArrayNullable,
+      "enumArrayNullable"
+    );
+    expect(found.enumArrayNullable).toBeNull();
   });
 
   test("validates empty arrays with v.array schemas", async () => {
@@ -1079,6 +1133,16 @@ describe("Runtime type verification using v validation", () => {
         schema: v.date({ array: true }),
         value: found.datetimeArrayNullable,
         name: "datetimeArrayNullable",
+      },
+      {
+        schema: v.enum(["ACTIVE", "INACTIVE", "PENDING"], { array: true }),
+        value: found.enumArray,
+        name: "enumArray",
+      },
+      {
+        schema: v.enum(["LOW", "MEDIUM", "HIGH"], { array: true }),
+        value: found.enumArrayNullable,
+        name: "enumArrayNullable",
       },
     ];
 
@@ -1250,6 +1314,12 @@ describe("Compile-time type verification", () => {
       "LOW" | "MEDIUM" | "HIGH" | null
     >();
     expectTypeOf(found.enumWithDefault).toEqualTypeOf<"ON" | "OFF">();
+    expectTypeOf(found.enumArray).toEqualTypeOf<
+      ("ACTIVE" | "INACTIVE" | "PENDING")[]
+    >();
+    expectTypeOf(found.enumArrayNullable).toEqualTypeOf<
+      ("LOW" | "MEDIUM" | "HIGH")[] | null
+    >();
 
     // =========================================================================
     // BLOB TYPES - Compile-time

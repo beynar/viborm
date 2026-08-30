@@ -112,9 +112,16 @@ describe("integrated statement transforms", () => {
     expect(
       calls.map(({ statement }) => labelComposedCreateStatement(statement))
     ).toEqual(["write:author", "write:post", "result:author"]);
-    expect(new Set(calls.map(({ model }) => model))).toEqual(
-      new Set(["author"])
-    );
+    // Each physical statement carries the model whose rows IT addresses, so the
+    // child INSERT identifies itself as `post` — the same attribution the driver
+    // normalizes a nested failure against. The OPERATION stays one `create`
+    // throughout: the transform sees where a statement writes, not a second
+    // operation.
+    expect(calls.map(({ model }) => model)).toEqual([
+      "author",
+      "post",
+      "author",
+    ]);
     expect(new Set(calls.map(({ operation }) => operation))).toEqual(
       new Set(["create"])
     );

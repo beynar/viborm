@@ -55,7 +55,7 @@ methods** build configuration immutably.
 | `terminal.ts` | Shared immutable-terminal machinery: the construction-time refusal (`refuseRelationInput`), plain-record reads, the source-independent target once-cell |
 | `clearability.ts` | The two emptying facts: `slotMayBeEmpty`, `clearableMembership` (+ its boolean projection `membershipCanBeCleared`) |
 | `static-membership.ts` | The ONE compile-time projection of the relation graph — nullability, nested omission, clearability — and nothing else |
-| `helpers.ts` | Junction physical naming: table, side tokens, expanded columns, constraint names |
+| `helpers.ts` | Relation physical naming: stored-reference indexes plus junction tables, side tokens, expanded columns, and constraint names |
 | `junction-topology.ts` | The one owner of resolved junction physical facts — table, both complete ordered sides, canonical order, pair identity, derived constraint names — for ordinary pairs and for variant members alike. Deliberately NOT re-exported from `index.ts`; consumers deep-import it |
 | `index.ts` | The barrel. The four terminal implementations are deliberately absent |
 
@@ -85,6 +85,8 @@ s.toOne(() => user)
 relation brand, exposes only `.references(...)` and `.name(...)`, and `s.model()`
 refuses it outright — so a half-written foreign key can never become schema
 state. `.references(...)` is arity-locked to the field tuple at the type level.
+Both tuples are non-empty and reject repeated members at their declaration
+calls.
 The referential actions appear only on the completed value, because there is no
 foreign key to act on before it.
 

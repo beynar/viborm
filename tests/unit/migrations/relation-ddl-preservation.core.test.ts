@@ -26,7 +26,7 @@
  */
 
 import { createClient } from "@client/client";
-import { s } from "@schema";
+import { s, TYPES } from "@schema";
 import { parseSchema, serializeSchema } from "@schema/json";
 import type { AnyModel } from "@schema/model";
 import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
@@ -198,6 +198,26 @@ describe("scalar defaults through a JSON document", () => {
         row: s.model({ id: s.string().id(), at: s.dateTime().default(AT) }),
       }),
       `"at" TEXT NOT NULL DEFAULT '${AT}'`,
+    ],
+    [
+      "an ISO string default becomes SQLite epoch milliseconds for INTEGER",
+      () => ({
+        row: s.model({
+          id: s.string().id(),
+          at: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER).default(AT),
+        }),
+      }),
+      '"at" INTEGER NOT NULL DEFAULT 1577934245000',
+    ],
+    [
+      "an ISO string default becomes a SQLite Julian day for REAL",
+      () => ({
+        row: s.model({
+          id: s.string().id(),
+          at: s.dateTime(TYPES.SQLITE.DATETIME.REAL).default(AT),
+        }),
+      }),
+      '"at" REAL NOT NULL DEFAULT 2458850.627835648',
     ],
     [
       "a bigint default survives as a bigint",

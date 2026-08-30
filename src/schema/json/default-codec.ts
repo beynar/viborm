@@ -31,7 +31,7 @@
 
 import { emptyRecord, put } from "@schema/record";
 import type { JsonValue } from "@validation/primitives/json";
-import { isDate, isFunction } from "@validation/value-guards";
+import { isDate, isFunction, isUint8Array } from "@validation/value-guards";
 import {
   addIssue,
   type DocumentIssues,
@@ -335,14 +335,22 @@ function encodeValue(
     );
   }
   if (typeof value === "bigint") return tagged(BIGINT_TAG, value.toString(10));
-  if (value instanceof Uint8Array) {
-    return tagged(BYTES_TAG, encodeBase64(value));
+  if (isUint8Array(value)) {
+    try {
+      return tagged(BYTES_TAG, encodeBase64(value));
+    } catch {
+      return refuseValue(
+        issues,
+        path,
+        "This byte string has a detached buffer and cannot be serialized"
+      );
+    }
   }
   if (isDate(value)) {
-    if (Number.isNaN(value.getTime())) {
+    if (Number.isNaN(Date.prototype.getTime.call(value))) {
       return refuseValue(issues, path, "An invalid Date names no instant");
     }
-    return tagged(DATE_TAG, value.toISOString());
+    return tagged(DATE_TAG, Date.prototype.toISOString.call(value));
   }
   if (Array.isArray(value)) return encodeArray(value, path, issues, seen);
   if (inspectPlainRecord(value, path, issues, "J009")) {
@@ -435,6 +443,7 @@ function encodeBase64(bytes: Uint8Array): string {
   // One character at a time: spreading a large byte array into
   // `String.fromCharCode` overflows the stack.
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const values = Uint8Array.prototype.values.call(bytes);
+  for (const byte of values) binary += String.fromCharCode(byte);
   return btoa(binary);
 }

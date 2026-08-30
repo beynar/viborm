@@ -19,6 +19,7 @@ import {
   assertNormalizedQueryResult,
 } from "./normalized-result";
 import { registerPreparedStatement } from "./prepared-statement-provenance";
+import { snapshotProviderParameters } from "./provider-parameter-snapshot";
 import {
   type BatchTransactionOptions,
   parseTransactionOptions,
@@ -181,7 +182,10 @@ export abstract class DriverTransactionBase<
         "execute"
       );
       const sql = this.buildStatement(transformedQuery);
-      const executionParams = [...transformedQuery.values];
+      const executionParams = snapshotProviderParameters(
+        transformedQuery.values,
+        executionContext
+      );
       const diagnosticParams = this.getDiagnosticParameters(
         executionParams,
         executionContext
@@ -275,7 +279,10 @@ export abstract class DriverTransactionBase<
     const executeQuery = async (
       gate?: OfficialStatementExecutionGate
     ): Promise<QueryResult<T>> => {
-      const executionParams = params ? [...params] : [];
+      const executionParams = snapshotProviderParameters(
+        params ?? [],
+        executionContext
+      );
       const diagnosticParams = this.getDiagnosticParameters(
         executionParams,
         executionContext
@@ -385,6 +392,7 @@ export abstract class DriverTransactionBase<
         const normalizeTransactionFailure = (failure: unknown) =>
           normalizeDriverError(failure, {
             driverName: this.driverName,
+            dialect: this.dialect,
             model: executionContext.model,
             operation: executionContext.operation,
             correlationId: executionContext.correlationId,
@@ -744,6 +752,7 @@ export abstract class DriverTransactionBase<
       } catch (error) {
         throw normalizeDriverError(error, {
           driverName: this.driverName,
+          dialect: this.dialect,
           model: statementContext.model,
           operation: statementContext.operation,
           correlationId: statementContext.correlationId,
@@ -852,9 +861,11 @@ export abstract class DriverTransactionBase<
                 const statementContext = statement.context ?? executionContext;
                 throw normalizeDriverError(error, {
                   driverName: this.driverName,
+                  dialect: this.dialect,
                   model: statementContext.model,
                   operation: statementContext.operation,
                   correlationId: statementContext.correlationId,
+                  statementIndex,
                   query: statement.sql,
                   params: this.getBatchDiagnosticParameters(statement),
                   diagnostics: this.getErrorDisclosure(statementContext),
@@ -864,6 +875,7 @@ export abstract class DriverTransactionBase<
             }
             throw normalizeDriverError(error, {
               driverName: this.driverName,
+              dialect: this.dialect,
               model: executionContext.model,
               operation: executionContext.operation,
               correlationId: executionContext.correlationId,

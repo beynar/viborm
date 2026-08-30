@@ -102,6 +102,16 @@ export interface StatementStepBase {
   readonly id: string;
   readonly statement: Sql;
   readonly outputs: Readonly<Record<string, StatementOutputSource>>;
+  /**
+   * Public model whose rows this statement addresses, when the compiler that
+   * emitted it knows one. A nested subtree's statements belong to the nested
+   * model, not to the public operation's root model, and the executor hands
+   * that attribution to the driver so a provider failure names the model whose
+   * table and constraint the provider already named. Absent on statements no
+   * single model owns (a junction row, an adapter-lowered batch reference);
+   * those keep the operation's own attribution.
+   */
+  readonly model?: string;
   /** Statement postcondition — see README's `Execution atom`. */
   readonly expects?: Postcondition;
   /**

@@ -140,6 +140,129 @@ describe("foreign-key definition rules", () => {
     expect(warnings(result)).not.toContain("FK005");
   });
 
+  it("publishes a permuted referenced tuple in the target key's order", () => {
+    // A composite `.references(...)` names its key by MEMBERSHIP, so this
+    // schema addresses the same rows however it is spelled — but MySQL matches
+    // a foreign key's referenced columns against an index left-prefix
+    // POSITIONALLY and refuses `REFERENCES account(id, tenantId)` against a key
+    // declared `(tenantId, id)` (errno 6125), mid-push, with the parent table
+    // already committed. So the resolver publishes ONE ordered pairing and
+    // every consumer inherits it; each pair still travels whole.
+    const account = s
+      .model({
+        id: s.string(),
+        tenantId: s.string(),
+        members: s.toMany(() => member),
+      })
+      .id(["tenantId", "id"]);
+    const member = s.model({
+      id: s.string().id(),
+      aId: s.string(),
+      aTenantId: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("aId", "aTenantId")
+        .references("id", "tenantId"),
+    });
+    const edge = resolveSchemaOrThrow({ account, member })
+      .get(member)
+      ?.get("account")?.edge;
+
+    expect(edge?.kind).toBe("foreignKey");
+    if (edge?.kind !== "foreignKey") return;
+    expect(edge.reference.members).toEqual([
+      { foreignField: "aTenantId", referencedField: "tenantId" },
+      { foreignField: "aId", referencedField: "id" },
+    ]);
+  });
+
+  it("orders a permuted tuple by the total unique index it addresses", () => {
+    // The catalog's addressable keys are not the whole answer: a unique INDEX
+    // is a legal reference target no public selector can name, and it carries
+    // a column order of its own.
+    const account = s
+      .model({
+        id: s.string().id(),
+        region: s.string(),
+        handle: s.string(),
+        members: s.toMany(() => member),
+      })
+      .index(["region", "handle"], { unique: true });
+    const member = s.model({
+      id: s.string().id(),
+      aHandle: s.string(),
+      aRegion: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("aHandle", "aRegion")
+        .references("handle", "region"),
+    });
+    const edge = resolveSchemaOrThrow({ account, member })
+      .get(member)
+      ?.get("account")?.edge;
+
+    expect(edge?.kind).toBe("foreignKey");
+    if (edge?.kind !== "foreignKey") return;
+    expect(edge.reference.members).toEqual([
+      { foreignField: "aRegion", referencedField: "region" },
+      { foreignField: "aHandle", referencedField: "handle" },
+    ]);
+  });
+
+  it("keeps a tuple already spelled in a key's order, beside a same-set key", () => {
+    // Two keys answer this exact field SET, in opposite orders. The tuple the
+    // author wrote matches the LATER one, and an exact-order match wins — which
+    // is what keeps a schema that permuted nothing byte-identical.
+    const account = s
+      .model({
+        id: s.string(),
+        tenantId: s.string(),
+        members: s.toMany(() => member),
+      })
+      .id(["tenantId", "id"])
+      .index(["id", "tenantId"], { unique: true });
+    const member = s.model({
+      id: s.string().id(),
+      aId: s.string(),
+      aTenantId: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("aId", "aTenantId")
+        .references("id", "tenantId"),
+    });
+    const edge = resolveSchemaOrThrow({ account, member })
+      .get(member)
+      ?.get("account")?.edge;
+
+    expect(edge?.kind).toBe("foreignKey");
+    if (edge?.kind !== "foreignKey") return;
+    expect(edge.reference.members).toEqual([
+      { foreignField: "aId", referencedField: "id" },
+      { foreignField: "aTenantId", referencedField: "tenantId" },
+    ]);
+  });
+
+  it("refuses a composite tuple no key answers, with nothing to order it by", () => {
+    // The one path where there is no matched key to publish an order from: the
+    // refusal stands exactly as before and no reference is published.
+    const account = s.model({
+      id: s.string().id(),
+      tenantId: s.string(),
+      members: s.toMany(() => member),
+    });
+    const member = s.model({
+      id: s.string().id(),
+      aId: s.string(),
+      aTenantId: s.string(),
+      account: s
+        .toOne(() => account)
+        .fields("aId", "aTenantId")
+        .references("id", "tenantId"),
+    });
+
+    expect(codes(validateSchema({ account, member }))).toContain("FK005");
+  });
+
   it("refuses a reference addressed only by a partial unique index", () => {
     const user = s
       .model({

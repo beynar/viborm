@@ -40,6 +40,11 @@ import {
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
 import { transferLoggedErrorEvidence } from "../instrumentation/logged-errors";
+import {
+  readSuppressedFailures,
+  withSuppressedFailure,
+} from "./shared/suppressed-failure";
+import type { Dialect } from "./types";
 
 export interface DriverErrorShape {
   code?: string | number;
@@ -59,6 +64,12 @@ export interface DriverErrorShape {
 
 export interface DriverErrorContext {
   driverName: string;
+  /**
+   * The SQL family that raised the error, when the normalizing call site knows
+   * it. Only numeric provider codes need it: a symbolic name or a message
+   * symbol identifies its own provider, but a bare integer does not.
+   */
+  dialect?: Dialect;
   model?: string;
   operation?: Operation | string;
   correlationId?: string;
@@ -145,7 +156,7 @@ function cloneVibORMError(
     const validationClone = cloneValidationError(error, meta, diagnostics);
     if (validationClone) {
       transferLoggedErrorEvidence(error, validationClone);
-      return validationClone;
+      return transferSuppressedFailureEvidence(error, validationClone);
     }
   }
   const message =
@@ -179,7 +190,17 @@ function cloneVibORMError(
       ? candidate
       : new VibORMError(message, code, options);
   transferLoggedErrorEvidence(error, clonedError);
-  return clonedError;
+  return transferSuppressedFailureEvidence(error, clonedError);
+}
+
+function transferSuppressedFailureEvidence(
+  source: unknown,
+  target: VibORMError
+): VibORMError {
+  for (const failure of readSuppressedFailures(source)) {
+    withSuppressedFailure(target, failure);
+  }
+  return target;
 }
 
 function cloneValidationError(

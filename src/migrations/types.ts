@@ -1,3 +1,4 @@
+import type { DateTimePhysicalForm } from "@validation/primitives/datetime-physical-codec";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 
 // =============================================================================
@@ -120,6 +121,16 @@ export interface ColumnDef {
    * copy, and it is a copy of the frozen descriptor the resolved scalar owns.
    */
   decimal?: DecimalDescriptor | undefined;
+  /**
+   * The declared SQLite storage vocabulary for one scalar DateTime column.
+   *
+   * SQLite's three physical types do not identify the logical domain: TEXT,
+   * INTEGER, and REAL also store unrelated scalar families. The serializer
+   * therefore carries the declaration beside the physical type so an explicit
+   * migration can translate an existing DateTime instead of reinterpreting its
+   * bytes. Live introspection cannot recover this logical fact and omits it.
+   */
+  dateTime?: DateTimePhysicalForm | undefined;
 }
 
 export interface PrimaryKeyDef {

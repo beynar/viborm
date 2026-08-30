@@ -539,6 +539,9 @@ function buildFilterOperation(
     }
     return scalarValueLiteral(ctx, fieldName, v);
   };
+  /** A containment candidate crosses through the same whole-list owner as a write. */
+  const containmentCandidate = (members: unknown[]): Sql =>
+    scalarValueLiteral(ctx, fieldName, members);
   const isInsensitive = mode === "insensitive";
   const isTextScalar =
     !scalarState.array &&
@@ -842,10 +845,7 @@ function buildFilterOperation(
       if (value.length === 0) {
         return adapter.operators.isNotNull(column);
       }
-      return adapter.arrays.hasEvery(
-        column,
-        adapter.arrays.literal(value.map(lit))
-      );
+      return adapter.arrays.hasEvery(column, containmentCandidate(value));
 
     case "hasSome":
       if (!Array.isArray(value)) {
@@ -856,10 +856,7 @@ function buildFilterOperation(
       if (value.length === 0) {
         return adapter.literals.false();
       }
-      return adapter.arrays.hasSome(
-        column,
-        adapter.arrays.literal(value.map(lit))
-      );
+      return adapter.arrays.hasSome(column, containmentCandidate(value));
 
     case "isEmpty":
       return value

@@ -1,14 +1,13 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-
 import { DbNull, s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const entry = s
   .model({
@@ -16,11 +15,17 @@ const entry = s
     name: s.string(),
     tags: s.string().array().nullable(),
     scores: s.int().array().nullable(),
+    moments: s.dateTime().array().nullable(),
     metadata: s.json().nullable(),
   })
   .map("list_json_entries");
 
 const schema = { entry };
+
+const FIRST_MOMENT = new Date("2024-01-02T03:04:05.000Z");
+const SECOND_MOMENT = new Date("2024-02-03T04:05:06.000Z");
+const THIRD_MOMENT = new Date("2024-03-04T05:06:07.000Z");
+const VALIDATION_FAILED = /Validation failed/;
 
 type ListJsonClientConfig = VibORMConfig<typeof schema>;
 
@@ -70,6 +75,7 @@ export function runListJsonFilterBehavior({
             name: "both",
             tags: ["alpha", "beta"],
             scores: [1, 2, 3],
+            moments: [FIRST_MOMENT, SECOND_MOMENT],
             metadata: { theme: "dark", level: 2 },
           },
           {
@@ -77,10 +83,23 @@ export function runListJsonFilterBehavior({
             name: "single",
             tags: ["gamma"],
             scores: [4, 5],
+            moments: [THIRD_MOMENT],
             metadata: { theme: "light" },
           },
-          { id: "e3", name: "empty", tags: [], scores: [] },
-          { id: "e4", name: "nulls", tags: null, scores: null },
+          {
+            id: "e3",
+            name: "empty",
+            tags: [],
+            scores: [],
+            moments: [],
+          },
+          {
+            id: "e4",
+            name: "nulls",
+            tags: null,
+            scores: null,
+            moments: null,
+          },
         ],
       });
     }
@@ -188,7 +207,7 @@ export function runListJsonFilterBehavior({
             // @ts-expect-error has: null is rejected at the type level too
             where: { tags: { has: null } },
           })
-        ).rejects.toThrow(/Validation failed/);
+        ).rejects.toThrow(VALIDATION_FAILED);
       });
 
       test("hasEvery requires all elements", async () => {
@@ -207,6 +226,44 @@ export function runListJsonFilterBehavior({
           await findNames({ tags: { hasSome: ["beta", "missing"] } })
         ).toEqual(["both"]);
         expect(await findNames({ tags: { hasSome: ["missing"] } })).toEqual([]);
+      });
+
+      test("DateTime membership uses the same values as the stored list", async () => {
+        await seed();
+        const current = requireClient(client);
+        const names = (rows: { name: string }[]) =>
+          rows.map((row) => row.name).sort();
+
+        expect(
+          names(
+            await current.entry.findMany({
+              where: { moments: { equals: [FIRST_MOMENT, SECOND_MOMENT] } },
+            })
+          )
+        ).toEqual(["both"]);
+        expect(
+          names(
+            await current.entry.findMany({
+              where: { moments: { has: SECOND_MOMENT } },
+            })
+          )
+        ).toEqual(["both"]);
+        expect(
+          names(
+            await current.entry.findMany({
+              where: {
+                moments: { hasEvery: [SECOND_MOMENT, FIRST_MOMENT] },
+              },
+            })
+          )
+        ).toEqual(["both"]);
+        expect(
+          names(
+            await current.entry.findMany({
+              where: { moments: { hasSome: [SECOND_MOMENT, THIRD_MOMENT] } },
+            })
+          )
+        ).toEqual(["both", "single"]);
       });
 
       test("isEmpty treats null lists as empty on every dialect", async () => {

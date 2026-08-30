@@ -10,17 +10,13 @@ import { isSql, type Sql, sql } from "@sql";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
-import {
-  decimalDescriptorOf,
-  decimalListDescriptorOfState,
-} from "./decimal-field";
+import { decimalDescriptorOf } from "./decimal-field";
 import {
   type PolymorphicStorageValue,
   polymorphicStorageMembers,
 } from "./polymorphic-mutation";
 import {
   buildScalarSqlValueForScalar,
-  decimalListMembers,
   scalarValueLiteral,
 } from "./values-builder";
 
@@ -194,16 +190,29 @@ function buildAssignment(
   }
 
   // push/unshift take one value or an array of values; always hand the
-  // adapter an element array so array-valued pushes expand element-wise
-  // instead of appending one malformed element
+  // adapter one complete list container so array-valued pushes expand
+  // element-wise instead of appending one malformed element. The normal
+  // whole-list value owner chooses enum, decimal, native-array, or JSON
+  // transport; update operators do not rebuild that decision.
   if ("push" in op && op.push !== undefined) {
-    return adapter.set.push(column, listElements(ctx, fieldName, op.push));
+    return adapter.set.push(
+      column,
+      scalarValueLiteral(
+        ctx,
+        fieldName,
+        Array.isArray(op.push) ? op.push : [op.push]
+      )
+    );
   }
 
   if ("unshift" in op && op.unshift !== undefined) {
     return adapter.set.unshift(
       column,
-      listElements(ctx, fieldName, op.unshift)
+      scalarValueLiteral(
+        ctx,
+        fieldName,
+        Array.isArray(op.unshift) ? op.unshift : [op.unshift]
+      )
     );
   }
 
@@ -211,32 +220,6 @@ function buildAssignment(
   throw new QueryEngineError(
     `Unknown update operation: ${Object.keys(op).join(", ")}`
   );
-}
-
-/**
- * The elements a push/unshift appends, in the destination container's own
- * vocabulary.
- *
- * `set.push`/`set.unshift` take JavaScript VALUES and let the adapter serialize
- * the whole batch into its container format, which is right for every list
- * whose members mean the same thing in JSON as in the column. A decimal list is
- * the exception plan 6.3 names: its JSON container holds unscaled coefficient
- * strings, so an appended `1.2` would be written beside members spelled `"120"`
- * and read back as 0.012. Converting HERE keeps the adapter's one serialization
- * and changes only what it is given.
- */
-function listElements(
-  ctx: QueryScope,
-  fieldName: string,
-  value: unknown
-): unknown[] {
-  const elements = Array.isArray(value) ? value : [value];
-  const listDomain = decimalListDescriptorOfState(
-    ctx.model["~"].state.scalars[fieldName]?.["~"].state
-  );
-  return listDomain
-    ? decimalListMembers(ctx.adapter, fieldName, elements, listDomain)
-    : elements;
 }
 
 /**

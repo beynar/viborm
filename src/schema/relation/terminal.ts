@@ -168,7 +168,7 @@ export function normalizeJunctionToken(path: string, token: unknown): string {
   return token;
 }
 
-/** The local foreign-key tuple: non-empty is the whole invariant here. */
+/** A non-empty foreign-key tuple whose members are distinct. */
 export function normalizeFieldTuple(
   builder: RelationBuilder,
   path: string,
@@ -180,6 +180,13 @@ export function normalizeFieldTuple(
       builder,
       path,
       `'${path}' requires at least one field key`
+    );
+  }
+  if (new Set(fields).size !== fields.length) {
+    refuseRelationInput(
+      builder,
+      path,
+      `'${path}' cannot repeat a field key in one foreign-key tuple`
     );
   }
   return [head, ...rest];

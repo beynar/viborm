@@ -17,12 +17,13 @@
  *  - raw and model operations share one atomic array transaction in order.
  */
 
+import vm from "node:vm";
 import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { PendingOperationError, VibORMErrorCode } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
-
 import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
 import {
@@ -53,7 +54,22 @@ const DIALECTS: Array<{ name: string; createDriver: () => AnyDriver }> = [
 /** A bound comparison, in either dialect's placeholder style. */
 const BOUND_LABEL_COMPARISON = /label = (\$1|\?)/;
 
+/** The refusal names the position, so the caller knows which value was wrong. */
+const SECOND_BOUND_PARAMETER = /bound parameter 1\b/;
+
 type Probe = ReturnType<typeof captureLogs>;
+
+class ProviderProbedBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
+  providerBatchCalls = 0;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.providerBatchCalls += 1;
+    return super.executeBatch<T>(client, queries);
+  }
+}
 
 function createProbedClient(createDriver: () => AnyDriver) {
   const probe = captureLogs();
@@ -356,6 +372,115 @@ for (const { name, createDriver } of DIALECTS) {
       });
     });
 
+    /**
+     * An invalid Date names no instant, and the two dialects disagree about
+     * what that means physically: PostgreSQL refuses the statement after
+     * dispatch with a generic execution failure, better-sqlite3 binds it as
+     * NULL and stores that. The raw boundary answers for both, before either
+     * sees it, and names the parameter that carried it.
+     */
+    describe("invalid Date parameters", () => {
+      const invalid = () => new Date(Number.NaN);
+
+      test("the tagged forms are refused before the driver sees them", async () => {
+        const { client, probe } = await setup();
+
+        await expect(
+          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${invalid()}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$executeRaw`UPDATE raw_sql_items SET qty = ${1} WHERE label = ${invalid()}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("the unsafe forms are refused before the driver sees them", async () => {
+        const { client, probe } = await setup();
+        const placeholder =
+          client.$driver.dialect === "postgresql" ? "$1" : "?";
+
+        await expect(
+          client.$queryRawUnsafe(
+            `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
+            invalid()
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$executeRawUnsafe(
+            `UPDATE raw_sql_items SET qty = 1 WHERE label = ${placeholder}`,
+            invalid()
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("a nested fragment and an array parameter are reached too", async () => {
+        const { client, probe } = await setup();
+
+        await expect(
+          client.$queryRaw(
+            sql`SELECT id FROM raw_sql_items WHERE ${sql`label = ${invalid()}`}`
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$queryRawUnsafe("SELECT 1", [1, invalid()])
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("a nested Date in a foreign cyclic JSON parameter is refused before dispatch", async () => {
+        const { client, probe } = await setup();
+        const parameter: unknown = vm.runInNewContext(`
+          const parameter = { nested: [[{ at: new Date(NaN) }]] };
+          parameter.self = parameter;
+          parameter;
+        `);
+
+        await expect(
+          client.$queryRaw(sql`SELECT ${parameter}`)
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        expect(probe.events).toEqual([]);
+      });
+
+      test("names the parameter position that carried it", async () => {
+        const { client } = await setup();
+
+        await expect(
+          client.$executeRaw`
+            UPDATE raw_sql_items SET label = ${"Named"} WHERE label = ${invalid()}
+          `
+        ).rejects.toThrow(SECOND_BOUND_PARAMETER);
+      });
+
+      test("refuses one built in another realm", async () => {
+        const { client, probe } = await setup();
+        const foreign: Date = vm.runInNewContext(
+          "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+        );
+        expect(foreign instanceof Date).toBe(false);
+
+        await expect(
+          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${foreign}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        expect(probe.events).toEqual([]);
+      });
+
+      test("inspects nothing else — a date-shaped string still binds", async () => {
+        const { client, probe } = await setup();
+        const text = "2024-01-02T03:04:05.000Z";
+
+        const rows = await client.$queryRaw<{
+          id: string;
+        }>`SELECT id FROM raw_sql_items WHERE label = ${text}`;
+
+        expect(rows).toEqual([]);
+        expect(lastStatement(probe).params).toEqual([text]);
+      });
+    });
+
     describe("lazy transaction operations", () => {
       test("construction performs no query", async () => {
         const { client, probe } = await setup();
@@ -428,7 +553,51 @@ for (const { name, createDriver } of DIALECTS) {
   });
 }
 
+/**
+ * The other half of the invalid-Date boundary. Only PostgreSQL binds a Date at
+ * all — better-sqlite3 refuses every Date object, valid or not — so a valid one
+ * is proven to retain its instant where it is a legal parameter. The focused
+ * fake-driver client contract pins detached provider identity.
+ */
+describe("valid Date parameters (pglite)", () => {
+  test("retain their instant through provider execution", async () => {
+    const driver = createInMemoryPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await syncLiveSchema(client);
+      const at = new Date("2024-01-02T03:04:05.000Z");
+
+      const rows = await client.$queryRaw<{
+        v: Date;
+      }>`SELECT ${at}::timestamptz AS v`;
+
+      expect(rows).toEqual([{ v: at }]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
 describe("raw SQL in a native array transaction", () => {
+  test("refuses a Date invalidated after transaction start before native dispatch", async () => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const driver = new ProviderProbedBatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      const transaction = client.$transaction([
+        client.$queryRaw<{ v: Date }>`SELECT ${parameter}::timestamptz AS v`,
+      ]);
+      queueMicrotask(() => parameter.setTime(Number.NaN));
+
+      await expect(transaction).rejects.toMatchObject({
+        code: VibORMErrorCode.INVALID_INPUT,
+      });
+      expect(driver.providerBatchCalls).toBe(0);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
   test("mixes raw and model operations in one ordered atomic batch", async () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });

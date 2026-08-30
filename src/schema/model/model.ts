@@ -241,6 +241,7 @@ function compoundMembers(
   fields: readonly string[],
   label: string
 ): Record<string, VibSchema> {
+  refuseDuplicateModelKeyMembers(fields, label);
   const members = emptyRecord<VibSchema>();
   for (const fieldName of fields) {
     // `in` is exact here: both maps come from the extractors, which build
@@ -257,6 +258,66 @@ function compoundMembers(
     put(members, fieldName, scalar["~"].state.base);
   }
   return members;
+}
+
+/** Snapshot one declaration tuple without consulting caller iteration hooks. */
+function snapshotModelKeyMembers(fields: unknown, label: string): string[] {
+  if (!Array.isArray(fields)) {
+    throw new Error(`${label} fields must be a dense array of strings`);
+  }
+  const memberCount = fields.length;
+  const members = new Array<string>(memberCount);
+  for (let position = 0; position < memberCount; position++) {
+    if (!Object.hasOwn(fields, position)) {
+      throw new Error(`${label} fields must be a dense array of strings`);
+    }
+    const member: unknown = fields[position];
+    if (typeof member !== "string") {
+      throw new Error(`${label} fields must be a dense array of strings`);
+    }
+    members[position] = member;
+  }
+  return members;
+}
+
+/** Snapshot the four public index options, including inherited accessors. */
+function snapshotIndexOptions(options: IndexOptions): IndexOptions {
+  const name = options.name;
+  const unique = options.unique;
+  const type = options.type;
+  const where = options.where;
+  return {
+    ...(name === undefined ? {} : { name }),
+    ...(unique === undefined ? {} : { unique }),
+    ...(type === undefined ? {} : { type }),
+    ...(where === undefined ? {} : { where }),
+  };
+}
+
+/** One physical key/index tuple cannot name the same column twice. */
+function refuseDuplicateModelKeyMembers(
+  fields: readonly string[],
+  label: string
+): void {
+  if (new Set(fields).size !== fields.length) {
+    throw new Error(`${label} cannot repeat a field in one tuple`);
+  }
+}
+
+/** One public compound-selector name may identify exactly one tuple. */
+function refuseCompoundKeyNameCollision(
+  state: ModelState,
+  name: string,
+  label: string
+): void {
+  if (
+    Object.hasOwn(state.compoundId ?? {}, name) ||
+    Object.hasOwn(state.compoundUniques ?? {}, name)
+  ) {
+    throw new Error(
+      `${label} name '${name}' is already used by another compound key; give this tuple a distinct name`
+    );
+  }
 }
 
 /**
@@ -362,9 +423,15 @@ export class Model<State extends ModelState> {
     >
   >;
   index(fields: string[], options: IndexOptions = {}): Model<any> {
+    const storedFields = snapshotModelKeyMembers(fields, "Index");
+    refuseDuplicateModelKeyMembers(storedFields, "Index");
+    const storedOptions = snapshotIndexOptions(options);
     return new Model({
       ...this.state,
-      indexes: mergeIndexDefinitions(this.state, { fields, options }),
+      indexes: mergeIndexDefinitions(this.state, {
+        fields: storedFields,
+        options: storedOptions,
+      }),
     });
   }
 
@@ -372,8 +439,14 @@ export class Model<State extends ModelState> {
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
-    const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = compoundMembers(this.state, fields, "Compound ID");
+    const storedFields = snapshotModelKeyMembers(fields, "Compound ID");
+    const name = getNameFromKeys(options?.name, storedFields);
+    refuseCompoundKeyNameCollision(this.state, name, "Compound ID");
+    const fieldsRecord = compoundMembers(
+      this.state,
+      storedFields,
+      "Compound ID"
+    );
 
     const compoundId = {
       ...this.state.compoundId,
@@ -400,8 +473,14 @@ export class Model<State extends ModelState> {
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
-    const name = getNameFromKeys(options?.name, fields);
-    const fieldsRecord = compoundMembers(this.state, fields, "Compound unique");
+    const storedFields = snapshotModelKeyMembers(fields, "Compound unique");
+    const name = getNameFromKeys(options?.name, storedFields);
+    refuseCompoundKeyNameCollision(this.state, name, "Compound unique");
+    const fieldsRecord = compoundMembers(
+      this.state,
+      storedFields,
+      "Compound unique"
+    );
 
     const compoundUniques = {
       ...this.state.compoundUniques,

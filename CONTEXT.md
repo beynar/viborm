@@ -221,6 +221,22 @@ The records selected by one normalized search query together with its model and
 attribute filters, before projection or faceting.
 _Avoid_: Hits when pagination or projection has already narrowed the records
 
+## Physical database language
+
+**Namespace**:
+The SQL qualifier for one driver's persistent objects: a PostgreSQL schema,
+MySQL database, or requested Vitess keyspace qualifier. A Vitess qualifier may
+be redirected and is not a PlanetScale database resource, shard, tenant,
+SQLite attachment, or proof of the final backend.
+_Avoid_: Database schema or database name as the cross-dialect public term
+
+**Migration namespace attestation**:
+The MySQL2 caller's explicit `"non-redirecting"` assertion that qualified
+database references cannot be remapped by the transport during effectful
+migration work. It does not select a namespace and is never inferred from a
+driver class, URL, handshake, host, or server version.
+_Avoid_: Backend detection, migration permission, or a second namespace value
+
 ## Client-extension language (planned)
 
 **Client extension**:

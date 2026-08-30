@@ -344,7 +344,10 @@ it is a client command, not server SQL.
 A generated logical-only schema change may commit a state with an empty SQL
 blob and zero effect steps. A state whose full snapshot and transition program
 are both unchanged is a no-op and is not published. Manual migrations remain
-non-empty because their purpose is the supplied effect.
+non-empty because their purpose is the supplied effect. Each declared manual
+forward or rollback program therefore contains at least one dispatch, and no
+manual dispatch may render as empty or whitespace-only SQL. Accepted manual SQL
+is not trimmed, split, or otherwise normalized.
 
 ### 6.5 Immutable states
 

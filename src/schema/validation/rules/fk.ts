@@ -11,8 +11,9 @@
 // tuple, so an unequal pair cannot be constructed.
 
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { getModelKeyCatalog, isTotalIndex, type Model } from "../../model";
+import { findReferenceableKey, type Model } from "../../model";
 import type { ForeignKeyDeclaration } from "../../relation";
+import { sqliteDateTimePhysicalForm } from "../../scalars/datetime/physical";
 import type { ResolvedStoredReference } from "../relation-resolution";
 import type { SchemaValidationIssue } from "../types";
 
@@ -106,22 +107,49 @@ export function checkStoredReference(
     const remoteState = remote["~"].state;
     const localType = localState.type;
     const remoteType = remoteState.type;
+    const localIsArray = localState.array === true;
+    const remoteIsArray = remoteState.array === true;
     const localDecimal = localState.decimal;
     const remoteDecimal = remoteState.decimal;
+    const arrayShapeMismatch =
+      localType === remoteType && localIsArray !== remoteIsArray;
     const decimalDomainMismatch =
       localType === "decimal" &&
       remoteType === "decimal" &&
       !sameDecimalDescriptor(localDecimal, remoteDecimal);
-    if (localType !== remoteType || decimalDomainMismatch) {
+    const localDateTimeForm =
+      localType === "datetime" && !localIsArray
+        ? sqliteDateTimePhysicalForm(local["~"].nativeType)
+        : undefined;
+    const remoteDateTimeForm =
+      remoteType === "datetime" && !remoteIsArray
+        ? sqliteDateTimePhysicalForm(remote["~"].nativeType)
+        : undefined;
+    const dateTimeDomainMismatch =
+      localDateTimeForm !== undefined &&
+      remoteDateTimeForm !== undefined &&
+      localDateTimeForm !== remoteDateTimeForm;
+    if (
+      localType !== remoteType ||
+      arrayShapeMismatch ||
+      decimalDomainMismatch ||
+      dateTimeDomainMismatch
+    ) {
       legal = false;
-      const localDescription =
-        localType === "decimal" && localDecimal
+      const localDescription = localIsArray
+        ? `${localType}[]`
+        : localType === "decimal" && localDecimal
           ? `decimal(${localDecimal.precision},${localDecimal.scale})`
-          : localType;
-      const remoteDescription =
-        remoteType === "decimal" && remoteDecimal
+          : localDateTimeForm
+            ? `datetime(${localDateTimeForm})`
+            : localType;
+      const remoteDescription = remoteIsArray
+        ? `${remoteType}[]`
+        : remoteType === "decimal" && remoteDecimal
           ? `decimal(${remoteDecimal.precision},${remoteDecimal.scale})`
-          : remoteType;
+          : remoteDateTimeForm
+            ? `datetime(${remoteDateTimeForm})`
+            : remoteType;
       issues.push({
         code: "FK003",
         message: `Type mismatch: '${foreignField}' (${localDescription}) → '${referencedField}' (${remoteDescription}) in ${targetName}`,
@@ -130,12 +158,17 @@ export function checkStoredReference(
         relation: relationName,
         repair: decimalDomainMismatch
           ? `Give '${foreignField}' the same decimal precision and scale as '${targetName}.${referencedField}'`
-          : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
+          : arrayShapeMismatch
+            ? `Give '${foreignField}' the same scalar/list shape as '${targetName}.${referencedField}'`
+            : dateTimeDomainMismatch
+              ? `Give '${foreignField}' the same SQLite DateTime physical form as '${targetName}.${referencedField}'`
+              : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
       });
     }
   }
 
-  if (!addressesTargetKey(target, references)) {
+  const targetKey = findReferenceableKey(target, references);
+  if (!targetKey) {
     legal = false;
     issues.push({
       code: "FK005",
@@ -174,10 +207,23 @@ export function checkStoredReference(
     });
   }
 
-  const [head, ...rest] = fields.map((foreignField, position) => ({
+  // Published in the MATCHED KEY's order, not the declaration's. Each pair
+  // travels whole, so the pairing the author wrote is untouched and both DDL
+  // sides permute together. `static-membership.ts` reads the DECLARATION, so
+  // its compile-time foreign-key tuple can be ordered differently; every shape
+  // either side publishes is name-keyed, so the two orders never meet.
+  const members = fields.map((foreignField, position) => ({
     foreignField,
     referencedField: references[position]!,
   }));
+  if (targetKey) {
+    members.sort(
+      (left, right) =>
+        targetKey.indexOf(left.referencedField) -
+        targetKey.indexOf(right.referencedField)
+    );
+  }
+  const [head, ...rest] = members;
   return {
     reference:
       legal && head
@@ -207,27 +253,4 @@ function isDecimalList(
 ): boolean {
   const state = scalar["~"].state;
   return state.type === "decimal" && state.array === true;
-}
-
-/**
- * Is the COMPLETE referenced tuple a key the target row can be addressed by?
- *
- * The whole tuple, not each member separately: a compound primary key's members
- * carry no individual `isId`, so a per-scalar reading advises against
- * referencing the very key the target declares.
- */
-function addressesTargetKey(
-  target: Model<any>,
-  references: readonly string[]
-): boolean {
-  const wanted = [...references].sort().join(",");
-  for (const key of getModelKeyCatalog(target).addressableKeys) {
-    if ([...key.fields].sort().join(",") === wanted) return true;
-  }
-  return target["~"].state.indexes.some(
-    (index) =>
-      index.options.unique &&
-      isTotalIndex(index.options) &&
-      [...index.fields].sort().join(",") === wanted
-  );
 }

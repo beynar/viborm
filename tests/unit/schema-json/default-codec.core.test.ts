@@ -14,6 +14,7 @@
  * shape collides with a tag says so.
  */
 
+import vm from "node:vm";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
 import type { Schema } from "@schema/hydration";
@@ -109,6 +110,40 @@ describe("tagged leaves", () => {
     expect(boundDefault({ type: "blob", default: { $bytes: "AQID" } })).toEqual(
       new Uint8Array([1, 2, 3])
     );
+  });
+
+  /**
+   * A tag names a VALUE's own domain, and declaration state holds the caller's
+   * object untouched — so a Date or byte string built in another realm arrives
+   * here failing the local `instanceof` while being the same domain member.
+   * Reading the prototype chain instead of the brand wrote it as an ordinary
+   * record, losing the tag the parse side needs.
+   */
+  it("tags a Date and a byte string built in another realm", () => {
+    const bytes: Uint8Array = vm.runInNewContext("new Uint8Array([1, 2, 3])");
+    const date: Date = vm.runInNewContext(`new Date('${ISO}')`);
+    expect(bytes instanceof Uint8Array).toBe(false);
+    expect(date instanceof Date).toBe(false);
+
+    expect(emittedDefault(model(s.blob().default(bytes)))).toEqual({
+      $bytes: "AQID",
+    });
+    expect(emittedDefault(model(s.dateTime().default(date)))).toEqual({
+      $date: ISO,
+    });
+  });
+
+  it("serializes the foreign Date instant instead of overridable methods", () => {
+    const date: Date = vm.runInNewContext(
+      `Object.assign(new Date('${ISO}'), {
+        getTime() { return NaN },
+        toISOString() { return 'spoofed' }
+      })`
+    );
+
+    expect(emittedDefault(model(s.dateTime().default(date)))).toEqual({
+      $date: ISO,
+    });
   });
 
   it("writes and reads a Date as `$date`", () => {
@@ -324,6 +359,26 @@ describe("values the document cannot hold", () => {
     expect(
       issues(serializeRefusal(model(s.dateTime().default(new Date("nope")))))
     ).toEqual(["[J009] /models/user/fields/probe/default"]);
+  });
+
+  it("refuses a foreign invalid Date whose getTime override lies", () => {
+    const date: Date = vm.runInNewContext(
+      "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+    );
+
+    expect(issues(serializeRefusal(model(s.dateTime().default(date))))).toEqual(
+      ["[J009] /models/user/fields/probe/default"]
+    );
+  });
+
+  it("refuses detached foreign bytes through the document issue surface", () => {
+    const bytes: Uint8Array = vm.runInNewContext(
+      "const value = new Uint8Array([1, 2, 3]); value.buffer.transfer(); value"
+    );
+
+    const error = serializeRefusal(model(s.blob().default(bytes)));
+    expect(issues(error)).toEqual(["[J009] /models/user/fields/probe/default"]);
+    expect(error.issues[0]?.message).toContain("detached");
   });
 
   // `JSON.stringify` turns a non-finite number into `null`, which is a silent

@@ -134,6 +134,15 @@ presence of the optional members proves the full query tier. Do not add a
 geospatial capability boolean, mutable member, strategy, generic geometry, or
 second parser.
 
+### Rule 8: List Updates Receive One Complete Container
+
+`DatabaseAdapter.set.push()` and `.unshift()` receive one already encoded `Sql`
+container, never loose JavaScript members. The query engine's scalar-value
+boundary chooses the destination vocabulary once: a native PostgreSQL array,
+an untyped managed-enum array literal, an exact-decimal list, or a JSON
+container. Adapters own only dialect concatenation. Do not expand a list into
+one SQL node or bind per member, and do not serialize its members a second time.
+
 The query engine chooses the operation and passes trusted codec values. The
 adapter alone spells PostgreSQL/PostGIS, MySQL SRID 4326, or SQLite JSON SQL.
 All coordinates and polygon JSON are bound. PostgreSQL/MySQL spatial predicates

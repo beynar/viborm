@@ -191,20 +191,25 @@ function createDeferredSignal(): {
   };
 }
 
+class OpaqueProviderParameter {
+  value: string;
+
+  constructor(value: string) {
+    this.value = value;
+  }
+}
+
 function createHostileParameter(value: string): {
-  readonly parameter: { value: string };
+  readonly parameter: OpaqueProviderParameter;
   readonly reads: () => number;
 } {
   let reads = 0;
-  const parameter = new Proxy(
-    { value },
-    {
-      ownKeys(target) {
-        reads += 1;
-        return Reflect.ownKeys(target);
-      },
-    }
-  );
+  const parameter = new Proxy(new OpaqueProviderParameter(value), {
+    ownKeys(target) {
+      reads += 1;
+      return Reflect.ownKeys(target);
+    },
+  });
   return { parameter, reads: () => reads };
 }
 
@@ -254,6 +259,8 @@ describe("official statement instrumentation", () => {
           extension === undefined ? base : base.$extends(extension);
         await client.$queryRaw(sql`SELECT ${hostile.parameter}`);
         expect(hostile.reads()).toBe(0);
+        expect(hostile.parameter.value).toBe("provider-mutated");
+        expect(driver.providerCalls[0]?.params[0]).toBe(hostile.parameter);
       }
 
       const diagnosticDriver = new StatementDriver();
@@ -539,16 +546,8 @@ describe("official statement instrumentation", () => {
       const timeline: string[] = [];
       const driver = new StatementDriver();
       driver.timeline = timeline;
-      let parameterReads = 0;
-      const parameter = new Proxy(
-        { secret: "private" },
-        {
-          ownKeys(target) {
-            parameterReads += 1;
-            return Reflect.ownKeys(target);
-          },
-        }
-      );
+      const hostile = createHostileParameter("private");
+      const parameter = hostile.parameter;
       const client = trackedClient(driver)
         .$extends({
           name: "statement-before",
@@ -609,6 +608,7 @@ describe("official statement instrumentation", () => {
         activeSpan: SPAN_EXECUTE,
         sql: "/* transformed */ SELECT ?",
       });
+      expect(driver.providerCalls[0]?.params[0]).toBe(parameter);
       expect(executeSpans).toHaveLength(1);
       expect(executeSpans[0]?.attributes[ATTR_DB_QUERY_TEXT]).toBeUndefined();
       expect(
@@ -621,7 +621,7 @@ describe("official statement instrumentation", () => {
         sql: "/* transformed */ SELECT ?",
       });
       expect(logs.events[0]?.params).toBeUndefined();
-      expect(parameterReads).toBe(1);
+      expect(hostile.reads()).toBe(1);
     } finally {
       await recorder.dispose();
     }

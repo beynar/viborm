@@ -18,7 +18,7 @@
  * by being ordinary, variant, first, or sole.
  */
 
-import { getModelKeyCatalog, isTotalIndex, type Model } from "../model";
+import { findReferenceableKey, getModelKeyCatalog, type Model } from "../model";
 import {
   type JunctionOverrideView,
   JunctionPhysicalNameError,
@@ -729,9 +729,13 @@ function resolveOrdinaryPair(
     return undefined;
   }
   if (!check.reference) return undefined;
+  // The published local columns follow the NORMALIZED member order (a permuted
+  // referenced tuple is reordered to its matched target key by
+  // `checkStoredReference`), so the automatic-index name this fact reserves is
+  // the same one the serializer derives from the members.
   publication.storedReferences.push({
     owner: owner.node.slot.source,
-    fields: foreignKey.fields,
+    fields: check.reference.members.map((member) => member.foreignField),
     unique,
   });
   return {
@@ -957,16 +961,7 @@ function declaresUniqueKey(
   model: Model<any>,
   fields: readonly string[]
 ): boolean {
-  const wanted = [...fields].sort().join(",");
-  for (const key of getModelKeyCatalog(model).addressableKeys) {
-    if ([...key.fields].sort().join(",") === wanted) return true;
-  }
-  return model["~"].state.indexes.some(
-    (index) =>
-      index.options.unique &&
-      isTotalIndex(index.options) &&
-      [...index.fields].sort().join(",") === wanted
-  );
+  return findReferenceableKey(model, fields) !== undefined;
 }
 
 // =============================================================================

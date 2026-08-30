@@ -19,8 +19,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { Driver } from "@drivers/driver";
 import {
   type PinnedSessionReservation,
-  readCleanupFailures,
-  withCleanupFailure,
+  readSuppressedFailures,
+  withSuppressedFailure,
 } from "@drivers/shared";
 import type { QueryResult } from "@drivers/types";
 import { describe, expect, it } from "vitest";
@@ -100,79 +100,83 @@ function rejection(work: Promise<unknown>): Promise<unknown> {
  * propagating, and a throw there does not merely lose the cleanup evidence: it
  * REPLACES the primary with a `TypeError` about an iterator.
  */
-function plantHostileCleanupFailures(carrier: object): void {
+function plantHostileSuppressedFailures(carrier: object): unknown[] {
   const planted: unknown[] = [];
   Object.defineProperty(planted, Symbol.iterator, {
     value: () => {
       throw new Error("this array refuses to be iterated");
     },
   });
-  Object.defineProperty(carrier, "cleanupFailures", {
+  Object.defineProperty(carrier, "suppressedFailures", {
     configurable: true,
     enumerable: false,
     value: planted,
     writable: true,
   });
+  return planted;
 }
 
-describe("the one cleanup-failure combination rule", () => {
+describe("the one shared suppressed-failure combination rule", () => {
   it("returns the primary itself, carrying the cleanup beside it", () => {
     const primary = new Error("the estate half-dropped");
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(primary, cleanup);
+    const combined = withSuppressedFailure(primary, cleanup);
 
     expect(combined).toBe(primary);
     expect(primary.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
     // The evidence is carried, not printed into the error: an enumerable
     // property would end up in every structured log and every snapshot of it.
     expect(Object.keys(primary)).toEqual([]);
     // The property MIRRORS the record for whoever opens the error in a
     // debugger. It is written, never read back.
     expect(
-      Object.getOwnPropertyDescriptor(primary, "cleanupFailures")
+      Object.getOwnPropertyDescriptor(primary, "suppressedFailures")
     ).toMatchObject({ enumerable: false, value: [cleanup] });
   });
 
-  it("records past a planted `cleanupFailures` that refuses to be read", () => {
+  it("records past planted `suppressedFailures` that refuses to be read", () => {
     // Recording is the last thing that runs while a migration failure is
     // propagating, so it has to be TOTAL: reading the caller's array to extend
     // it is the one step that could throw, and its throw becomes the failure
     // the caller is told about instead of the estate's.
     const primary = new Error("the estate half-dropped");
-    plantHostileCleanupFailures(primary);
+    const planted = plantHostileSuppressedFailures(primary);
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(primary, cleanup);
+    const combined = withSuppressedFailure(primary, cleanup);
 
     expect(combined).toBe(primary);
     expect(primary.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(
+      Object.getOwnPropertyDescriptor(primary, "suppressedFailures")?.value
+    ).toBe(planted);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
-  it("never answers from a `cleanupFailures` the caller wrote", () => {
+  it("never answers from `suppressedFailures` the caller wrote", () => {
     // Evidence means "this module recorded it". A property anyone can define
     // before, and redefine after, answers a different question entirely.
     const primary = new Error("the estate half-dropped");
     const fabricated = ["a cleanup failure that never happened"];
-    Object.defineProperty(primary, "cleanupFailures", {
+    Object.defineProperty(primary, "suppressedFailures", {
       configurable: true,
       enumerable: false,
       value: fabricated,
       writable: true,
     });
 
-    expect(readCleanupFailures(primary)).toEqual([]);
+    expect(readSuppressedFailures(primary)).toEqual([]);
 
     const cleanup = new Error("the lock could not be released");
-    const combined = withCleanupFailure(primary, cleanup);
-    Object.defineProperty(primary, "cleanupFailures", {
+    const combined = withSuppressedFailure(primary, cleanup);
+    Object.defineProperty(primary, "suppressedFailures", {
       configurable: true,
       value: fabricated,
     });
 
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("records evidence a LYING `defineProperty` silently drops", () => {
@@ -183,13 +187,13 @@ describe("the one cleanup-failure combination rule", () => {
     const hostile = new Proxy(primary, { defineProperty: () => true });
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(hostile, cleanup);
+    const combined = withSuppressedFailure(hostile, cleanup);
 
     expect(combined).toBe(hostile);
     expect(
-      Object.getOwnPropertyDescriptor(hostile, "cleanupFailures")
+      Object.getOwnPropertyDescriptor(hostile, "suppressedFailures")
     ).toBeUndefined();
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("keeps the evidence readable after the primary is REVOKED", () => {
@@ -201,23 +205,23 @@ describe("the one cleanup-failure combination rule", () => {
     );
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(proxy, cleanup);
+    const combined = withSuppressedFailure(proxy, cleanup);
     revoke();
 
     expect(combined).toBe(proxy);
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("carries evidence on a FROZEN primary without writing to it", () => {
     const primary = Object.freeze(new Error("the estate half-dropped"));
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(primary, cleanup);
+    const combined = withSuppressedFailure(primary, cleanup);
 
     expect(combined).toBe(primary);
     expect(primary.message).toBe("the estate half-dropped");
     expect(Object.isFrozen(primary)).toBe(true);
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("carries evidence past a primary whose properties REFUSE writes", () => {
@@ -231,17 +235,17 @@ describe("the one cleanup-failure combination rule", () => {
     });
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure(primary, cleanup);
+    const combined = withSuppressedFailure(primary, cleanup);
 
     expect(combined).toBe(primary);
     expect(primary.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("keeps BOTH reachable when the primary is not an object at all", () => {
     const cleanup = new Error("the lock could not be released");
 
-    const combined = withCleanupFailure("the estate half-dropped", cleanup);
+    const combined = withSuppressedFailure("the estate half-dropped", cleanup);
 
     // A string carries nothing, so the thrown value becomes the one shape that
     // can carry both — and the primary is still the first thing in it.
@@ -253,18 +257,18 @@ describe("the one cleanup-failure combination rule", () => {
     expect(
       combined instanceof AggregateError ? combined.cause : undefined
     ).toBe("the estate half-dropped");
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("records a cleanup value nothing can render, without rendering it", () => {
     const primary = new Error("the estate half-dropped");
     const cleanup = Symbol("no string form");
 
-    const combined = withCleanupFailure(primary, cleanup);
+    const combined = withSuppressedFailure(primary, cleanup);
 
     expect(combined).toBe(primary);
     expect(primary.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(combined)).toEqual([cleanup]);
+    expect(readSuppressedFailures(combined)).toEqual([cleanup]);
   });
 
   it("accumulates the cleanup failures of both owners, in order", () => {
@@ -272,19 +276,19 @@ describe("the one cleanup-failure combination rule", () => {
     const unlock = new Error("the lock could not be released");
     const release = new Error("the producer could not be returned");
 
-    const combined = withCleanupFailure(
-      withCleanupFailure(primary, unlock),
+    const combined = withSuppressedFailure(
+      withSuppressedFailure(primary, unlock),
       release
     );
 
     expect(combined).toBe(primary);
-    expect(readCleanupFailures(combined)).toEqual([unlock, release]);
+    expect(readSuppressedFailures(combined)).toEqual([unlock, release]);
   });
 
   it("reads nothing from a value that carries nothing", () => {
-    expect(readCleanupFailures(new Error("plain"))).toEqual([]);
-    expect(readCleanupFailures("a string")).toEqual([]);
-    expect(readCleanupFailures(undefined)).toEqual([]);
+    expect(readSuppressedFailures(new Error("plain"))).toEqual([]);
+    expect(readSuppressedFailures("a string")).toEqual([]);
+    expect(readSuppressedFailures(undefined)).toEqual([]);
   });
 });
 
@@ -300,21 +304,21 @@ describe("a pinned session's release failure never replaces the body's", () => {
 
     expect(thrown).toBe(bodyFailure);
     expect(bodyFailure.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(thrown)).toEqual([releaseFailure]);
+    expect(readSuppressedFailures(thrown)).toEqual([releaseFailure]);
     // A body that threw condemns its producer, release failure or not.
     expect(driver.sessions).toEqual(["reserve", "destroy"]);
   });
 
   it("keeps a DECORATED body failure primary through the real release", async () => {
     // The rule on the path that produced it. The body's failure already
-    // carries a `cleanupFailures` of someone else's making, and the release
+    // carries `suppressedFailures` of someone else's making, and the release
     // fails on top of it: a recorder that read that array would throw inside
     // the driver's own catch, and the caller of a reset that dropped half an
     // estate would be told about an iterator.
     const releaseFailure = new Error("the producer could not be returned");
     const driver = new ReleaseFailingDriver(releaseFailure);
     const bodyFailure = new Error("the estate half-dropped");
-    plantHostileCleanupFailures(bodyFailure);
+    plantHostileSuppressedFailures(bodyFailure);
 
     const thrown = await rejection(
       driver._withPinnedSession(() => Promise.reject(bodyFailure))
@@ -322,7 +326,7 @@ describe("a pinned session's release failure never replaces the body's", () => {
 
     expect(thrown).toBe(bodyFailure);
     expect(bodyFailure.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(thrown)).toEqual([releaseFailure]);
+    expect(readSuppressedFailures(thrown)).toEqual([releaseFailure]);
     expect(driver.sessions).toEqual(["reserve", "destroy"]);
   });
 

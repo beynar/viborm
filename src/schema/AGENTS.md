@@ -156,6 +156,25 @@ replacement can erase the duplicate. Rules report structured
 `SchemaValidationIssue` values. Database portability belongs to migration
 dialect validation, not to disconnected schema rules.
 
+`model/keys.ts` owns the ordered key catalog. `addressableKeys` is the public
+unique-selector grammar; `referenceableKeys` adds total unique indexes and is
+the one physical-key view used by stored-reference validation and relation
+cardinality derivation. Compound ID, compound unique, index, and relation
+field/reference tuples reject repeated members at their declaration owners.
+A compound selector name identifies one tuple across IDs and uniques; a second
+explicit or underscore-derived name collision is refused at declaration rather
+than overwriting the first tuple. Model key and index declarations snapshot
+their member arrays. Index options are read once by their four public names so
+later caller mutation cannot change the model and inherited accessors do not
+silently lose a partial predicate or uniqueness fact.
+
+Stored-reference domain equality includes the scalar type and scalar/list
+shape. SQLite DateTime native forms must match for scalar references because
+they name different stored vocabularies. DateTime lists ignore those member
+native forms because every list uses its dialect's one list container. A scalar
+and a list never form a legal stored reference, even when their scalar type
+names match.
+
 Use `pnpm test:coverage:schema-validation` for the memory-capped L5 report. It
 gates statements, branches, functions, and lines at 100% and writes
 `coverage/schema-validation/index.html`.

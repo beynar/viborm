@@ -23,7 +23,7 @@
  */
 
 import type { AnyDriver } from "../drivers/driver";
-import { withCleanupFailure } from "../drivers/shared/cleanup-failure";
+import { withSuppressedFailure } from "../drivers/shared/suppressed-failure";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
@@ -513,7 +513,7 @@ async function acquireLock(
  * producer is still condemned — and its own failure is RECORDED on the way out
  * instead of replacing the cause.
  *
- * The recording is {@link withCleanupFailure}, the one rule both cleanup owners
+ * The recording is {@link withSuppressedFailure}, the one rule both cleanup owners
  * share. Appending the detail to `cause.message` was the same intent written as
  * a WRITE to an error VibORM does not own: it throws outright for a frozen
  * Error or an accessor-backed `message`, and the caller was then told about a
@@ -532,7 +532,7 @@ async function releaseAfterFailure(
     // the release failure, unchanged in every other respect. Only a primary
     // that can carry nothing at all (a thrown string, a thrown number) changes
     // shape, into the one carrier that keeps both.
-    throw withCleanupFailure(cause, releaseFailure);
+    throw withSuppressedFailure(cause, releaseFailure);
   }
 }
 

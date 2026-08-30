@@ -19,13 +19,13 @@ import { DriverTransactionBase } from "./driver-transaction-base";
 import { normalizeDriverConnectionError } from "./error-mapping";
 import { observePromiseRejection } from "./rejection-observed-promise";
 import { SavepointQueue } from "./savepoint-queue";
-import { withCleanupFailure } from "./shared/cleanup-failure";
 import { defineImmutableDriverFact } from "./shared/driver-options";
 import {
   leasePinnedCommand,
   type PinnedSessionControl,
   type PinnedSessionReservation,
 } from "./shared/pinned-session";
+import { withSuppressedFailure } from "./shared/suppressed-failure";
 import type {
   BatchTransactionOptions,
   TransactionForm,
@@ -124,10 +124,17 @@ export abstract class Driver<
           }
         }
 
-        if (!this.client) return;
+        const closingClient = this.closeRetryClient ?? this.client;
+        if (!closingClient) return;
         try {
-          await this.closeClient(this.client);
+          await this.closeClient(closingClient);
         } catch (error) {
+          // A provider may make the transport unusable before its close promise
+          // rejects. Keep the exact handle for cleanup retry, but remove it from
+          // every path that can query it or call it connected.
+          this.closeRetryClient = closingClient;
+          if (this.client === closingClient) this.client = null;
+          this.initPromise = null;
           throw normalizeDriverConnectionError(
             error,
             {
@@ -147,9 +154,10 @@ export abstract class Driver<
 
       try {
         await disconnectPromise;
-      } finally {
         this.client = null;
         this.initPromise = null;
+        this.closeRetryClient = null;
+      } finally {
         this.isDisconnecting = false;
       }
     };
@@ -282,7 +290,7 @@ export abstract class Driver<
         try {
           await reservation.release(true);
         } catch (releaseFailure) {
-          throw withCleanupFailure(bodyFailure, releaseFailure);
+          throw withSuppressedFailure(bodyFailure, releaseFailure);
         }
         throw bodyFailure;
       }

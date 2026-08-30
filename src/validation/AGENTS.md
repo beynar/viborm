@@ -151,6 +151,23 @@ untrusted and crosses the complete codec once after each invocation. Explicit
 writes cross it once as ordinary input. Other scalar defaults retain the generic
 default-validation path.
 
+`primitives/datetime-values.ts` is the semantic owner of the one public
+DateTime domain. It owns the real proleptic-Gregorian calendar predicate, the
+`00` through `23` clock-hour predicate (minutes and seconds are `00` through
+`59`), and the inclusive UTC instant bounds
+`0000-01-01T00:00:00.000Z` through `9999-12-31T23:59:59.999Z`. Public ISO
+timestamp input additionally admits `Z` or a signed offset through `±23:59`.
+`iso.ts`, the query result boundary, and the numeric physical codec consume
+these facts; do not reproduce their calendar, clock, or epoch-range rules.
+
+`primitives/datetime-physical-codec.ts` owns SQLite DateTime text,
+epoch-millisecond, and Julian-day conversion. Every admitted public instant is
+a whole millisecond in the shared domain. Encoding to REAL is total across that
+domain, and decoding rounds the Julian-day double to the nearest logical
+millisecond before applying the shared bounds. A valid public write or literal
+default is never refused merely because its Julian-day number is not an exact
+binary representation. Raw values remain physical.
+
 `scalars/decimal.ts` owns the exact-one scalar and list update unions. Empty,
 multi-key, unknown, inherited, and explicit-undefined operation bags fail here.
 The query engine trusts that decision and must not add a second precedence guard.
@@ -299,7 +316,27 @@ Do not rebuild operation schemas inside scalar definitions, relation definitions
 
 ### Rule 6: One Owner for Shared Representation Guards
 `value-guards.ts` owns shared identity predicates: `isRecord`, `isString`,
-`isFunction`, `isNumber`, `isBoolean`, `isBigInt`, and `isDate`. Import them
+`isFunction`, `isNumber`, `isBoolean`, `isBigInt`, `isDate`, and
+`isUint8Array`. Both are realm-independent: `isDate` proves `[[DateValue]]` for
+every object through `Date.prototype.getTime`; `isUint8Array` uses its local
+`%TypedArray%` tag accessor as the sole slot proof. Foreign-realm natives
+therefore pass, while prototype impostors, proxies, and `Symbol.toStringTag`
+spoofs fail without a caller-controlled prototype walk.
+Consumers of an admitted Date use the corresponding `Date.prototype`
+intrinsics because instance `getTime` and `toISOString` remain overridable.
+Blob admission additionally reads intrinsic `buffer`, `byteOffset`, and
+`byteLength` metadata through `%TypedArray%.prototype`, never from the value.
+An unshadowed value whose direct prototype is the exact local
+`Uint8Array.prototype` or the captured local Node Buffer prototype is already
+a trusted runtime boundary, so it keeps its identity and prototype.
+Foreign-realm views, subclasses, caller-owned custom-prototype values, and
+values with own metadata shadows become clean local views; a Proxy over the
+value and a detached view become issues.
+A one-time agreement from public metadata is not authority because a stateful
+prototype can lie on the driver's later read. These are ADMISSION-boundary
+guards: the boundary normalizes an admitted value to a trustworthy local
+representation, so
+downstream layers keep plain `instanceof` on purpose. Import them
 instead of defining the same representation check in another module. Do not use
 them when the boundary needs stronger semantics such as a plain prototype,
 finite/integer values, promise-like behavior, safe reads from hostile values,

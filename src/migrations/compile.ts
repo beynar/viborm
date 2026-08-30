@@ -237,8 +237,20 @@ function compileManualOperations(
   assembly: SqlAssembly,
   prefix: string
 ): MigrationOperationV1[] {
+  if (fragments.length === 0) {
+    throw new MigrationError(
+      `Manual ${prefix} program must contain at least one SQL dispatch`,
+      VibORMErrorCode.MIGRATION_INVALID_ESTATE
+    );
+  }
   return fragments.map((fragment, index) => {
     const text = fragment.toStatement(dialect === "postgresql" ? "$n" : "?");
+    if (text.trim().length === 0) {
+      throw new MigrationError(
+        `Manual ${prefix} SQL dispatch ${index} must contain non-whitespace text`,
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
     const parameters = fragment.values.map((value) => encodeParameter(value));
     return {
       id: `manual:${prefix}:${index}`,

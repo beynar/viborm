@@ -4,9 +4,12 @@
  * Tests for serializeModels() function, particularly junction table generation.
  */
 
+import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
+import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
+import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { serializeModels } from "@src/migrations/serializer";
-import { s } from "@src/schema";
+import { s, TYPES } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { describe, expect, it } from "vitest";
 
@@ -483,6 +486,178 @@ describe("enum serialization", () => {
       "inactive",
       "pending",
     ]);
+  });
+
+  // The LIST representation is decided before enum identity is spelled. A
+  // scalar enum type describes ONE member, so a list that took it would refuse
+  // every value the field can hold (upstream TypeORM #11865).
+  const listSchema = () => {
+    const Status = s.model({
+      id: s.string().id(),
+      statuses: s.enum(["active", "inactive"]).array(),
+    });
+    const schema = { status: Status };
+    hydrateSchemaNames(schema);
+    return schema;
+  };
+
+  function onlySerializedTable(snapshot: ReturnType<typeof serializeModels>) {
+    if (snapshot.tables.length !== 1) {
+      throw new Error(
+        `Expected one serialized table, received ${snapshot.tables.length}`
+      );
+    }
+    const [table] = snapshot.tables;
+    if (!table) {
+      throw new Error("Expected one serialized table");
+    }
+    return table;
+  }
+
+  function serializedColumnAt(
+    table: ReturnType<typeof onlySerializedTable>,
+    index: number
+  ) {
+    const column = table.columns[index];
+    if (!column) {
+      throw new Error(`Expected serialized column at index ${index}`);
+    }
+    return column;
+  }
+
+  it("gives a PostgreSQL enum list the enum type's array", () => {
+    const snapshot = serializeModels(listSchema(), {
+      migrationDriver: postgresMigrationDriver,
+    });
+
+    // The enum type is registered exactly as a scalar enum registers it; only
+    // the COLUMN spelling carries the list.
+    expect(snapshot.enums).toEqual([
+      { name: "status_statuses_enum", values: ["active", "inactive"] },
+    ]);
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "statuses",
+      type: "status_statuses_enum[]",
+    });
+  });
+
+  it("gives a MySQL enum list the dialect's JSON list container", () => {
+    const snapshot = serializeModels(listSchema(), {
+      migrationDriver: mysqlMigrationDriver,
+    });
+
+    // No enum is registered: an inline `ENUM(...)` has no list form, so the
+    // member values are the validation layer's fact alone here.
+    expect(snapshot.enums).toBeUndefined();
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "statuses",
+      type: "JSON",
+    });
+  });
+
+  it("gives a SQLite enum list the dialect's JSON list container", () => {
+    const snapshot = serializeModels(listSchema(), {
+      migrationDriver: sqlite3MigrationDriver,
+    });
+
+    // Not `TEXT CHECK("statuses" IN (...))`: that CHECK describes one member.
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "statuses",
+      type: "JSON",
+    });
+  });
+
+  it("gives a libSQL enum list the same container as SQLite", () => {
+    const snapshot = serializeModels(listSchema(), {
+      migrationDriver: libsqlMigrationDriver,
+    });
+
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "statuses",
+      type: "JSON",
+    });
+  });
+
+  it("keeps a MySQL enum list in JSON despite a native member type", () => {
+    const status = s.model({
+      id: s.string().id(),
+      statuses: s
+        .enum(["active", "inactive"], TYPES.MYSQL.STRING.VARCHAR(10))
+        .array(),
+    });
+
+    const snapshot = serializeModels(
+      { status },
+      {
+        migrationDriver: mysqlMigrationDriver,
+      }
+    );
+
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "statuses",
+      type: "JSON",
+    });
+  });
+
+  it("keeps a SQLite native DateTime list in its JSON container", () => {
+    const event = s.model({
+      id: s.string().id(),
+      instants: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER).array(),
+    });
+
+    const snapshot = serializeModels(
+      { event },
+      {
+        migrationDriver: sqlite3MigrationDriver,
+      }
+    );
+
+    const instants = serializedColumnAt(onlySerializedTable(snapshot), 1);
+    expect(instants).toMatchObject({
+      name: "instants",
+      type: "JSON",
+    });
+    expect(instants.dateTime).toBeUndefined();
+  });
+
+  it("carries each scalar SQLite DateTime form into the migration snapshot", () => {
+    const event = s.model({
+      id: s.string().id(),
+      text: s.dateTime(TYPES.SQLITE.DATETIME.TEXT),
+      integer: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER),
+      real: s.dateTime(TYPES.SQLITE.DATETIME.REAL),
+    });
+
+    const snapshot = serializeModels(
+      { event },
+      {
+        migrationDriver: sqlite3MigrationDriver,
+      }
+    );
+
+    expect(onlySerializedTable(snapshot).columns.slice(1)).toMatchObject([
+      { name: "text", type: "TEXT", dateTime: "text" },
+      { name: "integer", type: "INTEGER", dateTime: "epochMillis" },
+      { name: "real", type: "REAL", dateTime: "julianDay" },
+    ]);
+  });
+
+  it("keeps a scalar enum on the enum type itself", () => {
+    const Status = s.model({
+      id: s.string().id(),
+      status: s.enum(["active", "inactive"]),
+    });
+    const schema = { status: Status };
+    hydrateSchemaNames(schema);
+
+    const snapshot = serializeModels(schema, {
+      migrationDriver: postgresMigrationDriver,
+    });
+
+    expect(serializedColumnAt(onlySerializedTable(snapshot), 1)).toMatchObject({
+      name: "status",
+      type: "status_status_enum",
+    });
   });
 });
 

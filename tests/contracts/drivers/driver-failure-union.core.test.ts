@@ -21,6 +21,7 @@ import {
   normalizeDriverConnectionError,
   normalizeDriverError,
 } from "@drivers/error-mapping";
+import type { Dialect } from "@drivers/types";
 import {
   CheckConstraintError,
   ConnectionError,
@@ -139,7 +140,7 @@ describe("the mapper still builds exactly those classes", () => {
   const rows: Array<{
     label: string;
     raw: Error;
-    context?: { query?: string };
+    context?: { dialect?: Dialect; query?: string };
     expected: new (...args: never[]) => Error;
     family: string;
   }> = [
@@ -188,6 +189,7 @@ describe("the mapper still builds exactly those classes", () => {
     {
       label: "sqlite busy",
       raw: providerError({ code: "SQLITE_BUSY" }),
+      context: { dialect: "sqlite" },
       expected: TransactionError,
       family: "transaction",
     },

@@ -25,7 +25,7 @@ export type StatementOutputSource = | { readonly kind: "rows" } | { readonly kin
 
 export type StatementStep = ReadStep | WriteStep;
 
-export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly expects?: Postcondition; readonly progressiveContinuation?: GuardStep; }
+export interface StatementStepBase { readonly id: string; readonly statement: Sql; readonly outputs: Readonly<Record<string, StatementOutputSource>>; readonly model?: string; readonly expects?: Postcondition; readonly progressiveContinuation?: GuardStep; }
 
 export interface TargetConstraintPin { readonly fields: readonly string[]; readonly table: string; readonly columns: readonly string[]; readonly constraints: readonly string[]; }
 

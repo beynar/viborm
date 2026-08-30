@@ -5,7 +5,7 @@ import { Driver } from "@drivers/driver";
 import { attachExecutionContext } from "@drivers/driver-error-context";
 import { normalizeDriverError } from "@drivers/error-mapping";
 import { PGliteDriver } from "@drivers/pglite";
-import type { QueryResult } from "@drivers/types";
+import type { Dialect, QueryResult } from "@drivers/types";
 import { PGlite } from "@electric-sql/pglite";
 // biome-ignore lint/performance/noNamespaceImport: the identity round-trip test discovers every concrete error class from the barrel
 import * as allErrors from "@errors";
@@ -31,8 +31,8 @@ import type { LogEvent } from "@instrumentation/types";
 
 import { s } from "@schema";
 import { getFieldSqlName, getModelSqlName } from "@schema/hydration";
-import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
 
 const REDACTED_ERROR_CONTENT_PATTERN =
   /secret-password-value|SELECT id FROM users/;
@@ -337,17 +337,51 @@ describe("normalizeDriverError fixtures", () => {
     expect(error.prismaCode).toBeUndefined();
   });
 
+  /**
+   * SQLSTATE 23001 (restrict_violation), pinned beside 23503.
+   *
+   * Stock PostgreSQL folds a RESTRICT referential action into 23503, but the
+   * pg-wire ecosystem (CockroachDB) raises restrict_violation under its own
+   * SQLSTATE, carrying the same constraint/table metadata. Both are the same
+   * refusal to the caller, so both are P2003.
+   */
+  test("maps PostgreSQL 23001 restrict violations to foreign key errors", () => {
+    const error = normalizeDriverError(
+      Object.assign(
+        new Error(
+          'update or delete on table "parent" violates foreign key constraint "child_parent_id_fkey" on table "child"'
+        ),
+        {
+          code: "23001",
+          constraint: "child_parent_id_fkey",
+          table: "child",
+        }
+      ),
+      { driverName: "pg" }
+    );
+
+    expect(error).toBeInstanceOf(ForeignKeyError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.code).toBe(VibORMErrorCode.FOREIGN_KEY_CONSTRAINT);
+    expect(error.prismaCode).toBe("P2003");
+    expect(error.meta).toMatchObject({
+      providerCode: "23001",
+      constraint: "child_parent_id_fkey",
+      table: "child",
+    });
+  });
+
   test("maps SQLITE_BUSY and SQLITE_LOCKED to retryable transaction errors", () => {
     const byCode = normalizeDriverError(
       Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(byCode).toBeInstanceOf(TransactionError);
     expect(byCode).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
 
     const byMessage = normalizeDriverError(
       new Error("D1_ERROR: database is locked: SQLITE_BUSY"),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(byMessage).toBeInstanceOf(TransactionError);
     expect(byMessage).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
@@ -356,9 +390,145 @@ describe("normalizeDriverError fixtures", () => {
       Object.assign(new Error("database table is locked"), {
         code: "SQLITE_LOCKED",
       }),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(locked).toBeInstanceOf(TransactionError);
+  });
+
+  /**
+   * The extended families. better-sqlite3, bun:sqlite and libsql report
+   * `sqlite3_extended_errcode`, so real contention arrives as
+   * SQLITE_BUSY_RECOVERY or SQLITE_LOCKED_VTAB with a terse message that does
+   * not repeat the symbol — an equality test against the two plain names sends
+   * a retryable failure to the caller as a generic query error.
+   */
+  test.each([
+    "SQLITE_BUSY_RECOVERY",
+    "SQLITE_BUSY_SNAPSHOT",
+    "SQLITE_BUSY_TIMEOUT",
+    "SQLITE_LOCKED_SHAREDCACHE",
+    "SQLITE_LOCKED_VTAB",
+  ])("maps the extended code %s to a retryable transaction error", (code) => {
+    const error = normalizeDriverError(
+      Object.assign(new Error("database is locked"), { code }),
+      { driverName: "better-sqlite3", dialect: "sqlite" }
+    );
+
+    expect(error).toBeInstanceOf(TransactionError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.code).toBe(VibORMErrorCode.DEADLOCK);
+    // The name must also survive sanitizeProviderCode's allowlist, or the
+    // caller keeps the retry and loses which family it came from.
+    expect(error.meta.providerCode).toBe(code);
+  });
+
+  test("admits an underscore-delimited future SQLite contention family member", () => {
+    const error = normalizeDriverError(
+      Object.assign(new Error("database is busy"), {
+        code: "SQLITE_BUSY_FUTURE_2",
+      }),
+      { driverName: "future-sqlite", dialect: "sqlite" }
+    );
+
+    expect(error).toBeInstanceOf(TransactionError);
+    expect(error).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+  });
+
+  test.each([
+    { name: "SQLITE_BUSY", value: 5 },
+    { name: "SQLITE_LOCKED", value: 6 },
+    { name: "SQLITE_BUSY_RECOVERY", value: 261 },
+    { name: "SQLITE_LOCKED_SHAREDCACHE", value: 262 },
+    { name: "SQLITE_BUSY_SNAPSHOT", value: 517 },
+    { name: "SQLITE_LOCKED_VTAB", value: 518 },
+    { name: "SQLITE_BUSY_TIMEOUT", value: 773 },
+  ])("reads the numeric result code $value ($name) as contention on SQLite", ({
+    value,
+  }) => {
+    // A binding that reports the extended code numerically only: nothing in
+    // the error names SQLite, so the executing dialect is what makes the
+    // low byte readable as SQLITE_BUSY / SQLITE_LOCKED.
+    const byCode = normalizeDriverError(
+      Object.assign(new Error("database is locked"), { code: value }),
+      { driverName: "sqlite3", dialect: "sqlite" }
+    );
+    expect(byCode).toBeInstanceOf(TransactionError);
+    expect(byCode).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+
+    const byErrno = normalizeDriverError(
+      Object.assign(new Error("database is locked"), { errno: value }),
+      { driverName: "sqlite3", dialect: "sqlite" }
+    );
+    expect(byErrno).toBeInstanceOf(TransactionError);
+    expect(byErrno).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+  });
+
+  test.each<{ label: string; dialect: Dialect | undefined }>([
+    { label: "a MySQL connection", dialect: "mysql" },
+    { label: "an unstated dialect", dialect: undefined },
+  ])("refuses to read errno 1029 from $label as SQLite contention", ({
+    dialect,
+  }) => {
+    // 1029 & 0xff === 5, the SQLITE_BUSY base code. The low byte alone proves
+    // nothing across providers, so only the dialect separates a MySQL
+    // failure from real contention — and a wrong answer here would hand the
+    // write-race retry loop an error it must never re-run.
+    const error = normalizeDriverError(
+      Object.assign(new Error("MySQL server failure"), {
+        errno: 1029,
+        sqlState: "HY000",
+      }),
+      { driverName: "mysql2", dialect }
+    );
+
+    expect(error).toBeInstanceOf(QueryError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.isRetryable()).toBe(false);
+  });
+
+  test.each([
+    { code: "SQLITE_BUSYWORK", message: "database is busy" },
+    { code: "SQLITE_LOCKEDNESS", message: "database is locked" },
+    {
+      code: undefined,
+      message: "provider failed with SQLITE_BUSYWORK and SQLITE_LOCKEDNESS",
+    },
+    { code: "SQLITE_BUSY_recovery", message: "database is busy" },
+    { code: "SQLITE_BUSY_RECOVERYfoo", message: "database is busy" },
+    { code: undefined, message: "xSQLITE_BUSY recovery failed" },
+  ])("refuses the non-SQLite contention lookalike $code", ({
+    code,
+    message,
+  }) => {
+    const raw = Object.assign(new Error(message), code ? { code } : {});
+    const error = normalizeDriverError(raw, {
+      driverName: "sqlite-lookalike",
+      dialect: "sqlite",
+    });
+
+    expect(error).toBeInstanceOf(QueryError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.isRetryable()).toBe(false);
+  });
+
+  test.each<{ dialect: Dialect; driverName: string }>([
+    { dialect: "postgresql", driverName: "pg" },
+    { dialect: "mysql", driverName: "mysql2" },
+  ])("does not arm write retry from SQLite symbols on $dialect", (driver) => {
+    const byCode = normalizeDriverError(
+      Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }),
+      driver
+    );
+    const byMessage = normalizeDriverError(
+      new Error("provider rejected write: SQLITE_LOCKED_VTAB"),
+      driver
+    );
+
+    for (const error of [byCode, byMessage]) {
+      expect(error).toBeInstanceOf(QueryError);
+      if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+      expect(error.isRetryable()).toBe(false);
+    }
   });
 
   test("clones reused VibORM errors with request-scoped disclosure and attribution", () => {
@@ -701,6 +871,61 @@ describe("native batch error normalization", () => {
       name: "UniqueConstraintError",
       meta: { driver: "fake-batch" },
     });
+  });
+});
+
+class NumericBusyDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+
+  constructor() {
+    super("sqlite", "numeric-busy");
+  }
+
+  protected async initClient(): Promise<object> {
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // No provider resource to release.
+  }
+
+  protected async execute<T>(): Promise<QueryResult<T>> {
+    throw createNumericBusyError();
+  }
+
+  protected async executeRaw<T>(): Promise<QueryResult<T>> {
+    throw createNumericBusyError();
+  }
+
+  protected async transaction<T>(
+    _client: object,
+    fn: (tx: object) => Promise<T>
+  ): Promise<T> {
+    return fn({});
+  }
+}
+
+function createNumericBusyError(): Error {
+  return Object.assign(new Error("database is locked"), { errno: 261 });
+}
+
+describe("SQLite contention reaching the normalizer through a driver", () => {
+  test("threads the driver's own dialect into statement normalization", async () => {
+    // Nothing in this provider error names SQLite — no symbolic code, no
+    // symbol in the message. Only the executing driver's dialect makes 261
+    // readable as SQLITE_BUSY_RECOVERY, so this pins the threading rather
+    // than the mapping.
+    const driver = new NumericBusyDriver();
+
+    await expect(
+      driver._executeRaw("INSERT INTO users DEFAULT VALUES")
+    ).rejects.toMatchObject({
+      name: "TransactionError",
+      code: VibORMErrorCode.DEADLOCK,
+      meta: { driver: "numeric-busy", providerErrno: 261 },
+    });
+
+    await driver.disconnect();
   });
 });
 

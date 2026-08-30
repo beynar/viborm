@@ -75,7 +75,10 @@ export const createStandardLiterals = (): StandardLiterals => ({
     if (values.length === 0) return sql.raw`()`;
     return sql`(${sql.join(values, ", ")})`;
   },
-  // PG/SQLite accept ISO-8601 directly
+  // A temporal column accepts ISO-8601 directly, and the declared native type
+  // never changes that: every PostgreSQL and MySQL datetime native type names a
+  // column that reads this spelling. SQLite has no temporal type at all, so its
+  // adapter overrides this to honor the physical form its field declared.
   dateTime: (iso: string): Sql => sql`${iso}`,
 });
 

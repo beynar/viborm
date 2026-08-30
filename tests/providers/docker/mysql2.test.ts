@@ -380,6 +380,56 @@ describeIf("MySQL2 Driver", () => {
     }
   });
 
+  test("applies and converges a permuted composite foreign key", async () => {
+    const account = s
+      .model({
+        id: s.string(),
+        tenantId: s.string(),
+        members: s.toMany(() => member),
+      })
+      .id(["tenantId", "id"])
+      .map("composite_fk_accounts");
+    const member = s
+      .model({
+        id: s.string().id(),
+        accountId: s.string(),
+        accountTenantId: s.string(),
+        account: s
+          .toOne(() => account)
+          .fields("accountId", "accountTenantId")
+          .references("id", "tenantId"),
+      })
+      .map("composite_fk_members");
+    const client = createClient({
+      schema: { account, member },
+      driver: createMySQL2Driver(),
+    });
+
+    try {
+      const applied = await syncLiveSchema(client);
+      expect(applied.applied).toBe(true);
+
+      await client.account.create({
+        data: {
+          tenantId: "tenant",
+          id: "account",
+          members: { create: { id: "member" } },
+        },
+      });
+      await expect(
+        client.member.findUnique({ where: { id: "member" } })
+      ).resolves.toMatchObject({
+        accountTenantId: "tenant",
+        accountId: "account",
+      });
+
+      const converged = await syncLiveSchema(client);
+      expect(converged.operations).toEqual([]);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
   describe("$transaction portable option boundary", () => {
     const entry = s
       .model({

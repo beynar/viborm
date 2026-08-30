@@ -32,7 +32,9 @@ function createSingleResultDriver(result: NullD1Result): D1Driver {
   return new D1Driver({ database });
 }
 
-function createBatchResultDriver(results: NullD1Result[]): D1Driver {
+function createBatchDriver(
+  executeBatch: () => Promise<NullD1Result[]>
+): D1Driver {
   const database = {
     prepare: vi.fn(() => {
       const statement = {
@@ -42,9 +44,17 @@ function createBatchResultDriver(results: NullD1Result[]): D1Driver {
       };
       return statement;
     }),
-    batch: vi.fn(async () => results),
+    batch: vi.fn(executeBatch),
   } as unknown as D1Database;
   return new D1Driver({ database });
+}
+
+function createBatchResultDriver(results: NullD1Result[]): D1Driver {
+  return createBatchDriver(() => Promise.resolve(results));
+}
+
+function createBatchRejectingDriver(error: Error): D1Driver {
+  return createBatchDriver(() => Promise.reject(error));
 }
 
 async function captureMalformedResult(
@@ -289,6 +299,49 @@ describe("D1 binding null-result statement contracts", () => {
     });
     expect(JSON.stringify(error)).not.toContain("private statement");
     expect(batch).not.toHaveBeenCalled();
+  });
+
+  test("attributes a one-statement native provider rejection without guessing across an opaque batch", async () => {
+    const statementContext = {
+      model: "post",
+      operation: "findMany",
+      correlationId: "d1-statement-correlation",
+    };
+    const batchContext = {
+      model: "$transaction",
+      operation: "$transaction([...])",
+      correlationId: "d1-batch-correlation",
+    };
+
+    const attributable = await captureMalformedResult(
+      createBatchRejectingDriver(
+        new Error("D1 rejected the native batch")
+      )._executeBatch(
+        [{ sql: "SELECT id FROM posts", context: statementContext }],
+        undefined,
+        batchContext
+      )
+    );
+    expect(attributable.meta).toMatchObject({
+      driver: "d1",
+      ...statementContext,
+      statementIndex: 0,
+    });
+
+    const opaque = await captureMalformedResult(
+      createBatchRejectingDriver(
+        new Error("D1 rejected the native batch")
+      )._executeBatch(
+        [
+          { sql: "SELECT id FROM users", context: { model: "user" } },
+          { sql: "SELECT id FROM posts", context: statementContext },
+        ],
+        undefined,
+        batchContext
+      )
+    );
+    expect(opaque.meta).toMatchObject({ driver: "d1", ...batchContext });
+    expect(opaque.meta).not.toHaveProperty("statementIndex");
   });
 
   test("rejects a row-producing statement at its own batch position", async () => {

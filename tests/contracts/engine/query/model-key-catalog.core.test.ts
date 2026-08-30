@@ -1,6 +1,7 @@
 import { hydrateSchemaNames, s } from "@schema";
 import {
   findAddressableKey,
+  findReferenceableKey,
   getModelKeyCatalog,
   type OrderedModelKey,
 } from "@schema/model";
@@ -8,6 +9,7 @@ import {
   getCompoundIdConstraint,
   getPrimaryKeyFields,
 } from "@src/query-engine/context";
+import { validateSchema } from "@src/schema/validation";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -16,7 +18,8 @@ import { describe, expect, test } from "vitest";
  * One catalog owns how a row can be addressed: an optional `rowKey` in
  * CONSTRAINT order, grouped `addressableKeys` whose optional `name`
  * distinguishes a grouped-constraint selector from a bare scalar one, and the
- * conservative flattened `uniqueOverlapFields` view. `getPrimaryKeyFields` and
+ * ordered `referenceableKeys` physical view, and the conservative flattened
+ * `uniqueOverlapFields` view. `getPrimaryKeyFields` and
  * `getCompoundIdConstraint` survive as its derived views; the misleading
  * flatteners (`getCanonicalIdentityFields`, `getTargetIdentityFields`) are
  * deleted.
@@ -74,6 +77,14 @@ const fixtures = (() => {
     })
     .index(["slug"], { unique: true, where: "deleted_at IS NULL" });
 
+  const totalUniqueIndex = s
+    .model({
+      id: s.int().id(),
+      tenant: s.string(),
+      slug: s.string(),
+    })
+    .index(["slug", "tenant"], { unique: true });
+
   const mapped = s.model({
     id: s.string().id().map("mapped_pk_col"),
     handle: s.string().unique().map("mapped_handle_col"),
@@ -124,6 +135,7 @@ const fixtures = (() => {
     namedCompoundUnique,
     unnamedCompoundUnique,
     partialUniqueIndex,
+    totalUniqueIndex,
     mapped,
     keyless,
     multiUnique,
@@ -138,6 +150,93 @@ const fixtures = (() => {
 const bare = (kind: OrderedModelKey["kind"], field: string) => ({
   kind,
   fields: [field],
+});
+
+describe("model-key catalog — referenceableKeys", () => {
+  test("keeps addressable keys first and adds total unique indexes", () => {
+    expect(
+      getModelKeyCatalog(fixtures.totalUniqueIndex).referenceableKeys
+    ).toEqual([["id"], ["slug", "tenant"]]);
+    expect(
+      getModelKeyCatalog(fixtures.partialUniqueIndex).referenceableKeys
+    ).toEqual([["id"]]);
+  });
+
+  test("resolves a reordered tuple to the physical key order", () => {
+    expect(
+      findReferenceableKey(fixtures.totalUniqueIndex, ["tenant", "slug"])
+    ).toEqual(["slug", "tenant"]);
+    expect(
+      findReferenceableKey(fixtures.totalUniqueIndex, ["slug", "tenant"])
+    ).toEqual(["slug", "tenant"]);
+    expect(
+      findReferenceableKey(fixtures.totalUniqueIndex, ["tenant"])
+    ).toBeUndefined();
+  });
+
+  test("distinguishes valid tuples that share underscore-separated fragments", () => {
+    const model = s
+      .model({
+        id: s.int().id(),
+        alpha: s.string(),
+        beta_code: s.string(),
+        alpha_beta: s.string(),
+        code: s.string(),
+      })
+      .unique(["alpha", "beta_code"], { name: "left_lookup" })
+      .unique(["alpha_beta", "code"], { name: "right_lookup" });
+
+    expect(findReferenceableKey(model, ["code", "alpha_beta"])).toEqual([
+      "alpha_beta",
+      "code",
+    ]);
+    expect(findReferenceableKey(model, ["beta_code", "alpha"])).toEqual([
+      "alpha",
+      "beta_code",
+    ]);
+  });
+
+  test("distinct explicit names preserve both colliding tuples for catalogs and foreign keys", () => {
+    const target = s
+      .model({
+        id: s.int().id(),
+        a_b: s.string(),
+        c: s.string(),
+        a: s.string(),
+        b_c: s.string(),
+        firstRows: s.toMany(() => firstRow).name("first"),
+        secondRows: s.toMany(() => secondRow).name("second"),
+      })
+      .unique(["a_b", "c"], { name: "left_lookup" })
+      .unique(["a", "b_c"], { name: "right_lookup" });
+    const firstRow = s.model({
+      id: s.int().id(),
+      targetAB: s.string(),
+      targetC: s.string(),
+      target: s
+        .toOne(() => target)
+        .name("first")
+        .fields("targetAB", "targetC")
+        .references("a_b", "c"),
+    });
+    const secondRow = s.model({
+      id: s.int().id(),
+      targetA: s.string(),
+      targetBC: s.string(),
+      target: s
+        .toOne(() => target)
+        .name("second")
+        .fields("targetA", "targetBC")
+        .references("a", "b_c"),
+    });
+
+    expect(getModelKeyCatalog(target).referenceableKeys).toEqual([
+      ["id"],
+      ["a_b", "c"],
+      ["a", "b_c"],
+    ]);
+    expect(validateSchema({ target, firstRow, secondRow }).errors).toEqual([]);
+  });
 });
 const grouped = (
   kind: OrderedModelKey["kind"],
@@ -293,5 +392,46 @@ describe("model-key catalog — identity and caching", () => {
     const second = getPrimaryKeyFields(fixtures.reorderedPk);
     expect(first).toEqual(second);
     expect(first).not.toBe(second);
+  });
+
+  test("caller mutations cannot change a stored index or its cached key facts", () => {
+    const fields: ("slug" | "tenant")[] = ["slug", "tenant"];
+    const options: { unique?: boolean } = { unique: true };
+    const model = s
+      .model({
+        id: s.int().id(),
+        slug: s.string(),
+        tenant: s.string(),
+      })
+      .index(fields, options);
+    const catalog = getModelKeyCatalog(model);
+
+    fields.splice(0, fields.length, "slug", "slug");
+    options.unique = false;
+
+    expect(model["~"].state.indexes).toEqual([
+      { fields: ["slug", "tenant"], options: { unique: true } },
+    ]);
+    expect(getModelKeyCatalog(model)).toBe(catalog);
+    expect(catalog.referenceableKeys).toEqual([["id"], ["slug", "tenant"]]);
+    expect(validateSchema({ indexed: model }).errors).toEqual([]);
+  });
+
+  test("snapshots inherited index options without turning a partial index total", () => {
+    const options = Object.assign(
+      Object.create({ where: "deleted_at IS NULL" }),
+      { unique: true }
+    );
+    const model = s
+      .model({ id: s.int().id(), slug: s.string() })
+      .index(["slug"], options);
+
+    expect(model["~"].state.indexes).toEqual([
+      {
+        fields: ["slug"],
+        options: { unique: true, where: "deleted_at IS NULL" },
+      },
+    ]);
+    expect(getModelKeyCatalog(model).referenceableKeys).toEqual([["id"]]);
   });
 });

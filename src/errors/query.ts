@@ -87,7 +87,9 @@ export function isClientInitializationError(
  *
  * The `V2xxx` query family plus `INVALID_INPUT`, which the raw-SQL helpers raise through this
  * class when a caller hands `$queryRaw` something that is neither a tagged template nor an
- * `Sql` fragment (`client/raw.ts`) — measured at the construction sites, not assumed.
+ * `Sql` fragment, or a raw/provider parameter boundary refuses an invalid
+ * `Date` (`client/raw.ts`, `drivers/provider-parameter-snapshot.ts`) — measured
+ * at the construction sites, not assumed.
  */
 export type QueryErrorCode =
   | typeof VibORMErrorCode.QUERY_FAILED

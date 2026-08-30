@@ -6,6 +6,8 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
+import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
@@ -40,6 +42,10 @@ import {
 } from "../base";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
+import {
+  sqliteDateTimeCopyExpression,
+  sqliteDateTimeTargetRequiresRecreation,
+} from "./datetime";
 import { sqliteDecimalCheck, sqliteDecimalCopyExpression } from "./decimal";
 import { SQLITE_GEO_POINT_TYPE, sqliteGeoPointCheck } from "./geo-point";
 import { introspect } from "./introspect";
@@ -203,8 +209,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
     const nativeType = scalar["~"].nativeType;
 
-    // If a native type is specified and it's for SQLite, use it
-    if (nativeType && nativeType.db === "sqlite") {
+    // SQLite has no native list type. A native declaration can describe one
+    // scalar member only; every list keeps its container below.
+    if (nativeType && nativeType.db === "sqlite" && !scalarState.array) {
       return nativeType.type;
     }
 
@@ -216,7 +223,27 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     });
   }
 
-  // getDefaultExpression is inherited from base class
+  override getDefaultExpression(
+    scalar: Scalar,
+    scalarState: ScalarState
+  ): string | undefined {
+    const defaultValue = scalarState.default;
+    if (
+      scalarState.type === "datetime" &&
+      scalarState.array !== true &&
+      scalarState.autoGenerate === undefined &&
+      scalarState.hasDefault &&
+      typeof defaultValue === "string"
+    ) {
+      const form = sqliteDateTimePhysicalForm(scalar["~"].nativeType);
+      const physical = encodePhysicalDateTime(defaultValue, form);
+      return typeof physical === "string"
+        ? this.escapeValue(physical)
+        : String(physical);
+    }
+    return super.getDefaultExpression(scalar, scalarState);
+  }
+
   // Override formatBooleanDefault for SQLite's 1/0 representation
 
   /**
@@ -466,6 +493,37 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     targetColumn: ColumnDef,
     source: string
   ): string {
+    const dateTime = targetColumn.dateTime;
+    if (dateTime !== undefined) {
+      const sourceForm = this.sqliteDateTimeSourceForm(currentColumn);
+      if (sourceForm === undefined) {
+        const sourceDomain =
+          currentColumn?.decimal === undefined
+            ? `${currentColumn?.type ?? "unknown"} storage`
+            : `a fixed-decimal domain at ${describeDecimalDomain(currentColumn.decimal)}`;
+        throw new MigrationError(
+          `The declared change to "${tableName}"."${sourceName}" would adopt ${sourceDomain} as a SQLite DateTime. ` +
+            "Only a declared DateTime or unmarked TEXT, INTEGER epoch-millisecond, or REAL Julian-day candidate can be converted exactly. " +
+            "The change is refused before any statement runs, so the schema and data stay unchanged. Use an explicit migration that validates and rewrites the source values.",
+          VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+          {
+            meta: {
+              table: tableName,
+              column: sourceName,
+              feature: "SQLite DateTime storage conversion",
+              dialect: "sqlite",
+            },
+          }
+        );
+      }
+      return sqliteDateTimeCopyExpression(
+        source,
+        sourceForm,
+        dateTime,
+        currentColumn?.dateTime !== undefined
+      );
+    }
+
     const to = targetColumn.decimal;
     const targetKind = sqliteDecimalStorageKind(targetColumn);
     if (to === undefined || targetKind === undefined) return source;
@@ -502,6 +560,24 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return sqliteDecimalCopyExpression(source, from, to, conversionKind);
   }
 
+  /** Physical source vocabulary for a target known to be a DateTime. */
+  private sqliteDateTimeSourceForm(
+    column: ColumnDef | undefined
+  ): "text" | "epochMillis" | "julianDay" | undefined {
+    if (column?.dateTime !== undefined) return column.dateTime;
+    if (column?.decimal !== undefined) return undefined;
+    switch (column?.type.toUpperCase()) {
+      case "TEXT":
+        return "text";
+      case "INTEGER":
+        return "epochMillis";
+      case "REAL":
+        return "julianDay";
+      default:
+        return undefined;
+    }
+  }
+
   /** The shared-storage decimal conversion one copied column requires. */
   private decimalConversionKind(
     currentColumn: ColumnDef | undefined,
@@ -528,7 +604,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   }
 
   /**
-   * Refuses a decimal conversion the substrate cannot rebuild safely, BEFORE
+   * Refuses a domain conversion the substrate cannot rebuild safely, BEFORE
    * any statement runs.
    *
    * Every SQLite descriptor change is a table recreation, and a recreation
@@ -549,20 +625,31 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * either direction has nothing the disabled enforcement could damage, so
    * fresh decimal schemas and ordinary descriptor changes stay available.
    *
-   * The question remains decimal-owned: descriptor changes, adoption into a
-   * decimal domain, and a decimal-column rename all require this reconstruction
-   * and therefore ask this owner. A recreation requested by another column,
-   * constraint, key, or enum does not become a decimal conversion merely
-   * because the same table also contains a decimal. General D1 reconstruction
-   * safety is an existing migration concern outside this decimal boundary.
+   * The question remains conversion-owned: decimal descriptor changes and
+   * adoption, decimal carrier renames, and DateTime form/adoption transitions
+   * ask this owner. A recreation requested by another column, constraint, key,
+   * or enum does not become a domain conversion merely because the same table
+   * also contains one of these scalars. General D1 reconstruction safety is an
+   * existing migration concern outside this boundary.
    */
-  private assertDecimalReconstructionAdmitted(
+  private assertDomainReconstructionAdmitted(
     tableName: string,
     column: ColumnDef,
     table: TableDef,
-    context: DDLContext
+    context: DDLContext,
+    domain: "decimal" | "dateTime"
   ): void {
-    if (column.decimal === undefined) return;
+    let description: string;
+    let feature: string;
+    if (domain === "decimal") {
+      if (column.decimal === undefined) return;
+      description = `a fixed-decimal column at ${describeDecimalDomain(column.decimal)}`;
+      feature = "decimal descriptor conversion";
+    } else {
+      if (column.dateTime === undefined) return;
+      description = `a SQLite DateTime column in ${column.dateTime} storage`;
+      feature = "SQLite DateTime storage conversion";
+    }
     const driver = this.executionDriver;
     if (!(driver && foreignKeyPragmasCannotBeLifted(driver))) return;
     if (
@@ -576,7 +663,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return;
     }
     throw new MigrationError(
-      `Rebuilding "${tableName}"."${column.name}", a fixed-decimal column at ${describeDecimalDomain(column.decimal)}, recreates the whole table, and the driver "${driver.driverName}" executes migrations as one native batch. ` +
+      `Rebuilding "${tableName}"."${column.name}", ${description}, recreates the whole table, and the driver "${driver.driverName}" executes migrations as one native batch. ` +
         "SQLite treats `PRAGMA foreign_keys=OFF` as a no-op inside a transaction, and a batch has no outside to run it in, so the rebuild would drop a table that still has enforced references — raising on one referential action and silently deleting or nulling child rows on another. " +
         "The change is refused before any statement runs, so the schema and its data are exactly as they were. Recreate the table without its references, or run the change on a driver that executes statements individually.",
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
@@ -585,7 +672,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
           driver: driver.driverName,
           table: tableName,
           column: column.name,
-          feature: "decimal descriptor conversion",
+          feature,
         },
       }
     );
@@ -821,11 +908,12 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         { meta: { table: op.tableName, column: op.from } }
       );
     }
-    this.assertDecimalReconstructionAdmitted(
+    this.assertDomainReconstructionAdmitted(
       op.tableName,
       renamed,
       renamedTable,
-      context
+      context,
+      "decimal"
     );
     return this.filterStatements([
       nativeRename,
@@ -885,11 +973,22 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     };
 
     if (decimalConversionRequired(op.from, op.to)) {
-      this.assertDecimalReconstructionAdmitted(
+      this.assertDomainReconstructionAdmitted(
         op.tableName,
         op.to,
         newTable,
-        context
+        context,
+        "decimal"
+      );
+    } else if (
+      sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
+    ) {
+      this.assertDomainReconstructionAdmitted(
+        op.tableName,
+        op.to,
+        newTable,
+        context,
+        "dateTime"
       );
     }
 

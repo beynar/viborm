@@ -26,10 +26,19 @@
 - Before a focused Vitest run, read `vitest.workspace.ts` and use the declared
   project name exactly. Do not infer a project name from a package or directory
   label; a misspelled filter fails before collecting the intended witness.
+- Before invoking a formatter through a package runner, verify the repository's
+  configured formatter and that its installed entry point resolves. If one
+  formatter shim points at a missing package, use the already-installed project
+  formatter instead of changing dependencies merely to format the task diff.
 - When a coverage score drops after test-tier reclassification, compare the
   files selected by the coverage project with the full owning-layer inventory
   before adding tests. Measure the full safe selection first; fix coverage
   routing when tested behavior was omitted from the report.
+- When a strict coverage gate fails during branch validation, compare every
+  uncovered source, owning test, and coverage configuration with the base
+  revision. Test reachable branch behavior and remove branch-introduced dead
+  fallbacks; do not manufacture a runtime witness for structurally unreachable
+  baseline exhaustiveness code.
 - A test fixture that registers process-global state must undo the registration,
   not only shut down the registered object. Verify the fixture in the complete
   shared-worker order because isolated-file success cannot expose a stale global
@@ -57,6 +66,15 @@
   type for real public capability boundaries. Impossible compiler states use
   the internal error model; otherwise a semantic inventory reports invented
   product limitations.
+- In a syntax census, define an inspectable lexical region and token family.
+  Importing a domain module is not proof that every value in the consumer
+  belongs to that domain. Give each detector a falsifier shaped like the retired
+  implementation, not only a convenient invented spelling.
+- Before adding tests for several physical forms of one logical value, define
+  the logical domain once and thread that owner through input validation,
+  result parsing, storage codecs, and migration conversion. Then test each
+  physical form against the same boundary values; otherwise the tests can
+  entrench contradictory domains instead of proving representation parity.
 - Before widening a race guard for a proposed representation, trace the public
   schema to confirm that the representation is reachable. If the current schema
   makes the added value identical to an existing captured value, the extra guard
@@ -186,3 +204,56 @@
   `git add` pathspec must stop before `git commit`; for a rename, stage the
   existing destination and the source directory instead of naming a source
   path that no longer exists.
+- A performance program must name its own exact pre-feature runtime baseline.
+  Do not reuse an earlier program's baseline merely because the benchmark
+  protocol is shared: unrelated retained improvements can hide a regression in
+  the feature under test. Candidate-only workloads may share the newer harness,
+  but the control comparison still starts from the feature's true parent.
+- When a mutable-value invariant is checked before an extension, middleware, or
+  provider transform, map every execution route to the last transform and
+  enforce the invariant again at that new trust boundary. Pin direct, queued,
+  and batch routes with a transform-created falsifier; a pre-transform test does
+  not prove provider dispatch is safe. Run the full type gate after focused
+  runtime tests because transpilation can execute a witness that the public
+  TypeScript contract still rejects.
+- When a queued statement keeps private executable provenance beside its public
+  parameter array, detach both representations at the queue boundary. A copied
+  public bag is not a snapshot if later materialization reads an older mutable
+  owner; mutate the source after queue admission and inspect the provider value.
+- Copying an accessor descriptor onto a new object changes its receiver and can
+  break WeakMap-backed or identity-sensitive getters. At a snapshot boundary,
+  keep a provider-visible accessor carrier identity-opaque unless the contract
+  explicitly permits rebinding; prove the choice with a receiver-sensitive
+  getter, not descriptor equality alone.
+- When a read-count test is meant to isolate diagnostic disclosure, use a value
+  that the ordinary execution boundary classifies as opaque. A Proxy presenting
+  a plain container legitimately participates in admission and final dispatch
+  snapshots, so its reflection count measures those boundaries too and cannot
+  prove that inactive instrumentation stayed inert.
+- When hardening a representation boundary, inspect the downstream public
+  identity contract before normalizing every admitted subtype. Remove hostile
+  metadata without replacing an established local value such as Buffer unless
+  the requested contract explicitly permits that observable change; prove both
+  the hostile input and the compatible subtype in the full owning-layer suite.
+- Keep logical-domain authentication separate from ambient-runtime identity
+  trust. A signed or otherwise authenticated snapshot may carry a logical
+  marker that unmarked live introspection cannot prove; treat the live shape as
+  a candidate and validate it before adoption. Likewise, intrinsic slot and
+  metadata reads can prove a built-in value's representation, but preserving
+  identity is a separate boundary: trust only captured exact local prototypes,
+  and normalize foreign-realm, subclassed, caller-owned custom-prototype, or
+  own-shadowed values before downstream use.
+- Use cardinality to attribute an opaque one-statement provider failure only
+  when stronger execution evidence is absent. If an error carries a complete
+  but mismatched correlation context, reject that stale context instead of
+  letting cardinality overwrite the contradiction.
+- When a transport close rejects, retain its exact handle only for cleanup
+  retry; do not infer that it remains queryable. Some providers close admission
+  before a later connection cleanup fails. Quarantine the handle, refuse new
+  work and replacement initialization, and reopen the lifecycle only after the
+  retry succeeds. Run observer, disposal, connect, query, and repeated-retry
+  contracts; fixtures must withdraw injected failures before teardown.
+- For a broad review or repair with independent ownership seams, launch bounded
+  Sol-high agents in parallel for reproduction, owner analysis, and adversarial
+  coverage. The root agent still inspects each artifact and reruns the decisive
+  validation; delegation changes latency, not accountability.

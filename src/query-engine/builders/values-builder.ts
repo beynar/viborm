@@ -9,6 +9,7 @@ import type { CastType, DatabaseAdapter } from "@adapters/database-adapter";
 import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
+import type { ScalarState } from "@schema/scalars/common";
 import { isSql, type Sql } from "@sql";
 import {
   canonicalizeDecimal,
@@ -19,6 +20,7 @@ import {
 import { getColumnName } from "../context";
 import { decimalListRepresentationFor } from "../result/decimal-result-decode";
 import { QueryEngineError, type QueryScope } from "../types";
+import { dateTimeNativeTypeOf } from "./datetime-field";
 import {
   decimalDescriptorOf,
   decimalDescriptorOfScalar,
@@ -288,10 +290,7 @@ export function buildScalarSqlValueForScalar(
   // List scalars take the whole array in the dialect's storage format
   // (native array on PG, JSON on MySQL/SQLite)
   if (scalarState?.array && Array.isArray(value)) {
-    const listDomain = decimalListDescriptorOfState(scalarState);
-    return listDomain
-      ? decimalListValue(ctx.adapter, fieldName, value, listDomain)
-      : ctx.adapter.arrays.value(value);
+    return listStorageValue(ctx.adapter, fieldName, scalarState, value);
   }
 
   // JSON scalars always store serialized JSON — primitives included — so every
@@ -304,9 +303,11 @@ export function buildScalarSqlValueForScalar(
     return buildGeoPointValue(ctx.adapter, value);
   }
 
-  // Datetime ISO strings need dialect-specific serialization (MySQL rejects 'Z')
+  // Datetime ISO strings need dialect-specific serialization (MySQL rejects
+  // 'Z'), and on a dialect with no temporal type the field's declared native
+  // form is what the column physically holds.
   if (scalarType === "datetime" && typeof value === "string") {
-    return ctx.adapter.literals.dateTime(value);
+    return ctx.adapter.literals.dateTime(value, dateTimeNativeTypeOf(field));
   }
 
   if (scalarType === "decimal") {
@@ -440,6 +441,31 @@ export function decimalListMembers(
   );
 }
 
+/**
+ * A whole list, bound as the container its column stores.
+ *
+ * Three vocabularies meet at a list write, and the scalar's own state is what
+ * chooses between them: a decimal list is a container of canonical physical
+ * members, an enum list is the one list whose members carry a provider type the
+ * driver has no serializer for, and every other list is the dialect's ordinary
+ * list parameter. The adapter still owns each spelling; this owns only which
+ * one the destination column asks for.
+ */
+function listStorageValue(
+  adapter: DatabaseAdapter,
+  fieldName: string,
+  state: ScalarState | undefined,
+  values: unknown[]
+): Sql {
+  const listDomain = decimalListDescriptorOfState(state);
+  if (listDomain) {
+    return decimalListValue(adapter, fieldName, values, listDomain);
+  }
+  return state?.type === "enum"
+    ? adapter.arrays.enumValue(values)
+    : adapter.arrays.value(values);
+}
+
 /** A whole decimal list, bound as the dialect's own container. */
 export function decimalListValue(
   adapter: DatabaseAdapter,
@@ -466,16 +492,19 @@ export function scalarValueLiteral(
   if (sentinel) {
     return jsonNullWriteValue(ctx, fieldName, sentinel);
   }
-  const state = ctx.model["~"].state.scalars[fieldName]?.["~"].state;
+  const scalar = ctx.model["~"].state.scalars[fieldName];
+  const state = scalar?.["~"].state;
   const listDomain = decimalListDescriptorOfState(state);
   // Whole-list values (e.g. { set: [...] }) use the dialect's storage format
   if (state?.array && Array.isArray(value)) {
-    return listDomain
-      ? decimalListValue(ctx.adapter, fieldName, value, listDomain)
-      : ctx.adapter.arrays.value(value);
+    return listStorageValue(ctx.adapter, fieldName, state, value);
   }
-  if (state?.type === "datetime" && typeof value === "string") {
-    return ctx.adapter.literals.dateTime(value);
+  if (
+    state?.type === "datetime" &&
+    state.array !== true &&
+    typeof value === "string"
+  ) {
+    return ctx.adapter.literals.dateTime(value, dateTimeNativeTypeOf(scalar));
   }
   // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)
   if (state?.type === "json" && value !== null && value !== undefined) {

@@ -1018,6 +1018,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
         const capture: ReadStep = {
           id: `${slot.writeId}.capture`,
           kind: "read",
+          model: getStepModelName(this.childScope.model, "record"),
           statement: this.membershipRead({
             parentValue: membershipParent,
             where: slot.where,
@@ -1063,6 +1064,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       steps.push({
         id: slot.writeId,
         kind: "write",
+        model: getStepModelName(this.childScope.model, "record"),
         statement: this.statements.materialize(
           this.context.relation,
           "membershipUpdateMany",
@@ -1523,6 +1525,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     const probe: ReadStep = {
       id: probeId,
       kind: "read",
+      model: getStepModelName(this.childScope.model, "record"),
       statement,
       outputs: publishesPk
         ? {
@@ -1583,6 +1586,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       read: {
         id: readId,
         kind: "read",
+        model: getStepModelName(this.childScope.model, "record"),
         statement: this.membershipRead({
           parentValue: this.parentRef(),
           where: filter,
@@ -1626,6 +1630,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(this.childScope.model, "record"),
         statement: buildFindUnique(this.childScope, {
           where: item.where,
           select: targetProjectionRowKeySelect(
@@ -1659,6 +1664,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       globalProbe: {
         id: item.probes.global,
         kind: "read",
+        model: getStepModelName(this.childScope.model, "record"),
         statement: buildFindUnique(
           this.childScope,
           {
@@ -1693,6 +1699,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
       membershipProbe: {
         id: item.probes.member,
         kind: "read",
+        model: getStepModelName(this.childScope.model, "record"),
         statement: this.membershipRead({
           parentValue: this.parentRef(),
           whereUnique: item.where,
@@ -1994,6 +2001,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     const step: WriteStep = {
       id,
       kind: "write",
+      model: getStepModelName(this.childScope.model, "record"),
       statement,
       outputs: generatedField
         ? {
@@ -2160,6 +2168,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     return {
       id,
       kind: "write",
+      model: getStepModelName(this.childScope.model, "record"),
       statement: buildDelete(this.childScope, {
         where: capturedTargetWhere(
           this.childScope.model,
@@ -2178,6 +2187,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     return {
       id,
       kind: "write",
+      model: getStepModelName(this.childScope.model, "record"),
       statement: buildDeleteMany(this.childScope, {
         where: this.targetKeysFilter(targetPks),
       }),

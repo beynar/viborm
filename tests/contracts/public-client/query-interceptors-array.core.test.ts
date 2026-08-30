@@ -1,3 +1,4 @@
+import vm from "node:vm";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { MemoryCache } from "@cache/drivers/memory";
@@ -66,8 +67,10 @@ const FORMER_TRANSACTION_PROGRAM_MEMBERS = [
 class ArrayFallbackDriver extends Driver<object, object> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly events: string[] = [];
+  readonly submittedParams: unknown[][] = [];
   private transactionDepth = 0;
   failNext: Error | undefined;
+  afterTransactionStarts: (() => void) | undefined;
 
   constructor() {
     super("sqlite", "array-fallback-test");
@@ -85,10 +88,11 @@ class ArrayFallbackDriver extends Driver<object, object> {
   protected async execute<T>(
     _client: object,
     statement: string,
-    _params: unknown[],
+    params: unknown[],
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.events.push(statement);
+    this.submittedParams.push(params);
     const failure = this.failNext;
     this.failNext = undefined;
     if (failure) throw failure;
@@ -113,6 +117,7 @@ class ArrayFallbackDriver extends Driver<object, object> {
   ): Promise<T> {
     const nested = this.transactionDepth > 0;
     this.events.push(nested ? "SAVEPOINT" : "BEGIN");
+    this.afterTransactionStarts?.();
     this.transactionDepth += 1;
     try {
       const result = await callback(client);
@@ -597,6 +602,88 @@ describe("array query admission", () => {
 });
 
 describe("fallback array query execution", () => {
+  test("detaches a nested raw Date graph before the driver fallback queue", async () => {
+    const originalInstant = "2026-08-25T13:00:00.000Z";
+    const laterInstant = "2026-08-26T13:00:00.000Z";
+    const date = new Date(originalInstant);
+    const parameter = { nested: [date] };
+    const { client: base, driver } = fallbackClient();
+    driver.afterTransactionStarts = () =>
+      date.setTime(Date.parse(laterInstant));
+    const client = base.$extends({
+      name: "fallback-queued-raw-date",
+      observe(_unit, proceed) {
+        return proceed();
+      },
+    });
+    const operation = requireTransactionOperation(
+      client.$queryRaw(sql`SELECT ${parameter}`)
+    );
+    const prepared = operation.prepare(driver);
+    if (!prepared) throw new Error("Expected a prepared raw statement");
+
+    await driver._executeBatch([prepared], undefined, operation.context);
+
+    const submitted = driver.submittedParams[0]?.[0];
+    if (submitted === null || typeof submitted !== "object") {
+      throw new Error("Expected a nested raw parameter graph");
+    }
+    const nested = Reflect.get(submitted, "nested");
+    if (!(Array.isArray(nested) && nested[0] instanceof Date)) {
+      throw new Error("Expected a nested raw Date");
+    }
+    expect(Date.prototype.toISOString.call(nested[0])).toBe(originalInstant);
+    expect(date.toISOString()).toBe(laterInstant);
+  });
+
+  test("normalizes a foreign array before later prototype mutation", async () => {
+    const parameter: unknown = vm.runInNewContext(`["before"]`);
+    if (!Array.isArray(parameter)) throw new Error("Expected a foreign array");
+    const foreignPrototype = Object.getPrototypeOf(parameter);
+    const { client, driver } = fallbackClient();
+    driver.afterTransactionStarts = () => {
+      Object.defineProperty(foreignPrototype, "toJSON", {
+        configurable: true,
+        value() {
+          return "mutated-after-snapshot";
+        },
+      });
+    };
+    const operation = requireTransactionOperation(
+      client.$queryRaw(sql`SELECT ${parameter}`)
+    );
+    const prepared = operation.prepare(driver);
+    if (!prepared) throw new Error("Expected a prepared raw statement");
+
+    await driver._executeBatch([prepared], undefined, operation.context);
+
+    const submitted = driver.submittedParams[0]?.[0];
+    expect(Array.isArray(submitted)).toBe(true);
+    if (!Array.isArray(submitted)) throw new Error("Expected an array");
+    expect(submitted).not.toBe(parameter);
+    expect(Object.getPrototypeOf(submitted)).toBe(Array.prototype);
+    expect(Reflect.get(submitted, "toJSON")).toBeUndefined();
+    expect(Reflect.get(parameter, "toJSON")).toBeTypeOf("function");
+  });
+
+  test("refuses a nested raw Date introduced by a fallback statement transform", async () => {
+    const { client: base, driver } = fallbackClient();
+    const client = base.$extends({
+      name: "fallback-nested-raw-date",
+      statement({ operation, statement }) {
+        return operation === "$queryRaw"
+          ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
+          : statement;
+      },
+    });
+
+    await expect(
+      client.$transaction([client.$queryRaw(sql`SELECT ${1}`)])
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.events).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(providerStatements(driver.events)).toEqual([]);
+  });
+
   test("waits for member post-work before the next SQL and rolls back on failure", async () => {
     let calls = 0;
     const { client: base, driver } = fallbackClient();
@@ -895,6 +982,82 @@ describe("raw write-outcome classification", () => {
 });
 
 describe("native array query execution", () => {
+  test("refuses a nested raw Date introduced by a native statement transform", async () => {
+    const { client: base, driver } = nativeClient();
+    const client = base.$extends({
+      name: "native-nested-raw-date",
+      statement({ operation, statement }) {
+        return operation === "$queryRaw"
+          ? sql`SELECT ${{ nested: [new Date(Number.NaN)] }}`
+          : statement;
+      },
+    });
+
+    await expect(
+      client.$transaction([client.$queryRaw(sql`SELECT ${1}`)])
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.events).toEqual([]);
+  });
+
+  test.each([
+    "before",
+    "after",
+  ])("refuses a raw Date invalidated %s proceed before native preparation", async (timing) => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const { client: base, driver } = nativeClient();
+    const client = base.$extends({
+      name: `native-raw-date-${timing}`,
+      async query({ kind, proceed }) {
+        if (kind !== "queryRaw") return proceed();
+        if (timing === "before") {
+          parameter.setTime(Number.NaN);
+          return proceed();
+        }
+        const child = proceed();
+        parameter.setTime(Number.NaN);
+        return child;
+      },
+    });
+
+    await expect(
+      client.$transaction([client.$queryRaw(sql`SELECT ${parameter}`)])
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.events).toEqual([]);
+  });
+
+  test.each([
+    { label: "without", observed: false },
+    { label: "with", observed: true },
+  ])("refuses a raw Date invalidated by a native statement transform $label observers", async ({
+    observed,
+  }) => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const { client: base, driver } = nativeClient();
+    const transform = {
+      name: `native-raw-date-statement-${observed}`,
+      statement({ operation, statement }) {
+        if (operation !== "$queryRaw") return statement;
+        const date = statement.values[0];
+        if (!(date instanceof Date)) throw new Error("Expected a Date");
+        date.setTime(Number.NaN);
+        return statement;
+      },
+    };
+    const client = observed
+      ? base.$extends({
+          ...transform,
+          observe(_unit, proceed) {
+            return proceed();
+          },
+        })
+      : base.$extends(transform);
+
+    await expect(
+      client.$transaction([client.$queryRaw(sql`SELECT ${parameter}`)])
+    ).rejects.toBeInstanceOf(QueryError);
+    expect(driver.events).toEqual([]);
+  });
+
   test("orders provider, committed outcomes, parsing, and handler post-work", async () => {
     const timeline: string[] = [];
     const { client: base, driver } = nativeClient();

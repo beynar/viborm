@@ -214,8 +214,26 @@ describe("strict scalar result contracts", () => {
     expect(
       parseField("happenedAt", "2026-07-10 12:30:45.123", new MySQLAdapter())
     ).toEqual(new Date("2026-07-10T12:30:45.123Z"));
+    expect(parseField("happenedAt", "0000-01-01T23:59:59.999+23:59")).toEqual(
+      new Date("0000-01-01T00:00:59.999Z")
+    );
+    expect(parseField("happenedAt", "9999-12-31T00:00:00.000-23:59")).toEqual(
+      new Date("9999-12-31T23:59:00.000Z")
+    );
     expect(parseField("bornOn", "2024-02-29")).toEqual(
       new Date("2024-02-29T00:00:00.000Z")
+    );
+    expect(parseField("bornOn", "0000-01-01")).toEqual(
+      new Date("0000-01-01T00:00:00.000Z")
+    );
+    expect(parseField("bornOn", "9999-12-31")).toEqual(
+      new Date("9999-12-31T00:00:00.000Z")
+    );
+    expect(parseField("bornOn", new Date("0000-01-01T00:00:00.000Z"))).toEqual(
+      new Date("0000-01-01T00:00:00.000Z")
+    );
+    expect(parseField("bornOn", new Date("9999-12-31T00:00:00.000Z"))).toEqual(
+      new Date("9999-12-31T00:00:00.000Z")
     );
     expect(parseField("wakeAt", "13:45:30.123000+00")).toBe("13:45:30.123");
     expect(parseField("nullableText", null)).toBeNull();
@@ -278,8 +296,45 @@ describe("strict scalar result contracts", () => {
     ["hex bigint", "large", "0x10", "bigint"],
     ["invalid datetime", "happenedAt", "not-a-date", "datetime"],
     ["rollover datetime", "happenedAt", "2024-02-30T10:00:00Z", "datetime"],
+    ["hour-24 datetime", "happenedAt", "2024-02-29T24:00:00Z", "datetime"],
+    [
+      "datetime below the public range",
+      "happenedAt",
+      "0000-01-01T00:00:00.000+23:59",
+      "datetime",
+    ],
+    [
+      "datetime above the public range",
+      "happenedAt",
+      "9999-12-31T23:59:59.999-23:59",
+      "datetime",
+    ],
+    [
+      "Date below the public range",
+      "happenedAt",
+      new Date(-62_167_219_200_001),
+      "datetime",
+    ],
+    [
+      "Date above the public range",
+      "happenedAt",
+      new Date(253_402_300_800_000),
+      "datetime",
+    ],
     ["numeric datetime", "happenedAt", 0, "datetime"],
     ["rollover date", "bornOn", "2024-02-30", "date"],
+    [
+      "Date below the four-digit range",
+      "bornOn",
+      new Date(-62_167_219_200_001),
+      "date",
+    ],
+    [
+      "Date above the four-digit range",
+      "bornOn",
+      new Date(253_402_300_800_000),
+      "date",
+    ],
     ["numeric date", "bornOn", 0, "date"],
     ["object time", "wakeAt", { hour: 1 }, "time"],
     ["invalid time", "wakeAt", "25:00:00", "time"],

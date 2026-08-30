@@ -18,12 +18,16 @@
 import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
+import { validateRawParameters } from "@drivers/provider-parameter-snapshot";
 import {
   InvalidTransactionInputError,
   QueryError,
   VibORMErrorCode,
 } from "@errors";
-import { lookupResolvedExtensionHandlers } from "@extensions/chain";
+import {
+  lookupResolvedExtensionHandlers,
+  type ResolvedExtensionHandler,
+} from "@extensions/chain";
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
@@ -145,6 +149,79 @@ function fragmentWithValuesError(method: RawMethodName): QueryError {
   );
 }
 
+function invalidRawDateError(
+  method: RawMethodName,
+  parameterIndex: number
+): QueryError {
+  return new QueryError(
+    `${method} received an invalid Date as bound parameter ${parameterIndex}. An invalid Date names no instant, so a provider either refuses the statement after dispatch or binds it as null.`,
+    {
+      code: VibORMErrorCode.INVALID_INPUT,
+      meta: { method, parameterIndex },
+    }
+  );
+}
+
+function unsupportedRawArrayError(
+  method: RawMethodName,
+  parameterIndex: number
+): QueryError {
+  return new QueryError(
+    `${method} received raw array parameter ${parameterIndex} with custom inherited or accessor behavior. VibORM cannot validate that behavior without invoking caller code before dispatch.`,
+    {
+      code: VibORMErrorCode.INVALID_INPUT,
+      meta: { method, parameterIndex },
+    }
+  );
+}
+
+function hasOwnIndex(values: readonly unknown[], index: number): boolean {
+  return Object.hasOwn(values, index);
+}
+
+function copyIndexedValues(values: readonly unknown[]): unknown[] {
+  const copy = new Array<unknown>(values.length);
+  for (let index = 0; index < values.length; index += 1) {
+    if (hasOwnIndex(values, index)) copy[index] = values[index];
+  }
+  return copy;
+}
+
+function copySqlStrings(strings: readonly string[]): string[] {
+  const copy = new Array<string>(strings.length);
+  for (let index = 0; index < strings.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(strings, index);
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      typeof descriptor.value !== "string"
+    ) {
+      throw new TypeError("Sql fragment strings must be plain string values");
+    }
+    copy[index] = descriptor.value;
+  }
+  return copy;
+}
+
+function createOperationSql(query: Sql): Sql {
+  return new Sql(
+    copySqlStrings(query.strings),
+    copyIndexedValues(query.values)
+  );
+}
+
+function validateRawParametersBeforeInterception(
+  method: RawMethodName,
+  params: readonly unknown[]
+): void {
+  validateRawParameters(params, {
+    invalidDate: (parameterIndex) =>
+      invalidRawDateError(method, parameterIndex),
+    unsupportedArray: (parameterIndex) =>
+      unsupportedRawArrayError(method, parameterIndex),
+  });
+}
+
 type CapturedRawQuery =
   | {
       readonly family: "safe";
@@ -168,10 +245,7 @@ type ResolvedRawQuery =
 type RawRow<T> = T extends (infer Row)[] ? Row : unknown;
 
 function captureValues(values: readonly unknown[]): readonly unknown[] {
-  if (values.length === 1 && Array.isArray(values[0])) {
-    return Object.freeze([[...values[0]]]);
-  }
-  return Object.freeze([...values]);
+  return Object.freeze(copyIndexedValues(values));
 }
 
 /** A lazy raw statement that remains assignable to `Promise<T>`. */
@@ -203,6 +277,7 @@ class DeferredRawOperation<T>
   readonly #method: RawMethodName;
   readonly #captured: CapturedRawQuery;
   readonly #parse: (raw: QueryResult<RawRow<T>>) => T;
+  readonly #queryHandlers: readonly ResolvedExtensionHandler[] | undefined;
   #resolved: ResolvedRawQuery | undefined;
   #observationCommitCertainty: "committed" | "may-have-committed" | undefined;
 
@@ -226,26 +301,15 @@ class DeferredRawOperation<T>
       model: () => "$raw",
       operation: (operation) => operation.#method,
       context: (operation) => operation.#context,
-      requiresInterception: (operation) => {
-        const handlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
-          undefined,
-          operation.#method
-        );
-        return handlers !== undefined && handlers.length > 0;
-      },
+      requiresInterception: (operation) =>
+        operation.#queryHandlers !== undefined &&
+        operation.#queryHandlers.length > 0,
       prepareAdmission: (operation) => {
         operation.#resolve();
       },
       stagePackageWriteOutcomes: () => undefined,
       startInterception: (operation, child, outcomes, control) => {
-        const handlers = lookupResolvedExtensionHandlers(
-          operation.#engine.extensionChain,
-          "query",
-          undefined,
-          operation.#method
-        );
+        const handlers = operation.#queryHandlers;
         if (handlers === undefined || handlers.length === 0) return child();
         const query = operation.#resolve();
         const inspectionInput =
@@ -356,6 +420,12 @@ class DeferredRawOperation<T>
     this.#method = method;
     this.#captured = captured;
     this.#parse = parse;
+    this.#queryHandlers = lookupResolvedExtensionHandlers(
+      engine.extensionChain,
+      "query",
+      undefined,
+      method
+    );
     this.#execution = new PendingExecution<T>("$raw", method);
     this.#context = createOperationExecutionContext(
       "$raw",
@@ -369,39 +439,36 @@ class DeferredRawOperation<T>
   #resolve(): ResolvedRawQuery {
     if (this.#resolved) return this.#resolved;
 
+    // Refusing before memoizing keeps a rejected statement rejected however
+    // many times admission, interception, and execution ask for it.
+    const resolved = this.#resolveQuery();
+    validateRawParametersBeforeInterception(
+      this.#method,
+      resolved.kind === "fragment" ? resolved.query.values : resolved.params
+    );
+    this.#resolved = resolved;
+    return resolved;
+  }
+
+  #resolveQuery(): ResolvedRawQuery {
     const { query, values } = this.#captured;
     if (this.#captured.family === "unsafe") {
       if (typeof query !== "string") throw invalidRawQueryError(this.#method);
-      this.#resolved = {
-        kind: "verbatim",
-        sql: query,
-        params: [...values],
-      };
-      return this.#resolved;
+      return { kind: "verbatim", sql: query, params: [...values] };
     }
 
     if (isTemplateStringsArray(query)) {
-      this.#resolved = {
-        kind: "fragment",
-        query: new Sql(query, values),
-      };
-      return this.#resolved;
+      return { kind: "fragment", query: new Sql(query, values) };
     }
     if (isSql(query)) {
       if (values.length > 0) throw fragmentWithValuesError(this.#method);
-      this.#resolved = { kind: "fragment", query };
-      return this.#resolved;
+      return { kind: "fragment", query: createOperationSql(query) };
     }
     throw invalidRawQueryError(this.#method);
   }
 
   #run(driver: AnyDriver): Promise<T> {
-    const handlers = lookupResolvedExtensionHandlers(
-      this.#engine.extensionChain,
-      "query",
-      undefined,
-      this.#method
-    );
+    const handlers = this.#queryHandlers;
     if (handlers === undefined || handlers.length === 0) {
       return this.#runResolved(
         driver,

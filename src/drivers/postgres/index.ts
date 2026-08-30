@@ -84,9 +84,11 @@ const vibormTypes: Record<string, postgres.PostgresType> = {
     serialize: (value: unknown) => value as string,
     parse: (value: string) => value,
   },
-  // json/jsonb params arrive pre-serialized from the adapter; postgres.js
-  // would JSON.stringify them a second time once the server declares the
-  // param type, double-encoding the stored value
+  // The adapter binds a `JsonParameter` carrier (src/sql/json-parameter.ts),
+  // which the object arm serializes to its canonical text via `toJSON`. The
+  // string arm exists for raw SQL: a caller's own JSON text bound to a
+  // json/jsonb parameter must not be JSON.stringify'd a second time once the
+  // server declares the param type — that double-encodes the stored value.
   json: {
     to: 114,
     from: [114, 3802],

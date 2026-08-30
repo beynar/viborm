@@ -1,6 +1,16 @@
+import vm from "node:vm";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+function successfulValue<const S extends StandardSchemaV1>(
+  schema: S,
+  input: unknown
+): StandardSchemaV1.InferOutput<S> {
+  const result = parse(schema, input);
+  if (result.issues) throw new Error("Expected success");
+  return result.value;
+}
 
 describe("date schema", () => {
   describe("basic validation", () => {
@@ -29,6 +39,46 @@ describe("date schema", () => {
       expect(parse(schema, 123_456_789).issues).toBeDefined();
       expect(parse(schema, null).issues).toBeDefined();
       expect(parse(schema, undefined).issues).toBeDefined();
+    });
+
+    test("keeps a local Date by identity", () => {
+      const d = new Date("2023-01-01T00:00:00.000Z");
+      expect(successfulValue(schema, d)).toBe(d);
+    });
+
+    test("accepts a Date from another realm as a local Date", () => {
+      const foreign: Date = vm.runInNewContext(
+        "new Date('2023-01-01T00:00:00.000Z')"
+      );
+      expect(foreign instanceof Date).toBe(false);
+
+      const value = successfulValue(schema, foreign);
+      expect(value instanceof Date).toBe(true);
+      expect(value.toISOString()).toBe("2023-01-01T00:00:00.000Z");
+    });
+
+    test("rejects an invalid Date from another realm", () => {
+      expect(
+        parse(schema, vm.runInNewContext("new Date(NaN)")).issues
+      ).toBeDefined();
+    });
+
+    test("rejects a foreign invalid Date whose getTime override lies", () => {
+      const foreign: Date = vm.runInNewContext(
+        "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+      );
+
+      expect(parse(schema, foreign).issues).toBeDefined();
+    });
+
+    test("rejects an object that merely spells getTime", () => {
+      expect(
+        parse(schema, { [Symbol.toStringTag]: "Date", getTime: () => 0 }).issues
+      ).toBeDefined();
+    });
+
+    test("rejects a Proxy around a Date without throwing", () => {
+      expect(parse(schema, new Proxy(new Date(0), {})).issues).toBeDefined();
     });
 
     test("type inference", () => {

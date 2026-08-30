@@ -31,6 +31,28 @@ every selected decimal or decimal aggregate leaf becomes a fresh public
 have one logical surface but provider-specific physical carriers, so list
 membership and count semantics also stay behind the adapter boundary.
 
+`builders/values-builder.ts` is the one whole-list value crossing for ordinary,
+managed-enum, and decimal lists. Assignment, `push`, and `unshift` route the
+complete list through that owner, as do `hasEvery` and `hasSome` containment
+candidates, then hand the resulting `Sql` container to the adapter. Builders
+must not recreate member conversion or grow one SQL fragment and bind per
+member.
+
+## DateTime semantics
+
+DateTime planning carries the scalar's declared SQLite physical form; it never
+infers a form from a provider number. Typed writes and predicates enter as
+validated ISO text and cross the adapter's DateTime literal seam. For REAL
+storage, every admitted public millisecond is writable and Julian decoding
+rounds back to that millisecond.
+
+The result parser consumes the calendar, clock, and inclusive four-digit UTC
+instant domain from `@validation/primitives/datetime-values`. Numeric SQLite
+results first cross `datetime-physical-codec`; provider timestamp strings then
+cross the result boundary's provider grammar and the same logical-domain
+predicates. Both paths return a public `Date`. Do not add another range,
+calendar validator, or physical-form guess in a builder. Raw SQL stays physical.
+
 ## GeoPoint semantics
 
 Point builders consume already-normalized `GeoPoint`/`GeoArea` values. They
