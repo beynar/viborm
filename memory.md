@@ -275,3 +275,5 @@
 - A documented release protection is not an implemented protection until the
   live repository or registry setting is provisioned. Separate code readiness
   from one-time control-plane setup and name both before the first release.
+- When Arnaud says to merge a completed branch, finish the operation by pushing
+  the resulting target branch unless he explicitly asks for a local-only merge.
