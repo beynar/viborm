@@ -8,7 +8,8 @@ import {
 } from "./driver-diagnostics";
 import type { ErrorLogDetails } from "./driver-instrumentation";
 import { snapshotExecutionContext } from "./execution-context";
-import { transferPreparedStatement } from "./prepared-statement-provenance";
+import { snapshotPreparedStatement } from "./prepared-statement-provenance";
+import { snapshotProviderParameters } from "./provider-parameter-snapshot";
 import type { BatchQuery, QueryExecutionContext } from "./types";
 
 export interface PreparedAtomicBatch {
@@ -29,13 +30,15 @@ export function prepareAtomicBatch(
   const statementDiagnosticSnapshots: unknown[][] = [];
   const preparedQueries = queries.map((query) => {
     const sourceParams = query.params;
-    const params = sourceParams ? [...sourceParams] : undefined;
-    if (params) Object.freeze(params);
     const context = snapshotExecutionContext(
       query.context,
       executionContext,
       "executeBatch"
     );
+    const params = sourceParams
+      ? snapshotProviderParameters(sourceParams, context)
+      : undefined;
+    if (params) Object.freeze(params);
     let snapshot: BatchQuery = {
       sql: query.sql,
       ...(params ? { params } : {}),
@@ -44,7 +47,7 @@ export function prepareAtomicBatch(
     if (isVerbatimBatchQuery(query)) {
       snapshot = markVerbatimBatchQuery(snapshot);
     }
-    transferPreparedStatement(query, snapshot);
+    snapshotPreparedStatement(query, snapshot, params ?? []);
     const diagnosticSnapshot = getDiagnosticParameters(params ?? [], context);
     statementDiagnosticSnapshots.push(diagnosticSnapshot);
     Object.defineProperty(snapshot, BATCH_DIAGNOSTIC_PARAMS, {

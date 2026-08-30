@@ -13,14 +13,15 @@
  *   a key without one is a bare scalar selector (`where: { email }`). That
  *   spelling difference is a real addressing fact — `.id(["a"])` and a scalar
  *   `.id()` on `a` accept different selectors — so it is stored, not inferred.
+ * - `referenceableKeys` — every complete ordered key a foreign key may target:
+ *   the addressable keys above plus total unique indexes. This is deliberately
+ *   wider than the public selector grammar and is the one physical-key catalog
+ *   consumed by schema validation and relation topology.
  * - `uniqueOverlapFields` — the conservative flattened view, used only to ask
  *   whether two selectors MAY overlap. Never a substitute for a grouped key.
  *
- * What this catalog deliberately does NOT claim: exact reference legality. A
- * foreign key may target a unique INDEX no selector can address, and whether a
- * given target is portable is a schema/provider-validation fact
- * (`getForeignKeyTargetFields` and its one fold-decision consumer own that
- * wider, over-approximating view). The catalog says how a row is ADDRESSED.
+ * Public addressability and physical referenceability remain distinct views:
+ * a foreign key may target a total unique INDEX no selector can address.
  *
  * A second deliberate survivor: the validation whereUnique factories
  * (`validation/model/core/filter.ts` / `where.ts`) keep reading the constraint
@@ -38,7 +39,7 @@
  * column resolution is a downstream projection through `getColumnName`.
  */
 
-import type { Model } from "./model";
+import { isTotalIndex, type Model } from "./model";
 
 export interface OrderedModelKey {
   // No "uniqueIndex" kind, deliberately departing from the plan's §4.1 sketch:
@@ -59,6 +60,7 @@ export interface OrderedModelKey {
 export interface ModelKeyCatalog {
   readonly rowKey?: OrderedModelKey;
   readonly addressableKeys: readonly OrderedModelKey[];
+  readonly referenceableKeys: readonly (readonly string[])[];
   readonly uniqueOverlapFields: readonly string[];
 }
 
@@ -98,6 +100,33 @@ export function findAddressableKey(
     }
   }
   return undefined;
+}
+
+/**
+ * Resolve one complete referenced tuple to the target key's own order.
+ *
+ * Membership is order-insensitive, but the answer is ordered because MySQL
+ * requires composite referenced columns to follow an index left-prefix. An
+ * exactly-spelled key wins; otherwise catalog order supplies the stable answer.
+ */
+export function findReferenceableKey(
+  model: Model<any>,
+  fields: readonly string[]
+): readonly string[] | undefined {
+  let setMatch: readonly string[] | undefined;
+  for (const candidate of getModelKeyCatalog(model).referenceableKeys) {
+    if (
+      candidate.length !== fields.length ||
+      !candidate.every((field) => fields.includes(field))
+    ) {
+      continue;
+    }
+    if (candidate.every((field, position) => field === fields[position])) {
+      return candidate;
+    }
+    setMatch ??= candidate;
+  }
+  return setMatch;
 }
 
 function buildModelKeyCatalog(model: Model<any>): ModelKeyCatalog {
@@ -173,6 +202,13 @@ function buildModelKeyCatalog(model: Model<any>): ModelKeyCatalog {
     }
   }
 
+  const referenceableKeys: readonly (readonly string[])[] = [
+    ...addressableKeys.map((key) => key.fields),
+    ...state.indexes
+      .filter((index) => index.options.unique && isTotalIndex(index.options))
+      .map((index) => index.fields),
+  ];
+
   return {
     // The row key prefers the compound constraint: `getPrimaryKeyFields` has
     // always answered compound-first, and the projection contract pins that
@@ -182,6 +218,7 @@ function buildModelKeyCatalog(model: Model<any>): ModelKeyCatalog {
     // its own scalar-first projection (`getCursorIdentityFields`).
     rowKey: compoundRowKey ?? scalarRowKey,
     addressableKeys,
+    referenceableKeys,
     uniqueOverlapFields: [...overlap],
   };
 }

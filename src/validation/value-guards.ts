@@ -25,7 +25,6 @@ export function isBoolean(value: unknown): value is boolean {
  * question, owned by the schemas that consume this.
  */
 export function isDate(value: unknown): value is Date {
-  if (value instanceof Date) return true;
   // Non-objects hold no slot, and routing them through the throwing path would
   // cost every string an exception on the ISO timestamp boundary.
   if (value === null || typeof value !== "object") return false;
@@ -47,8 +46,8 @@ const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype);
  * DataView, and every other typed-array kind are refused.
  */
 export function isUint8Array(value: unknown): value is Uint8Array {
+  if (value === null || typeof value !== "object") return false;
   return (
-    value instanceof Uint8Array ||
     Reflect.get(typedArrayPrototype, Symbol.toStringTag, value) === "Uint8Array"
   );
 }

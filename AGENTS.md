@@ -27,7 +27,7 @@ These constraints shaped every architectural decision. When you wonder "why is t
 
 | Layer | Location | Owns | Doesn't Own | Guide |
 |-------|----------|------|-------------|-------|
-| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, the one fixed-decimal descriptor shape and codec, `SchemaRegistry` operation schemas | Scalar declaration logic | [validation/AGENTS.md](src/validation/AGENTS.md) |
+| **L1: Validation** | `src/validation/` | v.* primitives, Standard Schema V1, the one fixed-decimal descriptor shape and codec, the one DateTime logical domain and physical codec, `SchemaRegistry` operation schemas | Scalar declaration logic | [validation/AGENTS.md](src/validation/AGENTS.md) |
 | **L2: Scalars** | `src/schema/scalars/`, `src/schema/field-ref.ts`, `src/schema/hydration.ts` | Scalar classes, State generics, base scalar schemas, each field's frozen decimal-descriptor instance, runtime schema metadata | Operation schemas or a second decimal representation | [schema/scalars/AGENTS.md](src/schema/scalars/AGENTS.md) |
 | **L3: Operation Schemas** | `src/validation/model/`, `src/validation/relations/` | where, create, update, args schemas | SQL generation | — |
 | **L4: Relations** | `src/schema/relation/` | The two factories, the declaration state, the terminal capability surfaces | Pairing, ownership, query execution | [schema/relation/AGENTS.md](src/schema/relation/AGENTS.md) |
@@ -202,6 +202,33 @@ starts. Ordinary observer failures and returned promises never affect the
 application. Statement transforms exclude verbatim unsafe raw, while protected
 physical statement observation remains disclosure-limited and still covers it.
 
+Raw Date admission has two non-redundant boundaries. `src/client/raw.ts`
+refuses invalid caller input before query handlers run;
+`src/drivers/provider-parameter-snapshot.ts` revalidates and detaches raw Date
+leaves after the last statement transform and before direct or batch provider
+dispatch. Resolving a caller-supplied `Sql` first creates one operation-owned
+flat projection: query inspection, transaction preparation, and provider
+dispatch read the same statement strings and top-level value slots even when
+the caller mutates the original fragment during asynchronous pre-`proceed()`
+work. It snapshots every admitted data-descriptor ordinary JSON record and
+plain array as one stable own-descriptor view, preserving provider-visible
+aliases, cycles, sparse arrays, and property descriptors. Admitted foreign
+built-in containers normalize to local built-in prototypes; null-prototype
+containers remain null-prototype, so caller-owned prototypes do not survive the
+snapshot. Classification does not invoke accessors, iterators, or `toJSON`;
+Proxy reflection traps can run while presenting the captured view, so the
+captured view rather than the later Proxy reaches dispatch. An array with
+custom inherited behavior, an indexed accessor, or custom `toJSON` is refused
+because provider array semantics would otherwise bypass Date validation.
+Custom-prototype records, record accessor carriers, custom-`toJSON` records,
+and provider-native objects remain opaque: VibORM does not interpret or detach
+values behind that provider-owned boundary. A queued prepared driver batch
+detaches both its admitted public parameter graph and its private prepared-`Sql`
+provenance. The finalizer recognizes raw work through
+`context.model === "$raw"`;
+non-raw statements retain their shallow parameter-copy path because typed input
+was validated upstream and statement transforms are trusted.
+
 Generic extension ownership is exact: `src/extensions/definition.ts` owns the
 public envelope and hostile-definition boundary; `chain.ts` owns the one
 resolved chain and handler lookup; `methods.ts` owns client/model factories and
@@ -281,7 +308,26 @@ strings. Raw SQL stays physical and receives no descriptor-aware scaling.
 retired language shapes across shipped source. Behavior tests own exact
 provider answers; the census owns the absence of a second language.
 
-### Rule 9: One GeoPoint language
+### Rule 9: One DateTime domain
+
+`src/validation/primitives/datetime-values.ts` is the semantic owner of the
+public DateTime domain. A timestamp must name a real proleptic-Gregorian date,
+use hours `00` through `23` (with minute and second `00` through `59`), use `Z`
+or a signed offset no wider than `±23:59`, and represent a UTC instant in the
+inclusive range `0000-01-01T00:00:00.000Z` through
+`9999-12-31T23:59:59.999Z`. ISO admission, result parsing, and the SQLite
+numeric physical codec consume that one owner; do not copy its calendar,
+clock, or epoch-bound rules.
+
+SQLite scalar DateTime storage has three declared physical forms: timestamp
+TEXT, epoch-millisecond INTEGER, and Julian-day REAL. Every admitted logical
+millisecond can be written to and decoded from the REAL form; binary floating
+point is rounded back to the logical millisecond rather than used to reject a
+valid public value. Migration SQL mirrors the public timestamp grammar and
+imports the exact epoch bounds from `datetime-values.ts`. Raw SQL remains
+physical and receives no DateTime conversion.
+
+### Rule 10: One GeoPoint language
 
 `s.point()` and `v.point()` share the one exact `{ longitude, latitude }`
 value vocabulary owned by `src/validation/primitives/geo-values.ts`. The
@@ -359,6 +405,23 @@ Sql fragments carry both the template string AND parameter values separately. Th
 
 ### Why there's no `src/drivers/AGENTS.md`
 The driver layer handles connection management and query execution. While there are many drivers (13+: pglite, pg, postgres, neon-http, mysql2, planetscale, sqlite3, libsql, d1, d1-http, bun-sqlite, bun-sql), they follow a consistent pattern. Most complexity lives in adapters (SQL generation) and query-engine (structure).
+
+When a secondary driver failure occurs while a primary failure is already
+propagating, `src/drivers/shared/suppressed-failure.ts` is the one evidence
+owner. It preserves the primary value and records ordered secondary failures;
+do not add cleanup-specific or provider-specific side channels. Its WeakMap is
+canonical. The optional non-enumerable debugger mirror is added only when the
+primary does not already own that property name; caller-owned error state is
+never overwritten.
+
+The generic disconnect lifecycle discards its last transport handle only after
+`closeClient()` succeeds. A rejected close removes that exact transport from
+active client/initialization state and quarantines it for a later public
+disconnect retry: connect and query work refuse with V1003 until cleanup
+succeeds, because a provider may have made its handle unusable before rejecting.
+No replacement transport is created while cleanup is unresolved.
+Provider-specific listeners and retained failure state follow the same
+proven-success boundary.
 
 ### Why OTel is dynamically imported
 OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dynamic `import()` with catch allows graceful degradation when `@opentelemetry/api` isn't installed.
@@ -484,11 +547,22 @@ falsification proving THAT guard fires — not two guards half-trusted.
 
 Shared representation predicates live in `src/validation/value-guards.ts`.
 Reuse `isRecord`, `isString`, `isFunction`, `isNumber`, `isBoolean`, `isBigInt`,
-`isDate`, and `isUint8Array` instead of recreating their exact checks. `isDate`
-and `isUint8Array` are realm-independent: they fall back to built-in
-internal-slot brands, so foreign-realm natives pass and `Symbol.toStringTag`
-spoofs fail. They belong at ADMISSION boundaries, which normalize a foreign
-value to a local one (`blob.ts` re-views, `iso.ts` emits ISO text); past that
+`isDate`, and `isUint8Array` instead of recreating their exact checks. Both are
+realm-independent: `isDate` proves `[[DateValue]]` for every object through
+`Date.prototype.getTime`, while `isUint8Array` uses the built-in typed
+array tag accessor, so foreign-realm natives pass and `Symbol.toStringTag`
+spoofs fail. After `isDate` admits a value, read its instant and ISO form only
+through the corresponding `Date.prototype` intrinsics; its instance methods
+remain caller-overridable. Blob admission reads intrinsic `buffer`,
+`byteOffset`, and `byteLength` metadata through `%TypedArray%.prototype` and
+re-views foreign-realm, subclassed, caller-owned custom-prototype, or
+own-shadowed values. An unshadowed value on the exact local
+`Uint8Array.prototype` or captured local Node Buffer prototype is already a
+trusted runtime boundary, so it keeps its identity and prototype. Public
+metadata agreement is never proof because a stateful prototype can lie on a
+later driver read. These predicates belong at ADMISSION boundaries, which
+normalize an admitted value to a trustworthy local one (`blob.ts` re-views,
+`iso.ts` emits ISO text); past that
 boundary every value is local, so an interior `instanceof Date` /
 `instanceof Uint8Array` is the intended check, not an unconverted call site. Keep stronger boundary
 rules local to their semantic owner, such as hostile diagnostic reads,

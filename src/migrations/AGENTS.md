@@ -39,6 +39,12 @@ CHECK and refuses spatial indexes. Introspection recognizes only those exact
 forms. Offline artifacts carry the logical snapshot requirement; they never
 infer it by parsing SQL.
 
+List storage is selected before a scalar native type. PostgreSQL has native
+arrays and composes an admitted member type with `[]`. MySQL stores every list
+in JSON. SQLite stores lists in JSON except for its reserved fixed-decimal TEXT
+container. A MySQL or SQLite native declaration describes one scalar member and
+must never replace the list container in migration DDL.
+
 ## Domain model
 
 Use these terms exactly:
@@ -180,7 +186,11 @@ Generated DDL already has provider statement boundaries. One manual `Sql` value
 is one opaque provider dispatch, even if its text contains internal semicolons.
 PostgreSQL dollar-quoted bodies, MySQL routines, and SQLite triggers therefore
 do not create fake progress boundaries. MySQL `DELIMITER` is refused because it
-is a client command.
+is a client command. `compile.ts` refuses a declared manual forward or rollback
+program with no dispatches and refuses each rendered dispatch whose text is
+only whitespace. Accepted text stays byte-exact; comments and semicolons remain
+opaque. Keep this invariant manual-only: generated logical-only transitions may
+have no SQL effects.
 
 Typed parameters are canonical tagged values. `compile.ts` encodes them once;
 application decodes those tags through the same SQL boundary. Production does
@@ -270,6 +280,51 @@ V1 reuses them. It does not fork schema comparison for estates or for `push`.
 operations, checks, exact dispatches, rollback policy, typed parameters, and one
 authenticated SQL blob. Dialect SQL, probes, and transactional classification
 remain the bound `MigrationDriver`'s responsibility.
+
+Literal DateTime SQL defaults are rendered by the bound migration driver from
+the scalar declaration. SQLite routes INTEGER and REAL defaults through the
+same physical codec as query literals; Date-object and function defaults remain
+application defaults, and TEXT keeps the ISO timestamp spelling. Every admitted
+public instant is writable in REAL form; a valid literal default is not refused
+because a Julian-day double is not an exact binary representation.
+
+For a scalar SQLite DateTime, `ColumnDef.dateTime` carries the declared `text`,
+`epochMillis`, or `julianDay` vocabulary in authenticated generated snapshots.
+The physical type alone is never logical proof, and live introspection cannot
+recover this marker. V1 generation compares it between authenticated snapshots;
+live push does not, because doing so would make every unchanged DateTime column
+drift forever. When live push is already recreating a column whose target
+declares DateTime, it treats an unmarked TEXT, INTEGER, or REAL source only as a
+candidate vocabulary and validates every non-null row, including a same-form
+adoption, before the source becomes trusted DateTime. It does not infer or
+persist a declaration from the physical type. A fixed-decimal marker is proof
+that an INTEGER is not an unmarked epoch-millisecond candidate, so adoption from
+that domain is refused rather than reinterpreting its coefficient.
+
+SQLite table recreation keeps `copySourceExpression` as the one copy-conversion
+composition owner and delegates the six directed DateTime SQL spellings to
+`drivers/sqlite/datetime.ts`. A copied value must prove that it is an exact
+member of the source vocabulary and that the target decodes to the same
+millisecond; null remains null, and malformed, out-of-range, or inexact data
+aborts the recreation instead of being rounded or reinterpreted. TEXT parsing
+mirrors the public timestamp grammar: a real proleptic-Gregorian date, hour
+`00` through `23`, minute and second `00` through `59`, and `Z` or a signed
+offset through `±23:59`. It imports the exact inclusive epoch bounds for
+`0000-01-01T00:00:00.000Z` through `9999-12-31T23:59:59.999Z` from
+`datetime-values.ts`; do not hand-copy those numbers. Offset arithmetic stays
+integer-owned here rather than delegated to SQLite's `julianday`, whose accepted
+offset range is narrower. Fractional seconds consume only their one to three
+digits before the `Z` or signed-offset suffix; offset digits are never part of
+the millisecond. A TEXT target must fit the same domain.
+
+LibSQL's native `ALTER COLUMN` does not convert stored values, so every
+transition into a DateTime target with a new form or logical marker bypasses
+that native path and uses the same guarded recreation. Removing a DateTime
+marker does not pretend to be a DateTime conversion. D1 is the shipped
+batch-only SQLite substrate: when a DateTime target transition would recreate a
+relation-bearing table, preflight refuses it before rendering because its
+native batch cannot lift `PRAGMA foreign_keys=OFF` outside the transaction. A
+relation-free D1 table can still use the guarded recreation.
 
 `generate-v1.ts` owns candidate construction and publication:
 

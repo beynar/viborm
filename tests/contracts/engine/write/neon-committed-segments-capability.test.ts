@@ -532,4 +532,56 @@ describe("H2 — Neon HTTP declares no ordered committed segments", () => {
       "rejected",
     ]);
   });
+
+  test("attributes a one-statement provider rejection and keeps an opaque multi-statement rejection at batch scope", async () => {
+    const statementContext = {
+      model: "post",
+      operation: "findMany",
+      correlationId: "neon-statement-correlation",
+    };
+    const batchContext = {
+      model: "$transaction",
+      operation: "$transaction([...])",
+      correlationId: "neon-batch-correlation",
+    };
+    const driver = new NeonHTTPDriver({ databaseUrl: "fake://neon" });
+
+    fakeNeonState.transactionError = new Error(
+      "Neon rejected the native transaction"
+    );
+    const attributable = await driver
+      ._executeBatch(
+        [{ ...CALLBACK_QUERY, context: statementContext }],
+        undefined,
+        batchContext
+      )
+      .catch((error) => error);
+    expect(attributable).toMatchObject({
+      name: "QueryError",
+      meta: {
+        driver: "neon-http",
+        ...statementContext,
+        statementIndex: 0,
+      },
+    });
+
+    fakeNeonState.transactionError = new Error(
+      "Neon rejected the native transaction"
+    );
+    const opaque = await driver
+      ._executeBatch(
+        [
+          { ...CALLBACK_QUERY, context: { model: "user" } },
+          { ...CALLBACK_QUERY, context: statementContext },
+        ],
+        undefined,
+        batchContext
+      )
+      .catch((error) => error);
+    expect(opaque).toMatchObject({
+      name: "QueryError",
+      meta: { driver: "neon-http", ...batchContext },
+    });
+    expect(opaque.meta).not.toHaveProperty("statementIndex");
+  });
 });

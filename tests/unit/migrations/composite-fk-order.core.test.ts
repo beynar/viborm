@@ -91,11 +91,11 @@ describe("composite foreign-key column order", () => {
     );
   });
 
-  it.each([
+  it.each<keyof typeof migrationDrivers>([
     "postgres",
     "mysql",
     "sqlite",
-  ] as const)("converges a permuted and a declared-order reference on one %s table", (dialect) => {
+  ])("converges a permuted and a declared-order reference on one %s table", (dialect) => {
     const driver = migrationDrivers[dialect];
 
     // Both sides of the constraint permute together, and the automatic

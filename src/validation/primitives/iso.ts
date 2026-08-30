@@ -5,6 +5,11 @@ import type {
   VibSchema,
 } from "../types";
 import { isDate, isString } from "../value-guards";
+import {
+  isDateTimeClock,
+  isDateTimeInstant,
+  isGregorianCalendarDate,
+} from "./datetime-values";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -13,10 +18,10 @@ import { buildSchema, ok } from "./helpers";
 
 // ISO timestamp regex: 2023-12-15T10:30:00.000Z
 const ISO_TIMESTAMP_REGEX =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-](\d{2}):(\d{2}))$/;
 
 // ISO date regex: 2023-12-15
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 // ISO time regex: 10:30:00 or 10:30:00.000
 const ISO_TIME_REGEX = /^\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/;
@@ -65,14 +70,30 @@ const INVALID_TIMESTAMP_DATE = Object.freeze({
 function validateIsoTimestamp(value: unknown) {
   // Handle Date objects - convert to ISO string
   if (isDate(value)) {
-    if (Number.isNaN(value.getTime())) return INVALID_TIMESTAMP_DATE;
-    return ok(value.toISOString());
+    const epochMilliseconds = Date.prototype.getTime.call(value);
+    if (!isDateTimeInstant(epochMilliseconds)) {
+      return INVALID_TIMESTAMP_DATE;
+    }
+    return ok(Date.prototype.toISOString.call(value));
   }
 
   if (!isString(value)) return NOT_STRING_OR_DATE_ERROR;
-  if (!ISO_TIMESTAMP_REGEX.test(value)) return INVALID_TIMESTAMP_FORMAT;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return INVALID_TIMESTAMP_DATE;
+  const match = ISO_TIMESTAMP_REGEX.exec(value);
+  if (!match) return INVALID_TIMESTAMP_FORMAT;
+  const hasValidCalendarAndClock =
+    isGregorianCalendarDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    ) && isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]));
+  if (
+    !hasValidCalendarAndClock ||
+    Number(match[7] ?? 0) > 23 ||
+    Number(match[8] ?? 0) > 59 ||
+    !isDateTimeInstant(Date.parse(value))
+  ) {
+    return INVALID_TIMESTAMP_DATE;
+  }
   return ok(value);
 }
 
@@ -138,14 +159,24 @@ const INVALID_DATE = Object.freeze({
 function validateIsoDate(value: unknown) {
   // Handle Date objects - convert to ISO date string
   if (isDate(value)) {
-    if (Number.isNaN(value.getTime())) return INVALID_DATE;
-    return ok(value.toISOString().split("T")[0]!);
+    if (!isDateTimeInstant(Date.prototype.getTime.call(value))) {
+      return INVALID_DATE;
+    }
+    return ok(Date.prototype.toISOString.call(value).slice(0, 10));
   }
 
   if (!isString(value)) return NOT_STRING_OR_DATE_ERROR;
-  if (!ISO_DATE_REGEX.test(value)) return INVALID_DATE_FORMAT;
-  const date = new Date(value + "T00:00:00Z");
-  if (Number.isNaN(date.getTime())) return INVALID_DATE;
+  const match = ISO_DATE_REGEX.exec(value);
+  if (!match) return INVALID_DATE_FORMAT;
+  if (
+    !isGregorianCalendarDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    )
+  ) {
+    return INVALID_DATE;
+  }
   return ok(value);
 }
 
@@ -207,9 +238,9 @@ const INVALID_TIME = Object.freeze({
 function validateIsoTime(value: unknown) {
   // Handle Date objects - extract time portion
   if (isDate(value)) {
-    if (Number.isNaN(value.getTime())) return INVALID_TIME;
+    if (Number.isNaN(Date.prototype.getTime.call(value))) return INVALID_TIME;
     // Extract HH:mm:ss.sss from ISO string
-    const isoString = value.toISOString();
+    const isoString = Date.prototype.toISOString.call(value);
     const timePart = isoString.split("T")[1]!.replace("Z", "");
     return ok(timePart);
   }

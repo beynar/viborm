@@ -654,6 +654,10 @@ describe("official driver lifecycle instrumentation", () => {
         "private-endpoint"
       );
       disconnectDriver.failDisconnect = undefined;
+      await expect(disconnecting.$connect()).rejects.toMatchObject({
+        code: "V1003",
+      });
+      await disconnecting.$disconnect();
       await expect(disconnecting.$connect()).resolves.toBeUndefined();
 
       const connectSpan = driverSpans(recorder.spans(), "connect-failure").find(

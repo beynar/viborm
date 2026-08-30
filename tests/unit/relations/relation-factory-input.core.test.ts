@@ -507,9 +507,13 @@ describe("modifier tokens", () => {
   it("refuses an empty or unequal fields/references pair", () => {
     const relation = hostile(s.toOne(() => post));
     expect(refusalOf(() => relation.fields())).toBe(REFUSED("fields"));
+    expect(refusalOf(() => relation.fields("a", "a"))).toBe(REFUSED("fields"));
     expect(refusalOf(() => relation.fields("a", "b").references("id"))).toBe(
       REFUSED("references")
     );
+    expect(
+      refusalOf(() => relation.fields("a", "b").references("id", "id"))
+    ).toBe(REFUSED("references"));
     expect(refusalOf(() => relation.fields("a").references())).toBe(
       REFUSED("references")
     );

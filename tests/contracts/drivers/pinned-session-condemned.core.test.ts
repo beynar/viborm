@@ -24,7 +24,7 @@
 import { BunSQLDriver } from "@drivers/bun-sql";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
-import { readCleanupFailures } from "@drivers/shared";
+import { readSuppressedFailures } from "@drivers/shared";
 import {
   condemnPhysicalSession,
   leasePinnedCommand,
@@ -196,7 +196,7 @@ describe("postgres.js condemns a session it cannot prove clean", () => {
 
     expect(thrown).toBe(bodyFailure);
     expect(bodyFailure.message).toBe("the estate half-dropped");
-    expect(readCleanupFailures(thrown)).toHaveLength(1);
+    expect(readSuppressedFailures(thrown)).toHaveLength(1);
   });
 });
 
@@ -583,7 +583,7 @@ describe("a transport whose owned closure FAILED", () => {
     expect(thrown).toBeInstanceOf(ConnectionError);
     const message = thrown instanceof Error ? thrown.message : "";
     expect(message).toContain("advisory-lock state");
-    expect(readCleanupFailures(thrown)).toHaveLength(1);
+    expect(readSuppressedFailures(thrown)).toHaveLength(1);
     // The close FAILED. Claiming the backend was ended is a claim about a
     // connection that may still be running — holding the very lock this
     // refusal exists to report.
@@ -608,7 +608,7 @@ describe("a transport whose owned closure FAILED", () => {
     expect(thrown).toBeInstanceOf(ConnectionError);
     const message = thrown instanceof Error ? thrown.message : "";
     expect(message).toContain("advisory-lock state");
-    expect(readCleanupFailures(thrown)).toHaveLength(1);
+    expect(readSuppressedFailures(thrown)).toHaveLength(1);
     expect(message).not.toContain("was closed");
   });
 
@@ -624,7 +624,7 @@ describe("a transport whose owned closure FAILED", () => {
     expect(thrown instanceof Error ? thrown.message : "").toContain(
       "belongs to the caller"
     );
-    expect(readCleanupFailures(thrown)).toHaveLength(0);
+    expect(readSuppressedFailures(thrown)).toHaveLength(0);
 
     await driver._executeRaw("SELECT 1");
 

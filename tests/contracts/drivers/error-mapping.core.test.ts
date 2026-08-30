@@ -374,14 +374,14 @@ describe("normalizeDriverError fixtures", () => {
   test("maps SQLITE_BUSY and SQLITE_LOCKED to retryable transaction errors", () => {
     const byCode = normalizeDriverError(
       Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(byCode).toBeInstanceOf(TransactionError);
     expect(byCode).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
 
     const byMessage = normalizeDriverError(
       new Error("D1_ERROR: database is locked: SQLITE_BUSY"),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(byMessage).toBeInstanceOf(TransactionError);
     expect(byMessage).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
@@ -390,7 +390,7 @@ describe("normalizeDriverError fixtures", () => {
       Object.assign(new Error("database table is locked"), {
         code: "SQLITE_LOCKED",
       }),
-      context
+      { ...context, dialect: "sqlite" }
     );
     expect(locked).toBeInstanceOf(TransactionError);
   });
@@ -420,6 +420,18 @@ describe("normalizeDriverError fixtures", () => {
     // The name must also survive sanitizeProviderCode's allowlist, or the
     // caller keeps the retry and loses which family it came from.
     expect(error.meta.providerCode).toBe(code);
+  });
+
+  test("admits an underscore-delimited future SQLite contention family member", () => {
+    const error = normalizeDriverError(
+      Object.assign(new Error("database is busy"), {
+        code: "SQLITE_BUSY_FUTURE_2",
+      }),
+      { driverName: "future-sqlite", dialect: "sqlite" }
+    );
+
+    expect(error).toBeInstanceOf(TransactionError);
+    expect(error).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
   });
 
   test.each([
@@ -472,6 +484,51 @@ describe("normalizeDriverError fixtures", () => {
     expect(error).toBeInstanceOf(QueryError);
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
     expect(error.isRetryable()).toBe(false);
+  });
+
+  test.each([
+    { code: "SQLITE_BUSYWORK", message: "database is busy" },
+    { code: "SQLITE_LOCKEDNESS", message: "database is locked" },
+    {
+      code: undefined,
+      message: "provider failed with SQLITE_BUSYWORK and SQLITE_LOCKEDNESS",
+    },
+    { code: "SQLITE_BUSY_recovery", message: "database is busy" },
+    { code: "SQLITE_BUSY_RECOVERYfoo", message: "database is busy" },
+    { code: undefined, message: "xSQLITE_BUSY recovery failed" },
+  ])("refuses the non-SQLite contention lookalike $code", ({
+    code,
+    message,
+  }) => {
+    const raw = Object.assign(new Error(message), code ? { code } : {});
+    const error = normalizeDriverError(raw, {
+      driverName: "sqlite-lookalike",
+      dialect: "sqlite",
+    });
+
+    expect(error).toBeInstanceOf(QueryError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.isRetryable()).toBe(false);
+  });
+
+  test.each<{ dialect: Dialect; driverName: string }>([
+    { dialect: "postgresql", driverName: "pg" },
+    { dialect: "mysql", driverName: "mysql2" },
+  ])("does not arm write retry from SQLite symbols on $dialect", (driver) => {
+    const byCode = normalizeDriverError(
+      Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }),
+      driver
+    );
+    const byMessage = normalizeDriverError(
+      new Error("provider rejected write: SQLITE_LOCKED_VTAB"),
+      driver
+    );
+
+    for (const error of [byCode, byMessage]) {
+      expect(error).toBeInstanceOf(QueryError);
+      if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+      expect(error.isRetryable()).toBe(false);
+    }
   });
 
   test("clones reused VibORM errors with request-scoped disclosure and attribution", () => {

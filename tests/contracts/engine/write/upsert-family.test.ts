@@ -66,6 +66,20 @@ interface Scenario {
 
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
 
+function runUserUpsert(
+  client: Record<string, RoutedModel>,
+  args: Record<string, unknown>
+) {
+  const userModel = client.user;
+  if (!userModel) {
+    throw new Error('Client model "user" is unavailable.');
+  }
+  if (!userModel.upsert) {
+    throw new Error('Client operation "user.upsert" is unavailable.');
+  }
+  return userModel.upsert(args);
+}
+
 function makeClient(db: PGlite) {
   return createClient({
     schema: upsertFamilySchema,
@@ -175,7 +189,7 @@ const scenarios: Scenario[] = [
     name: "root upsert empty update arm returns the existing row",
     seed: (c) => c.user.create({ data: { email: "e@x", score: 7 } }),
     act: (c) =>
-      c.user!.upsert!({
+      runUserUpsert(c, {
         where: { email: "e@x" },
         create: { email: "e@x", score: 999 },
         update: {},
@@ -186,7 +200,7 @@ const scenarios: Scenario[] = [
     name: "root upsert empty update arm still creates a missing row",
     seed: () => Promise.resolve(),
     act: (c) =>
-      c.user!.upsert!({
+      runUserUpsert(c, {
         where: { email: "en@x" },
         create: { email: "en@x", score: 2 },
         update: {},

@@ -38,6 +38,31 @@ function bunResult() {
   return Object.assign([], { count: 0 });
 }
 
+type BunSQLClient = NonNullable<
+  NonNullable<ConstructorParameters<typeof BunSQLDriver>[0]>["client"]
+>;
+
+function bunClient(
+  array: BunSQLClient["array"],
+  unsafe: BunSQLClient["unsafe"]
+): BunSQLClient {
+  const tagged = async (
+    _strings: TemplateStringsArray,
+    ..._values: unknown[]
+  ): Promise<unknown[]> => [];
+  return Object.assign(tagged, {
+    array,
+    unsafe,
+    begin: () => {
+      throw new Error("not used");
+    },
+    close: () => Promise.resolve(),
+    reserve: () => {
+      throw new Error("not used");
+    },
+  });
+}
+
 for (const [label, value] of JSON_VALUES) {
   test(`a ${label} carrier renders as canonical JSON text under both binding protocols`, () => {
     const carrier = JsonParameter.from(value);
@@ -90,7 +115,7 @@ test("a value JSON.stringify cannot represent still binds undefined", () => {
 test("the driver seam hands the carrier to the provider verbatim", async () => {
   const array = vi.fn(() => ({ serializedValues: "unused" }));
   const unsafe = vi.fn(async () => bunResult());
-  const driver = new BunSQLDriver({ client: { array, unsafe } as never });
+  const driver = new BunSQLDriver({ client: bunClient(array, unsafe) });
   const carrier = driver.adapter.literals.json([1, 2, 3]).values[0];
 
   await driver._execute(sql`INSERT INTO t (data) VALUES (${carrier})`);
@@ -114,7 +139,7 @@ test("the driver seam hands the carrier to the provider verbatim", async () => {
 test("a safe tagged raw fragment binds no carrier", async () => {
   const unsafe = vi.fn(async () => bunResult());
   const driver = new BunSQLDriver({
-    client: { array: vi.fn(), unsafe } as never,
+    client: bunClient(vi.fn(), unsafe),
   });
   const document = { nested: { value: 123 } };
 

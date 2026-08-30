@@ -451,18 +451,6 @@ export function decimalListMembers(
  * list parameter. The adapter still owns each spelling; this owns only which
  * one the destination column asks for.
  */
-/**
- * Whether a filter's list candidate must cross as ONE whole container instead
- * of a member-assembled `ARRAY[...]`. True exactly where reassembly has no
- * element type to resolve: PostgreSQL types `ARRAY[$1, $2]` from untyped
- * members as `text[]`, which no enum-array operator accepts. Owned here,
- * beside the whole-list crossing itself, so filter builders do not re-derive
- * the storage question.
- */
-export const listCandidateCrossesWhole = (
-  state: ScalarState | undefined
-): boolean => state?.type === "enum";
-
 function listStorageValue(
   adapter: DatabaseAdapter,
   fieldName: string,
@@ -511,7 +499,11 @@ export function scalarValueLiteral(
   if (state?.array && Array.isArray(value)) {
     return listStorageValue(ctx.adapter, fieldName, state, value);
   }
-  if (state?.type === "datetime" && typeof value === "string") {
+  if (
+    state?.type === "datetime" &&
+    state.array !== true &&
+    typeof value === "string"
+  ) {
     return ctx.adapter.literals.dateTime(value, dateTimeNativeTypeOf(scalar));
   }
   // JSON scalars store serialized JSON, primitives included (see buildScalarSqlValue)

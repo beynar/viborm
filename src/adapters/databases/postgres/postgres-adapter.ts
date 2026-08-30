@@ -94,24 +94,6 @@ function arrayLiteralText(values: readonly unknown[]): string {
   return `{${members.join(",")}}`;
 }
 
-/** The list column with every member appended, one element at a time. */
-function appendedMembers(column: Sql, values: readonly unknown[]): Sql {
-  let list = sql`COALESCE(${column}, '{}')`;
-  for (const value of values) {
-    list = sql`array_append(${list}, ${value})`;
-  }
-  return list;
-}
-
-/** {@link appendedMembers} at the front, so the members keep their order. */
-function prependedMembers(column: Sql, values: readonly unknown[]): Sql {
-  let list = sql`COALESCE(${column}, '{}')`;
-  for (const value of [...values].reverse()) {
-    list = sql`array_prepend(${value}, ${list})`;
-  }
-  return list;
-}
-
 /**
  * PostgreSQL Database Adapter
  *
@@ -464,17 +446,15 @@ export class PostgresAdapter implements DatabaseAdapter {
         ? logicalDecimalDivide(POSTGRES_INTEGERS, column, by, target.decimal)
         : sql`${column} = ${column} / ${by}`,
 
-    // One `array_append`/`array_prepend` per member rather than one bound
-    // array: an ELEMENT parameter resolves against `anyelement` from the
-    // column's own type, which is the only reading a managed enum's array has
-    // (its OID is in no driver's serializer table — see `arrays.enumValue`) and
-    // is exactly what a bound array got from `array_cat` for every other
-    // element type. COALESCE keeps NULL columns appendable.
-    push: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = ${appendedMembers(column, values)}`,
+    // `values` is already the destination field's one complete list crossing:
+    // a native array parameter for ordinary lists or an untyped PostgreSQL
+    // array literal for managed enums. `array_cat` lets the column resolve that
+    // one parameter's exact array type and keeps bind/SQL size constant.
+    push: (column: Sql, values: Sql): Sql =>
+      sql`${column} = array_cat(COALESCE(${column}, '{}'), ${values})`,
 
-    unshift: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = ${prependedMembers(column, values)}`,
+    unshift: (column: Sql, values: Sql): Sql =>
+      sql`${column} = array_cat(${values}, COALESCE(${column}, '{}'))`,
   };
 
   // ============================================================
@@ -653,7 +633,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   // PostgreSQL: Mostly passthrough - native JSON and boolean types
   // ============================================================
 
-  result = {
+  result: DatabaseAdapter["result"] = {
     // PostgreSQL returns native JS scalars and parseField below is a pure
     // passthrough, so the result parser may take the identity fast path for
     // plain string/int/number/boolean columns (byte-identical, guarded).
@@ -661,7 +641,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // A managed enum's array OID is in no driver's result-type table, so an
     // enum LIST comes back as the array's own text rather than a JS array.
-    enumListRepresentation: "arrayText" as const,
+    enumListRepresentation: "arrayText",
 
     parseResult: (
       raw: unknown,

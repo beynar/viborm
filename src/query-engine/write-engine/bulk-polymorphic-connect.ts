@@ -168,6 +168,7 @@ export function prepareBulkPolymorphicConnects(
       step: {
         id,
         kind: "read",
+        model: getStepModelName(edge.member.targetModel, edge.ref.name),
         statement: buildFind(
           childScope,
           {

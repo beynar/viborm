@@ -8,6 +8,15 @@ function foreignDate(source: string): Date {
   return vm.runInNewContext(`new Date(${source})`);
 }
 
+function successfulValue<const S extends StandardSchemaV1>(
+  schema: S,
+  input: unknown
+): StandardSchemaV1.InferOutput<S> {
+  const result = parse(schema, input);
+  if (result.issues) throw new Error("Expected success");
+  return result.value;
+}
+
 /** An object that spells the Date surface without holding the slot. */
 const DATE_IMPOSTOR = {
   [Symbol.toStringTag]: "Date",
@@ -32,6 +41,15 @@ describe("isoTimestamp schema", () => {
       expect(result.issues).toBeUndefined();
     });
 
+    test("admits the full offset range when the represented instant stays in range", () => {
+      expect(
+        parse(schema, "0000-01-01T23:59:59.999+23:59").issues
+      ).toBeUndefined();
+      expect(
+        parse(schema, "9999-12-31T00:00:00.000-23:59").issues
+      ).toBeUndefined();
+    });
+
     test("rejects invalid formats", () => {
       expect(parse(schema, "2023-12-15").issues).toBeDefined();
       expect(parse(schema, "not-a-date").issues).toBeDefined();
@@ -41,6 +59,21 @@ describe("isoTimestamp schema", () => {
     test("rejects invalid dates", () => {
       expect(parse(schema, "2023-13-15T10:30:00.000Z").issues).toBeDefined();
       expect(parse(schema, "2023-12-32T10:30:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2023-02-29T10:30:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2023-04-31T10:30:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2023-12-15T24:00:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2024-02-29T23:59:59.999Z").issues).toBeUndefined();
+      expect(parse(schema, "1900-02-29T00:00:00.000Z").issues).toBeDefined();
+      expect(parse(schema, "2000-02-29T00:00:00.000Z").issues).toBeUndefined();
+    });
+
+    test("rejects an offset spelling whose represented instant leaves the four-digit range", () => {
+      expect(
+        parse(schema, "0000-01-01T00:00:00.000+23:59").issues
+      ).toBeDefined();
+      expect(
+        parse(schema, "9999-12-31T23:59:59.999-23:59").issues
+      ).toBeDefined();
     });
 
     test("normalizes Date values and rejects invalid or unrelated values", () => {
@@ -55,14 +88,41 @@ describe("isoTimestamp schema", () => {
       expect(parse(schema, 1).issues).toBeDefined();
     });
 
+    test("admits only Date instants in the four-digit UTC range", () => {
+      const minimum = new Date(-62_167_219_200_000);
+      const maximum = new Date(253_402_300_799_999);
+
+      expect(successfulValue(schema, minimum)).toBe("0000-01-01T00:00:00.000Z");
+      expect(successfulValue(schema, maximum)).toBe("9999-12-31T23:59:59.999Z");
+      expect(
+        parse(schema, new Date(minimum.getTime() - 1)).issues
+      ).toBeDefined();
+      expect(
+        parse(schema, new Date(maximum.getTime() + 1)).issues
+      ).toBeDefined();
+    });
+
     test("normalizes a Date from another realm and refuses an impostor", () => {
       const foreign = foreignDate("'2023-12-15T10:30:00.000Z'");
       expect(foreign instanceof Date).toBe(false);
-      expect((parse(schema, foreign) as { value: string }).value).toBe(
-        "2023-12-15T10:30:00.000Z"
-      );
+      expect(successfulValue(schema, foreign)).toBe("2023-12-15T10:30:00.000Z");
       expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
       expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
+    });
+
+    test("uses the foreign Date instant instead of overridable methods", () => {
+      const valid: Date = vm.runInNewContext(
+        `Object.assign(new Date('2023-12-15T10:30:00.000Z'), {
+          getTime() { return NaN },
+          toISOString() { return 'spoofed' }
+        })`
+      );
+      const invalid: Date = vm.runInNewContext(
+        "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+      );
+
+      expect(successfulValue(schema, valid)).toBe("2023-12-15T10:30:00.000Z");
+      expect(parse(schema, invalid).issues).toBeDefined();
     });
 
     test("type inference", () => {
@@ -110,6 +170,11 @@ describe("isoDate schema", () => {
     test("rejects invalid dates", () => {
       expect(parse(schema, "2023-13-15").issues).toBeDefined();
       expect(parse(schema, "2023-12-32").issues).toBeDefined();
+      expect(parse(schema, "2023-02-29").issues).toBeDefined();
+      expect(parse(schema, "2023-04-31").issues).toBeDefined();
+      expect(parse(schema, "2024-02-29").issues).toBeUndefined();
+      expect(parse(schema, "1900-02-29").issues).toBeDefined();
+      expect(parse(schema, "2000-02-29").issues).toBeUndefined();
     });
 
     test("normalizes Date values and rejects invalid or unrelated values", () => {
@@ -124,16 +189,41 @@ describe("isoDate schema", () => {
       expect(parse(schema, 1).issues).toBeDefined();
     });
 
+    test("normalizes only Date instants in the four-digit UTC range", () => {
+      const minimum = new Date(-62_167_219_200_000);
+      const maximum = new Date(253_402_300_799_999);
+
+      expect(successfulValue(schema, minimum)).toBe("0000-01-01");
+      expect(successfulValue(schema, maximum)).toBe("9999-12-31");
+      expect(
+        parse(schema, new Date(minimum.getTime() - 1)).issues
+      ).toBeDefined();
+      expect(
+        parse(schema, new Date(maximum.getTime() + 1)).issues
+      ).toBeDefined();
+    });
+
     test("normalizes a Date from another realm and refuses an impostor", () => {
       expect(
-        (
-          parse(schema, foreignDate("'2023-12-15T10:30:00.000Z'")) as {
-            value: string;
-          }
-        ).value
+        successfulValue(schema, foreignDate("'2023-12-15T10:30:00.000Z'"))
       ).toBe("2023-12-15");
       expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
       expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
+    });
+
+    test("uses the foreign Date instant instead of overridable methods", () => {
+      const valid: Date = vm.runInNewContext(
+        `Object.assign(new Date('2023-12-15T10:30:00.000Z'), {
+          getTime() { return NaN },
+          toISOString() { return 'spoofed' }
+        })`
+      );
+      const invalid: Date = vm.runInNewContext(
+        "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+      );
+
+      expect(successfulValue(schema, valid)).toBe("2023-12-15");
+      expect(parse(schema, invalid).issues).toBeDefined();
     });
 
     test("type inference", () => {
@@ -203,14 +293,25 @@ describe("isoTime schema", () => {
 
     test("normalizes a Date from another realm and refuses an impostor", () => {
       expect(
-        (
-          parse(schema, foreignDate("'2023-12-15T10:30:00.000Z'")) as {
-            value: string;
-          }
-        ).value
+        successfulValue(schema, foreignDate("'2023-12-15T10:30:00.000Z'"))
       ).toBe("10:30:00.000");
       expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
       expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
+    });
+
+    test("uses the foreign Date instant instead of overridable methods", () => {
+      const valid: Date = vm.runInNewContext(
+        `Object.assign(new Date('2023-12-15T10:30:00.000Z'), {
+          getTime() { return NaN },
+          toISOString() { return 'spoofed' }
+        })`
+      );
+      const invalid: Date = vm.runInNewContext(
+        "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+      );
+
+      expect(successfulValue(schema, valid)).toBe("10:30:00.000");
+      expect(parse(schema, invalid).issues).toBeDefined();
     });
 
     test("type inference", () => {

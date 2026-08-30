@@ -9,7 +9,11 @@ import { libsqlMigrationDriver } from "@src/migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
-import type { DiffOperation, SchemaSnapshot } from "@src/migrations/types";
+import type {
+  ColumnDef,
+  DiffOperation,
+  SchemaSnapshot,
+} from "@src/migrations/types";
 import type { ScalarState, ScalarType } from "@src/schema/scalars/common";
 import {
   d1EstateDriver,
@@ -34,6 +38,8 @@ const BATCH_ONLY_SUBSTRATE = /one native batch/;
 const IMPLICIT_DDL_COMMIT = /commits each DDL statement/;
 const TARGET_DOMAIN = /precision 10, scale 4/;
 const SEPARATE_RENAME = /rename.*separate/i;
+const FIXED_DECIMAL_DATETIME_SOURCE =
+  /fixed-decimal domain at precision 16, scale 3/;
 
 // =============================================================================
 // SQLITE3 DRIVER TESTS
@@ -536,6 +542,93 @@ describe("SQLite3 DDL Generation", () => {
     });
   });
 
+  it("refuses a relation-bearing DateTime conversion on a batch-only substrate", () => {
+    const d1 = getMigrationDriver(d1EstateDriver());
+    const sourceColumn = {
+      name: "occurred_at",
+      type: "TEXT",
+      nullable: false,
+      dateTime: "text",
+    } satisfies ColumnDef;
+    const currentSchema: SchemaSnapshot = {
+      tables: [
+        {
+          name: "events",
+          columns: [sourceColumn],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+        {
+          name: "entries",
+          columns: [{ name: "event_at", type: "TEXT", nullable: false }],
+          indexes: [],
+          foreignKeys: [
+            {
+              name: "entries_event_fk",
+              columns: ["event_at"],
+              referencedTable: "events",
+              referencedColumns: ["occurred_at"],
+            },
+          ],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const operation: DiffOperation = {
+      type: "alterColumn",
+      tableName: "events",
+      columnName: "occurred_at",
+      from: sourceColumn,
+      to: {
+        name: "occurred_at",
+        type: "INTEGER",
+        nullable: false,
+        dateTime: "epochMillis",
+      },
+    };
+
+    expect(() =>
+      d1.generateDDL(operation, ddlContext("live", { currentSchema }))
+    ).toThrow(BATCH_ONLY_SUBSTRATE);
+  });
+
+  it("refuses to reinterpret an authenticated fixed decimal as DateTime", () => {
+    const sourceColumn = {
+      name: "occurred_at",
+      type: "INTEGER",
+      nullable: false,
+      decimal: { precision: 16, scale: 3 },
+    } satisfies ColumnDef;
+    const currentSchema: SchemaSnapshot = {
+      tables: [
+        {
+          name: "events",
+          columns: [sourceColumn],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const operation: DiffOperation = {
+      type: "alterColumn",
+      tableName: "events",
+      columnName: "occurred_at",
+      from: sourceColumn,
+      to: {
+        name: "occurred_at",
+        type: "INTEGER",
+        nullable: false,
+        dateTime: "epochMillis",
+      },
+    };
+
+    expect(() => generateDDL(operation, { currentSchema })).toThrow(
+      FIXED_DECIMAL_DATETIME_SOURCE
+    );
+  });
+
   describe("createIndex", () => {
     it("should generate CREATE INDEX", () => {
       const op: DiffOperation = {
@@ -914,6 +1007,98 @@ describe("LibSQL DDL Generation", () => {
       expect(ddl).not.toContain("ALTER COLUMN");
       expect(ddl).toContain('CREATE TABLE "__new_ledger"');
       expect(ddl).toContain(`"amount" * 100`);
+    });
+
+    it("uses the exact recreation path for every DateTime form transition", () => {
+      const forms: readonly {
+        readonly type: string;
+        readonly dateTime: NonNullable<ColumnDef["dateTime"]>;
+      }[] = [
+        { type: "TEXT", dateTime: "text" },
+        { type: "INTEGER", dateTime: "epochMillis" },
+        { type: "REAL", dateTime: "julianDay" },
+      ];
+
+      for (const from of forms) {
+        for (const to of forms) {
+          if (from === to) continue;
+          const sourceColumn = {
+            name: "occurred_at",
+            type: from.type,
+            nullable: false,
+            dateTime: from.dateTime,
+          } satisfies ColumnDef;
+          const currentSchema: SchemaSnapshot = {
+            tables: [
+              {
+                name: "events",
+                columns: [sourceColumn],
+                indexes: [],
+                foreignKeys: [],
+                uniqueConstraints: [],
+              },
+            ],
+          };
+          const ddl = generateDDL(
+            {
+              type: "alterColumn",
+              tableName: "events",
+              columnName: "occurred_at",
+              from: sourceColumn,
+              to: {
+                name: "occurred_at",
+                type: to.type,
+                nullable: false,
+                dateTime: to.dateTime,
+              },
+            },
+            { currentSchema }
+          );
+
+          expect(ddl).not.toContain("ALTER COLUMN");
+          expect(ddl).toContain('CREATE TABLE "__new_events"');
+          expect(ddl).toContain("CASE WHEN");
+          expect(ddl).toContain("abs(-9223372036854775808)");
+        }
+      }
+    });
+
+    it("uses recreation when a same-form physical column enters DateTime", () => {
+      const sourceColumn = {
+        name: "occurred_at",
+        type: "TEXT",
+        nullable: false,
+      } satisfies ColumnDef;
+      const currentSchema: SchemaSnapshot = {
+        tables: [
+          {
+            name: "events",
+            columns: [sourceColumn],
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const ddl = generateDDL(
+        {
+          type: "alterColumn",
+          tableName: "events",
+          columnName: "occurred_at",
+          from: sourceColumn,
+          to: {
+            name: "occurred_at",
+            type: "TEXT",
+            nullable: false,
+            dateTime: "text",
+          },
+        },
+        { currentSchema }
+      );
+
+      expect(ddl).not.toContain("ALTER COLUMN");
+      expect(ddl).toContain('CREATE TABLE "__new_events"');
+      expect(ddl).toContain("CASE WHEN");
     });
 
     it("keeps the reserved CHECK when it rewrites a column for a foreign key", () => {

@@ -69,6 +69,7 @@ describe("validation value guards", () => {
       false
     );
     expect(isDate({})).toBe(false);
+    expect(isDate(new Proxy(new Date(0), {}))).toBe(false);
     expect(isDate(null)).toBe(false);
     expect(isDate("1970-01-01T00:00:00.000Z")).toBe(false);
   });
@@ -85,10 +86,22 @@ describe("validation value guards", () => {
     expect(
       isUint8Array({ [Symbol.toStringTag]: "Uint8Array", length: 1 })
     ).toBe(false);
+    expect(isUint8Array(Object.create(Uint8Array.prototype))).toBe(false);
     expect(isUint8Array(new Float64Array(1))).toBe(false);
     expect(isUint8Array(new DataView(new ArrayBuffer(1)))).toBe(false);
     expect(isUint8Array([1])).toBe(false);
     expect(isUint8Array(null)).toBe(false);
     expect(isUint8Array("bytes")).toBe(false);
+  });
+
+  test("proves the slot without walking a cyclic prototype chain", () => {
+    const bytes = new Uint8Array([1]);
+    let hostilePrototype: object;
+    hostilePrototype = new Proxy(Object.create(null), {
+      getPrototypeOf: () => hostilePrototype,
+    });
+    Object.setPrototypeOf(bytes, hostilePrototype);
+
+    expect(isUint8Array(bytes)).toBe(true);
   });
 });

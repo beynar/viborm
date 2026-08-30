@@ -61,6 +61,7 @@ import {
   snapshotExecutionContext,
 } from "./execution-context";
 import { readPreparedStatement } from "./prepared-statement-provenance";
+import { snapshotProviderParameters } from "./provider-parameter-snapshot";
 import { SavepointQueue } from "./savepoint-queue";
 import {
   defineImmutableDriverFact,
@@ -306,6 +307,15 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   protected readonly serializeTransactions: boolean = false;
   protected readonly connectionQueue = new SavepointQueue();
   protected initPromise: Promise<TClient> | null = null;
+  /**
+   * A transport whose close rejected.
+   *
+   * It remains reachable only so a later public disconnect can retry cleanup.
+   * A close attempt may make a provider transport unusable before it rejects
+   * (MySQL2 closes pool admission first), so this handle must never return to
+   * query or connection work.
+   */
+  protected closeRetryClient: TClient | TTransaction | null = null;
   protected isDisconnecting = false;
   protected isConnectionTransactionActive = false;
   protected transactionPoisonError: Error | undefined;
@@ -545,7 +555,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     );
     return {
       sql: this.buildStatement(transformed),
-      params: transformed.values,
+      params: snapshotProviderParameters(transformed.values, context),
       ...(query.context === undefined ? {} : { context: query.context }),
     };
   }
@@ -827,6 +837,18 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     }
     if (this.isDisconnecting) {
       throw new ConnectionError("Database connection is closing", {
+        code: VibORMErrorCode.CONNECTION_CLOSED,
+        diagnostics: this.getErrorDisclosure(context),
+        meta: {
+          driver: this.driverName,
+          model: context.model,
+          operation: context.operation,
+          correlationId: context.correlationId,
+        },
+      });
+    }
+    if (this.closeRetryClient !== null) {
+      throw new ConnectionError("Database connection cleanup is incomplete", {
         code: VibORMErrorCode.CONNECTION_CLOSED,
         diagnostics: this.getErrorDisclosure(context),
         meta: {

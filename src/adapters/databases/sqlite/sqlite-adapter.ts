@@ -1,10 +1,8 @@
 import { unsupportedVector } from "@errors";
+import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import type { NativeType } from "@schema/scalars/native-types";
 import { type Sql, sql } from "@sql";
-import {
-  type DateTimePhysicalForm,
-  encodePhysicalDateTime,
-} from "@validation/primitives/datetime-physical-codec";
+import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
   encodePhysicalDecimal,
@@ -166,13 +164,6 @@ const guardedCoefficientAssignment = (
  * explicit TEXT, no declaration at all — is the timestamp text this adapter has
  * always stored.
  */
-function sqliteDateTimeForm(
-  nativeType: NativeType | undefined
-): DateTimePhysicalForm {
-  if (nativeType?.db !== "sqlite") return "text";
-  if (nativeType.type === "INTEGER") return "epochMillis";
-  return nativeType.type === "REAL" ? "julianDay" : "text";
-}
 
 const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
 const JSON_UNADDRESSABLE_LABEL = /["\\]/;
@@ -292,10 +283,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // string bound against an epoch-millisecond INTEGER matches no row and,
     // written, stores text the typed read then refuses. A TEXT-declared or
     // undeclared field keeps the ISO spelling byte for byte. The string is a
-    // validated ISO timestamp — the ISO boundary owns that — so the encode is
-    // total here.
+    // validated ISO timestamp — the ISO boundary owns that — and every
+    // four-digit public instant round-trips through the Julian-day double.
     dateTime: (iso: string, nativeType?: NativeType): Sql =>
-      sql`${encodePhysicalDateTime(iso, sqliteDateTimeForm(nativeType))}`,
+      sql`${encodePhysicalDateTime(
+        iso,
+        sqliteDateTimePhysicalForm(nativeType)
+      )}`,
 
     // SQLite has no exact decimal type, so a decimal column stores the UNSCALED
     // INTEGER COEFFICIENT and an operand becomes that same coefficient. Integer
@@ -647,15 +641,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
         : sql`${column} = ${column} / ${by}`;
     },
 
-    push: (column: Sql, values: unknown[]): Sql =>
+    push: (column: Sql, values: Sql): Sql =>
       sql`${column} = ${jsonArrayConcat(
         sql`json(COALESCE(${column}, '[]'))`,
-        sql`${stringifyJson(values)}`
+        values
       )}`,
 
-    unshift: (column: Sql, values: unknown[]): Sql =>
+    unshift: (column: Sql, values: Sql): Sql =>
       sql`${column} = ${jsonArrayConcat(
-        sql`${stringifyJson(values)}`,
+        values,
         sql`json(COALESCE(${column}, '[]'))`
       )}`,
   };
@@ -861,7 +855,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     // The same reading the `dateTime` literal above lowers through, so a column
     // is read back in the vocabulary it was written in.
-    dateTimeRepresentation: sqliteDateTimeForm,
+    dateTimeRepresentation: sqliteDateTimePhysicalForm,
 
     parseResult: (
       _raw: unknown,

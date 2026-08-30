@@ -23,11 +23,13 @@ import { createClient } from "@client/client";
 import type { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
 import { s, TYPES } from "@schema";
+import { validateSchema } from "@schema/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
 const TABLE = "native_datetime_events";
+const FOREIGN_KEY_REFUSAL = /foreign key constraint (failed|violation)/i;
 
 const AT = new Date("2024-01-15T10:30:00.000Z");
 /** The same instant in each numeric vocabulary, written out rather than derived. */
@@ -38,7 +40,7 @@ const event = s
   .model({
     id: s.string().id(),
     atText: s.dateTime(TYPES.SQLITE.DATETIME.TEXT),
-    atInt: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER),
+    atInt: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER).unique(),
     atReal: s.dateTime(TYPES.SQLITE.DATETIME.REAL).nullable(),
     atPlain: s.dateTime(),
   })
@@ -54,6 +56,21 @@ const entry = s
     realFixed: s.dateTime(TYPES.SQLITE.DATETIME.REAL).default(FIXED),
   })
   .map("native_datetime_defaults");
+
+const sqlDefaultEntry = s
+  .model({
+    id: s.string().id(),
+    textFixed: s
+      .dateTime(TYPES.SQLITE.DATETIME.TEXT)
+      .default(FIXED.toISOString()),
+    intFixed: s
+      .dateTime(TYPES.SQLITE.DATETIME.INTEGER)
+      .default(FIXED.toISOString()),
+    realFixed: s
+      .dateTime(TYPES.SQLITE.DATETIME.REAL)
+      .default(FIXED.toISOString()),
+  })
+  .map("native_datetime_sql_defaults");
 
 const owner = s.model({
   id: s.string().id(),
@@ -106,6 +123,72 @@ async function physicalRow(
 }
 
 describe("SQLite declared datetime storage", () => {
+  test("equal INTEGER forms enforce a live DateTime foreign key", async () => {
+    const parent = s.model({
+      at: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER).id(),
+      children: s.toMany(() => child),
+    });
+    const child = s.model({
+      id: s.string().id(),
+      parentAt: s.dateTime(TYPES.SQLITE.DATETIME.INTEGER),
+      parent: s
+        .toOne(() => parent)
+        .fields("parentAt")
+        .references("at"),
+    });
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({ schema: { parent, child }, driver });
+
+    try {
+      expect(validateSchema({ parent, child }).valid).toBe(true);
+      await syncLiveSchema(client);
+      await client.parent.create({
+        data: { at: AT, children: { create: { id: "child" } } },
+      });
+
+      const stored = await driver._executeRaw<{
+        parentAt: unknown;
+        storage: string;
+      }>(`SELECT "parentAt", typeof("parentAt") AS "storage" FROM "child"`);
+      expect(stored.rows[0]).toEqual({
+        parentAt: AT_EPOCH_MS,
+        storage: "integer",
+      });
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("SQLite itself refuses one instant encoded in different FK vocabularies", async () => {
+    const driver = createInMemorySQLite3Driver();
+
+    try {
+      await driver._executeRaw(
+        `CREATE TABLE "physical_parent" ("at" INTEGER PRIMARY KEY)`
+      );
+      await driver._executeRaw(
+        `CREATE TABLE "physical_child" ("at" REAL REFERENCES "physical_parent" ("at"))`
+      );
+      await driver._executeRaw(
+        `INSERT INTO "physical_parent" ("at") VALUES (?)`,
+        [AT_EPOCH_MS]
+      );
+
+      await expect(
+        driver._executeRaw(`INSERT INTO "physical_child" ("at") VALUES (?)`, [
+          AT_JULIAN_DAY,
+        ])
+      ).rejects.toThrow(FOREIGN_KEY_REFUSAL);
+      await expect(
+        driver._executeRaw(`INSERT INTO "physical_child" ("at") VALUES (?)`, [
+          AT_EPOCH_MS,
+        ])
+      ).resolves.toBeDefined();
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
   test("each declaration builds the column type it names", async () => {
     const { client, driver } = await setup();
 
@@ -234,9 +317,12 @@ describe("SQLite declared datetime storage", () => {
 
   test("a cursor addresses a row by its native column", async () => {
     const { client } = await setup();
-    const instants = [0, 1, 2].map(
-      (day) => new Date(Date.UTC(2024, 0, day + 1, 10, 30))
-    );
+    const cursorInstant = new Date(Date.UTC(2024, 0, 2, 10, 30));
+    const instants = [
+      new Date(Date.UTC(2024, 0, 1, 10, 30)),
+      cursorInstant,
+      new Date(Date.UTC(2024, 0, 3, 10, 30)),
+    ];
 
     try {
       for (const [index, instant] of instants.entries()) {
@@ -253,7 +339,7 @@ describe("SQLite declared datetime storage", () => {
 
       const page = await client.event.findMany({
         orderBy: { atInt: "asc" },
-        cursor: { id: "c1" },
+        cursor: { atInt: cursorInstant },
         take: 5,
       });
 
@@ -332,6 +418,49 @@ describe("SQLite declared datetime storage", () => {
     }
   });
 
+  test("SQL literal defaults store each declared form for external inserts", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({ schema: { sqlDefaultEntry }, driver });
+
+    try {
+      await syncLiveSchema(client);
+      await driver._executeRaw(
+        `INSERT INTO "native_datetime_sql_defaults" ("id") VALUES ('raw')`
+      );
+
+      const stored = await driver._executeRaw<{
+        textFixed: unknown;
+        tText: string;
+        intFixed: unknown;
+        tInt: string;
+        realFixed: unknown;
+        tReal: string;
+      }>(
+        `SELECT "textFixed", typeof("textFixed") AS "tText",
+                "intFixed", typeof("intFixed") AS "tInt",
+                "realFixed", typeof("realFixed") AS "tReal"
+           FROM "native_datetime_sql_defaults" WHERE "id" = 'raw'`
+      );
+      const row = await client.sqlDefaultEntry.findUnique({
+        where: { id: "raw" },
+      });
+
+      expect(stored.rows[0]).toEqual({
+        textFixed: FIXED.toISOString(),
+        tText: "text",
+        intFixed: FIXED.getTime(),
+        tInt: "integer",
+        realFixed: 2_458_909,
+        tReal: "real",
+      });
+      expect(row?.textFixed).toEqual(FIXED);
+      expect(row?.intFixed).toEqual(FIXED);
+      expect(row?.realFixed).toEqual(FIXED);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
   test("an omitted nullable native column stays SQL NULL both ways", async () => {
     const { client, driver } = await setup();
 
@@ -362,6 +491,7 @@ describe("SQLite declared datetime storage", () => {
     const boundaries = [
       new Date("1970-01-01T00:00:00.000Z"),
       new Date("1899-12-31T12:00:00.500Z"),
+      new Date("0000-01-01T00:00:00.000Z"),
       new Date("9999-12-31T23:59:59.999Z"),
     ];
 
@@ -390,19 +520,24 @@ describe("SQLite declared datetime storage", () => {
     }
   });
 
-  test("a value outside the declared form is refused, not guessed at", async () => {
+  test("numeric values outside the public DateTime domain are refused", async () => {
     const { client, driver } = await setup();
+    const outsideRows: [string, number][] = [
+      ["too-early", -62_167_219_200_001],
+      ["too-late", 253_402_300_800_000],
+    ];
 
     try {
-      await driver._executeRaw(
-        `INSERT INTO "${TABLE}" ("id", "atText", "atInt", "atPlain")
-         VALUES ('broken', ?, 'not-a-number', ?)`,
-        [AT.toISOString(), AT.toISOString()]
-      );
-
-      await expect(
-        client.event.findUnique({ where: { id: "broken" } })
-      ).rejects.toBeInstanceOf(QueryEngineError);
+      for (const [id, physical] of outsideRows) {
+        await driver._executeRaw(
+          `INSERT INTO "${TABLE}" ("id", "atText", "atInt", "atPlain")
+           VALUES (?, ?, ?, ?)`,
+          [id, AT.toISOString(), physical, AT.toISOString()]
+        );
+        await expect(
+          client.event.findUnique({ where: { id } })
+        ).rejects.toBeInstanceOf(QueryEngineError);
+      }
     } finally {
       await client.$disconnect();
     }

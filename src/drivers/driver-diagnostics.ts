@@ -27,9 +27,18 @@ export function findUniqueExecutionContextIndex(
   error: unknown,
   candidates: readonly { context?: QueryExecutionContext }[]
 ): number | undefined {
-  if (!isVibORMError(error)) return undefined;
+  // A provider that rejects one submitted statement has identified that
+  // statement by cardinality, even when its raw error carries no VibORM
+  // context. D1 batch() and Neon transaction() otherwise reject the whole
+  // request without a trustworthy statement index; do not guess among two or
+  // more candidates.
+  if (!isVibORMError(error)) {
+    return candidates.length === 1 ? 0 : undefined;
+  }
   const context = readTrustedErrorExecutionContext(error);
-  if (!context?.correlationId) return undefined;
+  if (!context?.correlationId) {
+    return candidates.length === 1 ? 0 : undefined;
+  }
   let match: number | undefined;
   for (let index = 0; index < candidates.length; index += 1) {
     const candidateContext = candidates[index]?.context;

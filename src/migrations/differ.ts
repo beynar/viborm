@@ -50,6 +50,14 @@ export type IndexPredicateCanonicalizer = (
 
 export interface DiffOptions {
   /**
+   * Compares the declared SQLite DateTime storage vocabulary carried by V1
+   * snapshots. Enable only when both sides preserve that declaration. Live
+   * SQLite introspection cannot recover it from TEXT, INTEGER, or REAL and
+   * therefore leaves this off so an unchanged push does not drift forever.
+   */
+  compareDateTimeDeclarations?: boolean;
+
+  /**
    * Canonicalizes partial-index predicates through the live database. Omitted
    * by callers with no connection (`generate`, which diffs two snapshots) and
    * by dialects whose catalog stores the declared statement verbatim; the
@@ -133,7 +141,11 @@ async function canonicalizeChangedPredicates(
 // HELPER FUNCTIONS
 // =============================================================================
 
-function columnPropertiesEqual(a: ColumnDef, b: ColumnDef): boolean {
+function columnPropertiesEqual(
+  a: ColumnDef,
+  b: ColumnDef,
+  compareDateTimeDeclarations: boolean
+): boolean {
   return (
     normalizeType(a.type) === normalizeType(b.type) &&
     a.nullable === b.nullable &&
@@ -145,12 +157,20 @@ function columnPropertiesEqual(a: ColumnDef, b: ColumnDef): boolean {
     // scale there is. Left out, a SQLite descriptor change plans NOTHING —
     // the type is byte-identical on both sides — and the column silently keeps
     // storing coefficients at the old scale.
-    sameDecimalDescriptor(a.decimal, b.decimal)
+    sameDecimalDescriptor(a.decimal, b.decimal) &&
+    (!compareDateTimeDeclarations || a.dateTime === b.dateTime)
   );
 }
 
-function columnsEqual(a: ColumnDef, b: ColumnDef): boolean {
-  return a.name === b.name && columnPropertiesEqual(a, b);
+function columnsEqual(
+  a: ColumnDef,
+  b: ColumnDef,
+  compareDateTimeDeclarations: boolean
+): boolean {
+  return (
+    a.name === b.name &&
+    columnPropertiesEqual(a, b, compareDateTimeDeclarations)
+  );
 }
 
 function columnsCanBeRenamed(a: ColumnDef, b: ColumnDef): boolean {
@@ -369,7 +389,8 @@ function diffTable(
   current: TableDef,
   desired: TableDef,
   canonical: CanonicalPredicates,
-  matchConstraintsByShape: boolean
+  matchConstraintsByShape: boolean,
+  compareDateTimeDeclarations: boolean
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
@@ -442,7 +463,10 @@ function diffTable(
   // Check for column modifications (same name, different properties)
   for (const [name, desiredCol] of desiredColumns) {
     const currentCol = currentColumns.get(name);
-    if (currentCol && !columnsEqual(currentCol, desiredCol)) {
+    if (
+      currentCol &&
+      !columnsEqual(currentCol, desiredCol, compareDateTimeDeclarations)
+    ) {
       operations.push({
         type: "alterColumn",
         tableName,
@@ -679,7 +703,8 @@ export async function diff(
         currentTable,
         desiredTable,
         canonicalPredicates,
-        options.matchConstraintsByShape ?? false
+        options.matchConstraintsByShape ?? false,
+        options.compareDateTimeDeclarations ?? false
       );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);

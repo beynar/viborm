@@ -33,7 +33,7 @@ const INVALID_DATE_ERROR = Object.freeze({
  */
 function validateDate(value: unknown) {
   if (!isDate(value)) return NOT_DATE_ERROR;
-  const time = value.getTime();
+  const time = Date.prototype.getTime.call(value);
   if (Number.isNaN(time)) return INVALID_DATE_ERROR;
   if (value instanceof Date) return ok(value);
   // A Date from another realm names this exact instant but fails every local

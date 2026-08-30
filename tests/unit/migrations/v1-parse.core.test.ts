@@ -19,6 +19,7 @@ import {
   parseSnapshotDocument,
   parseStateManifest,
 } from "@src/migrations/v1-parse";
+import type { DateTimePhysicalForm } from "@validation/primitives/datetime-physical-codec";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 const SHA256 = "0".repeat(64);
@@ -169,6 +170,84 @@ describe("migration v1 hostile parsers", () => {
         ],
       })
     ).toThrow(MigrationError);
+  });
+
+  test("admits only the three SQLite DateTime physical forms", () => {
+    const baseTable = completeSnapshot.tables[0];
+    if (!baseTable) {
+      throw new Error("Complete snapshot fixture must contain one table");
+    }
+    const baseColumn = baseTable.columns[0];
+    if (!baseColumn) {
+      throw new Error("Complete snapshot fixture must contain one column");
+    }
+
+    const dateTimeForms: readonly DateTimePhysicalForm[] = [
+      "text",
+      "epochMillis",
+      "julianDay",
+    ];
+    for (const dateTime of dateTimeForms) {
+      const type =
+        dateTime === "text"
+          ? "TEXT"
+          : dateTime === "epochMillis"
+            ? "INTEGER"
+            : "REAL";
+      const snapshot = {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            columns: [{ ...baseColumn, type, dateTime }],
+          },
+        ],
+      };
+      expect(parseSnapshot(snapshot)).toEqual(snapshot);
+    }
+
+    expect(() =>
+      parseSnapshot({
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            columns: [
+              {
+                ...baseColumn,
+                dateTime: "unixSeconds",
+              },
+            ],
+          },
+        ],
+      })
+    ).toThrow(MigrationError);
+
+    for (const contradiction of [
+      { dateTime: "epochMillis", type: "TEXT" },
+      {
+        dateTime: "epochMillis",
+        decimal: { precision: 10, scale: 2 },
+        type: "INTEGER",
+      },
+    ]) {
+      expect(() =>
+        parseSnapshot({
+          ...completeSnapshot,
+          tables: [
+            {
+              ...baseTable,
+              columns: [
+                {
+                  ...baseColumn,
+                  ...contradiction,
+                },
+              ],
+            },
+          ],
+        })
+      ).toThrow(MigrationError);
+    }
   });
 
   test("refuses hostile keys at every snapshot nesting level", () => {

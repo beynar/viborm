@@ -781,11 +781,11 @@ export class MySQLAdapter implements DatabaseAdapter {
         : sql`${column} = ${column} / ${by}`;
     },
 
-    push: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = JSON_MERGE_PRESERVE(COALESCE(${column}, JSON_ARRAY()), CAST(${stringifyJson(values)} AS JSON))`,
+    push: (column: Sql, values: Sql): Sql =>
+      sql`${column} = JSON_MERGE_PRESERVE(COALESCE(${column}, JSON_ARRAY()), ${values})`,
 
-    unshift: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = JSON_MERGE_PRESERVE(CAST(${stringifyJson(values)} AS JSON), COALESCE(${column}, JSON_ARRAY()))`,
+    unshift: (column: Sql, values: Sql): Sql =>
+      sql`${column} = JSON_MERGE_PRESERVE(${values}, COALESCE(${column}, JSON_ARRAY()))`,
   };
 
   // ============================================================

@@ -1,6 +1,6 @@
 import { ConnectionError, VibORMErrorCode } from "@errors";
-import { withCleanupFailure } from "./cleanup-failure";
 import { errorCause } from "./driver-options";
+import { withSuppressedFailure } from "./suppressed-failure";
 
 /** The PostgreSQL statement that resets a session's advisory-lock state. */
 const ADVISORY_RESET = "SELECT pg_advisory_unlock_all()";
@@ -158,7 +158,7 @@ export async function releaseReservedPostgresSession(reservation: {
     } catch (closeFailure) {
       // The reset stays primary — it is what the caller acts on — and the
       // close's own failure is cleanup evidence beside it.
-      throw withCleanupFailure(
+      throw withSuppressedFailure(
         unprovenLockStateError(
           reservation.driverName,
           CLOSE_FAILED_CONTAINMENT,

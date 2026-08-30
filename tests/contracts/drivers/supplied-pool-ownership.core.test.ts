@@ -39,11 +39,13 @@ import { MySQL2Driver, type MySQL2DriverOptions } from "@drivers/mysql2";
 import { PgDriver, type PgDriverOptions } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
+import { readSuppressedFailures } from "@drivers/shared";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
+import { sql } from "@sql";
 import type { PoolOptions } from "mysql2/promise";
 import { Pool, type PoolConfig } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 /** One nested value from a provider object, trusting no step of the path. */
 function readPath(root: unknown, ...keys: readonly string[]): unknown {
@@ -60,20 +62,29 @@ function readPath(root: unknown, ...keys: readonly string[]): unknown {
 /** A caller's pg pool: it answers nothing, and counts what VibORM does to it. */
 function suppliedPgPool() {
   const state = { ended: 0, subscribed: 0, unsubscribed: 0 };
-  const pool = {
-    end: () => {
-      state.ended += 1;
-      return Promise.resolve();
+  const pool = new Pool();
+  Object.defineProperties(pool, {
+    end: {
+      value: () => {
+        state.ended += 1;
+        return Promise.resolve();
+      },
     },
-    query: () => Promise.reject(new Error("not used")),
-    connect: () => Promise.reject(new Error("not used")),
-    on: () => {
-      state.subscribed += 1;
+    query: { value: () => Promise.reject(new Error("not used")) },
+    connect: { value: () => Promise.reject(new Error("not used")) },
+    on: {
+      value: () => {
+        state.subscribed += 1;
+        return pool;
+      },
     },
-    off: () => {
-      state.unsubscribed += 1;
+    off: {
+      value: () => {
+        state.unsubscribed += 1;
+        return pool;
+      },
     },
-  };
+  });
   return { state, pool };
 }
 
@@ -433,7 +444,7 @@ describe("pg settles supplied-pool ownership at construction", () => {
   it("never ends a supplied pool, even after the key is deleted", async () => {
     const supplied = suppliedPgPool();
     const options: PgDriverOptions = {
-      pool: supplied.pool as never,
+      pool: supplied.pool,
       namespace: "alpha",
     };
     const driver = new PgDriver(options);
@@ -456,7 +467,7 @@ describe("pg settles supplied-pool ownership at construction", () => {
     const ended: unknown[] = [];
     const created = countEnds(Reflect.get(driver, "client"), ended);
 
-    options.pool = supplied.pool as never;
+    options.pool = supplied.pool;
     await driver._disconnect();
 
     expect(ended).toEqual([created]);
@@ -466,7 +477,7 @@ describe("pg settles supplied-pool ownership at construction", () => {
   it("reuses the caller's pool across repeated reconnects", async () => {
     const supplied = suppliedPgPool();
     const driver = new PgDriver({
-      pool: supplied.pool as never,
+      pool: supplied.pool,
       namespace: "alpha",
     });
 
@@ -555,10 +566,81 @@ describe("pg listens only on the pool it owns", () => {
     expect(pool.listenerCount("error")).toBe(0);
   });
 
+  it("keeps containment and retained evidence when the pool refuses to end", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+    const background = Object.assign(new Error("idle connection died"), {
+      code: "57P01",
+    });
+    pool.emit("error", background);
+    const endFailure = new Error("pool did not close");
+    let endAttempts = 0;
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => {
+        endAttempts += 1;
+        return Promise.reject(endFailure);
+      },
+    });
+
+    const disconnectFailure = await rejection(driver._disconnect());
+
+    expect(readPath(disconnectFailure, "code")).toBe("V1001");
+    expect(readSuppressedFailures(disconnectFailure)).toEqual([background]);
+    expect(pool.listenerCount("error")).toBe(1);
+    expect(endAttempts).toBe(1);
+
+    // A rejected close retains this exact pool only for cleanup retry. A
+    // provider may already have made it unusable before rejecting, so neither
+    // connect nor query work can reach it and no replacement pool is created.
+    let queryAttempts = 0;
+    Object.defineProperty(pool, "query", {
+      configurable: true,
+      value: () => {
+        queryAttempts += 1;
+        return Promise.resolve({ command: "SELECT", rowCount: 0, rows: [] });
+      },
+    });
+    await expect(driver._connect()).rejects.toMatchObject({
+      code: "V1003",
+    });
+    await expect(driver._executeRaw("SELECT 1")).rejects.toMatchObject({
+      code: "V1003",
+    });
+    expect(queryAttempts).toBe(0);
+    expect(Reflect.get(driver, "client")).toBeNull();
+
+    // The public rejection already carries the idle failure, exactly once.
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => {
+        endAttempts += 1;
+        return Promise.resolve();
+      },
+    });
+    await driver._disconnect();
+    expect(endAttempts).toBe(2);
+    expect(pool.listenerCount("error")).toBe(0);
+
+    // Only proven cleanup reopens initialization. The old pool stays ended and
+    // a fresh owned pool receives its own one listener.
+    await driver._connect();
+    const replacement = createdPgPool(driver);
+    expect(replacement).not.toBe(pool);
+    expect(replacement.listenerCount("error")).toBe(1);
+    Object.defineProperty(replacement, "end", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    await driver._disconnect();
+    expect(replacement.listenerCount("error")).toBe(0);
+  });
+
   it("subscribes to a supplied pool never, and unsubscribes never", async () => {
     const supplied = suppliedPgPool();
     const driver = new PgDriver({
-      pool: supplied.pool as never,
+      pool: supplied.pool,
       namespace: "alpha",
     });
 
@@ -574,13 +656,16 @@ describe("pg listens only on the pool it owns", () => {
     expect(supplied.state.ended).toBe(0);
   });
 
-  it("explains an acquisition failure with the pool's last background failure", async () => {
+  it("keeps the acquisition failure primary and retains the pool's background failure", async () => {
     const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
     await driver._connect();
     const pool = createdPgPool(driver);
     Object.defineProperty(pool, "connect", {
       configurable: true,
-      value: () => Promise.reject(new Error("no connection available")),
+      value: () =>
+        Promise.reject(
+          Object.assign(new Error("no connection available"), { code: "53300" })
+        ),
     });
 
     // Exactly what pg does for an idle client whose socket dies: an emit on the
@@ -596,19 +681,28 @@ describe("pg listens only on the pool it owns", () => {
       driver._transaction(() => Promise.resolve("never runs"))
     );
 
-    // The background failure is the half nothing else can ever surface: no
-    // execution context exists where it arrives, and every channel this layer
-    // has is execution-scoped. The acquisition failure beside it is the same
-    // transport failing a second time.
+    // The current acquisition is the requested action and stays primary. The
+    // background failure is the half no request-scoped channel could surface,
+    // so it remains inspectable beside the primary rather than replacing it.
     expect(readPath(thrown, "code")).toBe("V1001");
-    expect(readPath(thrown, "meta", "providerCode")).toBe("57P01");
+    expect(readPath(thrown, "meta", "providerCode")).toBe("53300");
+    expect(readPath(thrown, "originalCause", "code")).toBe("53300");
+    const [background] = readSuppressedFailures(thrown);
+    expect(readPath(background, "code")).toBe("57P01");
+    expect(
+      Object.getOwnPropertyDescriptor(thrown, "suppressedFailures")
+    ).toMatchObject({
+      enumerable: false,
+      value: [background],
+    });
 
     // Reported once and released, so the next failure speaks for itself instead
     // of inheriting an explanation that has already been given.
     const next = await rejection(
       driver._transaction(() => Promise.resolve("never runs"))
     );
-    expect(readPath(next, "meta", "providerCode")).toBe(undefined);
+    expect(readPath(next, "meta", "providerCode")).toBe("53300");
+    expect(readSuppressedFailures(next)).toEqual([]);
 
     Object.defineProperty(pool, "end", {
       configurable: true,
@@ -648,6 +742,285 @@ describe("pg listens only on the pool it owns", () => {
       driver._transaction(() => Promise.resolve("never runs"))
     );
     expect(readPath(thrown, "meta", "providerCode")).toBe(undefined);
+
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    await driver._disconnect();
+  });
+
+  for (const route of ["typed", "raw"]) {
+    it(`clears retained evidence after a successful ordinary ${route} pool query`, async () => {
+      const driver = new PgDriver({
+        options: { host: "127.0.0.1", port: 1 },
+      });
+      await driver._connect();
+      const pool = createdPgPool(driver);
+      pool.emit("error", new Error("idle connection died"));
+      Object.defineProperty(pool, "query", {
+        configurable: true,
+        value: () =>
+          Promise.resolve({ rows: [], rowCount: 0, command: "SELECT" }),
+      });
+
+      if (route === "typed") {
+        await driver._execute(sql`SELECT 1`);
+      } else {
+        await driver._executeRaw("SELECT 1");
+      }
+
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () => Promise.reject(new Error("unrelated acquisition failure")),
+      });
+      const unrelated = await rejection(
+        driver._transaction(() => Promise.resolve("never runs"))
+      );
+      expect(readSuppressedFailures(unrelated)).toEqual([]);
+
+      Object.defineProperty(pool, "end", {
+        configurable: true,
+        value: () => Promise.resolve(),
+      });
+      await driver._disconnect();
+    });
+  }
+
+  for (const route of ["typed", "raw"]) {
+    it(`surfaces retained evidence on a failed ordinary ${route} pool query`, async () => {
+      const driver = new PgDriver({
+        options: { host: "127.0.0.1", port: 1 },
+      });
+      await driver._connect();
+      const pool = createdPgPool(driver);
+      const background = new Error("idle connection died");
+      const queryFailure = Object.assign(new Error("statement failed"), {
+        code: "XX000",
+      });
+      pool.emit("error", background);
+      Object.defineProperty(pool, "query", {
+        configurable: true,
+        value: () => Promise.reject(queryFailure),
+      });
+
+      const thrown = await rejection(
+        route === "typed"
+          ? driver._execute(sql`SELECT 1`)
+          : driver._executeRaw("SELECT 1")
+      );
+      expect(readPath(thrown, "code")).toBe("V2001");
+      expect(readPath(thrown, "originalCause", "code")).toBe("XX000");
+      expect(readSuppressedFailures(thrown)).toEqual([background]);
+
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () => Promise.reject(new Error("later acquisition failed")),
+      });
+      const later = await rejection(
+        driver._transaction(() => Promise.resolve("never runs"))
+      );
+      expect(readSuppressedFailures(later)).toEqual([]);
+
+      Object.defineProperty(pool, "end", {
+        configurable: true,
+        value: () => Promise.resolve(),
+      });
+      await driver._disconnect();
+    });
+  }
+
+  it("does not assign pool evidence to a PoolClient query failure", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+    const background = new Error("idle connection died during transaction");
+    const statementFailure = new Error("transaction statement failed");
+    const pooledClient = {
+      query: (statement: string) => {
+        if (statement === "BEGIN") {
+          pool.emit("error", background);
+          return Promise.resolve();
+        }
+        if (statement === "BROKEN") return Promise.reject(statementFailure);
+        return Promise.resolve();
+      },
+      release: () => undefined,
+    };
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.resolve(pooledClient),
+    });
+
+    const transactionFailure = await rejection(
+      driver.withTransaction((tx) => tx._executeRaw("BROKEN"))
+    );
+    expect(readSuppressedFailures(transactionFailure)).toEqual([]);
+
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.reject(new Error("next acquisition failed")),
+    });
+    const next = await rejection(
+      driver._transaction(() => Promise.resolve("never runs"))
+    );
+    expect(readSuppressedFailures(next)).toEqual([background]);
+
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    await driver._disconnect();
+  });
+
+  it("clears evidence when a maxWait acquisition succeeds after abandonment", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new PgDriver({
+        options: { host: "127.0.0.1", port: 1 },
+      });
+      await driver._connect();
+      const pool = createdPgPool(driver);
+      const background = new Error("idle connection died");
+      pool.emit("error", background);
+      let resolveAcquisition: (client: object) => void = () => {
+        throw new Error("the acquisition has not started");
+      };
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () =>
+          new Promise<object>((resolve) => {
+            resolveAcquisition = resolve;
+          }),
+      });
+
+      const timedOutFailure = rejection(
+        driver._transaction(() => Promise.resolve("never runs"), {
+          maxWait: 20,
+        })
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(readPath(await timedOutFailure, "code")).toBe("V5002");
+
+      const release = vi.fn();
+      resolveAcquisition({ query: () => Promise.resolve(), release });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toHaveBeenCalledOnce();
+
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () => Promise.reject(new Error("next acquisition failed")),
+      });
+      const next = await rejection(
+        driver._transaction(() => Promise.resolve("never runs"))
+      );
+      expect(readSuppressedFailures(next)).toEqual([]);
+
+      Object.defineProperty(pool, "end", {
+        configurable: true,
+        value: () => Promise.resolve(),
+      });
+      await driver._disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps evidence when a maxWait acquisition rejects after abandonment", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new PgDriver({
+        options: { host: "127.0.0.1", port: 1 },
+      });
+      await driver._connect();
+      const pool = createdPgPool(driver);
+      const background = new Error("idle connection died");
+      pool.emit("error", background);
+      let connectCalls = 0;
+      let rejectAcquisition: (reason: unknown) => void = () => {
+        throw new Error("the acquisition has not started");
+      };
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () => {
+          connectCalls += 1;
+          return new Promise((_resolve, reject) => {
+            rejectAcquisition = reject;
+          });
+        },
+      });
+
+      const timedOutFailure = rejection(
+        driver._transaction(() => Promise.resolve("never runs"), {
+          maxWait: 20,
+        })
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(connectCalls).toBe(1);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(readPath(await timedOutFailure, "code")).toBe("V5002");
+
+      rejectAcquisition(new Error("late abandoned rejection"));
+      await Promise.resolve();
+      Object.defineProperty(pool, "connect", {
+        configurable: true,
+        value: () => Promise.reject(new Error("next acquisition failed")),
+      });
+      const next = await rejection(
+        driver._transaction(() => Promise.resolve("never runs"))
+      );
+      expect(readSuppressedFailures(next)).toEqual([background]);
+
+      Object.defineProperty(pool, "end", {
+        configurable: true,
+        value: () => Promise.resolve(),
+      });
+      await driver._disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let an older concurrent acquisition erase a later event", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+    pool.emit("error", new Error("first idle connection died"));
+    const acquisitions: Array<(client: object) => void> = [];
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () =>
+        new Promise<object>((resolve) => {
+          acquisitions.push(resolve);
+        }),
+    });
+    const pooledClient = {
+      query: () => Promise.resolve(),
+      release: () => undefined,
+    };
+
+    const first = driver._transaction(() => Promise.resolve("first"));
+    const older = driver._transaction(() => Promise.resolve("older"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(acquisitions).toHaveLength(2);
+
+    acquisitions[0]?.(pooledClient);
+    await expect(first).resolves.toBe("first");
+    const later = new Error("later idle connection died");
+    pool.emit("error", later);
+    acquisitions[1]?.(pooledClient);
+    await expect(older).resolves.toBe("older");
+
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.reject(new Error("next acquisition failed")),
+    });
+    const next = await rejection(
+      driver._transaction(() => Promise.resolve("never runs"))
+    );
+    expect(readSuppressedFailures(next)).toEqual([later]);
 
     Object.defineProperty(pool, "end", {
       configurable: true,

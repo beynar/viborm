@@ -640,10 +640,14 @@ export abstract class MigrationDriver {
    * Common implementation that handles most cases.
    * Override for database-specific behavior (e.g., UUID generation, boolean representation).
    *
+   * @param scalar - The scalar declaration, including its native type
    * @param scalarState - The scalar state
    * @returns SQL default expression or undefined if no default
    */
-  getDefaultExpression(scalarState: ScalarState): string | undefined {
+  getDefaultExpression(
+    _scalar: Scalar,
+    scalarState: ScalarState
+  ): string | undefined {
     // Auto-generated values - check for database-level support first
     if (scalarState.autoGenerate) {
       return this.getAutoGenerateExpression(scalarState.autoGenerate);

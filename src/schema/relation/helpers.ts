@@ -1,5 +1,5 @@
-// Junction physical naming — table, side tokens, expanded columns, constraint
-// names.
+// Relation physical naming — stored-reference indexes plus junction tables,
+// side tokens, expanded columns, and constraint names.
 //
 // Nothing here discovers a pair. The full-schema relation resolver decides which
 // two slots share a junction and which single endpoint owns the overrides, then

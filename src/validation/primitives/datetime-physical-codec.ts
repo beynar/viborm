@@ -16,6 +16,7 @@
  */
 
 import { isBigInt, isNumber } from "../value-guards";
+import { isDateTimeInstant } from "./datetime-values";
 
 /**
  * The three physical spellings a datetime column can hold.
@@ -41,37 +42,22 @@ const MILLISECONDS_PER_DAY = 86_400_000;
 /** The Julian day of 1970-01-01T00:00:00Z, where the Unix epoch begins. */
 const UNIX_EPOCH_JULIAN_DAY = 2_440_587.5;
 
-/** The widest instant a JavaScript `Date` represents, in either direction. */
-const MAX_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
-
-/**
- * Whether a number names one exact instant: a whole millisecond inside the
- * representable range. `NaN` and the infinities fail on the integer test, so
- * finiteness needs no second check.
- */
-function isExactInstant(epochMilliseconds: number): boolean {
-  return (
-    Number.isInteger(epochMilliseconds) &&
-    Math.abs(epochMilliseconds) <= MAX_EPOCH_MILLISECONDS
-  );
-}
-
 /**
  * The number a provider returned for a numeric datetime column, or `undefined`
  * when it returned something else.
  *
  * `bigint` is admitted because the SQLite family reads INTEGER columns in a
  * BigInt mode so values past 2^53 survive — an epoch-millisecond column is read
- * through that same mode. Every representable instant is a SAFE integer
- * (8.64e15 < 2^53), so a bigint that does not survive the round trip is already
- * outside the calendar and is refused here rather than rounded into it.
+ * through that same mode. Every public DateTime instant is a safe integer, so a
+ * bigint that does not survive the round trip is already outside the domain and
+ * is refused here rather than rounded into it.
  */
 function physicalNumber(value: unknown): number | undefined {
   if (isNumber(value)) return Number.isFinite(value) ? value : undefined;
   if (isBigInt(value)) {
     // `Number(bigint)` is exact for every magnitude below 2^53, so the safe
     // test alone decides survival — an unsafe result is already outside the
-    // calendar and there is no second case to check.
+    // public DateTime domain and there is no second case to check.
     const asNumber = Number(value);
     return Number.isSafeInteger(asNumber) ? asNumber : undefined;
   }
@@ -81,10 +67,11 @@ function physicalNumber(value: unknown): number | undefined {
 /**
  * The physical value one VALIDATED ISO-8601 timestamp lands in a column as.
  *
- * Total for its precondition, like `encodePhysicalDecimal`: the ISO boundary
- * (`validateIsoTimestamp`) already owns "this string names an instant", and
- * every value lowered here has crossed it. Behavior on any other string is
- * unspecified rather than re-guarded — one guard per invariant.
+ * The ISO boundary (`validateIsoTimestamp`) already owns "this string names an
+ * instant", and every value lowered here has crossed it. REAL/Julian storage
+ * needs no second admission branch: every millisecond in the four-digit public
+ * DateTime domain survives its Julian-day double round trip. Behavior on any
+ * other string is unspecified rather than re-guarded — one guard per invariant.
  */
 export function encodePhysicalDateTime(
   iso: string,
@@ -105,8 +92,8 @@ export function encodePhysicalDateTime(
  * present is about fifty microseconds and a millisecond is not exactly
  * representable in it. The instant is therefore rounded to the nearest
  * millisecond — the same precision the logical value has — and then held to the
- * representable range, so a day number outside the calendar is a malformed row
- * rather than an invalid `Date`.
+ * public four-digit instant range, so a day number outside the DateTime domain
+ * is a malformed row rather than an extended-year `Date`.
  */
 export function decodePhysicalDateTime(
   value: unknown,
@@ -118,7 +105,7 @@ export function decodePhysicalDateTime(
     form === "epochMillis"
       ? physical
       : Math.round((physical - UNIX_EPOCH_JULIAN_DAY) * MILLISECONDS_PER_DAY);
-  if (!isExactInstant(epochMilliseconds)) return undefined;
+  if (!isDateTimeInstant(epochMilliseconds)) return undefined;
   return new Date(epochMilliseconds);
 }
 

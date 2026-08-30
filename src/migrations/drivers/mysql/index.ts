@@ -209,8 +209,9 @@ export class MySQLMigrationDriver
   mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
     const nativeType = scalar["~"].nativeType;
 
-    // If a native type is specified and it's for MySQL, use it
-    if (nativeType && nativeType.db === "mysql") {
+    // MySQL has no native list type. A native declaration can describe one
+    // scalar member only; every list keeps the JSON container below.
+    if (nativeType && nativeType.db === "mysql" && !scalarState.array) {
       return nativeType.type;
     }
 
@@ -222,7 +223,10 @@ export class MySQLMigrationDriver
     });
   }
 
-  override getDefaultExpression(scalarState: ScalarState): string | undefined {
+  override getDefaultExpression(
+    scalar: Scalar,
+    scalarState: ScalarState
+  ): string | undefined {
     // information_schema.COLUMNS reports both an omitted default and an
     // explicit DEFAULT NULL as catalog NULL. They have the same behavior for a
     // nullable column, so serialize the one representation MySQL can read back
@@ -230,7 +234,7 @@ export class MySQLMigrationDriver
     if (scalarState.hasDefault && scalarState.default === null) {
       return undefined;
     }
-    return super.getDefaultExpression(scalarState);
+    return super.getDefaultExpression(scalar, scalarState);
   }
 
   /**

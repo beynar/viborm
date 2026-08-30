@@ -31,9 +31,9 @@ import {
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { publishedOutputs } from "@tests/fixtures/planning-published";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 class BatchCountingPGliteDriver extends BatchOnlyPGliteDriver {
   batchCalls = 0;

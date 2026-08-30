@@ -287,14 +287,18 @@ adapter.set.increment(col, by)     // → col = col + by
 adapter.set.decrement(col, by)     // → col = col - by
 adapter.set.multiply(col, by, t?)  // → col = col * by
 adapter.set.divide(col, by, t?)    // → col = col / by
-adapter.set.push(col, value)       // → col = array_append(col, value) (PG)
-                                   // → col = JSON_ARRAY_APPEND(col, '$', value) (MySQL)
+adapter.set.push(col, values)      // → col = array_cat(col, values) (PG)
+                                   // → col = JSON_MERGE_PRESERVE(col, values) (MySQL)
 ```
 
 `t` is the `ArithmeticTarget`: `{ integer: true }` forces truncation toward
 zero for an int/bigInt column, and `{ decimal: descriptor }` rounds the product
 or quotient back to the field's scale half-to-even. An absent target is the
 ordinary numeric column every dialect computes natively.
+
+`values` is one complete provider-encoded list container. The query engine's
+scalar-value owner chooses native, managed-enum, decimal, or JSON transport;
+the adapter only concatenates that container with the stored one.
 
 ### `filters`
 

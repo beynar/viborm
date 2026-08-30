@@ -20,10 +20,10 @@
 import vm from "node:vm";
 import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { PendingOperationError, VibORMErrorCode } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
-
 import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
 import {
@@ -58,6 +58,18 @@ const BOUND_LABEL_COMPARISON = /label = (\$1|\?)/;
 const SECOND_BOUND_PARAMETER = /bound parameter 1\b/;
 
 type Probe = ReturnType<typeof captureLogs>;
+
+class ProviderProbedBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
+  providerBatchCalls = 0;
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.providerBatchCalls += 1;
+    return super.executeBatch<T>(client, queries);
+  }
+}
 
 function createProbedClient(createDriver: () => AnyDriver) {
   const probe = captureLogs();
@@ -419,6 +431,20 @@ for (const { name, createDriver } of DIALECTS) {
         expect(probe.events).toEqual([]);
       });
 
+      test("a nested Date in a foreign cyclic JSON parameter is refused before dispatch", async () => {
+        const { client, probe } = await setup();
+        const parameter: unknown = vm.runInNewContext(`
+          const parameter = { nested: [[{ at: new Date(NaN) }]] };
+          parameter.self = parameter;
+          parameter;
+        `);
+
+        await expect(
+          client.$queryRaw(sql`SELECT ${parameter}`)
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        expect(probe.events).toEqual([]);
+      });
+
       test("names the parameter position that carried it", async () => {
         const { client } = await setup();
 
@@ -431,7 +457,9 @@ for (const { name, createDriver } of DIALECTS) {
 
       test("refuses one built in another realm", async () => {
         const { client, probe } = await setup();
-        const foreign: Date = vm.runInNewContext("new Date(NaN)");
+        const foreign: Date = vm.runInNewContext(
+          "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+        );
         expect(foreign instanceof Date).toBe(false);
 
         await expect(
@@ -528,15 +556,15 @@ for (const { name, createDriver } of DIALECTS) {
 /**
  * The other half of the invalid-Date boundary. Only PostgreSQL binds a Date at
  * all — better-sqlite3 refuses every Date object, valid or not — so a valid one
- * is proven to pass through untouched where it is a legal parameter.
+ * is proven to retain its instant where it is a legal parameter. The focused
+ * fake-driver client contract pins detached provider identity.
  */
 describe("valid Date parameters (pglite)", () => {
-  test("reach the driver as the caller's own object", async () => {
+  test("retain their instant through provider execution", async () => {
     const driver = createInMemoryPGliteDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
-      const execute = vi.spyOn(driver, "_execute");
       const at = new Date("2024-01-02T03:04:05.000Z");
 
       const rows = await client.$queryRaw<{
@@ -544,7 +572,6 @@ describe("valid Date parameters (pglite)", () => {
       }>`SELECT ${at}::timestamptz AS v`;
 
       expect(rows).toEqual([{ v: at }]);
-      expect(execute.mock.calls[0]?.[0]?.values[0]).toBe(at);
     } finally {
       await client.$disconnect();
     }
@@ -552,6 +579,25 @@ describe("valid Date parameters (pglite)", () => {
 });
 
 describe("raw SQL in a native array transaction", () => {
+  test("refuses a Date invalidated after transaction start before native dispatch", async () => {
+    const parameter = new Date("2026-08-25T13:00:00.000Z");
+    const driver = new ProviderProbedBatchOnlyPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      const transaction = client.$transaction([
+        client.$queryRaw<{ v: Date }>`SELECT ${parameter}::timestamptz AS v`,
+      ]);
+      queueMicrotask(() => parameter.setTime(Number.NaN));
+
+      await expect(transaction).rejects.toMatchObject({
+        code: VibORMErrorCode.INVALID_INPUT,
+      });
+      expect(driver.providerBatchCalls).toBe(0);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
   test("mixes raw and model operations in one ordered atomic batch", async () => {
     const driver = new BatchOnlyPGliteDriver();
     const client = createClient({ schema, driver });

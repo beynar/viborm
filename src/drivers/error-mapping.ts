@@ -52,11 +52,12 @@ const MYSQL_DEADLOCK = 1213;
 const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
-// better-sqlite3, bun:sqlite and libsql report sqlite3_extended_errcode, so the
-// contention codes arrive as SQLITE_BUSY_RECOVERY, SQLITE_LOCKED_VTAB, … — the
-// plain names are prefixes of every member of both families.
-const SQLITE_BUSY_PREFIX = "SQLITE_BUSY";
-const SQLITE_LOCKED_PREFIX = "SQLITE_LOCKED";
+// Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
+// extended family member. The delimiter is load-bearing: startsWith accepted
+// unrelated provider codes such as SQLITE_BUSYWORK and SQLITE_LOCKEDNESS.
+const SQLITE_CONTENTION_FAMILY_PATTERN =
+  /^SQLITE_(?:BUSY|LOCKED)(?:_[A-Z0-9]+)+$/;
+const ASCII_PROVIDER_SYMBOL_PATTERN = /[A-Za-z0-9_]+/g;
 // An extended result code is `base | (sub << 8)`, so the whole family keeps its
 // base in the low byte. That byte alone proves nothing across providers —
 // MySQL errno 1029 also ends in 5 — so numeric recognition needs the dialect.
@@ -124,6 +125,14 @@ function isSQLiteContentionResultCode(
   return base === SQLITE_BUSY_BASE_CODE || base === SQLITE_LOCKED_BASE_CODE;
 }
 
+function isSQLiteContentionName(value: string): boolean {
+  return (
+    value === "SQLITE_BUSY" ||
+    value === "SQLITE_LOCKED" ||
+    SQLITE_CONTENTION_FAMILY_PATTERN.test(value)
+  );
+}
+
 /**
  * Report whether a provider error is SQLite lock contention, across the three
  * shapes drivers use: an extended symbolic code, an extended numeric result
@@ -135,22 +144,18 @@ function isSQLiteContention(
   message: string,
   dialect: Dialect | undefined
 ): boolean {
-  if (
-    typeof code === "string" &&
-    (code.startsWith(SQLITE_BUSY_PREFIX) ||
-      code.startsWith(SQLITE_LOCKED_PREFIX))
-  ) {
+  if (dialect !== "sqlite") return false;
+  if (typeof code === "string" && isSQLiteContentionName(code)) {
     return true;
   }
   if (
-    dialect === "sqlite" &&
-    (isSQLiteContentionResultCode(code) || isSQLiteContentionResultCode(errno))
+    isSQLiteContentionResultCode(code) ||
+    isSQLiteContentionResultCode(errno)
   ) {
     return true;
   }
-  return (
-    message.includes(SQLITE_BUSY_PREFIX) ||
-    message.includes(SQLITE_LOCKED_PREFIX)
+  return [...message.matchAll(ASCII_PROVIDER_SYMBOL_PATTERN)].some((match) =>
+    isSQLiteContentionName(match[0])
   );
 }
 

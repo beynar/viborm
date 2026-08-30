@@ -20,7 +20,7 @@ import {
   rebindRollback,
   sealParent,
 } from "./compile";
-import { diff } from "./differ";
+import { type DiffOptions, diff } from "./differ";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { normalizeGenerateOptions } from "./generate-input";
 import { loadMigrationGraph, type MigrationGraph } from "./graph";
@@ -69,6 +69,10 @@ export interface GenerateV1Result {
   readonly operations: readonly DiffOperation[];
   readonly sql: string;
 }
+
+const AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS: DiffOptions = {
+  compareDateTimeDeclarations: true,
+};
 
 export async function generateV1(
   client: MigrationClient,
@@ -156,7 +160,11 @@ export async function generateV1(
           ? emptyManagedSnapshot()
           : (loaded.snapshots.get(loaded.states.get(from)!.snapshotHash) ??
             emptyManagedSnapshot());
-      const diffed = await diff(current, desired);
+      const diffed = await diff(
+        current,
+        desired,
+        AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS
+      );
       const resolved = await resolveAmbiguousChanges(
         diffed,
         current,
@@ -165,7 +173,8 @@ export async function generateV1(
           ? callbackAsResolver(request.resolve)
           : parents.length > 1
             ? alwaysAddDropResolver
-            : strictResolver
+            : strictResolver,
+        AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS
       );
       const staged = prepareSchemaProgram(resolved, current, driver);
       if (from === parents[0]) reported = staged;

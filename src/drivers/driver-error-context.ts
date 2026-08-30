@@ -40,6 +40,10 @@ import {
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
 import { transferLoggedErrorEvidence } from "../instrumentation/logged-errors";
+import {
+  readSuppressedFailures,
+  withSuppressedFailure,
+} from "./shared/suppressed-failure";
 import type { Dialect } from "./types";
 
 export interface DriverErrorShape {
@@ -152,7 +156,7 @@ function cloneVibORMError(
     const validationClone = cloneValidationError(error, meta, diagnostics);
     if (validationClone) {
       transferLoggedErrorEvidence(error, validationClone);
-      return validationClone;
+      return transferSuppressedFailureEvidence(error, validationClone);
     }
   }
   const message =
@@ -186,7 +190,17 @@ function cloneVibORMError(
       ? candidate
       : new VibORMError(message, code, options);
   transferLoggedErrorEvidence(error, clonedError);
-  return clonedError;
+  return transferSuppressedFailureEvidence(error, clonedError);
+}
+
+function transferSuppressedFailureEvidence(
+  source: unknown,
+  target: VibORMError
+): VibORMError {
+  for (const failure of readSuppressedFailures(source)) {
+    withSuppressedFailure(target, failure);
+  }
+  return target;
 }
 
 function cloneValidationError(

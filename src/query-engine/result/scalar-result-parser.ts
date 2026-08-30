@@ -4,6 +4,11 @@ import {
   type DateTimeNumericForm,
   decodePhysicalDateTime,
 } from "@validation/primitives/datetime-physical-codec";
+import {
+  isDateTimeClock,
+  isDateTimeInstant,
+  isGregorianCalendarDate,
+} from "@validation/primitives/datetime-values";
 import type { Operation } from "../types";
 import { QueryEngineError } from "../types";
 import {
@@ -39,11 +44,31 @@ const DATETIME_VALUE_REGEX =
 const TIME_VALUE_REGEX =
   /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
 
-function parseDateTimeString(value: string): Date {
+function parseDateTimeString(value: string): Date | undefined {
+  const match = DATETIME_VALUE_REGEX.exec(value);
+  if (!match) return undefined;
+  const hasValidCalendarAndClock =
+    isGregorianCalendarDate(
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    ) && isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]));
+  if (!hasValidCalendarAndClock) return undefined;
+  const hasZone = match[8] !== undefined || match[9] !== undefined;
+  if (value[10] === " " && hasZone) return undefined;
+  const zoneHour = match[10] === undefined ? 0 : Number(match[10]);
+  const zoneMinute = match[11] === undefined ? 0 : Number(match[11]);
+  if (zoneHour > 23 || zoneMinute > 59) return undefined;
   if (ZONELESS_DATETIME_REGEX.test(value)) {
-    return new Date(`${value.replace(" ", "T")}Z`);
+    const parsed = new Date(`${value.replace(" ", "T")}Z`);
+    return isDateTimeInstant(Date.prototype.getTime.call(parsed))
+      ? parsed
+      : undefined;
   }
-  return new Date(value);
+  const parsed = new Date(value);
+  return isDateTimeInstant(Date.prototype.getTime.call(parsed))
+    ? parsed
+    : undefined;
 }
 
 export function parseFieldValueDefault(
@@ -318,15 +343,15 @@ function parseTypedValueDefault(
         return decoded;
       }
       if (value instanceof Date) {
-        if (!Number.isNaN(value.getTime())) return value;
+        if (isDateTimeInstant(Date.prototype.getTime.call(value))) return value;
         return malformedScalarValue(
           provider,
           operation,
           scalarType,
-          "the Date is invalid"
+          "the Date is outside the public DateTime domain"
         );
       }
-      if (typeof value !== "string" || !isValidDateTimeString(value)) {
+      if (typeof value !== "string") {
         return malformedScalarValue(
           provider,
           operation,
@@ -335,12 +360,12 @@ function parseTypedValueDefault(
         );
       }
       const parsed = parseDateTimeString(value);
-      if (Number.isNaN(parsed.getTime())) {
+      if (parsed === undefined) {
         return malformedScalarValue(
           provider,
           operation,
           scalarType,
-          "the timestamp is invalid"
+          "the value is not a valid provider timestamp in the public DateTime domain"
         );
       }
       return parsed;
@@ -348,12 +373,13 @@ function parseTypedValueDefault(
 
     case "date": {
       if (value instanceof Date) {
+        const epochMilliseconds = Date.prototype.getTime.call(value);
         if (
-          !Number.isNaN(value.getTime()) &&
-          value.getUTCHours() === 0 &&
-          value.getUTCMinutes() === 0 &&
-          value.getUTCSeconds() === 0 &&
-          value.getUTCMilliseconds() === 0
+          isDateTimeInstant(epochMilliseconds) &&
+          Date.prototype.getUTCHours.call(value) === 0 &&
+          Date.prototype.getUTCMinutes.call(value) === 0 &&
+          Date.prototype.getUTCSeconds.call(value) === 0 &&
+          Date.prototype.getUTCMilliseconds.call(value) === 0
         ) {
           return value;
         }
@@ -366,7 +392,16 @@ function parseTypedValueDefault(
       }
       const match =
         typeof value === "string" ? DATE_VALUE_REGEX.exec(value) : null;
-      if (!(match && isValidCalendarDate(match[1], match[2], match[3]))) {
+      if (
+        !(
+          match &&
+          isGregorianCalendarDate(
+            Number(match[1]),
+            Number(match[2]),
+            Number(match[3])
+          )
+        )
+      ) {
         return malformedScalarValue(
           provider,
           operation,
@@ -484,7 +519,12 @@ function parseTypedValueDefault(
         );
       }
       const match = TIME_VALUE_REGEX.exec(value);
-      if (!(match && isValidClock(match[1], match[2], match[3]))) {
+      if (
+        !(
+          match &&
+          isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
+        )
+      ) {
         return malformedScalarValue(
           provider,
           operation,
@@ -550,60 +590,6 @@ function parseTypedValueDefault(
     default:
       return parseValueWithoutContext(value);
   }
-}
-
-function isValidDateTimeString(value: string): boolean {
-  const match = DATETIME_VALUE_REGEX.exec(value);
-  if (!match) return false;
-  if (!isValidCalendarDate(match[1], match[2], match[3])) return false;
-  if (!isValidClock(match[4], match[5], match[6])) return false;
-  const hasZone = match[8] !== undefined || match[9] !== undefined;
-  const separator = value[10];
-  if (separator === " " && hasZone) return false;
-  const zoneHour = match[10] === undefined ? 0 : Number(match[10]);
-  const zoneMinute = match[11] === undefined ? 0 : Number(match[11]);
-  return zoneHour <= 23 && zoneMinute <= 59;
-}
-
-function isValidCalendarDate(
-  yearValue: string | undefined,
-  monthValue: string | undefined,
-  dayValue: string | undefined
-): boolean {
-  const year = Number(yearValue);
-  const month = Number(monthValue);
-  const day = Number(dayValue);
-  if (month < 1 || month > 12 || day < 1) return false;
-  const daysPerMonth = [
-    31,
-    isLeapYear(year) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31,
-  ];
-  return day <= (daysPerMonth[month - 1] ?? 0);
-}
-
-function isLeapYear(year: number): boolean {
-  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-}
-
-function isValidClock(
-  hourValue: string | undefined,
-  minuteValue: string | undefined,
-  secondValue: string | undefined
-): boolean {
-  const hour = Number(hourValue);
-  const minute = Number(minuteValue);
-  const second = Number(secondValue);
-  return hour <= 23 && minute <= 59 && second <= 59;
 }
 
 function parseValueWithoutContext(value: unknown): unknown {

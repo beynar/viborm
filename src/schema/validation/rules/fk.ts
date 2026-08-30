@@ -11,8 +11,9 @@
 // tuple, so an unequal pair cannot be constructed.
 
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { getModelKeyCatalog, isTotalIndex, type Model } from "../../model";
+import { findReferenceableKey, type Model } from "../../model";
 import type { ForeignKeyDeclaration } from "../../relation";
+import { sqliteDateTimePhysicalForm } from "../../scalars/datetime/physical";
 import type { ResolvedStoredReference } from "../relation-resolution";
 import type { SchemaValidationIssue } from "../types";
 
@@ -106,22 +107,49 @@ export function checkStoredReference(
     const remoteState = remote["~"].state;
     const localType = localState.type;
     const remoteType = remoteState.type;
+    const localIsArray = localState.array === true;
+    const remoteIsArray = remoteState.array === true;
     const localDecimal = localState.decimal;
     const remoteDecimal = remoteState.decimal;
+    const arrayShapeMismatch =
+      localType === remoteType && localIsArray !== remoteIsArray;
     const decimalDomainMismatch =
       localType === "decimal" &&
       remoteType === "decimal" &&
       !sameDecimalDescriptor(localDecimal, remoteDecimal);
-    if (localType !== remoteType || decimalDomainMismatch) {
+    const localDateTimeForm =
+      localType === "datetime" && !localIsArray
+        ? sqliteDateTimePhysicalForm(local["~"].nativeType)
+        : undefined;
+    const remoteDateTimeForm =
+      remoteType === "datetime" && !remoteIsArray
+        ? sqliteDateTimePhysicalForm(remote["~"].nativeType)
+        : undefined;
+    const dateTimeDomainMismatch =
+      localDateTimeForm !== undefined &&
+      remoteDateTimeForm !== undefined &&
+      localDateTimeForm !== remoteDateTimeForm;
+    if (
+      localType !== remoteType ||
+      arrayShapeMismatch ||
+      decimalDomainMismatch ||
+      dateTimeDomainMismatch
+    ) {
       legal = false;
-      const localDescription =
-        localType === "decimal" && localDecimal
+      const localDescription = localIsArray
+        ? `${localType}[]`
+        : localType === "decimal" && localDecimal
           ? `decimal(${localDecimal.precision},${localDecimal.scale})`
-          : localType;
-      const remoteDescription =
-        remoteType === "decimal" && remoteDecimal
+          : localDateTimeForm
+            ? `datetime(${localDateTimeForm})`
+            : localType;
+      const remoteDescription = remoteIsArray
+        ? `${remoteType}[]`
+        : remoteType === "decimal" && remoteDecimal
           ? `decimal(${remoteDecimal.precision},${remoteDecimal.scale})`
-          : remoteType;
+          : remoteDateTimeForm
+            ? `datetime(${remoteDateTimeForm})`
+            : remoteType;
       issues.push({
         code: "FK003",
         message: `Type mismatch: '${foreignField}' (${localDescription}) → '${referencedField}' (${remoteDescription}) in ${targetName}`,
@@ -130,12 +158,16 @@ export function checkStoredReference(
         relation: relationName,
         repair: decimalDomainMismatch
           ? `Give '${foreignField}' the same decimal precision and scale as '${targetName}.${referencedField}'`
-          : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
+          : arrayShapeMismatch
+            ? `Give '${foreignField}' the same scalar/list shape as '${targetName}.${referencedField}'`
+            : dateTimeDomainMismatch
+              ? `Give '${foreignField}' the same SQLite DateTime physical form as '${targetName}.${referencedField}'`
+              : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
       });
     }
   }
 
-  const targetKey = matchTargetKey(target, references);
+  const targetKey = findReferenceableKey(target, references);
   if (!targetKey) {
     legal = false;
     issues.push({
@@ -221,41 +253,4 @@ function isDecimalList(
 ): boolean {
   const state = scalar["~"].state;
   return state.type === "decimal" && state.array === true;
-}
-
-/**
- * The ORDERED key the COMPLETE referenced tuple addresses, or `undefined`.
- *
- * The whole tuple, not each member separately: a compound primary key's members
- * carry no individual `isId`, so a per-scalar reading advises against
- * referencing the very key the target declares.
- *
- * Membership is order-insensitive — `.references("id", "tenantId")` names the
- * same key as `.references("tenantId", "id")` — but the ANSWER is the key's own
- * order, because MySQL matches a composite foreign key's referenced columns
- * against an index left-prefix POSITIONALLY and refuses every other order
- * (errno 6125). A key already spelled the way it is referenced wins, so a
- * declared-order schema keeps its declared tuple; otherwise the first set match
- * in catalog order answers, addressable keys before total unique indexes.
- */
-function matchTargetKey(
-  target: Model<any>,
-  references: readonly string[]
-): readonly string[] | undefined {
-  const wanted = [...references].sort().join(",");
-  const candidates: readonly (readonly string[])[] = [
-    ...getModelKeyCatalog(target).addressableKeys.map((key) => key.fields),
-    ...target["~"].state.indexes
-      .filter((index) => index.options.unique && isTotalIndex(index.options))
-      .map((index) => index.fields),
-  ];
-  let setMatch: readonly string[] | undefined;
-  for (const fields of candidates) {
-    if ([...fields].sort().join(",") !== wanted) continue;
-    if (fields.every((field, position) => field === references[position])) {
-      return fields;
-    }
-    setMatch ??= fields;
-  }
-  return setMatch;
 }

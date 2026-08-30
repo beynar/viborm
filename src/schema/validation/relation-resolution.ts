@@ -18,7 +18,7 @@
  * by being ordinary, variant, first, or sole.
  */
 
-import { getModelKeyCatalog, isTotalIndex, type Model } from "../model";
+import { findReferenceableKey, getModelKeyCatalog, type Model } from "../model";
 import {
   type JunctionOverrideView,
   JunctionPhysicalNameError,
@@ -961,16 +961,7 @@ function declaresUniqueKey(
   model: Model<any>,
   fields: readonly string[]
 ): boolean {
-  const wanted = [...fields].sort().join(",");
-  for (const key of getModelKeyCatalog(model).addressableKeys) {
-    if ([...key.fields].sort().join(",") === wanted) return true;
-  }
-  return model["~"].state.indexes.some(
-    (index) =>
-      index.options.unique &&
-      isTotalIndex(index.options) &&
-      [...index.fields].sort().join(",") === wanted
-  );
+  return findReferenceableKey(model, fields) !== undefined;
 }
 
 // =============================================================================

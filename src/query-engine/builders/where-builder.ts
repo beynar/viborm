@@ -46,10 +46,7 @@ import {
   buildRelationFilterSql,
 } from "./relation-filter-builder";
 import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
-import {
-  listCandidateCrossesWhole,
-  scalarValueLiteral,
-} from "./values-builder";
+import { scalarValueLiteral } from "./values-builder";
 
 /**
  * Build a WHERE clause from a where input object
@@ -542,16 +539,9 @@ function buildFilterOperation(
     }
     return scalarValueLiteral(ctx, fieldName, v);
   };
-  /**
-   * The candidate operand of a containment filter. Whether a list crosses
-   * whole is the storage owner's answer (`listCandidateCrossesWhole`, beside
-   * the whole-list crossing in values-builder); a whole crossing is the same
-   * one a write uses and the `equals` filter already takes.
-   */
+  /** A containment candidate crosses through the same whole-list owner as a write. */
   const containmentCandidate = (members: unknown[]): Sql =>
-    listCandidateCrossesWhole(scalarState)
-      ? scalarValueLiteral(ctx, fieldName, members)
-      : adapter.arrays.literal(members.map(lit));
+    scalarValueLiteral(ctx, fieldName, members);
   const isInsensitive = mode === "insensitive";
   const isTextScalar =
     !scalarState.array &&

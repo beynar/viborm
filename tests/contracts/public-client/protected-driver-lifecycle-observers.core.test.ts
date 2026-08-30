@@ -143,6 +143,61 @@ class LifecycleDriver extends Driver<object, object> {
   }
 }
 
+interface CloseBeforeRejectTransport {
+  isClosed: boolean;
+}
+
+/** MySQL2-shaped close: admission closes before one connection reports error. */
+class CloseBeforeRejectDriver extends Driver<
+  CloseBeforeRejectTransport,
+  CloseBeforeRejectTransport
+> {
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  closeCount = 0;
+  executeCount = 0;
+  initCount = 0;
+
+  constructor() {
+    super("mysql", "close-before-reject-test");
+  }
+
+  protected async initClient(): Promise<CloseBeforeRejectTransport> {
+    this.initCount += 1;
+    return { isClosed: false };
+  }
+
+  protected async closeClient(
+    transport: CloseBeforeRejectTransport
+  ): Promise<void> {
+    this.closeCount += 1;
+    transport.isClosed = true;
+    if (this.closeCount === 1) throw new Error("one connection did not close");
+  }
+
+  protected async execute<T>(
+    transport: CloseBeforeRejectTransport
+  ): Promise<QueryResult<T>> {
+    this.executeCount += 1;
+    if (transport.isClosed) throw new Error("Pool is closed");
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected async executeRaw<T>(
+    transport: CloseBeforeRejectTransport
+  ): Promise<QueryResult<T>> {
+    this.executeCount += 1;
+    if (transport.isClosed) throw new Error("Pool is closed");
+    return { rows: [], rowCount: 0 };
+  }
+
+  protected transaction<T>(
+    transport: CloseBeforeRejectTransport,
+    callback: (transaction: CloseBeforeRejectTransport) => Promise<T>
+  ): Promise<T> {
+    return callback(transport);
+  }
+}
+
 class PhaseBlindLifecycleDriver extends LifecycleDriver {
   protected override async transaction<T>(
     client: object,
@@ -576,6 +631,31 @@ describe("public protected driver lifecycle observers", () => {
     expect(
       byKind(disconnecting.observed, "connection")[0]?.summary?.commitCertainty
     ).toBeUndefined();
+    disconnectDriver.failDisconnect = undefined;
+  });
+
+  test("quarantines a transport that closes before disconnect rejects", async () => {
+    const driver = new CloseBeforeRejectDriver();
+    const client = createClient({ schema, driver });
+
+    await client.$connect();
+    await expect(client.$disconnect()).rejects.toMatchObject({ code: "V1001" });
+
+    await expect(client.$connect()).rejects.toMatchObject({ code: "V1003" });
+    await expect(client.$queryRawUnsafe("SELECT 1")).rejects.toMatchObject({
+      code: "V1003",
+    });
+    expect(driver.initCount).toBe(1);
+    expect(driver.executeCount).toBe(0);
+
+    await client.$disconnect();
+    expect(driver.closeCount).toBe(2);
+
+    await client.$connect();
+    await expect(client.$queryRawUnsafe("SELECT 1")).resolves.toEqual([]);
+    expect(driver.initCount).toBe(2);
+    expect(driver.executeCount).toBe(1);
+    await client.$disconnect();
   });
 
   test("contains hostile lifecycle observers without changing commit or result", async () => {

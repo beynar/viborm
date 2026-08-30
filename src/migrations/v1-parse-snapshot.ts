@@ -61,6 +61,7 @@ const TABLE_REQUIRED_KEYS = [
 ] as const;
 const COLUMN_KEYS = [
   "autoIncrement",
+  "dateTime",
   "decimal",
   "default",
   "name",
@@ -136,10 +137,30 @@ function parseColumn(value: unknown, label: string): ColumnDef {
     column.autoIncrement = record.autoIncrement;
   }
   if ("decimal" in record) {
-    column.decimal = parseDecimalDescriptor(
-      record.decimal,
-      `${label}.decimal`
-    );
+    column.decimal = parseDecimalDescriptor(record.decimal, `${label}.decimal`);
+  }
+  if ("dateTime" in record) {
+    if (
+      !isString(record.dateTime) ||
+      (record.dateTime !== "text" &&
+        record.dateTime !== "epochMillis" &&
+        record.dateTime !== "julianDay")
+    ) {
+      refuse(`${label}.dateTime must name a DateTime physical form`);
+    }
+    const physicalType =
+      record.dateTime === "text"
+        ? "TEXT"
+        : record.dateTime === "epochMillis"
+          ? "INTEGER"
+          : "REAL";
+    if (column.type.toUpperCase() !== physicalType) {
+      refuse(`${label}.dateTime contradicts its physical type`);
+    }
+    if (column.decimal !== undefined) {
+      refuse(`${label} cannot be both DateTime and fixed-decimal storage`);
+    }
+    column.dateTime = record.dateTime;
   }
   return column;
 }
@@ -148,22 +169,15 @@ function parseDecimalDescriptor(
   value: unknown,
   label: string
 ): DecimalDescriptor {
-  const record = exactObject(
-    value,
-    DECIMAL_KEYS,
-    DECIMAL_KEYS,
-    label
-  );
+  const record = exactObject(value, DECIMAL_KEYS, DECIMAL_KEYS, label);
   if (
-    !isNumber(record.precision) ||
-    !Number.isSafeInteger(record.precision) ||
+    !(isNumber(record.precision) && Number.isSafeInteger(record.precision)) ||
     record.precision < 1
   ) {
     refuse(`${label}.precision must be a positive safe integer`);
   }
   if (
-    !isNumber(record.scale) ||
-    !Number.isSafeInteger(record.scale) ||
+    !(isNumber(record.scale) && Number.isSafeInteger(record.scale)) ||
     Object.is(record.scale, -0) ||
     record.scale < 0 ||
     record.scale > record.precision

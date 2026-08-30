@@ -23,6 +23,7 @@ import {
 import type { RelationSlot } from "../schema/relation";
 import { automaticForeignKeyIndexName } from "../schema/relation/helpers";
 import type { Scalar } from "../schema/scalars/base";
+import { sqliteDateTimePhysicalForm } from "../schema/scalars/datetime/physical";
 import {
   describeDecimalProviderLimitRefusal,
   findDecimalProviderLimitRefusal,
@@ -215,8 +216,10 @@ export function serializeResolvedModels(
     const pkColumns: string[] = [];
 
     // Process scalars
-    for (const [fieldName, scalar] of Object.entries(modelState.scalars)) {
-      const scalarState = (scalar as Scalar)["~"].state;
+    for (const [fieldName, scalar] of Object.entries<Scalar>(
+      modelState.scalars
+    )) {
+      const scalarState = scalar["~"].state;
       // Use model's nameRegistry for column name resolution (supports field reuse)
       const columnName = model["~"].getFieldName(fieldName).sql;
 
@@ -263,17 +266,14 @@ export function serializeResolvedModels(
           );
         }
       } else {
-        columnType = migrationDriver.mapScalarType(
-          scalar as Scalar,
-          scalarState
-        );
+        columnType = migrationDriver.mapScalarType(scalar, scalarState);
       }
 
       const columnDef: ColumnDef = {
         name: columnName,
         type: columnType,
         nullable: scalarState.nullable,
-        default: migrationDriver.getDefaultExpression(scalarState),
+        default: migrationDriver.getDefaultExpression(scalar, scalarState),
         autoIncrement: scalarState.autoGenerate?.kind === "increment",
         // Carried by REFERENCE off the resolved scalar, never rebuilt: the
         // frozen descriptor is the one source of truth, and the physical type
@@ -281,6 +281,12 @@ export function serializeResolvedModels(
         // whatever the domain is, so without this the differ would see no
         // change when the domain moved.
         decimal: scalarState.decimal,
+        dateTime:
+          migrationDriver.dialect === "sqlite" &&
+          scalarState.type === "datetime" &&
+          scalarState.array !== true
+            ? sqliteDateTimePhysicalForm(scalar["~"].nativeType)
+            : undefined,
       };
 
       columns.push(columnDef);

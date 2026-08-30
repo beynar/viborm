@@ -557,6 +557,24 @@ describe("All Scalar Types Integration Test", () => {
     ).toBe(true);
 
     expect(Array.from(found.blobNullable as Uint8Array)).toEqual([6, 7, 8]);
+
+    // A managed PostgreSQL enum list crosses update concatenation as one
+    // column-typed array value. Binding each member separately builds an
+    // unbounded SQL tree and loses the enum array type.
+    await client.allFieldsModel.update({
+      where: { id: "test-record-1" },
+      data: { enumArray: { push: ["INACTIVE"] } },
+    });
+    const enumUpdated = await client.allFieldsModel.update({
+      where: { id: "test-record-1" },
+      data: { enumArray: { unshift: ["PENDING"] } },
+    });
+    expect(enumUpdated.enumArray).toEqual([
+      "PENDING",
+      "ACTIVE",
+      "PENDING",
+      "INACTIVE",
+    ]);
   });
 
   test("handles null values for nullable scalars", async () => {

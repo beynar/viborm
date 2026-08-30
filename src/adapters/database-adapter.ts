@@ -543,13 +543,13 @@ export interface DatabaseAdapter {
      */
     divide: (column: Sql, by: Sql, target?: ArithmeticTarget) => Sql;
     /**
-     * Array push: append each element of `values` to the list column
-     * (PG: array_cat, MySQL: JSON_MERGE_PRESERVE, SQLite: JSON text concat).
-     * Takes raw JS values so each dialect can serialize the whole list.
+     * Array push: append the complete provider-encoded `values` container.
+     * The query engine selects the scalar's list vocabulary once; the adapter
+     * owns only how its dialect concatenates two containers.
      */
-    push: (column: Sql, values: unknown[]) => Sql;
-    /** Array unshift: prepend each element of `values` to the list column */
-    unshift: (column: Sql, values: unknown[]) => Sql;
+    push: (column: Sql, values: Sql) => Sql;
+    /** Array unshift: prepend the complete provider-encoded container. */
+    unshift: (column: Sql, values: Sql) => Sql;
   };
 
   /**

@@ -133,6 +133,19 @@ describe("tagged leaves", () => {
     });
   });
 
+  it("serializes the foreign Date instant instead of overridable methods", () => {
+    const date: Date = vm.runInNewContext(
+      `Object.assign(new Date('${ISO}'), {
+        getTime() { return NaN },
+        toISOString() { return 'spoofed' }
+      })`
+    );
+
+    expect(emittedDefault(model(s.dateTime().default(date)))).toEqual({
+      $date: ISO,
+    });
+  });
+
   it("writes and reads a Date as `$date`", () => {
     expect(emitted(model(s.dateTime().default(new Date(ISO))))).toEqual({
       type: "datetime",
@@ -346,6 +359,26 @@ describe("values the document cannot hold", () => {
     expect(
       issues(serializeRefusal(model(s.dateTime().default(new Date("nope")))))
     ).toEqual(["[J009] /models/user/fields/probe/default"]);
+  });
+
+  it("refuses a foreign invalid Date whose getTime override lies", () => {
+    const date: Date = vm.runInNewContext(
+      "Object.assign(new Date(NaN), { getTime() { return 0 } })"
+    );
+
+    expect(issues(serializeRefusal(model(s.dateTime().default(date))))).toEqual(
+      ["[J009] /models/user/fields/probe/default"]
+    );
+  });
+
+  it("refuses detached foreign bytes through the document issue surface", () => {
+    const bytes: Uint8Array = vm.runInNewContext(
+      "const value = new Uint8Array([1, 2, 3]); value.buffer.transfer(); value"
+    );
+
+    const error = serializeRefusal(model(s.blob().default(bytes)));
+    expect(issues(error)).toEqual(["[J009] /models/user/fields/probe/default"]);
+    expect(error.issues[0]?.message).toContain("detached");
   });
 
   // `JSON.stringify` turns a non-finite number into `null`, which is a silent
