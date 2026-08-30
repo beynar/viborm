@@ -729,9 +729,13 @@ function resolveOrdinaryPair(
     return undefined;
   }
   if (!check.reference) return undefined;
+  // The published local columns follow the NORMALIZED member order (a permuted
+  // referenced tuple is reordered to its matched target key by
+  // `checkStoredReference`), so the automatic-index name this fact reserves is
+  // the same one the serializer derives from the members.
   publication.storedReferences.push({
     owner: owner.node.slot.source,
-    fields: foreignKey.fields,
+    fields: check.reference.members.map((member) => member.foreignField),
     unique,
   });
   return {

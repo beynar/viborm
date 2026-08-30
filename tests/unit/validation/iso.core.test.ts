@@ -1,6 +1,19 @@
+import vm from "node:vm";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
+
+/** A Date built in another realm: same internal slot, failing `instanceof`. */
+function foreignDate(source: string): Date {
+  return vm.runInNewContext(`new Date(${source})`);
+}
+
+/** An object that spells the Date surface without holding the slot. */
+const DATE_IMPOSTOR = {
+  [Symbol.toStringTag]: "Date",
+  getTime: () => 1_702_636_200_000,
+  toISOString: () => "2023-12-15T10:30:00.000Z",
+};
 
 describe("isoTimestamp schema", () => {
   describe("basic validation", () => {
@@ -40,6 +53,16 @@ describe("isoTimestamp schema", () => {
       ).toBe("2023-12-15T10:30:00.000Z");
       expect(parse(schema, new Date(Number.NaN)).issues).toBeDefined();
       expect(parse(schema, 1).issues).toBeDefined();
+    });
+
+    test("normalizes a Date from another realm and refuses an impostor", () => {
+      const foreign = foreignDate("'2023-12-15T10:30:00.000Z'");
+      expect(foreign instanceof Date).toBe(false);
+      expect((parse(schema, foreign) as { value: string }).value).toBe(
+        "2023-12-15T10:30:00.000Z"
+      );
+      expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
+      expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
     });
 
     test("type inference", () => {
@@ -99,6 +122,18 @@ describe("isoDate schema", () => {
       ).toBe("2023-12-15");
       expect(parse(schema, new Date(Number.NaN)).issues).toBeDefined();
       expect(parse(schema, 1).issues).toBeDefined();
+    });
+
+    test("normalizes a Date from another realm and refuses an impostor", () => {
+      expect(
+        (
+          parse(schema, foreignDate("'2023-12-15T10:30:00.000Z'")) as {
+            value: string;
+          }
+        ).value
+      ).toBe("2023-12-15");
+      expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
+      expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
     });
 
     test("type inference", () => {
@@ -164,6 +199,18 @@ describe("isoTime schema", () => {
       ).toBe("10:30:00.000");
       expect(parse(schema, new Date(Number.NaN)).issues).toBeDefined();
       expect(parse(schema, 1).issues).toBeDefined();
+    });
+
+    test("normalizes a Date from another realm and refuses an impostor", () => {
+      expect(
+        (
+          parse(schema, foreignDate("'2023-12-15T10:30:00.000Z'")) as {
+            value: string;
+          }
+        ).value
+      ).toBe("10:30:00.000");
+      expect(parse(schema, foreignDate("NaN")).issues).toBeDefined();
+      expect(parse(schema, DATE_IMPOSTOR).issues).toBeDefined();
     });
 
     test("type inference", () => {

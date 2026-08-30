@@ -26,9 +26,9 @@ import {
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The whole upsert family on PGlite, both substrates (driver-matrix legs live in
 // tests/drivers/{sqlite3,mysql2,pg,libsql}.test.ts).
@@ -165,6 +165,34 @@ const scenarios: Scenario[] = [
   // notExists pin. It therefore certifies by FIXED EXPECTATION (PLAN P−1.2's
   // extension-scenario class) in `runUpsertFamilyBehavior` + staleness/falsify
   // below, not against Direct's divergent scalar fast-path. Recorded in the report.
+
+  // The assignment-free found arm (upstream Prisma 3f1f10fd). Both substrates
+  // must answer the same unchanged row and leave the same state: transaction
+  // mode reads back through the locked locate, batch mode adds the found-premise
+  // guard to the same guard-then-read atomic unit. The missing arm is here too
+  // because an empty `update` must not disarm the create half.
+  {
+    name: "root upsert empty update arm returns the existing row",
+    seed: (c) => c.user.create({ data: { email: "e@x", score: 7 } }),
+    act: (c) =>
+      c.user!.upsert!({
+        where: { email: "e@x" },
+        create: { email: "e@x", score: 999 },
+        update: {},
+        select: { email: true, score: true },
+      }),
+  },
+  {
+    name: "root upsert empty update arm still creates a missing row",
+    seed: () => Promise.resolve(),
+    act: (c) =>
+      c.user!.upsert!({
+        where: { email: "en@x" },
+        create: { email: "en@x", score: 2 },
+        update: {},
+        select: { email: true, score: true },
+      }),
+  },
   {
     name: "nested connectOrCreate under update connects an existing child",
     seed: async (c) => {

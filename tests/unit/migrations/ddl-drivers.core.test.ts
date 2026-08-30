@@ -2855,6 +2855,58 @@ describe("PostgreSQL DDL Generation", () => {
       expect(ddl).toBe('DROP TYPE "status_enum"');
     });
 
+    // An enum LIST keeps the enum's identity on PostgreSQL, so the type token
+    // arrives as `status_enum[]`. The managed-enum reading has to see through
+    // the array suffix: quoting the whole token would name a type called
+    // `status_enum[]`, which no estate ever created.
+    const managedEnumSchema: SchemaSnapshot = {
+      tables: [],
+      enums: [{ name: "status_enum", values: ["active", "inactive"] }],
+    };
+
+    it("renders a managed enum LIST column as the enum type's array", () => {
+      const op: DiffOperation = {
+        type: "createTable",
+        table: {
+          name: "users",
+          columns: [{ name: "roles", type: "status_enum[]", nullable: false }],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      };
+
+      const ddl = generateDDL(op, { currentSchema: managedEnumSchema });
+
+      expect(ddl).toContain('"roles" "status_enum"[] NOT NULL');
+    });
+
+    it("renders an added managed enum LIST column the same way", () => {
+      const op: DiffOperation = {
+        type: "addColumn",
+        tableName: "users",
+        column: { name: "roles", type: "status_enum[]", nullable: true },
+      };
+
+      const ddl = generateDDL(op, { currentSchema: managedEnumSchema });
+
+      expect(ddl).toBe(
+        'ALTER TABLE "users" ADD COLUMN "roles" "status_enum"[]'
+      );
+    });
+
+    it("leaves a built-in array type token alone", () => {
+      const op: DiffOperation = {
+        type: "addColumn",
+        tableName: "users",
+        column: { name: "tags", type: "text[]", nullable: false },
+      };
+
+      const ddl = generateDDL(op, { currentSchema: managedEnumSchema });
+
+      expect(ddl).toContain('"tags" text[] NOT NULL');
+    });
+
     it("should generate ALTER TYPE ADD VALUE for adding values", () => {
       const op: DiffOperation = {
         type: "alterEnum",

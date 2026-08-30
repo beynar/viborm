@@ -37,6 +37,7 @@ import {
   type RelationMembershipBinding,
 } from "./relation-membership";
 import type { StepScope } from "./StepScope";
+import { getStepModelName } from "./shared";
 import {
   type TargetProjection,
   targetProjectionRowKeySelect,
@@ -157,6 +158,7 @@ export class RelationLinkPart implements Part {
       return {
         id: this.probeId,
         kind: "read",
+        model: getStepModelName(childScope.model, "record"),
         statement:
           wheres.length === 1
             ? buildFindUnique(childScope, {
@@ -186,6 +188,7 @@ export class RelationLinkPart implements Part {
     return {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildFind(
         childScope,
         {
@@ -230,6 +233,7 @@ export class RelationLinkPart implements Part {
     steps.push({
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: this.linkWrite(
         lowerMembershipWrite(
           this.config.engine,
@@ -293,6 +297,7 @@ export class RelationLinkPart implements Part {
     steps.push({
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: this.linkWrite(lowerEmptyMembership(config.membership)),
       outputs: {},
     });
@@ -364,6 +369,7 @@ export class RelationLinkPart implements Part {
     return {
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(childScope.model, "record"),
       statement: buildUpdateMany(childScope, {
         ...(condition.filters.length > 0
           ? { where: { AND: condition.filters } }

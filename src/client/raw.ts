@@ -45,6 +45,7 @@ import {
   type TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import { isSql, Sql } from "@sql";
+import { isDate } from "@validation/value-guards";
 
 /** The four raw methods, spelled exactly as a caller types them. */
 export type RawMethodName =
@@ -143,6 +144,42 @@ function fragmentWithValuesError(method: RawMethodName): QueryError {
       meta: { method },
     }
   );
+}
+
+function invalidRawDateError(
+  method: RawMethodName,
+  parameterIndex: number
+): QueryError {
+  return new QueryError(
+    `${method} received an invalid Date as bound parameter ${parameterIndex}. An invalid Date names no instant, so a provider either refuses the statement after dispatch or binds it as null.`,
+    {
+      code: VibORMErrorCode.INVALID_INPUT,
+      meta: { method, parameterIndex },
+    }
+  );
+}
+
+function isInvalidDate(value: unknown): boolean {
+  return isDate(value) && Number.isNaN(value.getTime());
+}
+
+/**
+ * The one place a raw bound value is inspected: an invalid Date reaches every
+ * driver as an unanswerable instant, and only the caller can say what it meant.
+ * Arrays are entered one level because a single parameter may carry a list.
+ */
+function refuseInvalidDateParameters(
+  method: RawMethodName,
+  params: readonly unknown[]
+): void {
+  for (const [parameterIndex, value] of params.entries()) {
+    if (isInvalidDate(value)) throw invalidRawDateError(method, parameterIndex);
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (isInvalidDate(item))
+        throw invalidRawDateError(method, parameterIndex);
+    }
+  }
 }
 
 type CapturedRawQuery =
@@ -369,28 +406,30 @@ class DeferredRawOperation<T>
   #resolve(): ResolvedRawQuery {
     if (this.#resolved) return this.#resolved;
 
+    // Refusing before memoizing keeps a rejected statement rejected however
+    // many times admission, interception, and execution ask for it.
+    const resolved = this.#resolveQuery();
+    refuseInvalidDateParameters(
+      this.#method,
+      resolved.kind === "fragment" ? resolved.query.values : resolved.params
+    );
+    this.#resolved = resolved;
+    return resolved;
+  }
+
+  #resolveQuery(): ResolvedRawQuery {
     const { query, values } = this.#captured;
     if (this.#captured.family === "unsafe") {
       if (typeof query !== "string") throw invalidRawQueryError(this.#method);
-      this.#resolved = {
-        kind: "verbatim",
-        sql: query,
-        params: [...values],
-      };
-      return this.#resolved;
+      return { kind: "verbatim", sql: query, params: [...values] };
     }
 
     if (isTemplateStringsArray(query)) {
-      this.#resolved = {
-        kind: "fragment",
-        query: new Sql(query, values),
-      };
-      return this.#resolved;
+      return { kind: "fragment", query: new Sql(query, values) };
     }
     if (isSql(query)) {
       if (values.length > 0) throw fragmentWithValuesError(this.#method);
-      this.#resolved = { kind: "fragment", query };
-      return this.#resolved;
+      return { kind: "fragment", query };
     }
     throw invalidRawQueryError(this.#method);
   }

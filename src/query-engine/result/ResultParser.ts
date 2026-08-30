@@ -10,8 +10,10 @@ import {
 } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
+import { numericDateTimeForm } from "@validation/primitives/datetime-physical-codec";
 import { toDecimal } from "@validation/primitives/decimal-codec";
 import { isString } from "@validation/value-guards";
+import { dateTimeNativeTypeOf } from "../builders/datetime-field";
 import {
   type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
@@ -749,6 +751,14 @@ export class ResultParser {
       widenedSum || scalarType === "decimal"
         ? decimalColumnFor(scalar, this.adapter)
         : undefined;
+    // The one seam for a datetime column whose physical value is a NUMBER,
+    // asked of the ADAPTER because the storage form is a dialect fact — and
+    // asked once per compiled chain, never per row. A TEXT-declared field and
+    // one on a dialect with a real temporal type both answer `undefined` and
+    // keep the provider-timestamp path unchanged.
+    const dateTimeForm = numericDateTimeForm(
+      this.adapter.result.dateTimeRepresentation?.(dateTimeNativeTypeOf(scalar))
+    );
     const parseDecimalScalar: FieldParser | undefined =
       !widenedSum && scalarType === "decimal" && !isList
         ? (value, operation, captureRowKey, materializePublic = true) => {
@@ -833,7 +843,10 @@ export class ResultParser {
           jsonSchema,
           provider,
           operation,
-          undefined
+          undefined,
+          false,
+          dateTimeForm,
+          this.adapter.result.enumListRepresentation === "arrayText"
         );
       return (value, operation, captureRowKey) => {
         if (value === undefined) {

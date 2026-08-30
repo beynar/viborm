@@ -103,7 +103,14 @@ A statement step has:
 - a stable ID;
 - one `Sql` statement;
 - declared outputs;
-- an optional result postcondition.
+- an optional result postcondition;
+- an optional `model`: the public model whose rows the statement addresses,
+  stamped by the compiler that emitted it. The executor re-attributes provider
+  failures to that model on every route — standalone, atomic batch, and the
+  `$transaction([...])` shared batch; a statement that names none (a junction
+  row, a merged multi-model fold) keeps the operation's attribution, and
+  engine-owned failures (guards, postconditions) always do. A model is never
+  inferred from table text.
 
 A read cannot carry a race pin or conflict policy. Those properties affect a
 write and therefore exist only on `WriteStep`.

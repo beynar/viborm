@@ -21,6 +21,7 @@ import {
   type ModelState,
 } from "../schema/model";
 import type { RelationSlot } from "../schema/relation";
+import { automaticForeignKeyIndexName } from "../schema/relation/helpers";
 import type { Scalar } from "../schema/scalars/base";
 import {
   describeDecimalProviderLimitRefusal,
@@ -221,7 +222,17 @@ export function serializeResolvedModels(
 
       // Handle enum types (only for databases that support native enums)
       let columnType: string;
-      if (scalarState.type === "enum") {
+      // The LIST representation is decided before enum identity is spelled. A
+      // dialect with native arrays keeps both — `enumname[]` — while the others
+      // store the list in the same container every other list uses, where an
+      // element type has no expression at all: an inline `ENUM(...)` or a
+      // `TEXT CHECK(col IN ...)` describes ONE member, so spelling it for a
+      // list produces a column that refuses every value the field can hold.
+      const spellsEnumColumn =
+        scalarState.type === "enum" &&
+        (scalarState.array !== true ||
+          migrationDriver.capabilities.supportsNativeArrays);
+      if (spellsEnumColumn) {
         const enumScalar = scalar as any;
         const enumValues = enumScalar.enumValues as string[] | undefined;
 
@@ -242,7 +253,7 @@ export function serializeResolvedModels(
             });
             enumsSet.add(enumName);
           }
-          columnType = enumName;
+          columnType = scalarState.array ? `${enumName}[]` : enumName;
         } else {
           // Fall back to driver's default enum column type
           columnType = migrationDriver.getEnumColumnType(
@@ -597,12 +608,12 @@ export function serializeResolvedModels(
       // zz_fb_kid_ownerId_fkey_idx already exists`). The index is a read
       // optimization, not a correctness requirement, so it yields to the
       // names the schema declared.
-      const declaredNames = new Set(indexes.map((index) => index.name));
-      const preferredName = `${tableName}_${fkColumns.join("_")}_idx`;
-      const name = declaredNames.has(preferredName)
-        ? `${tableName}_${fkColumns.join("_")}_fkey_idx`
-        : preferredName;
-      if (!declaredNames.has(name)) {
+      const name = automaticForeignKeyIndexName(
+        tableName,
+        fkColumns,
+        new Set(indexes.map((index) => index.name))
+      );
+      if (name !== undefined) {
         indexes.push({ name, columns: fkColumns, unique: false });
       }
     }

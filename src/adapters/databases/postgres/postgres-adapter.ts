@@ -6,6 +6,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
+import { JsonParameter } from "../../../sql/json-parameter";
 import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
@@ -74,6 +75,43 @@ const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
   remainder: (n: Sql, d: Sql): Sql => sql`mod(${n}, ${d})`,
 };
 
+/** The two characters PostgreSQL reads structurally inside a quoted member. */
+const ARRAY_LITERAL_ESCAPES = /(["\\])/g;
+
+/**
+ * PostgreSQL's own text spelling of one list, for a column whose element type
+ * the driver cannot serialize.
+ *
+ * Every member is quoted, so a member that is empty, spells `NULL`, or holds a
+ * brace, comma, quote or backslash is still exactly one member: those are the
+ * only characters the server reads structurally, and quoting makes the reading
+ * unambiguous without a per-member decision.
+ */
+function arrayLiteralText(values: readonly unknown[]): string {
+  const members = values.map(
+    (value) => `"${String(value).replace(ARRAY_LITERAL_ESCAPES, "\\$1")}"`
+  );
+  return `{${members.join(",")}}`;
+}
+
+/** The list column with every member appended, one element at a time. */
+function appendedMembers(column: Sql, values: readonly unknown[]): Sql {
+  let list = sql`COALESCE(${column}, '{}')`;
+  for (const value of values) {
+    list = sql`array_append(${list}, ${value})`;
+  }
+  return list;
+}
+
+/** {@link appendedMembers} at the front, so the members keep their order. */
+function prependedMembers(column: Sql, values: readonly unknown[]): Sql {
+  let list = sql`COALESCE(${column}, '{}')`;
+  for (const value of [...values].reverse()) {
+    list = sql`array_prepend(${value}, ${list})`;
+  }
+  return list;
+}
+
 /**
  * PostgreSQL Database Adapter
  *
@@ -138,8 +176,9 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Serialized JSON text — PG casts the param to json/jsonb from the column
     // context. Stringifying (not raw binding) keeps primitives valid: a bare
-    // 'hello' is not valid JSON input, '"hello"' is.
-    json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+    // 'hello' is not valid JSON input, '"hello"' is. The carrier is what tells
+    // a transport that this text is already a document; see json-parameter.ts.
+    json: (v: unknown): Sql => sql`${JsonParameter.from(v)}`,
 
     // Cast into the operand's own `NUMERIC(p,s)` domain, the same type the DDL
     // emits for the field. PostgreSQL would usually infer `numeric` from the
@@ -335,7 +374,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Serialized JSON text, same format literals.json writes — PG casts the
     // param to jsonb from the comparison context
-    value: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+    value: (v: unknown): Sql => sql`${JsonParameter.from(v)}`,
   };
 
   // ============================================================
@@ -350,6 +389,13 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     // Native array parameter; drivers serialize JS arrays to PG array format
     value: (values: unknown[]): Sql => sql`${values}`,
+
+    // One untyped parameter holding PostgreSQL's own array literal. A managed
+    // enum's array OID is created by the estate, so no driver has a serializer
+    // for it and the native parameter above arrives malformed; an unknown
+    // parameter instead takes its type from the column or operand it meets,
+    // which is how the enum type is reached without naming it here.
+    enumValue: (values: unknown[]): Sql => sql`${arrayLiteralText(values)}`,
 
     has: (column: Sql, value: Sql): Sql => sql`${value} = ANY(${column})`,
 
@@ -418,13 +464,17 @@ export class PostgresAdapter implements DatabaseAdapter {
         ? logicalDecimalDivide(POSTGRES_INTEGERS, column, by, target.decimal)
         : sql`${column} = ${column} / ${by}`,
 
-    // array_cat (not ||) so the untyped array param resolves unambiguously
-    // to the column's array type; COALESCE keeps NULL columns appendable.
+    // One `array_append`/`array_prepend` per member rather than one bound
+    // array: an ELEMENT parameter resolves against `anyelement` from the
+    // column's own type, which is the only reading a managed enum's array has
+    // (its OID is in no driver's serializer table — see `arrays.enumValue`) and
+    // is exactly what a bound array got from `array_cat` for every other
+    // element type. COALESCE keeps NULL columns appendable.
     push: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = array_cat(COALESCE(${column}, '{}'), ${values})`,
+      sql`${column} = ${appendedMembers(column, values)}`,
 
     unshift: (column: Sql, values: unknown[]): Sql =>
-      sql`${column} = array_cat(${values}, COALESCE(${column}, '{}'))`,
+      sql`${column} = ${prependedMembers(column, values)}`,
   };
 
   // ============================================================
@@ -608,6 +658,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     // passthrough, so the result parser may take the identity fast path for
     // plain string/int/number/boolean columns (byte-identical, guarded).
     nativeScalarPassthrough: true,
+
+    // A managed enum's array OID is in no driver's result-type table, so an
+    // enum LIST comes back as the array's own text rather than a JS array.
+    enumListRepresentation: "arrayText" as const,
 
     parseResult: (
       raw: unknown,

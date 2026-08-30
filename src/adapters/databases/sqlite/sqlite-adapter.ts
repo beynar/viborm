@@ -1,5 +1,10 @@
 import { unsupportedVector } from "@errors";
+import type { NativeType } from "@schema/scalars/native-types";
 import { type Sql, sql } from "@sql";
+import {
+  type DateTimePhysicalForm,
+  encodePhysicalDateTime,
+} from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
   encodePhysicalDecimal,
@@ -149,6 +154,26 @@ const guardedCoefficientAssignment = (
 ): Sql =>
   sql`${column} = CASE WHEN ${column} IS NULL OR ${safe} THEN ${value} ELSE ${overflowCoefficient(descriptor)} END`;
 
+/**
+ * The physical form a SQLite datetime column holds, from what the field
+ * declared — the ONE reading of that declaration, shared by the value lowering
+ * below and the result promise this adapter publishes.
+ *
+ * SQLite has no temporal type, so `s.dateTime(SQLITE.DATETIME.…)` is a real
+ * storage choice the DDL already honors: INTEGER holds epoch milliseconds and
+ * REAL holds a Julian day, which are the two spellings SQLite's own date
+ * functions read. Anything else — a declaration for another dialect, an
+ * explicit TEXT, no declaration at all — is the timestamp text this adapter has
+ * always stored.
+ */
+function sqliteDateTimeForm(
+  nativeType: NativeType | undefined
+): DateTimePhysicalForm {
+  if (nativeType?.db !== "sqlite") return "text";
+  if (nativeType.type === "INTEGER") return "epochMillis";
+  return nativeType.type === "REAL" ? "julianDay" : "text";
+}
+
 const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
 const JSON_UNADDRESSABLE_LABEL = /["\\]/;
 
@@ -222,6 +247,10 @@ const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
  * - || for string concatenation
  * - Boolean stored as 0/1 integers
  */
+/** The one JSON list container every SQLite list value crosses as. */
+const sqliteJsonListValue = (values: unknown[]): Sql =>
+  sql`${stringifyJson(values)}`;
+
 export class SQLiteAdapter implements DatabaseAdapter {
   constructor() {
     installGeoPointSql(this, this.geoPoint);
@@ -257,6 +286,16 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
     // SQLite requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
+
+    // SQLite has no temporal type, so the field's declaration is what the column
+    // physically holds and the operand has to be the same kind of value: an ISO
+    // string bound against an epoch-millisecond INTEGER matches no row and,
+    // written, stores text the typed read then refuses. A TEXT-declared or
+    // undeclared field keeps the ISO spelling byte for byte. The string is a
+    // validated ISO timestamp — the ISO boundary owns that — so the encode is
+    // total here.
+    dateTime: (iso: string, nativeType?: NativeType): Sql =>
+      sql`${encodePhysicalDateTime(iso, sqliteDateTimeForm(nativeType))}`,
 
     // SQLite has no exact decimal type, so a decimal column stores the UNSCALED
     // INTEGER COEFFICIENT and an operand becomes that same coefficient. Integer
@@ -485,7 +524,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
       return sql`json_array(${sql.join(items, ", ")})`;
     },
 
-    value: (values: unknown[]): Sql => sql`${stringifyJson(values)}`,
+    value: sqliteJsonListValue,
+
+    // Deliberately the same container, by identity: SQLite stores an enum LIST
+    // as JSON like every other list, so its members are ordinary JSON strings
+    // and there is no element type to spell. The `TEXT CHECK(col IN ...)`
+    // describes one member.
+    enumValue: sqliteJsonListValue,
 
     // Check if value exists in JSON array using json_each
     has: (column: Sql, value: Sql): Sql =>
@@ -813,6 +858,10 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // stated separately because the two facts are separate: a dialect can spell
     // its scalar decimals exactly and still have no exact decimal inside JSON.
     decimalListRepresentation: "coefficient",
+
+    // The same reading the `dateTime` literal above lowers through, so a column
+    // is read back in the vocabulary it was written in.
+    dateTimeRepresentation: sqliteDateTimeForm,
 
     parseResult: (
       _raw: unknown,

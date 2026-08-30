@@ -31,7 +31,7 @@
 
 import { emptyRecord, put } from "@schema/record";
 import type { JsonValue } from "@validation/primitives/json";
-import { isDate, isFunction } from "@validation/value-guards";
+import { isDate, isFunction, isUint8Array } from "@validation/value-guards";
 import {
   addIssue,
   type DocumentIssues,
@@ -335,7 +335,7 @@ function encodeValue(
     );
   }
   if (typeof value === "bigint") return tagged(BIGINT_TAG, value.toString(10));
-  if (value instanceof Uint8Array) {
+  if (isUint8Array(value)) {
     return tagged(BYTES_TAG, encodeBase64(value));
   }
   if (isDate(value)) {

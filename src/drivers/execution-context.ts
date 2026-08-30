@@ -135,6 +135,22 @@ export function snapshotExecutionContext(
   });
 }
 
+/**
+ * Re-attribute a trusted context to the model one statement addresses, keeping
+ * the correlation id, instrumentation and extension provenance of the operation
+ * it belongs to. Only the snapshot owner can do this without losing the private
+ * values, which is why the query engine asks for it rather than rebuilding one.
+ */
+export function deriveStatementExecutionContext(
+  context: QueryExecutionContext,
+  model: string
+): QueryExecutionContext {
+  const values =
+    trustedExecutionContexts.get(context) ??
+    snapshotExternalExecutionContext(context);
+  return createTrustedExecutionContext({ ...values, model });
+}
+
 export function getExecutionInstrumentation(
   context: QueryExecutionContext | undefined
 ): InstrumentationContext | undefined {

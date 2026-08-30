@@ -430,6 +430,7 @@ class SeriesResultReadOperation implements ExecutableOperation {
     this.step = {
       id,
       kind: "read",
+      model: getStepModelName(input.model, "record"),
       statement,
       outputs: { rows: { kind: "rows" } },
     };

@@ -393,6 +393,10 @@ const inlineIntegerLiteral = (fragment: Sql): Sql => {
  * - No NULLS FIRST/LAST ordering
  * - ON DUPLICATE KEY UPDATE for upserts
  */
+/** The one JSON list container every MySQL list value crosses as. */
+const mysqlJsonListValue = (values: unknown[]): Sql =>
+  sql`CAST(${stringifyJson(values)} AS JSON)`;
+
 export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
   // NAMESPACE
@@ -673,8 +677,13 @@ export class MySQLAdapter implements DatabaseAdapter {
       return sql`JSON_ARRAY(${sql.join(items, ", ")})`;
     },
 
-    value: (values: unknown[]): Sql =>
-      sql`CAST(${stringifyJson(values)} AS JSON)`,
+    value: mysqlJsonListValue,
+
+    // Deliberately the same container, by identity: MySQL stores an enum LIST
+    // as JSON like every other list, so its members are ordinary JSON strings
+    // and there is no element type to spell. The inline `ENUM(...)` describes
+    // one member.
+    enumValue: mysqlJsonListValue,
 
     // JSON_CONTAINS requires a JSON document as candidate; a bare string
     // parameter throws ER_INVALID_JSON_TEXT. JSON_ARRAY keeps the parameter's

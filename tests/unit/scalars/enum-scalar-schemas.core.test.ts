@@ -426,7 +426,6 @@ describe("List Enum Scalar", () => {
 // NULLABLE LIST ENUM SCALAR (nullable array)
 // =============================================================================
 
-// Note: Nullable List Enum has issues with the VibSchema implementation - skipping for now
 describe("Nullable List Enum Scalar", () => {
   const scalar = enumScalar([...Status])
     .array()

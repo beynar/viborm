@@ -767,6 +767,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   ): Error {
     return normalizeDriverError(error, {
       driverName: this.driverName,
+      dialect: this.dialect,
       model: context.model,
       operation: context.operation,
       correlationId: context.correlationId,
@@ -875,6 +876,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   ): Error {
     return normalizeDriverError(error, {
       driverName: this.driverName,
+      dialect: this.dialect,
       model: context.model,
       operation: context.operation,
       correlationId: context.correlationId,

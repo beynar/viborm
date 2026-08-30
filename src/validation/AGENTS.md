@@ -299,7 +299,13 @@ Do not rebuild operation schemas inside scalar definitions, relation definitions
 
 ### Rule 6: One Owner for Shared Representation Guards
 `value-guards.ts` owns shared identity predicates: `isRecord`, `isString`,
-`isFunction`, `isNumber`, `isBoolean`, `isBigInt`, and `isDate`. Import them
+`isFunction`, `isNumber`, `isBoolean`, `isBigInt`, `isDate`, and
+`isUint8Array`. `isDate` and `isUint8Array` are realm-independent: after the
+local `instanceof` fast path they read the built-in internal-slot brands
+(`Date.prototype.getTime`, the `%TypedArray%` tag accessor), so foreign-realm
+natives pass and `Symbol.toStringTag` spoofs fail. They are ADMISSION-boundary
+guards: the boundary normalizes an admitted foreign value to a local one, so
+downstream layers keep plain `instanceof` on purpose. Import them
 instead of defining the same representation check in another module. Do not use
 them when the boundary needs stronger semantics such as a plain prototype,
 finite/integer values, promise-like behavior, safe reads from hostile values,

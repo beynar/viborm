@@ -46,7 +46,10 @@ import {
   buildRelationFilterSql,
 } from "./relation-filter-builder";
 import { assertSupportedScalarFilterOperator } from "./scalar-filter-operators";
-import { scalarValueLiteral } from "./values-builder";
+import {
+  listCandidateCrossesWhole,
+  scalarValueLiteral,
+} from "./values-builder";
 
 /**
  * Build a WHERE clause from a where input object
@@ -539,6 +542,16 @@ function buildFilterOperation(
     }
     return scalarValueLiteral(ctx, fieldName, v);
   };
+  /**
+   * The candidate operand of a containment filter. Whether a list crosses
+   * whole is the storage owner's answer (`listCandidateCrossesWhole`, beside
+   * the whole-list crossing in values-builder); a whole crossing is the same
+   * one a write uses and the `equals` filter already takes.
+   */
+  const containmentCandidate = (members: unknown[]): Sql =>
+    listCandidateCrossesWhole(scalarState)
+      ? scalarValueLiteral(ctx, fieldName, members)
+      : adapter.arrays.literal(members.map(lit));
   const isInsensitive = mode === "insensitive";
   const isTextScalar =
     !scalarState.array &&
@@ -842,10 +855,7 @@ function buildFilterOperation(
       if (value.length === 0) {
         return adapter.operators.isNotNull(column);
       }
-      return adapter.arrays.hasEvery(
-        column,
-        adapter.arrays.literal(value.map(lit))
-      );
+      return adapter.arrays.hasEvery(column, containmentCandidate(value));
 
     case "hasSome":
       if (!Array.isArray(value)) {
@@ -856,10 +866,7 @@ function buildFilterOperation(
       if (value.length === 0) {
         return adapter.literals.false();
       }
-      return adapter.arrays.hasSome(
-        column,
-        adapter.arrays.literal(value.map(lit))
-      );
+      return adapter.arrays.hasSome(column, containmentCandidate(value));
 
     case "isEmpty":
       return value

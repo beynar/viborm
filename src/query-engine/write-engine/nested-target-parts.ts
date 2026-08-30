@@ -651,6 +651,7 @@ export function buildLiteralParentCreateManyPart(input: {
   const steps: OperationStep[] = plan.statements.map((statement) => ({
     id: scope.allocate(`${childName}.createMany`),
     kind: "write" as const,
+    model: getStepModelName(childScope.model, "record"),
     statement: statement.sql,
     outputs: {},
     ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
@@ -720,6 +721,7 @@ export function buildPlannedParentCreateManyPart(input: {
     return plan.statements.map((statement, index) => ({
       id: stepIds[index]!,
       kind: "write" as const,
+      model: getStepModelName(childScope.model, "record"),
       statement: statement.sql,
       outputs: {},
       ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),
@@ -782,6 +784,7 @@ export function buildPolymorphicParentCreateManyPart(input: {
     return plan.statements.map((statement, index) => ({
       id: stepIds[index]!,
       kind: "write" as const,
+      model: getStepModelName(childScope.model, "record"),
       statement: statement.sql,
       outputs: {},
       ...(recoverUnique ? { onUniqueConflict: "skip" as const } : {}),

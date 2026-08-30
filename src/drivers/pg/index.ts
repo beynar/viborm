@@ -24,6 +24,7 @@ import type { Schema } from "@client/types";
 import { TransactionError, unsupportedVector } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { normalizeDriverConnectionError } from "../error-mapping";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
   acquireWithMaxWait,
@@ -98,6 +99,34 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   private readonly connectionOptions: PoolConfig;
   /** The caller's `databaseUrl`, read once, for the same reason. */
   private readonly connectionString: string | undefined;
+  /**
+   * The last failure pg reported on the POOL itself, held for the next
+   * acquisition that fails.
+   *
+   * That failure arrives from a socket callback belonging to no request, so
+   * there is no execution context to carry it and every observation channel
+   * this layer has — diagnostics, statement observation, the logger — is
+   * execution-scoped. An explicit acquisition (`transaction`, `pinnedSession`)
+   * that succeeds afterwards means the pool replaced the dead connection and
+   * clears this; the first explicit acquisition that FAILS surfaces it as the
+   * cause. `execute`/`executeRaw` acquire inside `Pool.query`, where an
+   * acquisition failure cannot be told apart from a statement failure, so
+   * those stay statement-scoped.
+   */
+  private backgroundPoolError: Error | undefined;
+  /**
+   * The one listener this driver installs, on the one pool it makes.
+   *
+   * An `EventEmitter` with no 'error' subscriber THROWS the emitted error into
+   * the event loop, and pg emits one per idle client whose socket dies —
+   * outside every request promise, so no `catch` in this file or above it is on
+   * that stack and the process goes down with it. One instance-wide function,
+   * so the identity that attaches in `initClient` is the identity that detaches
+   * in `closeClient`.
+   */
+  private readonly retainBackgroundPoolError = (error: Error): void => {
+    this.backgroundPoolError = error;
+  };
 
   constructor(options: PgDriverOptions = {}) {
     super("postgresql", "pg");
@@ -124,6 +153,12 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * they never asked for, pointed at whatever their options record said by
    * then, and then never closed, because the ownership question was still
    * answered "supplied".
+   *
+   * It is also returned UNSUBSCRIBED. A supplied pool is borrowed transport and
+   * its events belong to its owner: an 'error' listener added here is the very
+   * thing that stops Node from throwing, so VibORM would be silencing a crash
+   * for a caller who never asked it to — and for the other consumers of a pool
+   * two estates share. This driver listens only on the pool it made.
    */
   protected initClient(): Promise<Pool> {
     if (this.suppliedPool !== undefined) {
@@ -136,7 +171,49 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     if (this.connectionString !== undefined) {
       options.connectionString ??= this.connectionString;
     }
-    return Promise.resolve(new Pool(options));
+    const pool = new Pool(options);
+    pool.on("error", this.retainBackgroundPoolError);
+    return Promise.resolve(pool);
+  }
+
+  /**
+   * One pooled connection, and — when there is none to be had — the pool's own
+   * last background failure as the reason.
+   *
+   * The two facts cannot both be the cause of one error, and this is the one
+   * worth keeping: an acquisition failure that coincides with a dead idle
+   * connection is that same transport failing twice, while the background
+   * report is the half nothing else can ever surface. Reported once and
+   * released, so the next failure speaks for itself rather than inheriting an
+   * explanation that has already been given. An acquisition that fails with
+   * nothing retained is left exactly as it was.
+   */
+  private async acquirePooledClient(
+    pool: Pool,
+    context: QueryExecutionContext = {}
+  ): Promise<PoolClient> {
+    try {
+      const client = await pool.connect();
+      // The pool replaced the dead connection: a healed transport must not
+      // explain a later, unrelated failure.
+      this.backgroundPoolError = undefined;
+      return client;
+    } catch (error) {
+      const background = this.backgroundPoolError;
+      if (background === undefined) throw error;
+      this.backgroundPoolError = undefined;
+      throw normalizeDriverConnectionError(
+        background,
+        {
+          driverName: this.driverName,
+          model: context.model,
+          operation: context.operation,
+          correlationId: context.correlationId,
+          diagnostics: this.getErrorDisclosure(context),
+        },
+        "Database connection failed after the pool reported a background failure"
+      );
+    }
   }
 
   /**
@@ -155,7 +232,18 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     if (pool === this.suppliedPool) {
       return;
     }
-    await pool.end();
+    try {
+      await pool.end();
+    } finally {
+      // AFTER the end, not before it: `end()` disposes the idle clients, and
+      // each one still carries pg's own idle listener, which re-emits 'error'
+      // on this pool for a socket that dies on the way out. Detaching first
+      // reopens the crash for exactly the window the listener exists to cover.
+      // The retained failure goes with the pool that produced it — the next
+      // pool is a different transport and explains its own failures.
+      pool.off("error", this.retainBackgroundPoolError);
+      this.backgroundPoolError = undefined;
+    }
   }
 
   protected async execute<T>(
@@ -222,7 +310,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     // Start a new transaction
     const pool = client as Pool;
     const poolClient = await acquireWithMaxWait(
-      () => pool.connect(),
+      () => this.acquirePooledClient(pool, context),
       (acquired) => acquired.release(),
       options?.maxWaitMs,
       { driverName: this.driverName, form: "callback" }
@@ -278,7 +366,9 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     if ("release" in client) {
       throw nestedTransactionDispatchError(this.driverName);
     }
-    const poolClient = await client.connect();
+    const poolClient = await this.acquirePooledClient(client, {
+      operation: "pinnedSession",
+    });
     return {
       session: poolClient,
       release: (discard) => {

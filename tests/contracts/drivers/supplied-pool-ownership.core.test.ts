@@ -24,6 +24,14 @@
  * over one supplied transport — where closing that transport on one wrapper's
  * `$disconnect()` takes the sibling's database with it, and reconnecting builds
  * a DIFFERENT one behind the caller's back.
+ *
+ * The same identity answers who may SUBSCRIBE to a transport. `pg` reports an
+ * idle client's death by emitting 'error' on the pool, which an `EventEmitter`
+ * with no subscriber throws into the event loop — from a socket callback, so no
+ * request promise is on that stack and the process dies. One listener on the
+ * pool this driver made closes that; none on a pool it was handed, because
+ * subscribing there is what STOPS a caller's own crash from happening, on a
+ * transport they may be sharing with code that meant to hear it.
  */
 
 import { BunSQLDriver } from "@drivers/bun-sql";
@@ -34,7 +42,7 @@ import { PostgresDriver } from "@drivers/postgres";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 import type { PoolOptions } from "mysql2/promise";
-import type { PoolConfig } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { describe, expect, it } from "vitest";
 
 /** One nested value from a provider object, trusting no step of the path. */
@@ -51,7 +59,7 @@ function readPath(root: unknown, ...keys: readonly string[]): unknown {
 
 /** A caller's pg pool: it answers nothing, and counts what VibORM does to it. */
 function suppliedPgPool() {
-  const state = { ended: 0 };
+  const state = { ended: 0, subscribed: 0, unsubscribed: 0 };
   const pool = {
     end: () => {
       state.ended += 1;
@@ -59,8 +67,21 @@ function suppliedPgPool() {
     },
     query: () => Promise.reject(new Error("not used")),
     connect: () => Promise.reject(new Error("not used")),
+    on: () => {
+      state.subscribed += 1;
+    },
+    off: () => {
+      state.unsubscribed += 1;
+    },
   };
   return { state, pool };
+}
+
+/** The real pool a pg driver built for itself, refusing anything else. */
+function createdPgPool(driver: PgDriver): Pool {
+  const client = Reflect.get(driver, "client");
+  if (client instanceof Pool) return client;
+  throw new Error("this driver has not created a pool");
 }
 
 /** The same for MySQL2. */
@@ -495,6 +516,143 @@ describe("pg settles supplied-pool ownership at construction", () => {
     expect(readPath(pool, "options", "user")).toBe("alice");
     expect(readPath(pool, "options", "connectionString")).toBe(undefined);
     countEnds(pool, []);
+    await driver._disconnect();
+  });
+});
+
+describe("pg listens only on the pool it owns", () => {
+  it("subscribes exactly once to the pool it creates", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+
+    // Zero was the crash: pg emits 'error' on the pool for an idle client whose
+    // socket dies, and an unheard 'error' is an uncaughtException. Two would be
+    // a driver that resubscribes and reports the same failure twice.
+    expect(createdPgPool(driver).listenerCount("error")).toBe(1);
+
+    await driver._disconnect();
+  });
+
+  it("unsubscribes only after that pool has ended", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+    const duringEnd: number[] = [];
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => {
+        duringEnd.push(pool.listenerCount("error"));
+        return Promise.resolve();
+      },
+    });
+
+    await driver._disconnect();
+
+    // `end()` disposes the idle clients, and each one still carries pg's own
+    // idle listener, which re-emits on this pool for a socket that dies on the
+    // way out. Unsubscribing first reopens the crash for exactly that window.
+    expect(duringEnd).toEqual([1]);
+    expect(pool.listenerCount("error")).toBe(0);
+  });
+
+  it("subscribes to a supplied pool never, and unsubscribes never", async () => {
+    const supplied = suppliedPgPool();
+    const driver = new PgDriver({
+      pool: supplied.pool as never,
+      namespace: "alpha",
+    });
+
+    await driver._connect();
+    await driver._disconnect();
+
+    // A caller's pool is borrowed transport whose events are theirs. A listener
+    // added here is what STOPS Node from throwing, so VibORM would be silencing
+    // a crash for a caller who never asked — and for the sibling estate sharing
+    // that pool, which may be listening precisely to hear it.
+    expect(supplied.state.subscribed).toBe(0);
+    expect(supplied.state.unsubscribed).toBe(0);
+    expect(supplied.state.ended).toBe(0);
+  });
+
+  it("explains an acquisition failure with the pool's last background failure", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.reject(new Error("no connection available")),
+    });
+
+    // Exactly what pg does for an idle client whose socket dies: an emit on the
+    // pool, from no request at all.
+    pool.emit(
+      "error",
+      Object.assign(new Error("terminating connection due to administrator"), {
+        code: "57P01",
+      })
+    );
+
+    const thrown = await rejection(
+      driver._transaction(() => Promise.resolve("never runs"))
+    );
+
+    // The background failure is the half nothing else can ever surface: no
+    // execution context exists where it arrives, and every channel this layer
+    // has is execution-scoped. The acquisition failure beside it is the same
+    // transport failing a second time.
+    expect(readPath(thrown, "code")).toBe("V1001");
+    expect(readPath(thrown, "meta", "providerCode")).toBe("57P01");
+
+    // Reported once and released, so the next failure speaks for itself instead
+    // of inheriting an explanation that has already been given.
+    const next = await rejection(
+      driver._transaction(() => Promise.resolve("never runs"))
+    );
+    expect(readPath(next, "meta", "providerCode")).toBe(undefined);
+
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    await driver._disconnect();
+  });
+
+  it("clears the retained failure once an acquisition succeeds", async () => {
+    const driver = new PgDriver({ options: { host: "127.0.0.1", port: 1 } });
+    await driver._connect();
+    const pool = createdPgPool(driver);
+
+    pool.emit(
+      "error",
+      Object.assign(new Error("terminating connection due to administrator"), {
+        code: "57P01",
+      })
+    );
+
+    // The pool replaced the dead connection: a healed transport must not
+    // explain a later, unrelated failure.
+    const client = { query: () => Promise.resolve(), release: () => undefined };
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.resolve(client),
+    });
+    await driver
+      ._transaction(() => Promise.resolve("runs"))
+      .catch(() => undefined);
+
+    Object.defineProperty(pool, "connect", {
+      configurable: true,
+      value: () => Promise.reject(new Error("no connection available")),
+    });
+    const thrown = await rejection(
+      driver._transaction(() => Promise.resolve("never runs"))
+    );
+    expect(readPath(thrown, "meta", "providerCode")).toBe(undefined);
+
+    Object.defineProperty(pool, "end", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
     await driver._disconnect();
   });
 });

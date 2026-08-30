@@ -40,6 +40,7 @@ import {
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
 import { transferLoggedErrorEvidence } from "../instrumentation/logged-errors";
+import type { Dialect } from "./types";
 
 export interface DriverErrorShape {
   code?: string | number;
@@ -59,6 +60,12 @@ export interface DriverErrorShape {
 
 export interface DriverErrorContext {
   driverName: string;
+  /**
+   * The SQL family that raised the error, when the normalizing call site knows
+   * it. Only numeric provider codes need it: a symbolic name or a message
+   * symbol identifies its own provider, but a bare integer does not.
+   */
+  dialect?: Dialect;
   model?: string;
   operation?: Operation | string;
   correlationId?: string;

@@ -4,6 +4,7 @@ import type {
   ScalarOptions,
   VibSchema,
 } from "../types";
+import { isUint8Array } from "../value-guards";
 import { buildSchema, ok } from "./helpers";
 
 // =============================================================================
@@ -32,7 +33,17 @@ const BLOB_ERROR = Object.freeze({
  * inherit from Uint8Array and therefore pass this same runtime check.
  */
 export function validateBlob(value: unknown) {
-  return value instanceof Uint8Array ? ok(value) : BLOB_ERROR;
+  if (value instanceof Uint8Array) return ok(value);
+  if (!isUint8Array(value)) return BLOB_ERROR;
+  // A view from another realm shares these exact bytes but fails every local
+  // `instanceof` downstream; a local view over the same memory does not. A
+  // detached backing buffer makes the view unconstructible — that value holds
+  // no bytes, so it is refused as an issue rather than escaping as a throw.
+  try {
+    return ok(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  } catch {
+    return BLOB_ERROR;
+  }
 }
 
 /**

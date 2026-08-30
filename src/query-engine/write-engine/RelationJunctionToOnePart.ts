@@ -412,6 +412,7 @@ export class RelationJunctionToOnePart implements Part {
       {
         id: plan.ownerId,
         kind: "write",
+        model: getStepModelName(this.ownerScope.model, "record"),
         statement: buildDelete(this.ownerScope, {
           where: capturedTargetWhere(
             this.ownerScope.model,
@@ -479,6 +480,7 @@ export class RelationJunctionToOnePart implements Part {
     const capture: ReadStep = {
       id: `${plan.seriesId}.capture`,
       kind: "read",
+      model: getStepModelName(this.ownerScope.model, "record"),
       statement: this.statements.materialize(
         this.context.relation,
         "membershipRead",
@@ -934,6 +936,7 @@ function buildEntryPart(
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(ownerScope.model, "record"),
         statement: buildFindUnique(ownerScope, {
           where,
           select: rowKeySelect,
@@ -956,6 +959,7 @@ function buildEntryPart(
       probe: {
         id: probeId,
         kind: "read",
+        model: getStepModelName(ownerScope.model, "record"),
         statement: statements.materialize(context.relation, "membershipRead", {
           parentValue: correlatedVariantKey(context, relationName),
           select: rowKeySelect,

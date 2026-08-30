@@ -135,7 +135,8 @@ export function checkStoredReference(
     }
   }
 
-  if (!addressesTargetKey(target, references)) {
+  const targetKey = matchTargetKey(target, references);
+  if (!targetKey) {
     legal = false;
     issues.push({
       code: "FK005",
@@ -174,10 +175,23 @@ export function checkStoredReference(
     });
   }
 
-  const [head, ...rest] = fields.map((foreignField, position) => ({
+  // Published in the MATCHED KEY's order, not the declaration's. Each pair
+  // travels whole, so the pairing the author wrote is untouched and both DDL
+  // sides permute together. `static-membership.ts` reads the DECLARATION, so
+  // its compile-time foreign-key tuple can be ordered differently; every shape
+  // either side publishes is name-keyed, so the two orders never meet.
+  const members = fields.map((foreignField, position) => ({
     foreignField,
     referencedField: references[position]!,
   }));
+  if (targetKey) {
+    members.sort(
+      (left, right) =>
+        targetKey.indexOf(left.referencedField) -
+        targetKey.indexOf(right.referencedField)
+    );
+  }
+  const [head, ...rest] = members;
   return {
     reference:
       legal && head
@@ -210,24 +224,38 @@ function isDecimalList(
 }
 
 /**
- * Is the COMPLETE referenced tuple a key the target row can be addressed by?
+ * The ORDERED key the COMPLETE referenced tuple addresses, or `undefined`.
  *
  * The whole tuple, not each member separately: a compound primary key's members
  * carry no individual `isId`, so a per-scalar reading advises against
  * referencing the very key the target declares.
+ *
+ * Membership is order-insensitive — `.references("id", "tenantId")` names the
+ * same key as `.references("tenantId", "id")` — but the ANSWER is the key's own
+ * order, because MySQL matches a composite foreign key's referenced columns
+ * against an index left-prefix POSITIONALLY and refuses every other order
+ * (errno 6125). A key already spelled the way it is referenced wins, so a
+ * declared-order schema keeps its declared tuple; otherwise the first set match
+ * in catalog order answers, addressable keys before total unique indexes.
  */
-function addressesTargetKey(
+function matchTargetKey(
   target: Model<any>,
   references: readonly string[]
-): boolean {
+): readonly string[] | undefined {
   const wanted = [...references].sort().join(",");
-  for (const key of getModelKeyCatalog(target).addressableKeys) {
-    if ([...key.fields].sort().join(",") === wanted) return true;
+  const candidates: readonly (readonly string[])[] = [
+    ...getModelKeyCatalog(target).addressableKeys.map((key) => key.fields),
+    ...target["~"].state.indexes
+      .filter((index) => index.options.unique && isTotalIndex(index.options))
+      .map((index) => index.fields),
+  ];
+  let setMatch: readonly string[] | undefined;
+  for (const fields of candidates) {
+    if ([...fields].sort().join(",") !== wanted) continue;
+    if (fields.every((field, position) => field === references[position])) {
+      return fields;
+    }
+    setMatch ??= fields;
   }
-  return target["~"].state.indexes.some(
-    (index) =>
-      index.options.unique &&
-      isTotalIndex(index.options) &&
-      [...index.fields].sort().join(",") === wanted
-  );
+  return setMatch;
 }

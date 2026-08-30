@@ -64,6 +64,29 @@ export class JunctionPhysicalNameError extends Error {
   }
 }
 
+/**
+ * The automatic index name backing a non-unique stored reference, or
+ * `undefined` when the schema has already spent both spellings on its own
+ * declared indexes — the index is a read optimization, so it yields to the
+ * names the schema declared.
+ *
+ * ONE owner for the rule: the migration serializer emits this name and the
+ * schema-validation variant-storage reservation refuses names that would
+ * collide with it. Both call here over the normalized stored-reference column
+ * order, so the emitted name and the reserved name cannot diverge.
+ */
+export function automaticForeignKeyIndexName(
+  tableName: string,
+  foreignKeyColumns: readonly string[],
+  declaredNames: ReadonlySet<string>
+): string | undefined {
+  const preferred = `${tableName}_${foreignKeyColumns.join("_")}_idx`;
+  const name = declaredNames.has(preferred)
+    ? `${tableName}_${foreignKeyColumns.join("_")}_fkey_idx`
+    : preferred;
+  return declaredNames.has(name) ? undefined : name;
+}
+
 /** Derive one portable junction constraint name from the side naming token. */
 export function getJunctionConstraintName(
   table: string,

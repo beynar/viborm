@@ -385,6 +385,7 @@ export abstract class DriverTransactionBase<
         const normalizeTransactionFailure = (failure: unknown) =>
           normalizeDriverError(failure, {
             driverName: this.driverName,
+            dialect: this.dialect,
             model: executionContext.model,
             operation: executionContext.operation,
             correlationId: executionContext.correlationId,
@@ -744,6 +745,7 @@ export abstract class DriverTransactionBase<
       } catch (error) {
         throw normalizeDriverError(error, {
           driverName: this.driverName,
+          dialect: this.dialect,
           model: statementContext.model,
           operation: statementContext.operation,
           correlationId: statementContext.correlationId,
@@ -852,6 +854,7 @@ export abstract class DriverTransactionBase<
                 const statementContext = statement.context ?? executionContext;
                 throw normalizeDriverError(error, {
                   driverName: this.driverName,
+                  dialect: this.dialect,
                   model: statementContext.model,
                   operation: statementContext.operation,
                   correlationId: statementContext.correlationId,
@@ -864,6 +867,7 @@ export abstract class DriverTransactionBase<
             }
             throw normalizeDriverError(error, {
               driverName: this.driverName,
+              dialect: this.dialect,
               model: executionContext.model,
               operation: executionContext.operation,
               correlationId: executionContext.correlationId,

@@ -1,3 +1,4 @@
+import vm from "node:vm";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
@@ -29,6 +30,36 @@ describe("date schema", () => {
       expect(parse(schema, 123_456_789).issues).toBeDefined();
       expect(parse(schema, null).issues).toBeDefined();
       expect(parse(schema, undefined).issues).toBeDefined();
+    });
+
+    test("keeps a local Date by identity", () => {
+      const d = new Date("2023-01-01T00:00:00.000Z");
+      expect((parse(schema, d) as { value: Date }).value).toBe(d);
+    });
+
+    test("accepts a Date from another realm as a local Date", () => {
+      const foreign: Date = vm.runInNewContext(
+        "new Date('2023-01-01T00:00:00.000Z')"
+      );
+      expect(foreign instanceof Date).toBe(false);
+
+      const result = parse(schema, foreign);
+      expect(result.issues).toBeUndefined();
+      const { value } = result as { value: Date };
+      expect(value instanceof Date).toBe(true);
+      expect(value.toISOString()).toBe("2023-01-01T00:00:00.000Z");
+    });
+
+    test("rejects an invalid Date from another realm", () => {
+      expect(
+        parse(schema, vm.runInNewContext("new Date(NaN)")).issues
+      ).toBeDefined();
+    });
+
+    test("rejects an object that merely spells getTime", () => {
+      expect(
+        parse(schema, { [Symbol.toStringTag]: "Date", getTime: () => 0 }).issues
+      ).toBeDefined();
     });
 
     test("type inference", () => {

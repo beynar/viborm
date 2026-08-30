@@ -491,10 +491,16 @@ describe("write engine linear operation fragments", () => {
       )
     ).rejects.toThrow("did not produce row field 'id'");
 
+    // The first staged statement is the CHILD's, so per-statement attribution
+    // names "post"; the provenance beside it — operation, correlation id,
+    // instrumentation — is the operation's own, which is exactly what the
+    // derived statement context must preserve. The root INSERT in the same
+    // stage still names "user".
     expect(driver.contexts[0]).toMatchObject({
-      model: "user",
+      model: "post",
       operation: "create",
     });
+    expect(driver.contexts.map((context) => context?.model)).toContain("user");
     expect(driver.contexts[0]?.correlationId).toEqual(expect.any(String));
     expect(getExecutionInstrumentation(driver.contexts[0])).toBeDefined();
   });

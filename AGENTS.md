@@ -484,7 +484,13 @@ falsification proving THAT guard fires — not two guards half-trusted.
 
 Shared representation predicates live in `src/validation/value-guards.ts`.
 Reuse `isRecord`, `isString`, `isFunction`, `isNumber`, `isBoolean`, `isBigInt`,
-and `isDate` instead of recreating their exact checks. Keep stronger boundary
+`isDate`, and `isUint8Array` instead of recreating their exact checks. `isDate`
+and `isUint8Array` are realm-independent: they fall back to built-in
+internal-slot brands, so foreign-realm natives pass and `Symbol.toStringTag`
+spoofs fail. They belong at ADMISSION boundaries, which normalize a foreign
+value to a local one (`blob.ts` re-views, `iso.ts` emits ISO text); past that
+boundary every value is local, so an interior `instanceof Date` /
+`instanceof Uint8Array` is the intended check, not an unconverted call site. Keep stronger boundary
 rules local to their semantic owner, such as hostile diagnostic reads,
 plain-prototype checks, finite/integer checks, promise-like values, and JSON
 records.

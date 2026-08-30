@@ -68,6 +68,7 @@ import {
 import type { StepScope } from "./StepScope";
 import { parseCapturedRowKeys, parseCapturedRows } from "./series-result-read";
 import {
+  getStepModelName,
   isRecord,
   pinnedTargetValues,
   uniqueSelectorConjuncts,
@@ -474,6 +475,7 @@ export class RelationWritePart implements Part {
     return {
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildDelete(this.config.childScope, { where }),
       outputs: {},
     };
@@ -491,6 +493,7 @@ export class RelationWritePart implements Part {
     return {
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildUpdateMany(this.config.childScope, {
         where: this.correlatedFilter(membership.filters),
         data: this.updateScalarData,
@@ -518,6 +521,7 @@ export class RelationWritePart implements Part {
     const capture: ReadStep = {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildFind(
         this.config.childScope,
         {
@@ -585,6 +589,7 @@ export class RelationWritePart implements Part {
     const capture: ReadStep = {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildFind(
         this.config.childScope,
         {
@@ -678,6 +683,7 @@ export class RelationWritePart implements Part {
     return {
       id: this.writeId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildDeleteMany(this.config.childScope, {
         where: this.correlatedFilter(membership.filters),
         ...(membership.predicate ? { predicate: membership.predicate } : {}),
@@ -695,6 +701,7 @@ export class RelationWritePart implements Part {
     const step: ReadStep = {
       id: this.probeId,
       kind: "read",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: this.correlatedProbeStatement(undefined, true),
       outputs: {
         rows: { kind: "rows" },
@@ -1071,6 +1078,7 @@ export class RelationSetPart implements Part {
         exist: {
           id: existId,
           kind: "read",
+          model: getStepModelName(config.childScope.model, "record"),
           statement: buildFindUnique(config.childScope, {
             where,
             select: targetProjectionRowKeySelect(config.targetProjection),
@@ -1092,6 +1100,7 @@ export class RelationSetPart implements Part {
       ? {
           id: this.departingId,
           kind: "read",
+          model: getStepModelName(config.childScope.model, "record"),
           statement: this.departingStatement(undefined, true),
           outputs: { rows: { kind: "rows" } },
         }
@@ -1177,6 +1186,7 @@ export class RelationSetPart implements Part {
         // the writes those targets used to emit one at a time.
         id: this.targets[0]!.reparentId,
         kind: "write",
+        model: getStepModelName(this.config.childScope.model, "record"),
         statement: buildUpdateMany(this.config.childScope, {
           // Reparent captured rows by their row keys, never by a selector that
           // can move.
@@ -1240,6 +1250,7 @@ export class RelationSetPart implements Part {
     steps.push({
       id: this.orphanNullId,
       kind: "write",
+      model: getStepModelName(this.config.childScope.model, "record"),
       statement: buildUpdateMany(this.config.childScope, {
         where: this.departingWhere(condition.filters),
         data: membership.data,

@@ -17,6 +17,7 @@
  *  - raw and model operations share one atomic array transaction in order.
  */
 
+import vm from "node:vm";
 import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
 import type { AnyDriver } from "@drivers";
@@ -52,6 +53,9 @@ const DIALECTS: Array<{ name: string; createDriver: () => AnyDriver }> = [
 
 /** A bound comparison, in either dialect's placeholder style. */
 const BOUND_LABEL_COMPARISON = /label = (\$1|\?)/;
+
+/** The refusal names the position, so the caller knows which value was wrong. */
+const SECOND_BOUND_PARAMETER = /bound parameter 1\b/;
 
 type Probe = ReturnType<typeof captureLogs>;
 
@@ -356,6 +360,99 @@ for (const { name, createDriver } of DIALECTS) {
       });
     });
 
+    /**
+     * An invalid Date names no instant, and the two dialects disagree about
+     * what that means physically: PostgreSQL refuses the statement after
+     * dispatch with a generic execution failure, better-sqlite3 binds it as
+     * NULL and stores that. The raw boundary answers for both, before either
+     * sees it, and names the parameter that carried it.
+     */
+    describe("invalid Date parameters", () => {
+      const invalid = () => new Date(Number.NaN);
+
+      test("the tagged forms are refused before the driver sees them", async () => {
+        const { client, probe } = await setup();
+
+        await expect(
+          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${invalid()}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$executeRaw`UPDATE raw_sql_items SET qty = ${1} WHERE label = ${invalid()}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("the unsafe forms are refused before the driver sees them", async () => {
+        const { client, probe } = await setup();
+        const placeholder =
+          client.$driver.dialect === "postgresql" ? "$1" : "?";
+
+        await expect(
+          client.$queryRawUnsafe(
+            `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
+            invalid()
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$executeRawUnsafe(
+            `UPDATE raw_sql_items SET qty = 1 WHERE label = ${placeholder}`,
+            invalid()
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("a nested fragment and an array parameter are reached too", async () => {
+        const { client, probe } = await setup();
+
+        await expect(
+          client.$queryRaw(
+            sql`SELECT id FROM raw_sql_items WHERE ${sql`label = ${invalid()}`}`
+          )
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        await expect(
+          client.$queryRawUnsafe("SELECT 1", [1, invalid()])
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+
+        expect(probe.events).toEqual([]);
+      });
+
+      test("names the parameter position that carried it", async () => {
+        const { client } = await setup();
+
+        await expect(
+          client.$executeRaw`
+            UPDATE raw_sql_items SET label = ${"Named"} WHERE label = ${invalid()}
+          `
+        ).rejects.toThrow(SECOND_BOUND_PARAMETER);
+      });
+
+      test("refuses one built in another realm", async () => {
+        const { client, probe } = await setup();
+        const foreign: Date = vm.runInNewContext("new Date(NaN)");
+        expect(foreign instanceof Date).toBe(false);
+
+        await expect(
+          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${foreign}`
+        ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
+        expect(probe.events).toEqual([]);
+      });
+
+      test("inspects nothing else — a date-shaped string still binds", async () => {
+        const { client, probe } = await setup();
+        const text = "2024-01-02T03:04:05.000Z";
+
+        const rows = await client.$queryRaw<{
+          id: string;
+        }>`SELECT id FROM raw_sql_items WHERE label = ${text}`;
+
+        expect(rows).toEqual([]);
+        expect(lastStatement(probe).params).toEqual([text]);
+      });
+    });
+
     describe("lazy transaction operations", () => {
       test("construction performs no query", async () => {
         const { client, probe } = await setup();
@@ -427,6 +524,32 @@ for (const { name, createDriver } of DIALECTS) {
     });
   });
 }
+
+/**
+ * The other half of the invalid-Date boundary. Only PostgreSQL binds a Date at
+ * all — better-sqlite3 refuses every Date object, valid or not — so a valid one
+ * is proven to pass through untouched where it is a legal parameter.
+ */
+describe("valid Date parameters (pglite)", () => {
+  test("reach the driver as the caller's own object", async () => {
+    const driver = createInMemoryPGliteDriver();
+    const client = createClient({ schema, driver });
+    try {
+      await syncLiveSchema(client);
+      const execute = vi.spyOn(driver, "_execute");
+      const at = new Date("2024-01-02T03:04:05.000Z");
+
+      const rows = await client.$queryRaw<{
+        v: Date;
+      }>`SELECT ${at}::timestamptz AS v`;
+
+      expect(rows).toEqual([{ v: at }]);
+      expect(execute.mock.calls[0]?.[0]?.values[0]).toBe(at);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
 
 describe("raw SQL in a native array transaction", () => {
   test("mixes raw and model operations in one ordered atomic batch", async () => {
