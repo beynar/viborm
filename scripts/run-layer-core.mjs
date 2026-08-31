@@ -109,8 +109,7 @@ try {
   );
   let types = { code: 1 };
   if (
-    !interrupted &&
-    !runtime.error &&
+    !(interrupted || runtime.error) &&
     runtime.code === 0 &&
     runtime.stopReason === undefined
   ) {
@@ -140,7 +139,9 @@ try {
     releaseTestRunLock();
   } catch (error) {
     failed = true;
-    process.stderr.write(`Test-run lock release failed: ${describeError(error)}\n`);
+    process.stderr.write(
+      `Test-run lock release failed: ${describeError(error)}\n`
+    );
   }
 }
 

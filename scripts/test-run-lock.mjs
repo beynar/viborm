@@ -80,7 +80,9 @@ export function parseProcessTable(output) {
       parentPid < 0 ||
       pids.has(pid)
     ) {
-      throw new Error("The process table contains an invalid process identity.");
+      throw new Error(
+        "The process table contains an invalid process identity."
+      );
     }
     pids.add(pid);
     processes.push({ pid, parentPid, command: match[3] });
@@ -128,9 +130,7 @@ export function isWorkspaceVerification(command, workspace) {
       .slice(rootIndex + root.length)
       .split(/[\s"'`]/, 1)[0];
     if (
-      WORKSPACE_VERIFICATION_MARKERS.some((marker) =>
-        pathTail.endsWith(marker)
-      )
+      WORKSPACE_VERIFICATION_MARKERS.some((marker) => pathTail.endsWith(marker))
     ) {
       return true;
     }
@@ -245,7 +245,9 @@ export function acquireTestRunLock(label) {
     try {
       unlinkSync(lockPath);
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      ) {
         throw error;
       }
     }

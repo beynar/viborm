@@ -13,7 +13,4 @@ await Promise.all(
 );
 
 await mkdir("dist/client/.well-known", { recursive: true });
-await cp(
-  "dist/.well-known/api-catalog",
-  "dist/client/.well-known/api-catalog"
-);
+await cp("dist/.well-known/api-catalog", "dist/client/.well-known/api-catalog");

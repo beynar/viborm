@@ -53,14 +53,13 @@ type CoreSchemaAt<
   Getters,
   PublicType extends keyof Getters,
   CoreKey extends PropertyKey,
-> =
-  SchemasAt<Getters, PublicType> extends {
-    readonly core: infer Core;
-  }
-    ? CoreKey extends keyof Core
-      ? Core[CoreKey]
-      : never
-    : never;
+> = SchemasAt<Getters, PublicType> extends {
+  readonly core: infer Core;
+}
+  ? CoreKey extends keyof Core
+    ? Core[CoreKey]
+    : never
+  : never;
 
 export type CoreInputAt<
   Getters,

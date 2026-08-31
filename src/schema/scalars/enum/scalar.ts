@@ -1,8 +1,8 @@
 // Enum Scalar
 // Standalone scalar class with State generic pattern
 
-import v from "@validation/primitives/v";
 import type { EnumValues } from "@validation/primitives/enum";
+import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,

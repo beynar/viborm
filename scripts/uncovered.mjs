@@ -28,9 +28,11 @@ const ranges = (nums) => {
   }
   return out.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(", ");
 };
-const stmts = Object.entries(e.s).filter(([, c]) => c === 0)
+const stmts = Object.entries(e.s)
+  .filter(([, c]) => c === 0)
   .map(([id]) => e.statementMap[id].start.line);
-const fns = Object.entries(e.f).filter(([, c]) => c === 0)
+const fns = Object.entries(e.f)
+  .filter(([, c]) => c === 0)
   .map(([id]) => `${e.fnMap[id].name}@${e.fnMap[id].decl.start.line}`);
 const brs = [];
 for (const [id, counts] of Object.entries(e.b)) {
@@ -42,6 +44,10 @@ for (const [id, counts] of Object.entries(e.b)) {
   });
 }
 console.log(`file: ${resolve(key)}`);
-console.log(`uncovered statements (${stmts.length}): ${ranges(stmts) || "none"}`);
+console.log(
+  `uncovered statements (${stmts.length}): ${ranges(stmts) || "none"}`
+);
 console.log(`uncovered branches   (${brs.length}): ${ranges(brs) || "none"}`);
-console.log(`uncovered functions  (${fns.length}): ${fns.join(", ") || "none"}`);
+console.log(
+  `uncovered functions  (${fns.length}): ${fns.join(", ") || "none"}`
+);

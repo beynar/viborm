@@ -760,7 +760,10 @@ export class ResultParser {
               return null;
             }
             if (materializePublic && captureRowKey === undefined) {
-              const materialized = materializeDecimalValue(value, decimalColumn);
+              const materialized = materializeDecimalValue(
+                value,
+                decimalColumn
+              );
               if (materialized !== undefined) return materialized;
             } else {
               const canonical = decodeDecimalValue(value, decimalColumn);

@@ -1,3 +1,4 @@
+import { safeOwnPropertyDescriptor } from "./diagnostic-safety";
 import {
   type DiagnosticDisclosure,
   registerTrustedError,
@@ -5,7 +6,6 @@ import {
   sanitizeErrorMetadata,
   serializeTrustedError,
 } from "./diagnostics";
-import { safeOwnPropertyDescriptor } from "./diagnostic-safety";
 
 /**
  * Error codes for programmatic error handling
@@ -511,7 +511,6 @@ function verdictFor(code: VibORMErrorCode): CodeVerdict {
     case VibORMErrorCode.INTERNAL_ERROR:
     case VibORMErrorCode.SCHEMA_ERROR:
       return DEFECT;
-
   }
 }
 

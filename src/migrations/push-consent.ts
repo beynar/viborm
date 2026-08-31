@@ -190,7 +190,9 @@ export function assertConsent(consent: PushConsent, plan: ConsentedPlan): void {
 
 export function hasConsent(
   options: Readonly<Record<string, unknown>>
-): options is Readonly<Record<string, unknown>> & { readonly consent: unknown } {
+): options is Readonly<Record<string, unknown>> & {
+  readonly consent: unknown;
+} {
   return "consent" in options;
 }
 
@@ -202,12 +204,7 @@ function parseTarget(value: unknown): PushTargetIdentity {
     consentMismatch
   );
   if (record.dialect === "postgresql") {
-    refuseTargetKeys(record, [
-      "bindingId",
-      "database",
-      "dialect",
-      "namespace",
-    ]);
+    refuseTargetKeys(record, ["bindingId", "database", "dialect", "namespace"]);
     return {
       dialect: "postgresql",
       database: requiredString(record.database, "consent.target.database"),
@@ -260,7 +257,11 @@ function invalidOptions(message: string, cause?: Error): never {
 }
 
 function consentMismatch(message: string, cause?: Error): never {
-  throw new MigrationError(message, VibORMErrorCode.MIGRATION_CONSENT_MISMATCH, {
-    cause,
-  });
+  throw new MigrationError(
+    message,
+    VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
+    {
+      cause,
+    }
+  );
 }

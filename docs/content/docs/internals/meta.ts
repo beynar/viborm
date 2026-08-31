@@ -17,6 +17,6 @@ export default defineMeta({
     "client",
     "cache",
     "instrumentation",
-    "migrations"
+    "migrations",
   ],
 });

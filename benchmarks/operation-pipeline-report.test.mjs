@@ -1226,10 +1226,7 @@ test("fixed-decimal candidate evidence gates attribution and row scaling without
     (metric) =>
       metric.cardinality === 1 && metric.metric === "releasedBytesPerOperation"
   );
-  assert.equal(
-    released.formula,
-    "decimal - text-control - constructor-floor"
-  );
+  assert.equal(released.formula, "decimal - text-control - constructor-floor");
   assert.equal(released.providerDelta, undefined);
   assert.ok(
     gate.attribution.some((metric) => metric.metric === "peakRssBytes")
@@ -1239,8 +1236,7 @@ test("fixed-decimal candidate evidence gates attribution and row scaling without
   );
   const allocation = gate.attribution.find(
     (metric) =>
-      metric.cardinality === 1 &&
-      metric.metric === "allocatedBytesPerOperation"
+      metric.cardinality === 1 && metric.metric === "allocatedBytesPerOperation"
   );
   assert.equal(
     allocation.formula,

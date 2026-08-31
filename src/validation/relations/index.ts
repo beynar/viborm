@@ -189,10 +189,9 @@ export type GetRelationSchemas<
   Source extends AnyModel,
   Key,
   S extends RelationState,
-> =
-  Cardinality<S> extends "many"
-    ? ToManySchemas<Source, Key, S>
-    : ToOneSchemas<Source, Key, S>;
+> = Cardinality<S> extends "many"
+  ? ToManySchemas<Source, Key, S>
+  : ToOneSchemas<Source, Key, S>;
 
 // =============================================================================
 // MAIN EXPORT

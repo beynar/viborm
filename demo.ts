@@ -236,11 +236,10 @@ function formatDuration(microseconds: number): string {
 import { cache, MemoryCache } from "@cache";
 import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
-
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { VibORM } from "./src/client/client";
 import { PGliteDriver } from "./src/drivers/pglite";
 import { s } from "./src/schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const user = s.model({
   id: s.string().id(),

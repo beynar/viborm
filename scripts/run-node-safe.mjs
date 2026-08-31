@@ -1,5 +1,5 @@
-import process from "node:process";
 import { resolve } from "node:path";
+import process from "node:process";
 import {
   parseRssLimitArgument,
   startBoundedProcess,
@@ -10,7 +10,9 @@ let rssLimit;
 try {
   rssLimit = parseRssLimitArgument(process.argv.slice(2));
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`
+  );
   process.exit(2);
 }
 const [memoryArgument, wallArgument, entry, ...entryArguments] =
@@ -35,7 +37,9 @@ let releaseTestRunLock;
 try {
   releaseTestRunLock = acquireTestRunLock("bounded Node command");
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`
+  );
   process.exit(1);
 }
 
@@ -83,9 +87,6 @@ process.stderr.write(
   `Node resources: ${(outcome.wallMs / 1000).toFixed(2)}s wall, ${(outcome.peakGroupRssKb / 1024).toFixed(1)} MiB peak sampled process-group RSS (sampled ceiling ${rssLimit.rssLimitMb} MiB). ${outcome.error ? "Teardown not verified." : "Teardown verified."}\n`
 );
 process.exitCode =
-  interrupted ||
-  outcome.stopReason ||
-  outcome.code !== 0 ||
-  releaseError
+  interrupted || outcome.stopReason || outcome.code !== 0 || releaseError
     ? 1
     : 0;

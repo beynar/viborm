@@ -61,12 +61,7 @@ export function parseRelationValueDefault(
     for (const row of rows) {
       assertExpectedRowKeys(ctx, operation, row, shape);
     }
-    const compiled = parsers.getRowParser(
-      targetModel,
-      first,
-      operation,
-      shape
-    );
+    const compiled = parsers.getRowParser(targetModel, first, operation, shape);
     const parsed = parseResultRows(rows, compiled, ownsCarrierRows);
     // A negative nested `take` was executed as a reversed window — restore the
     // logical order here, exactly as the top level does for its own rows.

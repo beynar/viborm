@@ -278,11 +278,7 @@ export class ManyAndReturnOperation {
     }
 
     // updateMany with select
-    const data = requireRecord(
-      this.validatedArgs.data,
-      "updateMany",
-      "data"
-    );
+    const data = requireRecord(this.validatedArgs.data, "updateMany", "data");
     if (supportsReturning) {
       const step: WriteStep = {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),

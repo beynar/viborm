@@ -140,10 +140,7 @@ export async function pushV1(
     return applyWithConsent(client, parseConsent(given.consent));
   }
 
-  const parsed = parseSnapshottedPlanningOptions(
-    given,
-    given.dryRun === true
-  );
+  const parsed = parseSnapshottedPlanningOptions(given, given.dryRun === true);
   if (parsed.dryRun) {
     return previewPush(client, parsed);
   }

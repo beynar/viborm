@@ -36,7 +36,11 @@ export class TransactionError extends VibORMError {
       code?: TransactionErrorCode | undefined;
     }
   ) {
-    super(message, options?.code ?? VibORMErrorCode.TRANSACTION_FAILED, options);
+    super(
+      message,
+      options?.code ?? VibORMErrorCode.TRANSACTION_FAILED,
+      options
+    );
   }
 }
 

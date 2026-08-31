@@ -4,8 +4,5 @@ export default defineMeta({
   title: "MySQL",
   icon: "cylinder",
   collapsed: true,
-  pages: [
-    "mysql2",
-    "planetscale"
-  ],
+  pages: ["mysql2", "planetscale"],
 });
