@@ -75,12 +75,23 @@ const postTable: TableDef = {
 
 const postSchema: SchemaSnapshot = { tables: [userTable, postTable] };
 
+/**
+ * Reaches the BASE formatting past SQLite3's overrides, which is the whole
+ * point: these assertions pin what the shared MigrationDriver renders so the
+ * dialect's departures from it stay visible. `super` would dispatch to the
+ * override, and MigrationDriver is abstract with a dozen abstract members, so
+ * it cannot be extended directly here. TypeScript refuses a protected member
+ * read through a BASE-typed expression, which is exactly what
+ * `MigrationDriver.prototype` is — hence the two directives rather than a cast.
+ */
 class BaseMethodProbe extends SQLite3MigrationDriver {
   baseBoolean(value: boolean): string {
+    // @ts-expect-error - protected on the base, reached deliberately
     return MigrationDriver.prototype.formatBooleanDefault.call(this, value);
   }
 
   baseColumnType(column: ColumnDef, context: DDLContext): string {
+    // @ts-expect-error - protected on the base, reached deliberately
     return MigrationDriver.prototype.formatColumnType.call(
       this,
       column,

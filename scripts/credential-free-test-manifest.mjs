@@ -38,7 +38,10 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
     .sort()
 );
 
-const EXTENDED_LOCAL_SHARD_SIZE = 6;
+// Six live-PGlite files in one process peaked just over 3072 MiB on three
+// shards. No single file needs that much (the heaviest measured is ~2.2 GiB),
+// so the accumulation is what has to come down, not the ceiling.
+const EXTENDED_LOCAL_SHARD_SIZE = 3;
 
 export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze(
   Array.from(

@@ -126,7 +126,8 @@ describe("coverage low value", () => {
   }) => {
     const storage = create();
     await expect(
-      // @ts-expect-error - hostile JavaScript can bypass the branded digest type
+      // publishState accepts a plain string at the type level; the branded
+      // digest is enforced at runtime, which is what this pins.
       storage.publishState("not-a-digest", utf8Bytes("state"))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,

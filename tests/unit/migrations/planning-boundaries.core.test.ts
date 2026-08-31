@@ -260,6 +260,12 @@ describe("migration planning boundaries", () => {
   test("adapts public callbacks for both ambiguity kinds", async () => {
     const seen: string[] = [];
     const resolver = callbackAsResolver(async (change) => {
+      // ambiguousToResolveChange is declared as the broad ResolveChange union
+      // even though it only ever builds ambiguous changes. Narrow on the
+      // discriminant, which also pins that this callback sees exactly those.
+      if (change.type !== "ambiguous") {
+        throw new Error("expected an ambiguous change");
+      }
       seen.push(change.operation);
       return change.operation === "renameColumn"
         ? change.rename()
@@ -307,6 +313,9 @@ describe("migration planning boundaries", () => {
 
   test("validates results against the exact supplied change kind", async () => {
     const change = ambiguousToResolveChange(columnAmbiguity);
+    if (change.type !== "ambiguous") {
+      throw new Error("expected an ambiguous change");
+    }
     expect(
       validateResolveResult("ambiguous", change, undefined)
     ).toBeUndefined();

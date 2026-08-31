@@ -36,11 +36,20 @@ function runPackageScript(script) {
   run(`pnpm ${script}`, packageManager || "pnpm", [script]);
 }
 
+/**
+ * Every stage this script runs is provider-backed: the extended-local estate and
+ * the provider suites all boot a live database. A single live-PGlite suite peaks
+ * around 1.6-1.7 GiB, so the 1536 MiB default cannot hold one of them — the cap
+ * is a property of PGlite, not of the machine, and a bigger CI runner does not
+ * help. These lanes opt up; the fast lanes keep the 1536 MiB default.
+ */
+const PROVIDER_RSS_LIMIT_MB = 3072;
+
 function runVitest(label, wallLimitMs, project, files = []) {
   run(label, process.execPath, [
     safeVitestRunner,
     "--heap-limit-mb=768",
-    "--rss-limit-mb=1536",
+    `--rss-limit-mb=${PROVIDER_RSS_LIMIT_MB}`,
     `--wall-limit-ms=${wallLimitMs}`,
     "run",
     "--workspace",

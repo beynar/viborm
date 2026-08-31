@@ -195,10 +195,10 @@ class PhasedDriver extends Driver<FakeSession, FakeSession> {
   ): Promise<T> {
     const phases = getExecutionTransactionPhases(context);
     return runTransactionLifecycle({
-      begin: () => this.executeRaw(client, "BEGIN", undefined),
+      begin: () => this.executeRaw(client, "BEGIN"),
       callback: () => fn(client),
-      commit: () => this.executeRaw(client, "COMMIT", undefined),
-      rollback: () => this.executeRaw(client, "ROLLBACK", undefined),
+      commit: () => this.executeRaw(client, "COMMIT"),
+      rollback: () => this.executeRaw(client, "ROLLBACK"),
       ...(phases === undefined ? {} : { phases }),
     });
   }

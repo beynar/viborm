@@ -1,4 +1,5 @@
 import { VibORMErrorCode } from "@src/errors";
+import type { StepProgress } from "@src/migrations/execute-dispatch";
 import {
   evaluateAllChecks,
   evaluateCheck,
@@ -15,6 +16,7 @@ import {
   encodeSqlBlob,
 } from "@src/migrations/v1-parse";
 import type {
+  LedgerEffectStateV1,
   MigrationBooleanCheckV1,
   MigrationDispatchV1,
   MigrationOperationV1,
@@ -116,7 +118,9 @@ describe("migration exact execution contracts", () => {
     } satisfies MigrationOperationV1;
     const driver = sqliteEstateDriver();
     driver.respond = () => [{ value: 1 }];
-    const progress = vi.fn(async () => undefined);
+    const progress = vi.fn(
+      async (_step: StepProgress, _effect: LedgerEffectStateV1) => undefined
+    );
 
     await executeOperations(
       driver,
@@ -127,11 +131,14 @@ describe("migration exact execution contracts", () => {
     );
 
     expect(driver.statements).not.toContain("PRE");
+    const [firstStep] = operation.steps;
+    if (!firstStep) throw new Error("expected one step");
+
     expect(driver.statements).not.toContain("EXEC");
     expect(progress).toHaveBeenCalledWith(
       {
         operationId: "create-account",
-        dispatchId: operation.steps[0].execute.dispatchId,
+        dispatchId: firstStep.execute.dispatchId,
         skipped: true,
       },
       "none"
@@ -160,7 +167,9 @@ describe("migration exact execution contracts", () => {
       if (sql === "POST") return [{ value: postchecks++ === 0 ? 0 : 1 }];
       return [{ value: 1 }];
     };
-    const progress = vi.fn(async () => undefined);
+    const progress = vi.fn(
+      async (_step: StepProgress, _effect: LedgerEffectStateV1) => undefined
+    );
 
     await executeOperations(
       driver,
@@ -193,7 +202,9 @@ describe("migration exact execution contracts", () => {
       steps: [{ retry: "opaque", execute: dispatch(blob, 0) }],
     } satisfies MigrationOperationV1;
     const driver = sqliteEstateDriver();
-    const progress = vi.fn(async () => undefined);
+    const progress = vi.fn(
+      async (_step: StepProgress, _effect: LedgerEffectStateV1) => undefined
+    );
 
     await executeOperations(
       driver,

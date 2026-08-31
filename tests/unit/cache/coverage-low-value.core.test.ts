@@ -1,12 +1,23 @@
-import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
-import { MemoryCache } from "@cache/drivers/memory";
+import { scheduleBackground } from "@cache/cache-background";
 import {
-  createOfficialCacheScope,
+  completeOfficialCacheSetFailure,
+  createCacheInstrumentationLogEvent,
+  createCacheLifecycleInstrumentationFacts,
+  createOfficialCacheExecutionLogReader,
+  emitCacheLogEvent,
+  getCacheOperationAttributes,
+  hasOfficialCacheInstrumentation,
+  hasOfficialCacheLogging,
+} from "@cache/cache-instrumentation";
+import {
   CacheDriver,
   type CacheEntry,
+  createOfficialCacheScope,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
 } from "@cache/driver";
+import { CloudflareKVCache } from "@cache/drivers/cloudflare-kv";
+import { MemoryCache } from "@cache/drivers/memory";
 import {
   CacheDriver as ExportedCacheDriver,
   cache as exportedCache,
@@ -25,17 +36,6 @@ import {
   generateCachePrefix,
   generateUnprefixedCacheKey,
 } from "@cache/key";
-import {
-  completeOfficialCacheSetFailure,
-  createCacheInstrumentationLogEvent,
-  createCacheLifecycleInstrumentationFacts,
-  createOfficialCacheExecutionLogReader,
-  emitCacheLogEvent,
-  getCacheOperationAttributes,
-  hasOfficialCacheInstrumentation,
-  hasOfficialCacheLogging,
-} from "@cache/cache-instrumentation";
-import { scheduleBackground } from "@cache/cache-background";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
 import type { KVNamespace } from "@cloudflare/workers-types";
@@ -49,9 +49,13 @@ import {
   appendResolvedExtension,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import { instrumentation } from "@instrumentation/extension";
 import { createInstrumentationContext } from "@instrumentation/context";
+import { instrumentation } from "@instrumentation/extension";
 import { SPAN_CACHE_GET } from "@instrumentation/spans";
+import type {
+  CacheInstrumentationFacts,
+  InstrumentationLifecycleFactsReader,
+} from "@src/instrumentation/lifecycle-facts";
 import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, test, vi } from "vitest";
 
@@ -144,12 +148,26 @@ function officialInstrumentationContext(options?: {
   );
 }
 
+/**
+ * `createCacheLifecycleInstrumentationFacts` is declared as the broad
+ * `InstrumentationLifecycleFactsReader`, whose union has four other members
+ * without `spanOptions`/`startLogEvents`. Narrow on the `kind` discriminant
+ * rather than asserting: this also pins that the cache factory really does
+ * produce cache-kind facts.
+ */
+function readCacheFacts(
+  reader: InstrumentationLifecycleFactsReader | undefined
+): CacheInstrumentationFacts | undefined {
+  const facts = reader?.();
+  return facts?.kind === "cache" ? facts : undefined;
+}
+
 describe("cache duration and key contracts", () => {
   test("parses every duration family and rejects each invalid class", () => {
     expect(parseTTL(25)).toBe(25);
     expect(parseTTL("2.5 hours")).toBe(9_000_000);
     expect(parseTTL("1 millisecond")).toBe(1);
-    expect(parseTTL("2 seconds")).toBe(2_000);
+    expect(parseTTL("2 seconds")).toBe(2000);
     expect(parseTTL("3 min")).toBe(180_000);
     expect(parseTTL("4 hr")).toBe(14_400_000);
     expect(parseTTL("5 days")).toBe(432_000_000);
@@ -170,8 +188,9 @@ describe("cache duration and key contracts", () => {
     expect(generateCachePrefix("user", 2)).toBe("viborm:v2:user");
     expect(generateCachePrefix(undefined, "blue")).toBe("viborm:vblue");
 
-    expect(generateUnprefixedCacheKey("user", "findMany", { b: 2, a: 1 }))
-      .toBe(generateUnprefixedCacheKey("user", "findMany", { a: 1, b: 2 }));
+    expect(generateUnprefixedCacheKey("user", "findMany", { b: 2, a: 1 })).toBe(
+      generateUnprefixedCacheKey("user", "findMany", { a: 1, b: 2 })
+    );
     expect(generateCacheKey("user", "findMany", null)).not.toBe(
       generateCacheKey("user", "findMany", undefined)
     );
@@ -196,15 +215,15 @@ describe("cache duration and key contracts", () => {
 
     const circularArray: unknown[] = [];
     circularArray.push(circularArray);
-    expect(() =>
-      generateCacheKey("user", "findMany", circularArray)
-    ).toThrow(CacheInvalidKeyError);
+    expect(() => generateCacheKey("user", "findMany", circularArray)).toThrow(
+      CacheInvalidKeyError
+    );
 
     const circularObject: Record<string, unknown> = {};
     circularObject.self = circularObject;
-    expect(() =>
-      generateCacheKey("user", "findMany", circularObject)
-    ).toThrow(CacheInvalidKeyError);
+    expect(() => generateCacheKey("user", "findMany", circularObject)).toThrow(
+      CacheInvalidKeyError
+    );
   });
 });
 
@@ -306,10 +325,7 @@ describe("public cache-driver storage contract", () => {
       autoInvalidate: true,
       invalidate: ["exact", "prefix:*"],
     });
-    expect(driver.clears).toEqual([
-      "viborm:user:",
-      "viborm:prefix:",
-    ]);
+    expect(driver.clears).toEqual(["viborm:user:", "viborm:prefix:"]);
     expect(driver.deletes).toContainEqual([
       "viborm:exact",
       "viborm:exact:reval",
@@ -491,21 +507,18 @@ describe("Cloudflare KV backend contract", () => {
     const driver = new CloudflareKVCache(kv);
 
     await expect(driver._get("missing")).resolves.toBeNull();
-    await driver._set("tenant:a", { answer: 42 }, { ttl: 1_501 });
+    await driver._set("tenant:a", { answer: 42 }, { ttl: 1501 });
     expect(putCalls[0]).toMatchObject({
       key: "viborm:tenant:a",
       expirationTtl: 2,
     });
     await expect(driver._get("tenant:a")).resolves.toMatchObject({
       value: { answer: 42 },
-      ttl: 1_501,
+      ttl: 1501,
     });
 
     await driver._delete("tenant:a");
-    expect(deleted).toEqual([
-      "viborm:tenant:a",
-      "viborm:tenant:a:reval",
-    ]);
+    expect(deleted).toEqual(["viborm:tenant:a", "viborm:tenant:a:reval"]);
     deleted.length = 0;
     await driver._clear("tenant:");
     expect(listCalls).toEqual([
@@ -644,7 +657,9 @@ describe("cache lifecycle presentation facts", () => {
     ).toHaveLength(1);
 
     expect(createOfficialCacheExecutionLogReader({})).toBeUndefined();
-    expect(completeOfficialCacheSetFailure(undefined, "failure")).toBeUndefined();
+    expect(
+      completeOfficialCacheSetFailure(undefined, "failure")
+    ).toBeUndefined();
     expect(hasOfficialCacheInstrumentation({})).toBe(false);
     expect(hasOfficialCacheLogging({})).toBe(false);
   });
@@ -703,10 +718,12 @@ describe("cache lifecycle presentation facts", () => {
 
   test("omits unavailable presentation channels and empty completions", () => {
     const loggingContext = officialInstrumentationContext({ logging: true });
-    const loggingFacts = createCacheLifecycleInstrumentationFacts({
-      context: loggingContext,
-      spanName: SPAN_CACHE_GET,
-    })?.();
+    const loggingFacts = readCacheFacts(
+      createCacheLifecycleInstrumentationFacts({
+        context: loggingContext,
+        spanName: SPAN_CACHE_GET,
+      })
+    );
     expect(loggingFacts?.spanOptions).toBeUndefined();
     expect(loggingFacts?.startLogEvents).toBeUndefined();
     expect(
@@ -714,11 +731,13 @@ describe("cache lifecycle presentation facts", () => {
     ).toBeUndefined();
 
     const tracingContext = officialInstrumentationContext({ tracing: true });
-    const tracingFacts = createCacheLifecycleInstrumentationFacts({
-      context: tracingContext,
-      spanName: SPAN_CACHE_GET,
-      readSpanAttributes: () => undefined,
-    })?.();
+    const tracingFacts = readCacheFacts(
+      createCacheLifecycleInstrumentationFacts({
+        context: tracingContext,
+        spanName: SPAN_CACHE_GET,
+        readSpanAttributes: () => undefined,
+      })
+    );
     expect(tracingFacts?.spanOptions).toMatchObject({
       name: SPAN_CACHE_GET,
       attributes: {},
@@ -727,11 +746,13 @@ describe("cache lifecycle presentation facts", () => {
       tracingFacts?.complete({ status: "success", durationMs: 0 })
     ).toBeUndefined();
 
-    const tracingCompletion = createCacheLifecycleInstrumentationFacts({
-      context: tracingContext,
-      spanName: SPAN_CACHE_GET,
-      readSpanAttributes: () => ({ "cache.result": "hit" }),
-    })?.().complete({ status: "success", durationMs: 0 });
+    const tracingCompletion = readCacheFacts(
+      createCacheLifecycleInstrumentationFacts({
+        context: tracingContext,
+        spanName: SPAN_CACHE_GET,
+        readSpanAttributes: () => ({ "cache.result": "hit" }),
+      })
+    )?.complete({ status: "success", durationMs: 0 });
     expect(tracingCompletion).toEqual({
       kind: "cache",
       spanAttributes: { "cache.result": "hit" },
@@ -1174,8 +1195,9 @@ describe("coverage low value", () => {
     const nodeBuffer = globalThis.Buffer;
     vi.stubGlobal("Buffer", undefined);
     try {
-      expect(generateCacheKey("blob", "findMany", new Uint8Array([1, 2, 3])))
-        .toEqual(expect.any(String));
+      expect(
+        generateCacheKey("blob", "findMany", new Uint8Array([1, 2, 3]))
+      ).toEqual(expect.any(String));
     } finally {
       vi.stubGlobal("Buffer", nodeBuffer);
     }

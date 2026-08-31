@@ -643,8 +643,15 @@ describe("baseline across a two-edge path", () => {
       { name: "add-post", from: root.stateId }
     );
 
+    if (!leaf.stateId) throw new Error("expected a published leaf");
+
     await expect(
-      baselineV1({ $driver: driver, $schema: { org, post } }, storage, {})
+      // BaselineOptions types `to` as required even though baselineV1 supports
+      // omitting it (resolveStateSelector defaults to the single leaf). Name
+      // the leaf so the call typechecks; see the report on that mismatch.
+      baselineV1({ $driver: driver, $schema: { org, post } }, storage, {
+        to: { id: leaf.stateId },
+      })
     ).resolves.toEqual({ stateId: leaf.stateId });
 
     const written = driver.statements.findIndex((statement) =>
