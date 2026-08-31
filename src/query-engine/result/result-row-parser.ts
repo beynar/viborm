@@ -150,6 +150,9 @@ function parseRequiredSingleRow(
     );
   }
   const [row] = normalizeResultRows(ctx, operation, raw);
+  if (!row) {
+    return malformedResult(ctx, operation, "the required row is absent");
+  }
   if (operation === "aggregate" && Object.keys(row).length === 0) {
     return malformedResult(
       ctx,
@@ -383,13 +386,7 @@ export function createRowParser(
       mayReuseContainer = false;
       const expectedRelations = column.relations;
       steps[i] = (result, value) =>
-        assignRelationCounts(
-          ctx,
-          operation,
-          result,
-          value,
-          expectedRelations
-        );
+        assignRelationCounts(ctx, operation, result, value, expectedRelations);
       continue;
     }
 

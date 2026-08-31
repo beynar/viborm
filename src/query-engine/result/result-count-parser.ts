@@ -61,6 +61,9 @@ export function parseCountCarrierDefault(
     );
   }
   const [row] = normalizeResultRows(ctx, operation, raw);
+  if (!row) {
+    return malformedResult(ctx, operation, "the COUNT row is absent");
+  }
   assertExpectedRowKeys(ctx, operation, row, shape);
   const entries = Object.entries(row);
 
