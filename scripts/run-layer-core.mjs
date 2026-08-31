@@ -55,7 +55,24 @@ const tscEntry = fileURLToPath(
   new URL("../node_modules/typescript/bin/tsc", import.meta.url)
 );
 const startedAt = performance.now();
-const wallLimitMs = 30_000;
+/**
+ * Every layer holds the 30-second budget except client, which gets 45.
+ *
+ * This is a WALL budget, not a memory one: the 768 / 1280 / 1536 MiB contract is
+ * untouched. Client needs the extra time BECAUSE of that contract. Its
+ * compile-only estate is 21 files and 268 KB, and at a 1280 MB shard heap it
+ * cannot be one program - contextual-typing-gate.core.types.ts alone is 74 KB
+ * and OOMs anything packed with it, and the other twenty OOM together too. So
+ * it runs as three programs, each measured clean under 1536 MiB, and three tsc
+ * startups cost ~24.9s on top of a 5.4s runtime stage.
+ *
+ * Raising this is the right lever precisely because the memory ceiling is not.
+ * If the client type estate is ever trimmed back under two programs, put it
+ * back to 30.
+ */
+const DEFAULT_WALL_LIMIT_MS = 30_000;
+const LAYER_WALL_LIMIT_MS = new Map([["client", 45_000]]);
+const wallLimitMs = LAYER_WALL_LIMIT_MS.get(layer) ?? DEFAULT_WALL_LIMIT_MS;
 let activeRun;
 let interrupted = false;
 let interruptionCount = 0;
