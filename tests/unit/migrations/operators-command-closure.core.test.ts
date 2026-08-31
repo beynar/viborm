@@ -3,7 +3,7 @@ import { VibORMErrorCode } from "@src/errors";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import { markerFromPath } from "@src/migrations/control";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
-import { downV1, resolveV1 } from "@src/migrations/operators";
+import { downV1, resolveV1, statusV1 } from "@src/migrations/operators";
 import { composeSqlBlob } from "@src/migrations/sql-blob";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import {
@@ -882,5 +882,102 @@ describe("resolve on a producer without transactions", () => {
     ).resolves.toEqual({ outcome: "retry" });
     expect(driver.statements).toContain("SELECT 'root-forward'");
     expect(driver.statements).not.toContain("<begin>");
+  });
+});
+
+describe("status pending route", () => {
+  test("reports the whole route to the leaf when the control tables carry no marker", async () => {
+    const chain = await publishChain([{ name: "root" }]);
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({});
+
+    await expect(statusV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      control: "present",
+      marker: null,
+      // Bootstrapped control tables with no marker are a database at the
+      // virtual null origin, not a database with nothing to do.
+      pending: [chain.states[0]!.stateId],
+      unfinished: false,
+    });
+  });
+});
+
+describe("down selection width", () => {
+  test("a target the marker already names removes no edge and runs nothing", async () => {
+    const chain = await publishChain([
+      { name: "root", rollback: ["SELECT 'undo-root'"] },
+      { name: "child", rollback: ["SELECT 'undo-child'"] },
+    ]);
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({ marker: markerAt(chain, 2) });
+
+    await expect(
+      downV1(clientFor(driver), chain.storage, {
+        to: { id: chain.states[1]!.stateId },
+      })
+    ).resolves.toEqual({ path: [], preview: false });
+    // Zero steps is zero edges. `slice(-0)` would have taken the whole path,
+    // so "already there" must not be spelled as "roll everything back".
+    expect(driver.statements).not.toContain("SELECT 'undo-child'");
+    expect(driver.statements).not.toContain("SELECT 'undo-root'");
+    expect(wroteMarker(driver)).toBe(false);
+  });
+
+  test("two steps reverse both edges newest first under one marker chain", async () => {
+    const chain = await publishChain([
+      { name: "root", rollback: ["SELECT 'undo-root'"] },
+      { name: "child", rollback: ["SELECT 'undo-child'"] },
+    ]);
+    const [root, child] = chain.states;
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({ marker: markerAt(chain, 2) });
+
+    await expect(
+      downV1(clientFor(driver), chain.storage, { steps: 2 })
+    ).resolves.toEqual({
+      path: [root!.stateId, child!.stateId],
+      preview: false,
+    });
+    expect(driver.statements.indexOf("SELECT 'undo-child'")).toBeGreaterThan(
+      -1
+    );
+    expect(driver.statements.indexOf("SELECT 'undo-root'")).toBeGreaterThan(
+      driver.statements.indexOf("SELECT 'undo-child'")
+    );
+  });
+});
+
+describe("resolve marker advance", () => {
+  test("completing an attempt appends the new edge to the marker it found", async () => {
+    const chain = await publishChain([{ name: "root" }, { name: "child" }]);
+    const [root, child] = chain.states;
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      // The marker still names the origin, because the crashed attempt never
+      // got to its own compare-and-swap.
+      marker: markerAt(chain, 1),
+      ledger: [
+        forwardStarted(chain, {
+          fromState: root!.stateId,
+          toState: child!.stateId,
+          transitionHash: child!.transitionHash,
+        }),
+      ],
+    });
+
+    await expect(
+      resolveV1(clientFor(driver), chain.storage, { outcome: "complete" })
+    ).resolves.toEqual({ outcome: "complete" });
+
+    const update = driver.statements.findIndex((statement) =>
+      statement.startsWith("UPDATE")
+    );
+    expect(update).toBeGreaterThan(-1);
+    const written: unknown = JSON.parse(String(driver.parameters[update]![0]));
+    expect(written).toMatchObject({
+      stateId: child!.stateId,
+      revision: 2,
+      path: [root!.edge, child!.edge],
+    });
   });
 });

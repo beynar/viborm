@@ -3,6 +3,7 @@ import {
   canonicalizeJson,
   canonicalizeJsonText,
 } from "@src/migrations/canonical-json";
+import { markerFromPath } from "@src/migrations/control";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { domainHash, HASH_DOMAIN } from "@src/migrations/identity";
 import { resetV1 } from "@src/migrations/reset-v1";
@@ -821,5 +822,219 @@ describe("reset live clear", () => {
     expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
       1
     );
+  });
+});
+
+const PROVEN_PRECHECK_SQL = "SELECT 'proven-precheck'";
+const PROVEN_EXECUTE_SQL = "SELECT 'proven-execute'";
+const PROVEN_POSTCHECK_SQL = "SELECT 'proven-postcheck'";
+
+/**
+ * A replay estate whose one forward step is PROVEN rather than opaque.
+ *
+ * A proven step announces `none` only when its postcheck already held, so its
+ * stored progress means something different from an opaque announcement, and
+ * that difference is what the resume arithmetic has to read.
+ */
+async function publishProvenChain(): Promise<PublishedResetChain> {
+  const storage = new MemoryEstateStorage();
+  const estate = encodeEstateDescriptor({ dialect: "sqlite" });
+  await storage.publishEstate(estate.bytes);
+  await storage.publishSnapshot(
+    EMPTY_SNAPSHOT.snapshotHash,
+    EMPTY_SNAPSHOT.bytes
+  );
+  const blob = composeSqlBlob([
+    PROVEN_PRECHECK_SQL,
+    PROVEN_EXECUTE_SQL,
+    PROVEN_POSTCHECK_SQL,
+  ]);
+  const execute = dispatchAt(blob, 1);
+  const parentBody: Omit<MigrationParentTransitionV1, "transitionHash"> = {
+    fromState: null,
+    originChecks: [],
+    requestedForwardBoundary: null,
+    operations: [
+      {
+        id: "root:forward:0",
+        label: "root forward 0",
+        origin: "generated",
+        risk: "safe",
+        steps: [
+          {
+            retry: "proven",
+            precheck: {
+              kind: "trusted-read",
+              id: "root:precheck",
+              query: dispatchAt(blob, 0),
+              equals: true,
+            },
+            execute,
+            postcheck: {
+              kind: "trusted-read",
+              id: "root:postcheck",
+              query: dispatchAt(blob, 2),
+              equals: true,
+            },
+          },
+        ],
+      },
+    ],
+    rollback: { kind: "irreversible", reason: "root is forward only" },
+  };
+  const transitionHash = encodeTransitionHash(parentBody);
+  const encoded = encodeStateManifest({
+    format: "1",
+    estateHash: estate.estateHash,
+    name: "root",
+    snapshotHash: EMPTY_SNAPSHOT.snapshotHash,
+    sqlHash: blob.sqlHash,
+    destinationChecks: [],
+    parents: [{ ...parentBody, transitionHash }],
+  });
+  await storage.publishSql(blob.sqlHash, blob.bytes);
+  await storage.publishState(encoded.stateId, encoded.bytes);
+  return {
+    storage,
+    estateHash: estate.estateHash,
+    snapshotHash: EMPTY_SNAPSHOT.snapshotHash,
+    states: [
+      {
+        name: "root",
+        stateId: encoded.stateId,
+        transitionHash,
+        sqlHash: blob.sqlHash,
+        fromState: null,
+        forwardDispatches: [execute],
+      },
+    ],
+  };
+}
+
+describe("reset resume arithmetic", () => {
+  test("refuses an unfinished reset whose stored replay path is not the requested one", async () => {
+    const chain = await publishResetChain([
+      { name: "root", forward: ["SELECT 'root-forward-0'"] },
+      { name: "child", forward: ["SELECT 'child-forward-0'"] },
+    ]);
+    const requested = chain.states.map((state) => state.stateId);
+    // Everything the plan authenticates about itself still holds; only its
+    // replay path is a different length from the one this reset resolved.
+    const body = {
+      estateHash: chain.estateHash,
+      targetIdentity: "sqlite:",
+      sourceRevision: 0,
+      sourceFingerprint: chain.snapshotHash,
+      replayPath: [requested[0]!],
+      clearDispatches: [],
+      referencedStates: requested,
+    };
+    const plan: ResetPlanV1 = {
+      ...body,
+      resetPlanHash: domainHash(HASH_DOMAIN.resetPlan, canonicalizeJson(body)),
+    };
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [resetStartedEvent(chain, plan)],
+    });
+
+    await expect(
+      resetV1(clientFor(driver), chain.storage)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: "The unfinished reset does not match the requested reset",
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward-0'");
+  });
+
+  test("an announced transactional dispatch verifies nothing and replays its edge", async () => {
+    const chain = await publishResetChain([
+      {
+        name: "root",
+        forward: ["SELECT 'root-forward-0'", "SELECT 'root-forward-1'"],
+        boundary: "transactional",
+      },
+    ]);
+    const plan = resetPlanFor(chain);
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [
+        resetStartedEvent(chain, plan),
+        // Announced, never confirmed: a transactional edge took its dispatch
+        // back, so no prefix of this edge is established.
+        replayStepEvent(chain, plan.resetPlanHash, 0, 0, {
+          effectState: "none",
+        }),
+      ],
+    });
+
+    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      preview: false,
+      path: [chain.states[0]!.stateId],
+    });
+    expect(driver.statements).toContain("SELECT 'root-forward-0'");
+    expect(driver.statements).toContain("SELECT 'root-forward-1'");
+  });
+
+  test("an announced proven dispatch is progress and is not executed again", async () => {
+    const chain = await publishProvenChain();
+    const plan = resetPlanFor(chain);
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [
+        resetStartedEvent(chain, plan),
+        // A proven step reports `none` when its postcheck ALREADY held, so the
+        // destination of that step is established evidence, not an ambiguity.
+        replayStepEvent(chain, plan.resetPlanHash, 0, 0, {
+          effectState: "none",
+        }),
+      ],
+    });
+
+    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      preview: false,
+      path: [chain.states[0]!.stateId],
+    });
+    expect(driver.statements).not.toContain(PROVEN_EXECUTE_SQL);
+    expect(driver.statements).not.toContain(PROVEN_POSTCHECK_SQL);
+  });
+});
+
+describe("reset marker proof", () => {
+  test("closes an unfinished reset whose marker already proves the whole replay", async () => {
+    const chain = await publishResetChain([
+      { name: "root", forward: ["SELECT 'root-forward-0'"] },
+      { name: "child", forward: ["SELECT 'child-forward-0'"] },
+    ]);
+    const plan = resetPlanFor(chain);
+    // The crash landed between the marker compare-and-swap and the event that
+    // records it: the marker names the target, by this reset's own revision and
+    // arrival path, so the work is done and only the ledger is open.
+    const marker = markerFromPath(
+      chain.estateHash,
+      chain.snapshotHash,
+      chain.states.map((state) => ({
+        stateId: state.stateId,
+        transitionHash: state.transitionHash,
+        baselineBoundary: false,
+      })),
+      plan.sourceRevision + 1
+    );
+    const driver = sqliteEstateDriver();
+    driver.respond = controlRespond({
+      ledger: [resetStartedEvent(chain, plan)],
+      answer: (sql) =>
+        sql.includes("SELECT payload FROM") &&
+        sql.includes("_viborm_migration_state")
+          ? [{ payload: canonicalizeJsonText(marker) }]
+          : undefined,
+    });
+
+    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      preview: false,
+      path: chain.states.map((state) => state.stateId),
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward-0'");
+    expect(driver.statements).not.toContain("SELECT 'child-forward-0'");
   });
 });

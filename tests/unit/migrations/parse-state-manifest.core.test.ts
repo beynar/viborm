@@ -162,6 +162,17 @@ const parentRefusals: readonly ParentRefusal[] = [
     message: "steps[0].retry must be proven or opaque",
   },
   {
+    name: "a dispatch whose byte offset is not a safe integer",
+    transition: parent({
+      operations: [
+        operation({
+          steps: [{ execute: { ...execute, offset: 0.5 }, retry: "opaque" }],
+        }),
+      ],
+    }),
+    message: "steps[0].execute.offset must be a safe integer",
+  },
+  {
     name: "an unidentified operation",
     transition: parent({ operations: [operation({ id: "" })] }),
     message: "operations[0].id is required",
@@ -265,6 +276,17 @@ describe("state manifest parent admission", () => {
       expect.objectContaining({
         code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
         message: expect.stringContaining(message),
+      })
+    );
+  });
+
+  test("refuses a parent transition that is not an object", () => {
+    // The exact-key admission runs before any field is read, so a scalar in
+    // the parents array is refused as a shape rather than as a missing key.
+    expect(admit(["root"])).toThrowError(
+      expect.objectContaining({
+        code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
+        message: expect.stringContaining("state.parents[0] must be an object"),
       })
     );
   });
