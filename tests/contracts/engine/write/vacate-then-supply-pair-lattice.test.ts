@@ -1,45 +1,21 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-
-import { s } from "@schema";
 import {
-  registerVacateThenSupplyBehavior,
   resetVacateThenSupply,
   vacateThenSupplySchema,
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
-
-const substrates = [
-  {
-    name: "transaction",
-    make: (db: PGlite) => new PGliteDriver({ client: db }),
-  },
-  {
-    name: "atomic batch",
-    make: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
-  },
-] as const;
-
-for (const substrate of substrates) {
-  let shared: any;
-  registerVacateThenSupplyBehavior(substrate.name, async () => {
-    if (!shared) {
-      shared = createClient({
-        schema: vacateThenSupplySchema,
-        driver: substrate.make(openBorrowedPGlite()),
-      }) as any;
-      await syncLiveSchema(shared);
-    }
-    return shared;
-  });
-}
-
+/**
+ * The CHILD-HELD lattice, enumerated. Three witnesses, three fresh databases: the two
+ * enumerations each sweep a whole payload space against one committed bed, and the
+ * composed-modify probe needs its own bed because its assertion is what did NOT get
+ * written. The per-substrate registration bed lives in
+ * `vacate-then-supply-substrates.test.ts`; the parent-held direction lives in the two
+ * `vacate-then-supply-parent-held-*` files.
+ */
 /** All 21 unordered pairs pin the public child-held to-one update lattice. */
 const PAIR_ARMS: Record<string, unknown> = {
   disconnect: true,
@@ -203,43 +179,6 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
   }, 120_000);
 });
 
-/** Parent-held to-one updates do not support a replacement pair. */
-const parentHeldSchema = (() => {
-  const depot = s
-    .model({
-      id: s.string().id(),
-      note: s.string(),
-      stations: s.toMany(() => station),
-    })
-    .map("e65p_depots");
-
-  const station = s
-    .model({
-      id: s.string().id(),
-      label: s.string(),
-      depotId: s.string().nullable(),
-      depot: s
-        .toOne(() => depot)
-        .fields("depotId")
-        .references("id"),
-    })
-    .map("e65p_stations");
-
-  return { depot, station };
-})();
-
-/**
- * PACKAGE H RETARGET. This block used to say the parent-held direction keeps the
- * replacement pair refused; E6.5 declined to absorb it because the FK-null of a `delete`
- * lands in the post-root write bucket, AFTER the supplier's rebind is folded into the
- * root SET — measured at 8c2908d as inserting the fresh depot and then ORPHANING it.
- * R2's elision is that ordering change: when a sibling supplier rebinds the edge's
- * columns, the vacate contributes no assignment and the FK-null UPDATE is not emitted at
- * all, while the correlated DELETE still addresses the OLD value from the located row.
- *
- * The `d-alt` decoy is live and unconnected throughout, so a composition that vacated or
- * supplied the wrong row would be visible in every assertion below.
- */
 describe("Package H — the composed modify declares every field its probe reads", () => {
   test("a sibling write to the wrapper filter's field is a dependency, not a blind spot", async () => {
     const client = createClient({
@@ -282,197 +221,6 @@ describe("Package H — the composed modify declares every field its probe reads
     ).toEqual([
       ["b1", "incumbent"],
       ["b-alt", "alt"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-});
-
-describe("Package H — the parent-held direction composes the replacement", () => {
-  const seed = async () => {
-    const client = createClient({
-      schema: parentHeldSchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-    }) as any;
-    await syncLiveSchema(client);
-    await client.depot.create({ data: { id: "d1", note: "incumbent" } });
-    await client.depot.create({ data: { id: "d-alt", note: "decoy" } });
-    await client.station.create({
-      data: { id: "s1", label: "L", depotId: "d1" },
-    });
-    return client;
-  };
-  const depots = async (client: any): Promise<unknown[][]> =>
-    (await client.depot.findMany({}))
-      .map((row: any) => [row.id, row.note])
-      .sort((left: unknown[], right: unknown[]) =>
-        String(left[0]) < String(right[0]) ? -1 : 1
-      );
-
-  test("delete + create replaces: the newcomer holds the slot and is NOT orphaned", async () => {
-    const client = await seed();
-    await client.station.update({
-      where: { id: "s1" },
-      data: { depot: { delete: true, create: { id: "d-new", note: "fresh" } } },
-    });
-    // The whole point of the elision: `depotId` is the newcomer, not NULL.
-    expect(
-      await client.station.findUnique({ where: { id: "s1" } })
-    ).toMatchObject({ depotId: "d-new" });
-    expect(await depots(client)).toEqual([
-      ["d-alt", "decoy"],
-      ["d-new", "fresh"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-
-  test("disconnect + connect is ONE root assignment, and the incumbent survives", async () => {
-    const client = await seed();
-    await client.station.update({
-      where: { id: "s1" },
-      data: { depot: { disconnect: true, connect: { id: "d-alt" } } },
-    });
-    expect(
-      await client.station.findUnique({ where: { id: "s1" } })
-    ).toMatchObject({ depotId: "d-alt" });
-    expect(await depots(client)).toEqual([
-      ["d-alt", "decoy"],
-      ["d1", "incumbent"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-
-  test("disconnect + create mints the newcomer and leaves the incumbent connected to nothing", async () => {
-    const client = await seed();
-    await client.station.update({
-      where: { id: "s1" },
-      data: {
-        depot: { disconnect: true, create: { id: "d-new", note: "fresh" } },
-      },
-    });
-    expect(
-      await client.station.findUnique({ where: { id: "s1" } })
-    ).toMatchObject({ depotId: "d-new" });
-    // `disconnect` on this direction only nulls the parent's column, and the supplier
-    // replaced that assignment, so the incumbent row is untouched — the same fate the
-    // `disconnect + connect` row above pins, reached through the other supplier.
-    expect(await depots(client)).toEqual([
-      ["d-alt", "decoy"],
-      ["d-new", "fresh"],
-      ["d1", "incumbent"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-
-  test.each([
-    [
-      "found arm",
-      "d-alt",
-      { id: "d-alt", note: "never-minted" },
-      [
-        ["d-alt", "decoy"],
-        ["d1", "incumbent"],
-      ],
-    ],
-    [
-      "missing arm",
-      "d-new",
-      { id: "d-new", note: "minted" },
-      [
-        ["d-alt", "decoy"],
-        ["d-new", "minted"],
-        ["d1", "incumbent"],
-      ],
-    ],
-  ])(
-    "disconnect + connectOrCreate takes the slot on its %s",
-    async (_label, whereId, create, expected) => {
-      const client = await seed();
-      // `connectOrCreate` is the one supplier with two arms, so "does the elided vacate
-      // really contribute nothing?" has two answers and both are pinned: the found arm
-      // rebinds to a row that already exists, the missing arm to one this statement
-      // inserts. Either way the parent's column ends holding the supplier's value and
-      // never a transient NULL.
-      await client.station.update({
-        where: { id: "s1" },
-        data: {
-          depot: {
-            disconnect: true,
-            connectOrCreate: { where: { id: whereId }, create },
-          },
-        },
-      });
-      expect(
-        await client.station.findUnique({ where: { id: "s1" } })
-      ).toMatchObject({ depotId: whereId });
-      expect(await depots(client)).toEqual(expected);
-      await client.$disconnect();
-    },
-    30_000
-  );
-
-  test("connect + update modifies the INCOMING member, not the outgoing one", async () => {
-    const client = await seed();
-    await client.station.update({
-      where: { id: "s1" },
-      data: { depot: { connect: { id: "d-alt" }, update: { note: "moved" } } },
-    });
-    expect(
-      await client.station.findUnique({ where: { id: "s1" } })
-    ).toMatchObject({ depotId: "d-alt" });
-    // `d1` keeps its note. A modify still correlated on the parent's foreign key would
-    // have rewritten it: at probe time that column still holds `d1`.
-    expect(await depots(client)).toEqual([
-      ["d-alt", "moved"],
-      ["d1", "incumbent"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-
-  test("delete + connect is the own-write ledger's refusal, and writes nothing", async () => {
-    const client = await seed();
-    // The lattice admits this pair on this direction. `delete: true` names the CURRENT
-    // member, whose identity is unknown at construction, so the analyzer cannot rule out
-    // that it is the very row the `connect` reads — and if it were, the root would end
-    // pointing at a deleted depot. Recorded here rather than in the lattice, because the
-    // lattice is not who refuses it.
-    await expect(
-      client.station.update({
-        where: { id: "s1" },
-        data: { depot: { delete: true, connect: { id: "d-alt" } } },
-      })
-    ).rejects.toThrow(
-      "Nested operation 'connect' on relation 'depot' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
-    );
-    expect(
-      await client.station.findUnique({ where: { id: "s1" } })
-    ).toMatchObject({ depotId: "d1" });
-    expect(await depots(client)).toEqual([
-      ["d-alt", "decoy"],
-      ["d1", "incumbent"],
-    ]);
-    await client.$disconnect();
-  }, 30_000);
-
-  test("create + update stays refused on this direction — by the LATTICE", async () => {
-    const client = await seed();
-    // Not the engine's composition site: the parent-held half of the lattice admits
-    // `connect` + `update` only, so this never reaches the compiler at all.
-    await expect(
-      client.station.update({
-        where: { id: "s1" },
-        data: {
-          depot: {
-            create: { id: "d-new", note: "fresh" },
-            update: { note: "n" },
-          },
-        },
-      })
-    ).rejects.toThrow(
-      "Unsupported to-one operation combination: create, update"
-    );
-    expect(await depots(client)).toEqual([
-      ["d-alt", "decoy"],
-      ["d1", "incumbent"],
     ]);
     await client.$disconnect();
   }, 30_000);

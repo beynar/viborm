@@ -32,7 +32,8 @@ import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lif
  * `RETURNING <pk>` in transaction mode on a returning driver, the driver's `insertId`
  * otherwise. Only corrupting what that statement RETURNED can tell the two apart, which
  * is the instrument N1 built (`CorruptLocatePGliteDriver`) and N4-U1 aimed at the depth
- * probe (`depth-seam.test.ts`). This is the same instrument aimed at a produced value.
+ * probe (`depth-seam-located-provenance.test.ts`). This is the same instrument aimed at
+ * a produced value.
  *
  * The corruption points the returned key at ANOTHER LIVE ROW rather than at nonsense, so
  * a foreign-key constraint cannot substitute for the assertion: both outcomes are

@@ -31,8 +31,8 @@ import {
  *
  * These are fixed-expectation behaviors run on every driver class and both substrates.
  * The plan-shape evidence — that the two spellings compile to the SAME statements, not
- * merely to the same final state — lives in `located-parent-ref.test.ts`, which can see
- * the driver traffic.
+ * merely to the same final state — lives in `located-parent-ref-statement-shape.test.ts`,
+ * which can see the driver traffic.
  */
 export const locatedParentRefSchema = (() => {
   const account = s

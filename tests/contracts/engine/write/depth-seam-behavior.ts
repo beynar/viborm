@@ -204,9 +204,9 @@ hydrateSchemaNames(depthSeamSchema);
 const NO_BATCH_SKIP_LOWERING = /no atomic-batch lowering/;
 /** V1's verbatim `Cannot update … for this parent` abort, spelled in FULL and named
  *  per relation. A bare `/Cannot update/` also matches the occupied-slot rejection —
- *  `depth-seam.test.ts` records that hazard and spells its own matcher out for the
- *  same reason — so every arm below would pass on a refusal it does not mean. The two
- *  relations are the only ones these arms target. */
+ *  `depth-seam-fixtures.ts` records that hazard and spells its own matcher out for
+ *  the same reason — so every arm below would pass on a refusal it does not mean. The
+ *  two relations are the only ones these arms target. */
 const TARGET_NOT_FOUND =
   /Cannot update relation '(projects|photos)': target record was not found for this parent\./;
 /** The same abort raised by the X1c DELEGATION route — an `UpdateOperation` running in
