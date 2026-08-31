@@ -1,27 +1,26 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
-
-import { describe, expect, test } from "vitest";
 import {
   bulkWriteSchema,
   runBulkWriteBehavior,
 } from "@tests/contracts/engine/write/bulk-write-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 // The bulk-write stragglers on PGlite, both substrates.
 runBulkWriteBehavior({
@@ -312,6 +311,7 @@ describe("the removed *AndReturn method names (runtime)", () => {
         ).rejects.toThrow(`Unknown operation '${removed}' on model 'gadget'`);
       } finally {
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     });
   }
@@ -391,6 +391,7 @@ describe("a validation error names the operation the caller spelled", () => {
           expect(error.meta.operation).toBe(family);
         } finally {
           await client.$disconnect();
+          await closeTestPGlite(db);
         }
       });
     }
@@ -445,6 +446,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -476,6 +478,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ).toEqual([{ code: "c1" }]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -501,6 +504,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ).rejects.toThrow(DELETE_MANY_VALIDATION_FAILURE);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 });
