@@ -401,7 +401,8 @@ contract in `transactionOptionSupport()`; the resolver in
 `src/drivers/shared/transaction-options.ts` turns that into either an executable
 plan or a typed refusal — `UnsupportedOperationError` (V8003) for an option this
 driver cannot honor, `TransactionError` (V5005) for a malformed options object.
-`tests/drivers/transaction-portability.test.ts` pins every driver × option cell.
+`tests/contracts/drivers/transaction-portability.core.test.ts` pins every
+driver × option cell.
 See [Transactions](../../docs/content/docs/client/transactions.mdx) for the
 per-driver table.
 

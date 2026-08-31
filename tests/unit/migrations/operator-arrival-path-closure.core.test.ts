@@ -22,7 +22,6 @@ import { s } from "@src/schema";
 import { describe, expect, test } from "vitest";
 import {
   controlCatalogAnswer,
-  pgEstateDriver,
   sqliteControlDefinitionAnswer,
   sqliteEstateDriver,
 } from "./_estate";

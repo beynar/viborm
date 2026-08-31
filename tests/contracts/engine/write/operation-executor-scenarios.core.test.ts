@@ -13,6 +13,23 @@ import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation"
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+/**
+ * The THREE routes `OperationExecutor.execute` chooses between
+ * (`OperationExecutor.ts:326-374`), driven by a recording driver rather than a
+ * provider: statement-atomic (no envelope), interactive transaction, and native
+ * atomic batch. Nothing else in the provider-free estate observes the route a
+ * whole operation takes — the fold suites that pin round-trip counts
+ * (`upsert-on-conflict-fold.test.ts`, `batch-round-trip-baseline.test.ts`) all
+ * boot PGlite, and `generated-output-segment-contract.core.test.ts` drives
+ * hand-built fragments through the batch seam only.
+ *
+ * `batch-attribution-hazard-signature.core.test.ts` owns the CLIENT array-batch
+ * attributor (`attributeOperationBatchError`). The last test here covers the
+ * executor's own `attributeGuardFailure` instead: its guard lowering is a SQL
+ * division-by-zero assertion, so only a provider that RAISES can fail a batch
+ * premise — a fake that merely answers "no rows" to the assertion proves nothing.
+ */
+
 const schema = (() => {
   const account = s
     .model({
@@ -45,7 +62,18 @@ interface DriverScenario {
   readonly mode: ExecutionMode;
   readonly emptyDirectResult?: boolean;
   readonly emptyUpdateResult?: boolean;
-  readonly failBatchGuard?: boolean;
+  /**
+   * A concurrent delete lands between the planning read and the atomic batch.
+   * The batch's `exists` assertion then divides by zero exactly as PostgreSQL
+   * does (`postgres-adapter.ts:521`), which is the only signal the executor's
+   * guard attribution reacts to.
+   */
+  readonly rowVanishesBeforeBatch?: boolean;
+}
+
+/** PostgreSQL's own division-by-zero, the shape `error-mapping.ts:102` reads. */
+function divisionByZero(): Error {
+  return Object.assign(new Error("division by zero"), { code: "22012" });
 }
 
 class ScenarioDriver extends Driver<null, null> {
@@ -56,6 +84,7 @@ class ScenarioDriver extends Driver<null, null> {
   readonly batches: string[][] = [];
   transactions = 0;
   private readonly scenario: DriverScenario;
+  private rowGone = false;
 
   constructor(scenario: DriverScenario) {
     super("postgresql", `executor-${scenario.mode}`);
@@ -79,7 +108,7 @@ class ScenarioDriver extends Driver<null, null> {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
-    return Promise.resolve(this.response<T>(statement, false));
+    return Promise.resolve(this.response<T>(statement));
   }
 
   protected executeRaw<T>(
@@ -106,12 +135,19 @@ class ScenarioDriver extends Driver<null, null> {
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
     this.batches.push(queries.map((query) => query.sql));
-    const results = queries.map((query) => this.response<T>(query.sql, true));
+    if (this.scenario.rowVanishesBeforeBatch) {
+      this.rowGone = true;
+      const assertion = queries.find((query) =>
+        query.sql.includes("__viborm_assert__")
+      );
+      if (assertion) throw divisionByZero();
+    }
+    const results = queries.map((query) => this.response<T>(query.sql));
     await committed?.();
     return results;
   }
 
-  private response<T>(statement: string, inBatch: boolean): QueryResult<T> {
+  private response<T>(statement: string): QueryResult<T> {
     if (
       statement.startsWith("INSERT") &&
       statement.includes('"executor_scenario_accounts"')
@@ -129,20 +165,21 @@ class ScenarioDriver extends Driver<null, null> {
       return { rows: rows as T[], rowCount: rows.length };
     }
     if (
-      statement.startsWith("SELECT") &&
-      statement.includes('"executor_scenario_accounts"')
+      statement.includes('"executor_scenario_accounts"') &&
+      statement.startsWith("SELECT")
     ) {
-      const isBatchGuard = inBatch && statement.includes("LIMIT 1");
-      const rows =
-        isBatchGuard && this.scenario.failBatchGuard
-          ? []
-          : [
-              {
-                id: 1,
-                email: "one@example.test",
-                score: statement.includes("FOR UPDATE") ? 1 : 2,
-              },
-            ];
+      // The locked planning probe still sees the pre-update row; every later read
+      // sees the applied `score`. A vanished row answers nothing at all, which is
+      // what the post-abort guard re-probe must observe.
+      const rows = this.rowGone
+        ? []
+        : [
+            {
+              id: 1,
+              email: "one@example.test",
+              score: statement.includes("FOR UPDATE") ? 1 : 2,
+            },
+          ];
       return { rows: rows as T[], rowCount: rows.length };
     }
     return { rows: [], rowCount: 1 };
@@ -242,12 +279,15 @@ describe("provider-free operation executor scenarios", () => {
     ).toBe(false);
   });
 
-  test("a failed batch identity guard rejects the complete unit", async () => {
+  test("a raised batch assertion is re-attributed to the guard whose premise broke", async () => {
     const { driver, engine, executor } = setup({
       mode: "batch",
-      failBatchGuard: true,
+      rowVanishesBeforeBatch: true,
     });
 
+    // The provider aborts the whole unit with an untyped division-by-zero; only
+    // the re-probe of the guard's own premise turns that into this guard's typed
+    // not-found (`OperationExecutor.ts:3281`).
     await expect(
       executor.execute(nestedUpdate(engine), context("update"))
     ).rejects.toBeInstanceOf(NotFoundError);

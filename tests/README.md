@@ -52,6 +52,26 @@ keeps its provider-free core separate from a small audited set of high-signal
 provider-free contracts; `test:all` retains the exhaustive credential-free estate. All
 use dedicated coverage projects.
 
+Driver coverage uses `scripts/driver-test-manifest.mjs`. It admits every
+`tests/contracts/drivers` core file, five audited SQLite-backed
+`.provider.test.ts` contracts, and the local SQLite3 and LibSQL suites, and it
+declares the groups that give every provider-owning file its own process. The
+seven PGlite files it keeps out of the focused report are pinned by name.
+`test:all` selects its extended-local estate through
+`scripts/credential-free-test-manifest.mjs`, which takes every non-core
+`.test.ts` outside `tests/package/` and `tests/providers/` except the three
+Docker suites a provider project already owns.
+
+Only the query and write core admission is a literal list: a new architecture,
+query, or write `.core.test.ts` is unowned, and the policy gate fails, until
+someone assigns it. Every other manifest reads its core directory, so a new core
+file joins its coverage lane automatically, while the extra non-core contracts
+each manifest adds stay literal. `scripts/coverage-policy.test.mjs` re-derives
+every expected set from the same directory. It refuses a resource-owning import
+in each query, write, and cache contract and in each non-core migration
+contract, and it requires a driver core contract that reaches a provider
+resource to run alone in its own process. The client set has no import audit.
+
 ## Commands
 
 ```bash
@@ -134,8 +154,11 @@ Rules:
   the same schema.
 - A structural/compiler proof must not boot a database.
 - Run the owned report with `pnpm test:coverage:write-engine`. Its literal
-  provider-free selection runs once in the single-thread
-  `coverage-write-engine` project. PGlite combinations remain in `test:all`.
+  provider-free selection runs as the sequential parts its manifest declares —
+  seven core slices plus the isolated mocked-Neon contract — in the
+  single-thread `coverage-write-engine` project, each part capped at a 512 MB
+  heap and merged only after its process exits. PGlite combinations remain in
+  `test:all`.
 
 A fresh database is allowed only when the contract observes DDL or migration
 state, connection lifecycle or database isolation, destructive schema behavior,
@@ -145,7 +168,8 @@ tests inside an outer rollback.
 
 The bounded launchers share one workspace lock. Never overlap Vitest, layer
 runners, or TypeScript shards. Each child process group has a 1536 MiB RSS
-ceiling sampled every 250 ms. Vitest also has one worker and a 768 MB heap.
+ceiling sampled every 250 ms. Vitest also has one worker and a 768 MB heap
+ceiling a coverage subsystem may lower but never raise.
 Coverage orchestration and report merging use a separate 768 MB Node heap cap.
 On timeout, interruption, or RSS breach, the launcher terminates the complete
 group, escalates to SIGKILL, and verifies that no group member remains before

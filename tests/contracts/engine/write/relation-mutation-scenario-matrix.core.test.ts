@@ -1,9 +1,7 @@
-import { NestedWriteError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import type {
   OperationFragment,
-  OperationStep,
   WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
@@ -12,6 +10,25 @@ import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+
+/**
+ * ONE ordered step sequence per nested relation VERB on an ordinary
+ * many-to-many, plus the two singular member-junction verbs nothing else spells
+ * standalone. The verb is the dimension: a payload keyword must reach exactly
+ * one lowering in `RelationJunctionPart.allocatePlan` (:1381) and emit that
+ * plan's writes in that plan's order.
+ *
+ * Deliberately NOT restated here, because each already has an owner:
+ *  - `updateMany` / `deleteMany` / correlated `upsert` on this same junction —
+ *    `relation-junction-collection-coverage.core.test.ts:135,:155,:181`, which
+ *    also pins their parameters.
+ *  - every singular member-junction supplier (`create`, `connectOrCreate`,
+ *    `upsert`, correlated `update`, the slot transfer and its vacate) —
+ *    `relation-junction-singular-coverage.core.test.ts`.
+ *  - variant collection labels and their step ids —
+ *    `relation-write-parity-anchors.core.test.ts`.
+ *  - the behavioral oracle for all of them — `m2m-mutation.test.ts` (PGlite).
+ */
 
 const collectionSchema = (() => {
   const author = s
@@ -55,32 +72,20 @@ const singularSchema = (() => {
 prepareSchema(collectionSchema);
 prepareSchema(singularSchema);
 
-function collectionEngine(batch = false): QueryEngine {
-  const driver = new PlanningDriver("postgresql", {
-    supportsTransactions: !batch,
-    supportsBatch: true,
-  });
-  const schemas = createSchemaRegistry(collectionSchema);
-  return new QueryEngine(
-    driver,
-    createModelRegistry(collectionSchema, schemas)
-  );
-}
-
-function singularEngine(): QueryEngine {
-  const driver = new PlanningDriver("postgresql", {
+function planningDriver(): PlanningDriver {
+  return new PlanningDriver("postgresql", {
     supportsTransactions: true,
     supportsBatch: true,
   });
-  const schemas = createSchemaRegistry(singularSchema);
-  return new QueryEngine(driver, createModelRegistry(singularSchema, schemas));
 }
 
-function collectionOperation(
-  data: Record<string, unknown>,
-  batch = false
-): UpdateOperation {
-  return new UpdateOperation(collectionEngine(batch), collectionSchema.author, {
+function collectionOperation(data: Record<string, unknown>): UpdateOperation {
+  const schemas = createSchemaRegistry(collectionSchema);
+  const engine = new QueryEngine(
+    planningDriver(),
+    createModelRegistry(collectionSchema, schemas)
+  );
+  return new UpdateOperation(engine, collectionSchema.author, {
     where: { id: 1 },
     data,
     select: { id: true },
@@ -88,33 +93,54 @@ function collectionOperation(
 }
 
 function singularOperation(data: Record<string, unknown>): UpdateOperation {
-  return new UpdateOperation(singularEngine(), singularSchema.clip, {
+  const schemas = createSchemaRegistry(singularSchema);
+  const engine = new QueryEngine(
+    planningDriver(),
+    createModelRegistry(singularSchema, schemas)
+  );
+  return new UpdateOperation(engine, singularSchema.clip, {
     where: { id: 30 },
     data,
     select: { id: true },
   });
 }
 
+/**
+ * Publish one row set per planning read: the root locate answers with its own
+ * row, every relation probe with the captured target set.
+ */
 function knownRows(
   operation: UpdateOperation,
-  rootName: string,
-  relationRows: readonly Record<string, unknown>[],
-  slotRows: readonly Record<string, unknown>[] = []
+  rootLocate: { readonly id: string; readonly row: Record<string, unknown> },
+  relationRows: readonly Record<string, unknown>[]
 ): Record<string, unknown> {
   return Object.fromEntries(
     operation
       .planning()
       .steps.map((step) => [
         planningKey(step.id, "rows"),
-        step.id === `${rootName}.locate`
-          ? rootName === "author"
-            ? [{ id: 1, name: "author" }]
-            : [{ id: 30, title: "clip" }]
-          : step.id.endsWith(".slot.owners")
-            ? slotRows
-            : relationRows,
+        step.id === rootLocate.id ? [rootLocate.row] : relationRows,
       ])
   );
+}
+
+const AUTHOR_LOCATE = {
+  id: "author.locate",
+  row: { id: 1, name: "author" },
+};
+const CLIP_LOCATE = { id: "clip.locate", row: { id: 30, title: "clip" } };
+
+function relationStepIds(
+  fragment: OperationFragment,
+  prefix: string
+): readonly string[] {
+  return fragment.steps
+    .filter((step) => step.id.startsWith(prefix))
+    .map((step) => step.id);
+}
+
+function sqlText(step: WriteStep): string {
+  return step.statement.strings.join("?");
 }
 
 function writes(fragment: OperationFragment): readonly WriteStep[] {
@@ -123,72 +149,69 @@ function writes(fragment: OperationFragment): readonly WriteStep[] {
   );
 }
 
-function relationSteps(
-  fragment: OperationFragment,
-  prefix: string
-): readonly OperationStep[] {
-  return fragment.steps.filter((step) => step.id.startsWith(prefix));
-}
-
-function sql(step: WriteStep): string {
-  return step.statement.strings.join("?");
-}
-
 describe("collection junction mutation matrix", () => {
+  // Each row is the plan `allocatePlan` must select and the exact ordered writes
+  // that plan emits under an interactive transaction (no premise guards). A verb
+  // that silently reached another plan — `set` skipping its clear, `delete`
+  // dropping the membership row before the target row, `connect` writing the
+  // target table — changes this list.
   for (const scenario of [
     {
       name: "connect",
       data: { tags: { connect: [{ id: 20 }] } },
-      expected: ["INSERT", "relation_matrix_author_tag"],
+      steps: ["tag.connect"],
     },
     {
       name: "disconnect",
       data: { tags: { disconnect: [{ id: 20 }] } },
-      expected: ["DELETE", "relation_matrix_author_tag"],
+      steps: ["tag.disconnect"],
     },
     {
       name: "set",
       data: { tags: { set: [{ id: 20 }] } },
-      expected: ["DELETE", "relation_matrix_author_tag"],
+      steps: ["tag.set.clear", "tag.set.insert"],
     },
     {
       name: "create",
       data: { tags: { create: [{ id: 21, label: "created" }] } },
-      expected: ["INSERT", "relation_matrix_tag"],
+      steps: ["tag.create", "tag.junction.insert"],
     },
     {
       name: "update",
       data: {
-        tags: {
-          update: [{ where: { id: 20 }, data: { label: "updated" } }],
-        },
+        tags: { update: [{ where: { id: 20 }, data: { label: "updated" } }] },
       },
-      expected: ["UPDATE", "relation_matrix_tag"],
+      steps: ["tag.update"],
     },
     {
       name: "delete",
       data: { tags: { delete: [{ id: 20 }] } },
-      expected: ["DELETE", "relation_matrix_tag"],
+      steps: ["tag.delete", "tag.delete.child"],
+    },
+    {
+      name: "connectOrCreate",
+      data: {
+        tags: {
+          connectOrCreate: {
+            where: { id: 20 },
+            create: { id: 20, label: "unused" },
+          },
+        },
+      },
+      steps: ["tag.junction.insert"],
     },
   ]) {
-    test(`${scenario.name} compiles its target and membership effects`, () => {
+    test(`${scenario.name} compiles its plan's ordered writes`, () => {
       const operation = collectionOperation(scenario.data);
       const compiled = operation.compile(
-        knownRows(operation, "author", [{ id: 20, label: "before" }])
+        knownRows(operation, AUTHOR_LOCATE, [{ id: 20, label: "before" }])
       );
-      const statements = writes(compiled).map(sql);
 
-      expect(
-        statements.some(
-          (statement) =>
-            statement.includes(scenario.expected[0]!) &&
-            statement.includes(scenario.expected[1]!)
-        )
-      ).toBe(true);
+      expect(relationStepIds(compiled, "tag.")).toEqual(scenario.steps);
     });
   }
 
-  test("createMany emits the target rows and their junction memberships", () => {
+  test("createMany writes the target rows and their junction memberships", () => {
     const operation = collectionOperation({
       tags: {
         createMany: {
@@ -199,9 +222,11 @@ describe("collection junction mutation matrix", () => {
         },
       },
     });
-    const compiled = operation.compile(knownRows(operation, "author", []));
-    const statements = writes(compiled).map(sql);
+    const compiled = operation.compile(knownRows(operation, AUTHOR_LOCATE, []));
+    const statements = writes(compiled).map(sqlText);
 
+    // Two tables, not one: a bulk arm that inserted only the targets would leave
+    // them unreachable from this author.
     expect(
       statements.some((statement) =>
         statement.includes('"relation_matrix_tag"')
@@ -213,165 +238,34 @@ describe("collection junction mutation matrix", () => {
       )
     ).toBe(true);
   });
-
-  test("bulk target mutations stay correlated through the junction", () => {
-    const cases = [
-      {
-        data: {
-          tags: {
-            updateMany: {
-              where: { label: { contains: "before" } },
-              data: { label: "after" },
-            },
-          },
-        },
-        verb: "UPDATE",
-      },
-      {
-        data: { tags: { deleteMany: { label: { startsWith: "stale" } } } },
-        verb: "DELETE",
-      },
-    ];
-
-    for (const current of cases) {
-      const operation = collectionOperation(current.data, true);
-      const compiled = operation.compile(
-        knownRows(operation, "author", [
-          { id: 20, label: "stale-before" },
-          { id: 21, label: "stale-before-2" },
-        ])
-      );
-      expect(
-        writes(compiled).some(
-          (step) =>
-            sql(step).includes(current.verb) &&
-            sql(step).includes('"relation_matrix_tag"')
-        )
-      ).toBe(true);
-    }
-  });
-
-  test("connectOrCreate and upsert select only the arm proven by their probes", () => {
-    const cases = [
-      {
-        data: {
-          tags: {
-            connectOrCreate: {
-              where: { id: 20 },
-              create: { id: 20, label: "unused" },
-            },
-          },
-        },
-        forbiddenId: "tag.create",
-      },
-      {
-        data: {
-          tags: {
-            upsert: {
-              where: { id: 20 },
-              create: { id: 20, label: "unused" },
-              update: { label: "updated" },
-            },
-          },
-        },
-        forbiddenId: "tag.create",
-      },
-    ];
-
-    for (const current of cases) {
-      const operation = collectionOperation(current.data);
-      const compiled = operation.compile(
-        knownRows(operation, "author", [{ id: 20, label: "existing" }])
-      );
-      expect(relationSteps(compiled, "tag.")).not.toEqual([]);
-      expect(
-        compiled.steps.some((step) => step.id === current.forbiddenId)
-      ).toBe(false);
-    }
-  });
 });
 
-describe("singular junction mutation matrix", () => {
-  test("connect replaces a different slot owner before linking the selected owner", () => {
-    const operation = singularOperation({ board: { connect: { id: 2 } } });
+describe("singular member-junction removal verbs", () => {
+  // `RelationJunctionToOnePart`'s measured facts 1 and 2: the ordinary junction
+  // lowerings answer both of these wrongly for a singular slot, so this owner
+  // exists precisely to keep them apart. `disconnect` drops the membership and
+  // KEEPS the owner row; `delete` drops the membership and then the one captured
+  // owner row behind it.
+  test("disconnect removes only the membership row", () => {
+    const operation = singularOperation({ board: { disconnect: true } });
     const compiled = operation.compile(
-      knownRows(
-        operation,
-        "clip",
-        [{ id: 2, label: "incoming" }],
-        [{ boardId: 3 }]
-      )
+      knownRows(operation, CLIP_LOCATE, [{ id: 2, label: "connected" }])
     );
 
-    expect(relationSteps(compiled, "board.").map((step) => step.id)).toEqual([
-      "board.slot.vacate",
-      "board.junction.insert",
+    expect(relationStepIds(compiled, "board.")).toEqual([
+      "board.junction.delete",
     ]);
   });
 
-  for (const scenario of [
-    {
-      name: "disconnect",
-      data: { board: { disconnect: true } },
-      expectedVerb: "DELETE",
-    },
-    {
-      name: "delete",
-      data: { board: { delete: true } },
-      expectedVerb: "DELETE",
-    },
-    {
-      name: "update",
-      data: { board: { update: { label: "updated" } } },
-      expectedVerb: "UPDATE",
-    },
-  ]) {
-    test(`${scenario.name} acts on the one connected owner`, () => {
-      const operation = singularOperation(scenario.data);
-      const compiled = operation.compile(
-        knownRows(operation, "clip", [{ id: 2, label: "connected" }])
-      );
-
-      expect(
-        writes(compiled).some((step) =>
-          sql(step).includes(scenario.expectedVerb)
-        )
-      ).toBe(true);
-    });
-  }
-
-  test("create and missing-slot upsert publish an owner before its membership", () => {
-    const cases = [
-      { board: { create: { id: 4, label: "created" } } },
-      {
-        board: {
-          upsert: {
-            create: { id: 5, label: "created by upsert" },
-            update: { label: "unused" },
-          },
-        },
-      },
-    ];
-
-    for (const data of cases) {
-      const operation = singularOperation(data);
-      const compiled = operation.compile(knownRows(operation, "clip", []));
-      const ids = writes(compiled)
-        .filter((step) => step.id.startsWith("board."))
-        .map((step) => step.id);
-      expect(ids).toEqual(["board.create", "board.junction.insert"]);
-    }
-  });
-});
-
-describe("coverage low value", () => {
-  test("singular update fails closed when the connected-slot probe is empty", () => {
-    const operation = singularOperation({
-      board: { update: { label: "missing" } },
-    });
-
-    expect(() => operation.compile(knownRows(operation, "clip", []))).toThrow(
-      NestedWriteError
+  test("delete removes the membership and then the one connected owner", () => {
+    const operation = singularOperation({ board: { delete: true } });
+    const compiled = operation.compile(
+      knownRows(operation, CLIP_LOCATE, [{ id: 2, label: "connected" }])
     );
+
+    expect(relationStepIds(compiled, "board.")).toEqual([
+      "board.junction.delete",
+      "board.delete",
+    ]);
   });
 });

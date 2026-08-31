@@ -595,7 +595,7 @@ tests must not boot a database or require a provider.
 
 L4 tests only declarations, immutable terminal state, construction-time refusals,
 clearability, the static projection, and junction physical naming. Pairing,
-ownership and diagnostics are L5 (`tests/schema-validation/`). Relation create,
+ownership and diagnostics are L5 (`tests/unit/schema-validation/`). Relation create,
 update, filter, ordering, and projection schemas are L3 operation schemas and
 live under `tests/unit/operation-schemas/relations`.
 
