@@ -38,16 +38,18 @@ function runPackageScript(script) {
 
 /**
  * Every stage this script runs is provider-backed: the extended-local estate and
- * the provider suites all boot a live database. A single live-PGlite suite peaks
- * around 1.6-1.7 GiB, so the 1536 MiB default cannot hold one of them — the cap
- * is a property of PGlite, not of the machine, and a bigger CI runner does not
- * help. These lanes opt up; the fast lanes keep the 1536 MiB default.
+ * the provider suites all boot a live database, and PGlite is a Wasm Postgres,
+ * so the 1536 MiB default that the fast lanes run under cannot hold one. That
+ * is a property of PGlite rather than of the machine, so a larger CI runner
+ * does not help; these lanes opt up instead, and the fast lanes keep 1536.
+ *
+ * 3584 is chosen, not derived. V8 grows into whatever headroom it is given, so
+ * the peak tracks the ceiling: the worst shard measured 2716 MiB under a 2560
+ * cap, 3119 under 3072 and 3595 under 3584. This is the lowest value at which
+ * every one of the 81 shards clears, and it stays under
+ * MAX_PROCESS_GROUP_RSS_LIMIT_MB. Releasing the per-test databases that ~30
+ * remaining suites still hold would let it come down.
  */
-// Measured across all 81 extended-local shards AFTER the per-scenario database
-// release landed: three-file PGlite shards now peak between 1.5 and 2.7 GiB,
-// where before the release they ran to 3.7 GiB and single files could not fit
-// at any ceiling. 3072 clears the observed maximum with headroom and sits well
-// under MAX_PROCESS_GROUP_RSS_LIMIT_MB.
 const PROVIDER_RSS_LIMIT_MB = 3584;
 
 function runVitest(label, wallLimitMs, project, files = []) {
