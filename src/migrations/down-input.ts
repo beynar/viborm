@@ -53,9 +53,13 @@ function normalizeStateSelector(value: unknown): StateSelector {
   if (keys.length !== 1) {
     return refuseDownOptions("down to must contain exactly one selector key");
   }
-  let key: "id" | "prefix" | "name" = "name";
-  if ("id" in record) key = "id";
-  else if ("prefix" in record) key = "prefix";
+  // The sole OWN key. `"id" in record` walks the prototype chain, so a polluted
+  // Object.prototype.id made `down({ to: { name: "baseline" } })` select the
+  // inherited id and roll back to the wrong state.
+  const [key] = keys;
+  if (!key) {
+    return refuseDownOptions("down to must contain exactly one selector key");
+  }
   const selected = record[key];
   if (typeof selected !== "string" || selected.length === 0) {
     return refuseDownOptions(`down to.${key} must be a non-empty string`);

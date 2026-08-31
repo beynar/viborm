@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   assertBoundedProcessPlatform,
   DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
-  MAX_PROCESS_GROUP_RSS_LIMIT_MB,
   nodeOptionsWithHeapLimit,
   parseHeapLimitArgument,
   parseLiveProcessGroupMemberCount,
@@ -14,7 +13,7 @@ import {
 } from "./bounded-process.mjs";
 
 const UNAVAILABLE_ON_WINDOWS_PATTERN = /unavailable on Windows/;
-const MAXIMUM_RSS_PATTERN = /no greater than 4096/;
+const MAXIMUM_RSS_PATTERN = /no greater than 1536/;
 const MAXIMUM_HEAP_PATTERN = /no greater than 768/;
 
 test("fails closed where process-tree bounds cannot be verified", () => {
@@ -56,21 +55,16 @@ test("RSS limit defaults to the project cap and is configurable", () => {
     forwardedArguments: ["run"],
     rssLimitMb: 900,
   });
-  // A lane may opt ABOVE the 1536 MiB default — the provider estate needs it,
-  // because a single live-PGlite suite peaks around 1.6-1.7 GiB — but never
-  // above the absolute ceiling.
-  assert.deepEqual(parseRssLimitArgument(["--rss-limit-mb=2560", "run"], {}), {
-    forwardedArguments: ["run"],
-    rssLimitMb: 2560,
-  });
+  // The ceiling may only ever be LOWERED. Raising it is refused: that is the
+  // memory-safety contract in memory.md, AGENTS.md and tests/README.md.
   assert.deepEqual(
-    parseRssLimitArgument([], { VIBORM_PROCESS_GROUP_RSS_MB: "2560" }),
-    { forwardedArguments: [], rssLimitMb: 2560 }
+    parseRssLimitArgument([], { VIBORM_PROCESS_GROUP_RSS_MB: "900" }),
+    { forwardedArguments: [], rssLimitMb: 900 }
   );
   assert.throws(
     () =>
       parseRssLimitArgument([
-        `--rss-limit-mb=${MAX_PROCESS_GROUP_RSS_LIMIT_MB + 1}`,
+        `--rss-limit-mb=${DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB + 1}`,
       ]),
     MAXIMUM_RSS_PATTERN
   );

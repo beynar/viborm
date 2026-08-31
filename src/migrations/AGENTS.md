@@ -623,3 +623,35 @@ invocation, requires 98% statements, branches, functions, and lines, and writes
 `coverage/migrations/index.html`. Its policy check rejects omitted eligible
 tests and resource-owning PGlite imports. Live DDL and external-provider
 behavior remain in provider projects.
+
+## Core Estate Exception
+
+`layer-migrations` runs every `.core.test.ts` under `tests/unit/migrations`,
+and core doctrine keeps that lane free of live provider processes. Five of the
+112 core contracts hold a named exception because what they assert is a
+property of a real database rather than of rendered SQL:
+
+| File | Live evidence it owns |
+|---|---|
+| `control-bootstrap.core.test.ts` | Real catalog readback of the control pair: collisions, triggers, missing primary keys, and a constraint the catalog does not report as text |
+| `read-only-tracking.core.test.ts` | Control presence read by `status` before and after `apply` |
+| `v1-apply.core.test.ts` | Marker arrival, committed state, and control-bootstrap recovery and rollback after an applied transition |
+| `v1-operators.core.test.ts` | `down`, `reset`, `status`, and `baseline` against real applied state |
+| `v1-push.core.test.ts` | Consent staleness after an external change, cross-driver consent, transactionless apply, and SQLite introspection readback |
+
+The exception is exactly one engine: an in-process `better-sqlite3` database,
+always `:memory:`, so it leaves nothing behind the worker process. No PGlite,
+MySQL, PostgreSQL, LibSQL, D1, or hosted transport; no file-backed `dataDir`;
+no filesystem, network, or subprocess module. Two further core contracts,
+`decimal-provider-limits.core.test.ts` and `v1-provider-admission.core.test.ts`,
+name a provider module to read a declared limit or capability and open no
+database at all.
+
+`scripts/coverage-policy.test.mjs` holds both lists and is the enforcement: a
+core contract that reaches a provider resource without being named fails, a
+named contract that no longer reaches one fails, and a named SQLite contract
+that adds a second engine, a file-backed database, or a host resource fails.
+Every other migration core contract drives a recording driver from
+`tests/unit/migrations/_estate.ts`. A new contract joins the exception only
+when its evidence cannot exist without a database; otherwise it belongs on a
+recording driver or in the extended or provider estate.

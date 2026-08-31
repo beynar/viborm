@@ -2,15 +2,6 @@ import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 export const DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB = 1536;
-/**
- * The absolute ceiling a lane may opt up to. The default stays 1536 MiB so the
- * fast lanes keep their tight budget; a lane that genuinely needs more must ask
- * for it explicitly and still cannot exceed this. Live PGlite is the reason the
- * two numbers differ: a single PGlite-backed suite peaks around 1.6-1.7 GiB, so
- * a shared 1536 MiB hard cap made the whole provider estate unrunnable on every
- * machine rather than only on small ones.
- */
-export const MAX_PROCESS_GROUP_RSS_LIMIT_MB = 4096;
 const RESOURCE_SAMPLE_INTERVAL_MS = 250;
 const TERMINATION_GRACE_MS = 1000;
 const TEARDOWN_VERIFICATION_MS = 2000;
@@ -69,10 +60,10 @@ export function parseRssLimitArgument(arguments_, environment = process.env) {
   if (
     !Number.isSafeInteger(rssLimitMb) ||
     rssLimitMb <= 0 ||
-    rssLimitMb > MAX_PROCESS_GROUP_RSS_LIMIT_MB
+    rssLimitMb > DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB
   ) {
     throw new Error(
-      `--rss-limit-mb must be a positive integer no greater than ${MAX_PROCESS_GROUP_RSS_LIMIT_MB}.`
+      `--rss-limit-mb must be a positive integer no greater than ${DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB}.`
     );
   }
   return {

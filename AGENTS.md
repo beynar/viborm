@@ -658,6 +658,18 @@ through dedicated coverage projects.
 Core layer projects use no network, Docker service, hosted credential, or live
 provider process. Keep provider-backed evidence in the extended or provider
 estate and use deterministic recording drivers for core contracts.
+Exactly two core estates hold a named exception. `tests/contracts/drivers`
+names every core contract that reaches a provider resource and gives each its
+own process. `tests/unit/migrations` names five core contracts that open an
+in-process `better-sqlite3` `:memory:` database and nothing else -
+`control-bootstrap`, `read-only-tracking`, `v1-apply`, `v1-operators`, and
+`v1-push` - because the authenticated control table, marker arrival, read-only
+control presence, and consent staleness they own are observations of live
+database state, plus two that name a provider module without opening a
+database. `scripts/coverage-policy.test.mjs` holds both lists
+and fails on an unnamed offender, a stale name, or a named SQLite file that
+adds a second engine, a file-backed `dataDir`, or a host resource. Do not widen
+either list to avoid writing a recording driver.
 
 The coverage runner executes subsystems sequentially. A subsystem with an
 explicit curated test list uses one bounded project invocation unless its

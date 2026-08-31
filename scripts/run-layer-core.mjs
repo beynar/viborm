@@ -1,3 +1,11 @@
+import {
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
@@ -39,6 +47,7 @@ try {
   process.exit(1);
 }
 
+const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const vitestEntry = fileURLToPath(
   new URL("../node_modules/vitest/vitest.mjs", import.meta.url)
 );
@@ -59,6 +68,83 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
       interruptionCount === 1 ? "interrupted" : "forced interruption"
     );
   });
+}
+
+// Chunk by BYTES, not by file count. A count-based split kept
+// contextual-typing-gate.core.types.ts (74 KB, alphabetically first) together
+// with nine others and still OOMed, while the same file alone typechecks in
+// 7.8s. Any file heavier than LARGE gets its own program; the rest pack to
+// BUDGET. Both numbers are measured against the 1280 MB shard heap.
+const TYPE_SHARD_LARGE_BYTES = 40_000;
+const TYPE_SHARD_BUDGET_BYTES = 100_000;
+let typeShardDirectory;
+
+/**
+ * Temporary tsconfigs that chunk one layer's compile-only type files. Returns
+ * the layer's own tsconfig unchanged when it already fits in a single chunk, so
+ * the common case spawns exactly one tsc as before.
+ */
+function typeShardProjects(layerName) {
+  const layerRoot = `tests/types/${layerName}`;
+  let files;
+  try {
+    files = readdirSync(resolve(projectRoot, layerRoot))
+      .filter((file) => file.endsWith(".core.types.ts"))
+      .sort();
+  } catch {
+    return [`${layerRoot}/tsconfig.json`];
+  }
+  const weighed = files.map((file) => ({
+    file,
+    bytes: statSync(resolve(projectRoot, layerRoot, file)).size,
+  }));
+  const total = weighed.reduce((sum, entry) => sum + entry.bytes, 0);
+  if (total <= TYPE_SHARD_BUDGET_BYTES) {
+    return [`${layerRoot}/tsconfig.json`];
+  }
+  const groups = [];
+  let current = [];
+  let carried = 0;
+  for (const { file, bytes } of weighed) {
+    if (bytes > TYPE_SHARD_LARGE_BYTES) {
+      if (current.length > 0) groups.push(current);
+      groups.push([file]);
+      current = [];
+      carried = 0;
+      continue;
+    }
+    if (carried + bytes > TYPE_SHARD_BUDGET_BYTES && current.length > 0) {
+      groups.push(current);
+      current = [];
+      carried = 0;
+    }
+    current.push(file);
+    carried += bytes;
+  }
+  if (current.length > 0) groups.push(current);
+  // Inside node_modules, not the OS temp dir: tsc resolves typeRoots relative
+  // to the config's own location, so a config in /tmp cannot find @types and
+  // fails with TS2688 for node, bun and vitest/globals.
+  typeShardDirectory ??= mkdtempSync(
+    join(projectRoot, "node_modules/.viborm-layer-types-")
+  );
+  return groups.map((group, index) => {
+    const project = join(typeShardDirectory, `${layerName}-${index + 1}.json`);
+    writeFileSync(
+      project,
+      JSON.stringify({
+        extends: resolve(projectRoot, "tests/types/tsconfig.layer.json"),
+        include: group.map((file) => resolve(projectRoot, layerRoot, file)),
+      })
+    );
+    return project;
+  });
+}
+
+function removeTypeShardDirectory() {
+  if (!typeShardDirectory) return;
+  rmSync(typeShardDirectory, { force: true, recursive: true });
+  typeShardDirectory = undefined;
 }
 
 const runStage = async (label, entry, arguments_, heapLimitMb) => {
@@ -113,12 +199,21 @@ try {
     runtime.code === 0 &&
     runtime.stopReason === undefined
   ) {
-    types = await runStage(
-      `Layer ${layer} types`,
-      tscEntry,
-      ["--project", `tests/types/${layer}/tsconfig.json`, "--noEmit"],
-      1280
-    );
+    // One program per layer no longer fits the 1280 MB shard heap: the client
+    // layer's twenty-one .core.types.ts files OOM together, and so do any
+    // twenty of them - contextual-typing-gate.core.types.ts alone is 74 KB of
+    // inference. Chunk the layer's type files so each program stays inside the
+    // heap. Splitting the work is the remedy; raising the heap is not.
+    types = { code: 0 };
+    for (const [index, project] of typeShardProjects(layer).entries()) {
+      types = await runStage(
+        `Layer ${layer} types ${index + 1}`,
+        tscEntry,
+        ["--project", project, "--noEmit"],
+        1280
+      );
+      if (types.code !== 0 || types.error || types.stopReason) break;
+    }
   }
 
   elapsed = performance.now() - startedAt;
@@ -135,6 +230,7 @@ try {
   failed = true;
   process.stderr.write(`${describeError(error)}\n`);
 } finally {
+  removeTypeShardDirectory();
   try {
     releaseTestRunLock();
   } catch (error) {

@@ -89,7 +89,9 @@ jobs:
   coverage:
     name: Coverage gates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Five minutes above the previous budget for the three bounded policy
+    # tests below, each of which is capped at sixty seconds of wall time.
+    timeout-minutes: 35
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,6 +110,15 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # scripts/coverage-policy.test.mjs, scripts/bounded-process.test.mjs and
+      # scripts/test-run-lock.test.mjs are the regression tests behind manifest
+      # completeness, the hard heap and RSS ceilings, verified teardown, and the
+      # workspace lock. They run first and on every pull request so none of that
+      # can regress while the rest of CI stays green. Each one runs bounded
+      # through scripts/run-node-safe.mjs with a 512 MB heap and a 60 s wall.
+      - name: Run runner and coverage policy gates
+        run: pnpm test:coverage:policy
 
       - name: Run coverage gates
         run: pnpm test:coverage
@@ -156,7 +167,11 @@ jobs:
   local-providers:
     name: Local providers
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # The credential-free estate is dozens of sequential bounded processes, not
+    # one Vitest run, so it needs a wall-clock budget shaped like the local one.
+    # This is scheduling headroom only: no heap, RSS, or per-stage wall limit
+    # changes with it.
+    timeout-minutes: 180
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,14 +191,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run local provider contracts
-        run: >-
-          node scripts/run-vitest-safe.mjs --wall-limit-ms=2400000 run
-          --workspace vitest.workspace.ts
-          --project=extended-local
-          --project=provider-pglite
-          --project=provider-sqlite3
-          --project=provider-libsql
+      # One invocation cannot hold this estate. A single live-PGlite file needs
+      # roughly 1.3 GiB on its own and every process group is capped at 1536 MiB
+      # of sampled RSS, so `--project=extended-local --project=provider-pglite`
+      # in one process either breaches the ceiling or reports nothing.
+      # scripts/run-credential-free-tests.mjs is the one owner of the bounded,
+      # sharded path this repository actually runs: the extended-local shards
+      # declared by scripts/credential-free-test-manifest.mjs, then each PGlite
+      # provider file in its own process, then SQLite3, LibSQL, Bun and local
+      # D1 - every stage launched bounded and required to prove whole-group
+      # teardown before the next one starts. Invoke it; never re-expand it into
+      # a single multi-project run and never raise a ceiling to fit a stage.
+      # Its first and last stages are `pnpm test` and `pnpm test:package`, which
+      # the quality, core, and package jobs also run on their own for fast
+      # feedback; this job is the single owner of the estate as a whole.
+      - name: Run the credential-free estate as bounded shards
+        run: pnpm test:all
 
   docker-providers:
     name: PostgreSQL and MySQL providers

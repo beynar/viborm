@@ -77,6 +77,17 @@ export function mergeSubsystemCoverageRuns({
     }
   }
   const summary = merged.getCoverageSummary().toJSON();
+  // Always print the RESOLVED threshold beside the measured value. A subsystem
+  // may carry a per-metric floor below its nominal target, and a reader must be
+  // able to see the number actually enforced rather than infer it.
+  process.stderr.write(
+    `${subsystem.label} thresholds: ${metrics
+      .map((metric) => {
+        const target = subsystem.metricTargets?.[metric] ?? subsystem.target;
+        return `${metric} ${summary[metric].pct}% (floor ${target}%)`;
+      })
+      .join(", ")}\n`
+  );
   for (const metric of metrics) {
     // A subsystem may declare a lower floor for ONE metric without dropping the
     // others: branch coverage capped by unreachable defensive guards should not

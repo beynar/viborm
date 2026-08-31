@@ -1,8 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { startBoundedProcess } from "./bounded-process.mjs";
+import {
+  DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+  startBoundedProcess,
+} from "./bounded-process.mjs";
 import { acquireTestRunLock } from "./test-run-lock.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -10,10 +13,8 @@ const tscEntry = fileURLToPath(
   new URL("../node_modules/typescript/bin/tsc", import.meta.url)
 );
 const wallLimitMs = 600_000;
-const TYPE_SHARD_HEAP_LIMIT_MB = 4096;
-// contracts-engine is the heaviest program here and peaked at 3075.8 MiB,
-// 3.8 MiB over a 3072 ceiling. Headroom, still well under the absolute cap.
-const TYPE_SHARD_RSS_LIMIT_MB = 3584;
+const TYPE_SHARD_HEAP_LIMIT_MB = 1280;
+const TYPE_SHARD_RSS_LIMIT_MB = DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB;
 /**
  * Ambient declarations belong to every shard. src/standard-schema-spec.d.ts
  * augments "@standard-schema/spec" with StandardSchemaOf, which the scalar
@@ -22,11 +23,69 @@ const TYPE_SHARD_RSS_LIMIT_MB = 3584;
  * DIFFERENT module shape than production and reporting nine phantom TS2724s.
  */
 const AMBIENT_DECLARATIONS = ["src/**/*.d.ts"];
+/**
+ * The former single "production" shard typechecked src, benchmarks, scripts and
+ * demo as ONE program and could not fit the 1280 MB shard heap - it OOMed
+ * before reporting, which is how two real TS2345 errors in src/cli/utils.ts sat
+ * unseen. Measured at that heap: src/** alone peaks at 1476 MiB RSS and passes,
+ * scripts + demo passes, and benchmarks/** is the part that does not - its
+ * seventeen files build large schemas whose type instantiation dominates. Split
+ * into halves it passes at 1450 and 1446 MiB. The benchmark shards are computed
+ * from the directory so adding a benchmark cannot silently re-inflate a shard.
+ */
+const BENCHMARK_SHARD_SIZE = 9;
+const benchmarkFiles = readdirSync(resolve(projectRoot, "benchmarks"))
+  .filter((file) => file.endsWith(".ts"))
+  .sort()
+  .map((file) => `benchmarks/${file}`);
+const benchmarkShards = Array.from(
+  { length: Math.ceil(benchmarkFiles.length / BENCHMARK_SHARD_SIZE) },
+  (_unused, index) => ({
+    name: `benchmarks-${index + 1}`,
+    include: benchmarkFiles.slice(
+      index * BENCHMARK_SHARD_SIZE,
+      (index + 1) * BENCHMARK_SHARD_SIZE
+    ),
+  })
+);
+
+/**
+ * A shard's cost is dominated by the src type closure it pulls in, so a
+ * directory with hundreds of test files cannot be one program at a 1280 MB
+ * heap - tests/contracts/engine alone holds 347. Chunk every directory shard by
+ * file count, computed from disk so growth re-shards itself instead of silently
+ * re-inflating one program.
+ */
+const TYPE_SHARD_FILE_LIMIT = 30;
+
+function typescriptFilesUnder(relativeDirectory) {
+  const absolute = resolve(projectRoot, relativeDirectory);
+  const found = [];
+  for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+    const child = `${relativeDirectory}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...typescriptFilesUnder(child));
+    else if (entry.name.endsWith(".ts")) found.push(child);
+  }
+  return found.sort();
+}
+
+function directoryShards(name, relativeDirectory) {
+  const files = typescriptFilesUnder(relativeDirectory);
+  const count = Math.max(1, Math.ceil(files.length / TYPE_SHARD_FILE_LIMIT));
+  if (count === 1) return [{ name, include: files }];
+  return Array.from({ length: count }, (_unused, index) => ({
+    name: `${name}-${index + 1}`,
+    include: files.slice(
+      index * TYPE_SHARD_FILE_LIMIT,
+      (index + 1) * TYPE_SHARD_FILE_LIMIT
+    ),
+  }));
+}
+
 const runtimeShards = [
-  {
-    name: "production",
-    include: ["src/**/*.ts", "benchmarks/**/*.ts", "scripts/*.ts", "demo.ts"],
-  },
+  { name: "production", include: ["src/**/*.ts"] },
+  { name: "tooling", include: ["scripts/*.ts", "demo.ts"] },
+  ...benchmarkShards,
   ...[
     "cache",
     "instrumentation",
@@ -37,15 +96,9 @@ const runtimeShards = [
     "schema-json",
     "schema-validation",
     "validation",
-  ].map((name) => ({
-    name: `unit-${name}`,
-    include: [`tests/unit/${name}/**/*.ts`, ...AMBIENT_DECLARATIONS],
-  })),
-  ...["adapters", "architecture", "drivers", "engine", "public-client"].map(
-    (name) => ({
-      name: `contracts-${name}`,
-      include: [`tests/contracts/${name}/**/*.ts`, ...AMBIENT_DECLARATIONS],
-    })
+  ].flatMap((name) => directoryShards(`unit-${name}`, `tests/unit/${name}`)),
+  ...["adapters", "architecture", "drivers", "engine", "public-client"].flatMap(
+    (name) => directoryShards(`contracts-${name}`, `tests/contracts/${name}`)
   ),
   {
     name: "support-and-providers",
@@ -55,7 +108,6 @@ const runtimeShards = [
       "tests/package/**/*.ts",
       "tests/providers/**/*.ts",
       "tests/types/relations/debug-relation-type.ts",
-      ...AMBIENT_DECLARATIONS,
     ],
   },
 ];
@@ -117,7 +169,9 @@ try {
       JSON.stringify({
         extends: resolve(projectRoot, "tsconfig.json"),
         compilerOptions: { noEmit: true },
-        include: shard.include.map((pattern) => resolve(projectRoot, pattern)),
+        include: [...shard.include, ...AMBIENT_DECLARATIONS].map((pattern) =>
+          resolve(projectRoot, pattern)
+        ),
       })
     );
     return { name: shard.name, project };

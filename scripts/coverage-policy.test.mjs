@@ -45,6 +45,72 @@ const PROVIDER_RESOURCE_SPECIFIERS = new Set([
   "pg",
 ]);
 
+/**
+ * The migration core contracts allowed to reach a provider resource, and the
+ * exact reason each one may.
+ *
+ * `layer-migrations` selects every `.core.test.ts` under
+ * `tests/unit/migrations`, so a core file that opens a database runs in the
+ * core lane. Doctrine keeps that lane free of live provider processes, and
+ * this map is the whole recorded exception to it. Two shapes exist and each
+ * carries its own narrowness assertion below:
+ *
+ * - `in-memory-sqlite`: the contract observes live database state that a
+ *   recording driver cannot produce - the authenticated control table, marker
+ *   arrival, read-only control presence, and consent staleness. It may
+ *   open an in-process `better-sqlite3` database and nothing else. No other
+ *   engine, no file-backed database, no filesystem, network, or subprocess.
+ * - `no-database`: the contract names a provider module to read a declared
+ *   capability or refusal and never constructs a database at all.
+ *
+ * Anything reaching a provider resource under neither reason fails: use a
+ * recording driver from `tests/unit/migrations/_estate.ts`, or move the
+ * contract to the extended or provider estate.
+ */
+const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
+  ["tests/unit/migrations/control-bootstrap.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/read-only-tracking.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/v1-apply.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/v1-operators.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/v1-push.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/decimal-provider-limits.core.test.ts", "no-database"],
+  ["tests/unit/migrations/v1-provider-admission.core.test.ts", "no-database"],
+]);
+
+/** Engines the in-memory SQLite exception does not extend to. */
+const NON_SQLITE_PROVIDER_SPECIFIERS = [
+  "@drivers/d1",
+  "@drivers/libsql",
+  "@drivers/mysql2",
+  "@drivers/neon-http",
+  "@drivers/pg",
+  "@drivers/pglite",
+  "@drivers/planetscale",
+  "@drivers/postgres",
+  "@electric-sql/pglite",
+  "@libsql/client",
+  "@tests/fixtures/drivers/pglite",
+  "@tests/fixtures/pglite-lifecycle",
+  "mysql2",
+  "pg",
+];
+
+/** Host resources the in-memory SQLite exception does not extend to. */
+const HOST_RESOURCE_SPECIFIERS = [
+  "node:child_process",
+  "node:dgram",
+  "node:dns",
+  "node:fs",
+  "node:http",
+  "node:https",
+  "node:net",
+  "node:tls",
+];
+
+const DATA_DIR_VALUE_PATTERN = /\bdataDir\s*:\s*([^,\n}]+)/g;
+const DATABASE_CONSTRUCTION_PATTERN =
+  /\bdataDir\b|createInMemorySQLite3Driver|createSQLite3UserPostClient|usePGliteSchemaFamily|\bnew\s+(?:PGlite|Database)\s*\(/;
+
 function coreTests(directory) {
   return readdirSync(directory)
     .filter((file) => file.endsWith(".core.test.ts"))
@@ -171,6 +237,48 @@ test("migration coverage admits every credential-free local contract", () => {
     migrationCoverageTests.length
   );
   assert.deepEqual([...migrationCoverageTests].sort(), expected.sort());
+});
+
+test("migration core contracts open no database outside the named in-memory SQLite exception", () => {
+  const directory = "tests/unit/migrations";
+  const reaching = readdirSync(directory)
+    .filter((file) => file.endsWith(".core.test.ts"))
+    .sort()
+    .map((file) => `${directory}/${file}`)
+    .filter((file) => importsProviderResource(file));
+
+  assert.deepEqual(
+    reaching,
+    [...MIGRATION_CORE_PROVIDER_EXCEPTIONS.keys()].sort(),
+    "a migration core contract reaches a provider resource without a recorded exception, or a recorded exception no longer reaches one"
+  );
+
+  for (const [file, reason] of MIGRATION_CORE_PROVIDER_EXCEPTIONS) {
+    const source = readFileSync(file, "utf8");
+    if (reason === "no-database") {
+      assert.ok(
+        !DATABASE_CONSTRUCTION_PATTERN.test(source),
+        `${file} is recorded as constructing no database but constructs one`
+      );
+      continue;
+    }
+    for (const specifier of [
+      ...NON_SQLITE_PROVIDER_SPECIFIERS,
+      ...HOST_RESOURCE_SPECIFIERS,
+    ]) {
+      assert.ok(
+        !resourceImportPattern(specifier).test(source),
+        `${file} widens the in-memory SQLite exception with ${specifier}`
+      );
+    }
+    for (const [, value] of source.matchAll(DATA_DIR_VALUE_PATTERN)) {
+      assert.equal(
+        value.trim(),
+        '":memory:"',
+        `${file} opens a file-backed database`
+      );
+    }
+  }
 });
 
 test("client coverage admits the core and audited deterministic contracts", () => {

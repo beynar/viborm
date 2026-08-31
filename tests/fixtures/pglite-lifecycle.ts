@@ -35,8 +35,11 @@ export function openTestPGlite(
  * below cannot close the same database twice.
  */
 export async function closeTestPGlite(database: PGlite): Promise<void> {
-  borrowedDatabases.delete(database);
+  // Deregister only AFTER the close resolves. Removing it first meant a
+  // rejected close leaked the Wasm instance for the rest of the file: the
+  // afterAll sweep no longer knew about it and could not retry.
   await database.close();
+  borrowedDatabases.delete(database);
 }
 
 afterAll(async () => {

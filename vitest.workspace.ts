@@ -54,12 +54,21 @@ export default defineWorkspace([
   ]),
   layerProject("schema-json", ["tests/unit/schema-json/**/*.core.test.ts"]),
   layerProject("query-engine", [...QUERY_ENGINE_CORE_TESTS]),
+  // The write core is its own layer rather than 56 more files inside
+  // layer-query-engine, which is already the widest layer in the estate.
+  // `pnpm test:core` selects `layer-*`, so a new layer name is admitted for
+  // free, and each engine half then owns a whole 30 second layer budget instead
+  // of the two sharing one. Until this project existed, `coverage-write-engine-core`
+  // was the only selection that read these files, so the entire write estate
+  // was absent from `pnpm test` and `pnpm test:all`.
+  layerProject("write-engine", [...WRITE_ENGINE_CORE_TESTS]),
   layerProject("adapters", ["tests/contracts/adapters/**/*.core.test.ts"]),
   layerProject("drivers", [...DRIVER_CORE_TESTS]),
-  layerProject("client", [
-    "tests/contracts/public-client/*.core.test.ts",
-    "tests/contracts/public-client/errors/**/*.core.test.ts",
-  ]),
+  // One recursive glob, not a per-subdirectory list: the enumerated form silently
+  // dropped `extensions/array-admission.core.test.ts` when that directory was
+  // added, and `extended-local` excludes every `.core.test.ts`, so the contract
+  // executed in no runnable lane at all.
+  layerProject("client", ["tests/contracts/public-client/**/*.core.test.ts"]),
   layerProject("cache", ["tests/unit/cache/**/*.core.test.ts"]),
   layerProject("instrumentation", [
     "tests/unit/instrumentation/**/*.core.test.ts",

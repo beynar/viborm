@@ -5,8 +5,9 @@
     // Agent worktrees under .claude/worktrees each carry their own biome.jsonc.
     // Biome refuses to run at all when it finds a nested root configuration, so
     // without this the project's own `biome check` cannot be run from the
-    // repository root while any agent worktree exists.
-    "includes": ["!.claude"]
+    // repository root while any agent worktree exists. Only the worktrees are
+    // excluded; the rest of `.claude` is tracked and stays checked.
+    "includes": ["!.claude/worktrees"]
   },
   "linter": {
     "rules": {

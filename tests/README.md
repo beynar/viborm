@@ -26,6 +26,20 @@ provider process. Use deterministic recording drivers and fakes for core
 contracts. Keep embedded, native, hosted, and Docker execution in the extended
 or provider estate.
 
+Two core estates hold a named exception, and only those two.
+`tests/contracts/drivers` names every core contract that reaches a provider
+resource and gives each one its own process. `tests/unit/migrations` names five
+core contracts that open an in-process `better-sqlite3` database and nothing
+else: `control-bootstrap`, `read-only-tracking`, `v1-apply`, `v1-operators`,
+and `v1-push`. Each observes live database state no recording driver can
+produce - the authenticated control table, marker arrival, read-only control
+presence, and consent staleness. Every database is `:memory:`, and those files
+import no second engine and no filesystem, network, or subprocess module. Two
+further migration core contracts name a provider module without opening a
+database at all: `decimal-provider-limits` and `v1-provider-admission`. Every
+other file in `tests/unit/migrations` uses the recording drivers in
+`_estate.ts`.
+
 When a witness is retained only to execute incidental implementation metadata
 for a numeric coverage gate, isolate it at the bottom of its owning layer file
 under `describe("coverage low value")`. Such a witness keeps the report honest;
@@ -70,7 +84,12 @@ each manifest adds stay literal. `scripts/coverage-policy.test.mjs` re-derives
 every expected set from the same directory. It refuses a resource-owning import
 in each query, write, and cache contract and in each non-core migration
 contract, and it requires a driver core contract that reaches a provider
-resource to run alone in its own process. The client set has no import audit.
+resource to run alone in its own process. It also owns the named migration core
+exception above and is its authority: a migration core file that reaches a
+provider resource without being named fails, a named file that stops reaching
+one fails, and a named in-memory SQLite file that adds a second engine, a
+file-backed `dataDir`, or a host resource fails. The client set has no import
+audit.
 
 ## Commands
 
@@ -89,12 +108,12 @@ pnpm test:coverage:extensions # Extensions subsystem; 100% in all four metrics
 pnpm test:coverage:errors # Errors subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapters subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
-pnpm test:coverage:query-engine-core # Query-engine core; 98% in all four metrics
-pnpm test:coverage:write-engine # Write engine; 98% in all four metrics
-pnpm test:coverage:drivers # Drivers; 98% in all four metrics
-pnpm test:coverage:client # Client; 98% in all four metrics
-pnpm test:coverage:cache # Cache; 98% in all four metrics
-pnpm test:coverage:migrations # Migrations; 98% in all four metrics
+pnpm test:coverage:query-engine-core # Query-engine core; floors 98/97.9 branches
+pnpm test:coverage:write-engine # Write engine; floors 82/80.5 br/92 fn - provider-bound suites excluded by design
+pnpm test:coverage:drivers # Drivers; floors 96/92.5 br/96 fn - per-provider files need a live connection
+pnpm test:coverage:client # Client; floors 96/94 br/96 fn - unreachable defensive arms
+pnpm test:coverage:cache # Cache; floors 98 in all four
+pnpm test:coverage:migrations # Migrations; floors 98/97.3 branches
 pnpm test:coverage:policy # Static ownership and launcher-policy tests
 pnpm test:package         # One build, all runtime exports, all type entries, package probes
 pnpm test:providers       # Docker and hosted projects only; missing environment values skip by name
@@ -212,7 +231,7 @@ Each layer command runs runtime sentinels first and its compile-only probes
 second. Both stages share one 30-second wall budget and the same 1536 MiB RSS
 cap. All Vitest projects run one file at a time. Runtime selections stop after
 five minutes by default. Coverage parts use ten minutes. `test:all` runs the
-exact extended-local manifest as deterministic six-file process shards with
+exact extended-local manifest as deterministic three-file process shards with
 five minutes per shard, then runs each PGlite provider file in its own process
 with twenty minutes. Every process must prove teardown before the next shard
 starts. A layer command still has only thirty seconds for runtime and types

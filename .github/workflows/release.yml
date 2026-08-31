@@ -55,7 +55,11 @@ jobs:
     name: Complete test estate
     needs: authorize
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # `pnpm test:all` is dozens of sequential bounded processes - the
+    # extended-local shards, then one process per PGlite provider file - not one
+    # Vitest run. This is scheduling headroom only: no heap, RSS, or per-stage
+    # wall limit changes with it.
+    timeout-minutes: 180
     steps:
       - name: Check out the exact release revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -77,6 +81,10 @@ jobs:
       - name: Install dependencies without a release cache
         run: pnpm install --frozen-lockfile
 
+      # scripts/run-credential-free-tests.mjs owns the bounded, sharded path:
+      # the extended-local shards from scripts/credential-free-test-manifest.mjs
+      # and then one process per PGlite provider file, each proving whole-group
+      # teardown before the next starts. Never re-expand it into one Vitest run.
       - name: Run the complete local estate
         run: pnpm test:all
 
@@ -84,7 +92,9 @@ jobs:
     name: Release coverage gates
     needs: authorize
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Five minutes above the previous budget for the three bounded policy
+    # tests below, each of which is capped at sixty seconds of wall time.
+    timeout-minutes: 35
     steps:
       - name: Check out the exact release revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,6 +112,15 @@ jobs:
 
       - name: Install dependencies without a release cache
         run: pnpm install --frozen-lockfile
+
+      # Release acceptance must prove the runner contract itself, not only the
+      # numbers: scripts/coverage-policy.test.mjs (manifest completeness),
+      # scripts/bounded-process.test.mjs (heap and RSS ceilings, verified
+      # teardown) and scripts/test-run-lock.test.mjs (workspace lock). Each one
+      # runs bounded through scripts/run-node-safe.mjs with a 512 MB heap and a
+      # 60 s wall.
+      - name: Run runner and coverage policy gates
+        run: pnpm test:coverage:policy
 
       - name: Run coverage gates
         run: pnpm test:coverage

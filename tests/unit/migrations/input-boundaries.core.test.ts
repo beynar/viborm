@@ -83,6 +83,32 @@ describe("migration hostile-input boundaries", () => {
     }
   });
 
+  /**
+   * `"id" in record` walks the prototype chain, so a polluted
+   * `Object.prototype.id` once made `down({ to: { name: "baseline" } })` select
+   * the inherited id and roll back to the WRONG state. Only the caller's own
+   * key names a selector. The pollution window is closed synchronously in
+   * `finally`, before any assertion, so no other suite can observe it.
+   */
+  it.each([
+    ["id", HASH_A],
+    ["prefix", "a2617f"],
+  ])("resolves the own name selector while Object.prototype.%s is polluted", (key, value) => {
+    Object.defineProperty(Object.prototype, key, {
+      value,
+      configurable: true,
+    });
+    let selector: unknown;
+    try {
+      selector = normalizeDownOptions({ to: { name: "baseline" } }).to;
+    } finally {
+      Reflect.deleteProperty(Object.prototype, key);
+    }
+
+    expect(selector).toEqual({ name: "baseline" });
+    expect(Object.hasOwn(Object.prototype, key)).toBe(false);
+  });
+
   it("reads each down option once and detaches the selector", () => {
     let reads = 0;
     const selector = { name: "release" };

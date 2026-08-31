@@ -328,6 +328,24 @@ if (ownershipErrors.length) {
   );
 }
 
+/**
+ * Per-metric floors are APPROVED EXCEPTIONS, not a redefinition of the target.
+ *
+ * Arnaud approved each one on 2026-09-01 against the measured evidence recorded
+ * beside it below, after an independent branch review raised that a nominal
+ * `target: 98` sitting next to a floor of 80.5 was misleading. Two things make
+ * them honest rather than a waiver:
+ *
+ *   - mergeSubsystemCoverageRuns and mergeCoverageShards both PRINT the resolved
+ *     floor next to every measured value, so the enforced number is always
+ *     visible rather than inferred from `target`.
+ *   - every floor is a ratchet. A real regression in any metric still fails.
+ *
+ * None of them hides untested behaviour: the suites excluded from the
+ * write-engine and drivers lanes are live-provider suites that all execute, and
+ * pass, in `pnpm test:all`. Raising a floor is the goal; lowering one needs the
+ * same evidence and the same approval.
+ */
 export const coverageSubsystems = Object.freeze(
   definitions.map((definition) =>
     Object.freeze({

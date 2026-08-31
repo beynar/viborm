@@ -7,6 +7,7 @@
  */
 export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/architecture/contract-matrix.core.test.ts",
+  "tests/contracts/architecture/core-taxonomy-census.core.test.ts",
   "tests/contracts/architecture/extension-system-census.core.test.ts",
   "tests/contracts/architecture/geopoint-language-census.core.test.ts",
   "tests/contracts/architecture/system-clock.core.test.ts",
@@ -84,6 +85,15 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/vector-orderby.core.test.ts",
 ]);
 
+/**
+ * The write estate's core admission, shared by two lanes.
+ *
+ * `layer-write-engine` executes it (so `pnpm test:core` and `pnpm test:all` do
+ * too) and `coverage-write-engine-core` measures it. The order below is load
+ * bearing: {@link WRITE_ENGINE_COVERAGE_TEST_GROUPS} slices this array into the
+ * coverage workers' memory groups, so a reordering silently re-partitions them.
+ * Append, do not rearrange.
+ */
 export const WRITE_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/nested-create-many.core.test.ts",
   "tests/contracts/engine/write/architecture-gates.core.test.ts",

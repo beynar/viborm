@@ -56,6 +56,10 @@ try {
   );
   process.exit(1);
 }
+function isNonWatchRun(args) {
+  return args.includes("run") || args.includes("--run");
+}
+
 let run;
 try {
   run = startBoundedProcess({
@@ -64,7 +68,10 @@ try {
     heapLimitMb: heapLimit.heapLimitMb,
     label: "Vitest",
     rssLimitMb: rssLimit.rssLimitMb,
-    wallLimitMs: forwardedArgs.includes("run") ? wallLimitMs : 86_400_000,
+    // A non-watch run is `run` positionally OR the `--run` flag, which is how
+    // `bench --run` spells it. Matching only the positional form handed bench
+    // commands 24 hours instead of the limit the caller asked for.
+    wallLimitMs: isNonWatchRun(forwardedArgs) ? wallLimitMs : 86_400_000,
   });
 } catch (error) {
   releaseTestRunLock();
