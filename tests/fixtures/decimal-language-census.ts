@@ -32,6 +32,15 @@ export const REJECTED_DECIMAL_MODE_MEMBERS = [
 export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
   "src/validation/primitives/decimal-codec.ts expandExponentForm Number(exponentText)",
+  // An SRID is a spatial reference IDENTIFIER (4326 and friends), an unsigned
+  // 32-bit integer rather than a quantity: readSrid bounds it with
+  // Number.isSafeInteger to 0..4294967295 and refuses anything else rather than
+  // publishing an unprovable spatial type, so no decimal value transits it. It
+  // is flagged only because the same module also renders DECIMAL columns and
+  // the detector is deliberately aggressive about mixed-purpose modules.
+  // Exempted by exact spelling: any OTHER Number() in that file still counts,
+  // and so does a second use of this one.
+  "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
 ] as const;
 
 export const REJECTED_DECIMAL_FLOAT_TRANSPORT_TOKENS = [

@@ -89,11 +89,20 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
+  // apply-v1.ts and operators.ts, and the second sites in push-plan.ts and
+  // reset-v1.ts, were admitted 2026-08-31 after auditing each one: every call
+  // is `pinned._executeRaw` or `producer._executeRaw`, i.e. it runs on the
+  // producer its caller hands it, which under a locked command IS the pinned
+  // session. None opens a parallel driver path, so §12.13 holds. The list had
+  // drifted because it still named src/migrations/apply/index.ts, which became
+  // apply-v1.ts, and because operators.ts did not exist when it was written.
+  "src/migrations/apply-v1.ts executeRaw 1",
   "src/migrations/control.ts executeRaw 18",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   "src/migrations/foreign-keys.ts executeRaw 3",
   "src/migrations/live-reset.ts executeRaw 4",
   "src/migrations/live-reset.ts queryExecutorFactory 1",
+  "src/migrations/operators.ts executeRaw 6",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
@@ -104,9 +113,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/pinned-session.ts executeRaw 5",
   "src/migrations/pinned-session.ts queryExecutorFactory 3",
   "src/migrations/push-fingerprint.ts executeRaw 2",
-  "src/migrations/push-plan.ts executeRaw 1",
+  "src/migrations/push-plan.ts executeRaw 2",
   "src/migrations/push/planner.ts executeRaw 2",
-  "src/migrations/reset-v1.ts executeRaw 1",
+  "src/migrations/reset-v1.ts executeRaw 2",
   "src/migrations/utils.ts executeRaw 1",
 ];
 

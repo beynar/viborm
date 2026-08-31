@@ -80,6 +80,14 @@ const REJECTED_MODE_SPELLINGS = [
 const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
   "src/validation/primitives/decimal-codec.ts expandExponentForm Number(exponentText)",
+  // An SRID is a spatial reference IDENTIFIER (4326 and friends), an unsigned
+  // 32-bit integer, not a quantity: readSrid bounds it with Number.isSafeInteger
+  // to 0..4294967295 and refuses anything else rather than publishing an
+  // unprovable spatial type. No decimal value transits it. The census flags it
+  // only because the same module also renders DECIMAL columns, and the detector
+  // is deliberately aggressive about mixed-purpose modules. Exempted by exact
+  // spelling, so any OTHER Number() in that file still fails.
+  "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
 ];
 
 const REJECTED_FLOAT_TRANSPORT_SPELLINGS = [
