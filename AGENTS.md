@@ -404,7 +404,7 @@ Early versions used Zod-style `.infer`. With complex nested schemas, TypeScript 
 Sql fragments carry both the template string AND parameter values separately. This enables proper parameterization (prevents SQL injection) and composition (fragments can be nested).
 
 ### Why there's no `src/drivers/AGENTS.md`
-The driver layer handles connection management and query execution. While there are many drivers (13+: pglite, pg, postgres, neon-http, mysql2, planetscale, sqlite3, libsql, d1, d1-http, bun-sqlite, bun-sql), they follow a consistent pattern. Most complexity lives in adapters (SQL generation) and query-engine (structure).
+The driver layer handles connection management and query execution. While there are many drivers (11: pglite, pg, postgres, neon-http, mysql2, planetscale, sqlite3, libsql, d1, bun-sqlite, bun-sql), they follow a consistent pattern. Most complexity lives in adapters (SQL generation) and query-engine (structure).
 
 When a secondary driver failure occurs while a primary failure is already
 propagating, `src/drivers/shared/suppressed-failure.ts` is the one evidence
@@ -649,8 +649,12 @@ selected local extended contracts; its policy gate rejects omissions and live
 PGlite ownership. Client coverage uses `scripts/client-test-manifest.mjs` for
 its core and audited deterministic extended contracts. Full write coverage
 adds an explicit high-signal subset of the credential-free local estate. The
-focused set is entirely provider-free; `test:all` remains the exhaustive local
-owner for PGlite behavior. All run through dedicated coverage projects.
+focused write set is entirely provider-free. Driver coverage uses
+`scripts/driver-test-manifest.mjs`, which admits five audited SQLite-backed
+contracts and the local SQLite3 and LibSQL suites and gives each of them its own
+declared process. No focused subsystem executes against a PGlite database;
+`test:all` remains the exhaustive local owner for PGlite behavior. All run
+through dedicated coverage projects.
 Core layer projects use no network, Docker service, hosted credential, or live
 provider process. Keep provider-backed evidence in the extended or provider
 estate and use deterministic recording drivers for core contracts.
