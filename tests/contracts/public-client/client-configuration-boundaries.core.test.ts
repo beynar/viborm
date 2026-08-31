@@ -39,7 +39,12 @@ function extendUnsafe(client: object, extension: unknown): object {
     throw new Error("Expected the public $extends method");
   }
   const extended: unknown = Reflect.apply(extend, client, [extension]);
-  if (typeof extended !== "object" || extended === null) {
+  // The client is a CALLABLE Proxy, so `typeof` answers "function", not
+  // "object". Refusing only non-objects rejects every real client.
+  if (
+    extended === null ||
+    (typeof extended !== "object" && typeof extended !== "function")
+  ) {
     throw new TypeError("Expected $extends to return an extended client");
   }
   return extended;
