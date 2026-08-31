@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { coverageSubsystems, coverageWaivers } from "./coverage-policy.mjs";
 
@@ -56,7 +56,10 @@ export function mergeSubsystemCoverageRuns({
     JSON.stringify(merged.toJSON())
   );
   if (reporterNames.length) {
-    const context = createContext({ coverageMap: merged, dir: reportDirectory });
+    const context = createContext({
+      coverageMap: merged,
+      dir: reportDirectory,
+    });
     for (const reporter of reporterNames) {
       reports.create(reporter).execute(context);
     }
@@ -68,7 +71,9 @@ export function mergeSubsystemCoverageRuns({
   );
   for (const source of subsystem.sources) {
     if (!present.has(source)) {
-      failures.push(`${subsystem.label}: missing ${source} from merged coverage.`);
+      failures.push(
+        `${subsystem.label}: missing ${source} from merged coverage.`
+      );
     }
   }
   const summary = merged.getCoverageSummary().toJSON();
@@ -85,7 +90,11 @@ export function mergeSubsystemCoverageRuns({
   return merged;
 }
 
-export function mergeCoverageShards({ projectRoot, shardDirectory, reportDirectory }) {
+export function mergeCoverageShards({
+  projectRoot,
+  shardDirectory,
+  reportDirectory,
+}) {
   const merged = createCoverageMap({});
   for (const subsystem of coverageSubsystems) {
     const shardPath = resolve(
@@ -102,13 +111,17 @@ export function mergeCoverageShards({ projectRoot, shardDirectory, reportDirecto
     const subsystemMap = createCoverageMap({});
     for (const file of merged.files()) {
       const source = sourcePath(projectRoot, file);
-      if (source && expected.has(source)) subsystemMap.addFileCoverage(merged.fileCoverageFor(file));
+      if (source && expected.has(source))
+        subsystemMap.addFileCoverage(merged.fileCoverageFor(file));
     }
     const present = new Set(
       subsystemMap.files().map((file) => sourcePath(projectRoot, file))
     );
     for (const source of expected) {
-      if (!present.has(source)) failures.push(`${subsystem.label}: missing ${source} from merged coverage.`);
+      if (!present.has(source))
+        failures.push(
+          `${subsystem.label}: missing ${source} from merged coverage.`
+        );
     }
     const summary = subsystemMap.getCoverageSummary().toJSON();
     for (const metric of metrics) {
@@ -119,7 +132,8 @@ export function mergeCoverageShards({ projectRoot, shardDirectory, reportDirecto
       }
     }
   }
-  if (failures.length) throw new Error(`Coverage policy failed:\n${failures.join("\n")}`);
+  if (failures.length)
+    throw new Error(`Coverage policy failed:\n${failures.join("\n")}`);
 
   mkdirSync(reportDirectory, { recursive: true });
   writeFileSync(
@@ -140,7 +154,10 @@ export function mergeCoverageShards({ projectRoot, shardDirectory, reportDirecto
         commit,
         dirty,
         generatedAt: new Date().toISOString(),
-        subsystems: coverageSubsystems.map(({ id, target }) => ({ id, target })),
+        subsystems: coverageSubsystems.map(({ id, target }) => ({
+          id,
+          target,
+        })),
         waivers: coverageWaivers,
       },
       null,

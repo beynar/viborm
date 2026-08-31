@@ -214,10 +214,12 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
     "tests/contracts/drivers/namespace-execution-target.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
+    "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
     "tests/contracts/drivers/supplied-pool-ownership.core.test.ts",
     "tests/contracts/drivers/transaction-lifecycle.core.test.ts",
+    "tests/contracts/drivers/transaction-options-behavior.core.test.ts",
     "tests/contracts/drivers/transaction-portability.core.test.ts",
   ]);
   const expectedCoreGroups = [];
