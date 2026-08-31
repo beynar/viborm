@@ -129,9 +129,12 @@ export function mergeCoverageShards({
     }
     const summary = subsystemMap.getCoverageSummary().toJSON();
     for (const metric of metrics) {
-      if (summary[metric].pct < subsystem.target) {
+      // Same per-metric floors the focused lanes honour, so the aggregate gate
+      // and `pnpm test:coverage:<lane>` cannot disagree about a subsystem.
+      const target = subsystem.metricTargets?.[metric] ?? subsystem.target;
+      if (summary[metric].pct < target) {
         failures.push(
-          `${subsystem.label}: ${metric} ${summary[metric].pct}% is below ${subsystem.target}%.`
+          `${subsystem.label}: ${metric} ${summary[metric].pct}% is below ${target}%.`
         );
       }
     }
@@ -158,9 +161,10 @@ export function mergeCoverageShards({
         commit,
         dirty,
         generatedAt: new Date().toISOString(),
-        subsystems: coverageSubsystems.map(({ id, target }) => ({
+        subsystems: coverageSubsystems.map(({ id, target, metricTargets }) => ({
           id,
           target,
+          metricTargets,
         })),
         waivers: coverageWaivers,
       },
