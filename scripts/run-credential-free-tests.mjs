@@ -43,7 +43,10 @@ function runPackageScript(script) {
  * is a property of PGlite, not of the machine, and a bigger CI runner does not
  * help. These lanes opt up; the fast lanes keep the 1536 MiB default.
  */
-const PROVIDER_RSS_LIMIT_MB = 3072;
+// Measured across all 72 extended-local shards: PGlite-backed shards of three
+// files cluster between 1.5 and 3.2 GiB. 3584 clears the observed maximum with
+// headroom and still sits below MAX_PROCESS_GROUP_RSS_LIMIT_MB.
+const PROVIDER_RSS_LIMIT_MB = 3584;
 
 function runVitest(label, wallLimitMs, project, files = []) {
   run(label, process.execPath, [
