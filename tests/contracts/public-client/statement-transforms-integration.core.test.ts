@@ -1,4 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import type { AnyDriver } from "@drivers";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
 import { QueryError, UnsupportedOperationError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
@@ -22,7 +23,7 @@ interface StatementCall {
 }
 
 function baseClient(
-  driver = new SqlOnlyDriver(new PostgresAdapter(), "postgresql")
+  driver: AnyDriver = new SqlOnlyDriver(new PostgresAdapter(), "postgresql")
 ) {
   const client = createClient({ schema, driver });
   clients.push(client);

@@ -33,12 +33,16 @@ function createDefaultOmitUnsafe(config: unknown): unknown {
   return Reflect.apply(defaultOmit<typeof schema>(), undefined, [config]);
 }
 
-function extendUnsafe(client: object, extension: unknown): unknown {
+function extendUnsafe(client: object, extension: unknown): object {
   const extend = Reflect.get(client, "$extends");
   if (typeof extend !== "function") {
     throw new Error("Expected the public $extends method");
   }
-  return Reflect.apply(extend, client, [extension]);
+  const extended: unknown = Reflect.apply(extend, client, [extension]);
+  if (typeof extended !== "object" || extended === null) {
+    throw new TypeError("Expected $extends to return an extended client");
+  }
+  return extended;
 }
 
 function captureFailure(run: () => unknown): unknown {

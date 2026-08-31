@@ -247,6 +247,11 @@ describe("official default omit deterministic public boundary", () => {
         },
         query: {
           user: {
+            // @ts-expect-error a read interceptor may deliberately answer
+            // without proceed() (docs/content/docs/extensions/index.mdx), but
+            // QueryHandlerMap defers its result on the handler's own `Arg`
+            // parameter (src/extensions/query.ts:140), so only proceed()'s
+            // value or an empty array is spellable here.
             async findMany({ input }) {
               const select = Reflect.get(input, "select");
               events.push(

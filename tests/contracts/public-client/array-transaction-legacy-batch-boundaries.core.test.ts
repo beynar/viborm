@@ -93,7 +93,12 @@ describe("unintercepted array transaction batch contracts", () => {
       prepareBatch: () => Promise.resolve(undefined),
     });
 
-    await expect(client.$transaction([unbatchable])).rejects.toMatchObject({
+    await expect(
+      // @ts-expect-error - the array overload names only the operation classes
+      // the client itself produces; this shell registers the same internal
+      // transaction-operation owner, so the seam admits what the type cannot name.
+      client.$transaction([unbatchable])
+    ).rejects.toMatchObject({
       name: TransactionError.name,
       message: expect.stringContaining("cannot be batched atomically"),
     });

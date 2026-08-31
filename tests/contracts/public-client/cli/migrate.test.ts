@@ -50,14 +50,14 @@ vi.mock("@src/migrations/storage/fs-estate", () => ({
 import { createMigrateCommand } from "@src/cli/commands/migrate";
 
 interface Invocation {
-  readonly exitCode: number | undefined;
+  readonly exitCode: typeof process.exitCode;
   readonly output: string;
   readonly thrown: unknown;
 }
 
 async function invoke(
   args: readonly string[],
-  cwd: string = "/tmp/viborm-cli-routing"
+  cwd = "/tmp/viborm-cli-routing"
 ): Promise<Invocation> {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -79,7 +79,7 @@ async function invoke(
   program.exitOverride();
   program.addCommand(createMigrateCommand());
   let thrown: unknown;
-  let exitCode: number | undefined;
+  let exitCode: typeof process.exitCode;
 
   try {
     await program.parseAsync(["node", "viborm", "migrate", ...args]);
@@ -101,7 +101,10 @@ function expectCall(
   expected?: unknown
 ): void {
   const calls = boundary.migrations[operation].mock.calls;
+  // biome-ignore lint/suspicious/noMisplacedAssertion: this shared helper is invoked only from registered tests.
   expect(calls).toHaveLength(1);
+  // biome-ignore lint/complexity/noArguments: the call's own arity is the signal — it separates an omitted expectation from one spelled `undefined`.
+  // biome-ignore lint/suspicious/noMisplacedAssertion: this shared helper is invoked only from registered tests.
   if (arguments.length === 2) expect(calls[0]?.[0]).toEqual(expected);
 }
 
@@ -172,12 +175,7 @@ describe("migrate command routing", () => {
     expect(boundary.disconnect).toHaveBeenCalledOnce();
 
     boundary.migrations.generate.mockClear();
-    const virtualRoot = await invoke([
-      "generate",
-      "--from",
-      "empty",
-      "--json",
-    ]);
+    const virtualRoot = await invoke(["generate", "--from", "empty", "--json"]);
     expect(virtualRoot.output).toContain('\n  "outcome": "published"\n');
     expectCall("generate", {
       name: undefined,
@@ -340,14 +338,7 @@ describe("migrate command routing", () => {
     await invoke(["down", "--steps", "2"]);
     expectCall("down", { steps: 2, dryRun: undefined });
 
-    await invoke([
-      "baseline",
-      "--to",
-      SHA256,
-      "--via",
-      "root",
-      "merge",
-    ]);
+    await invoke(["baseline", "--to", SHA256, "--via", "root", "merge"]);
     expectCall("baseline", {
       to: { id: SHA256 },
       via: ["root", "merge"],

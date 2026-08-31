@@ -199,6 +199,9 @@ describe("unique selector validation", () => {
   test("an undefined-only selector is empty while a defined discriminator proceeds to validation", async () => {
     const emptyFailure = await captureFailure(() =>
       client.record.findUnique({
+        // @ts-expect-error the unique selector type demands a defined
+        // discriminator; this probes the runtime refusal a JavaScript caller
+        // reaches by spelling the only unique field as undefined.
         where: { id: undefined },
       })
     );

@@ -163,6 +163,9 @@ describe("legacy native array composition", () => {
     driver.assertionIndex = 2;
 
     await expect(
+      // @ts-expect-error - the array overload names only the operation classes
+      // the client itself produces; this shell registers the same internal
+      // transaction-operation owner, so the seam admits what the type cannot name.
       client.$transaction([client.record.findMany(), guarded])
     ).rejects.toMatchObject({
       name: NotFoundError.name,
