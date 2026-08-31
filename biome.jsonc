@@ -1,6 +1,13 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "extends": ["ultracite/biome/core"],
+  "files": {
+    // Agent worktrees under .claude/worktrees each carry their own biome.jsonc.
+    // Biome refuses to run at all when it finds a nested root configuration, so
+    // without this the project's own `biome check` cannot be run from the
+    // repository root while any agent worktree exists.
+    "includes": ["!.claude"]
+  },
   "linter": {
     "rules": {
       "suspicious": {
