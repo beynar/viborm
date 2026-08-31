@@ -263,8 +263,12 @@ function isValidClient(value: unknown): boolean {
   // The client is a Proxy whose only trap is `get`, so `"$driver" in value`
   // (which triggers the `has` trap / falls back to the bare target) is always
   // false. Probe via property access instead.
-  // loadConfig has already refused every falsy value, including null.
-  if (typeof value !== "object" && typeof value !== "function") {
+  // `typeof null === "object"`, so null has to be refused here: Reflect.get
+  // throws on it rather than answering undefined.
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  ) {
     return false;
   }
   return (
