@@ -26,6 +26,14 @@ const _inlineTuple: Promise<[number, number, { id: string }[]]> =
     client.$queryRaw<{ id: string }>`SELECT id FROM item`,
   ]);
 
-// Promise-only public operation shapes require runtime ownership authentication.
-const _ordinaryPromiseRequiresRuntimeAuthentication = () =>
+// A bare promise is REFUSED at compile time, not merely at runtime.
+//
+// This pin used to run the other way: RawOperation was declared as
+// `interface RawOperation<T> extends Promise<T> {}`, which adds nothing, so the
+// array arm was structurally satisfied by any promise and the only thing
+// standing between a caller and a crash was array-transaction.ts:174 throwing
+// InvalidTransactionInputError. An array member must be an object the
+// transaction-operation owner registry recognises, and the type now says so.
+const _ordinaryPromiseIsRefused = () =>
+  // @ts-expect-error - a bare promise is not a transaction operation
   client.$transaction([client.item.count(), Promise.resolve(1)]);
