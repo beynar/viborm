@@ -6,7 +6,7 @@ import { afterEach, describe, test, vi } from "vitest";
 import {
   expectDirectReadMode,
   expectUnmarkedTypedAndRawResults,
-} from "./behaviors/consumable-result-rows-behavior";
+} from "./consumable-result-rows-assertions";
 
 afterEach(() => {
   vi.restoreAllMocks();

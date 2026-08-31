@@ -155,23 +155,22 @@ describe("push enum consent closure", () => {
     expect(replayed.plan.operations).toEqual(recorded.plan.operations);
   });
 
-  test("records and replays nullable enum removal as NULL", async () => {
-    const recorded = await planEnumRemoval({
+  test("maps a nullable enum removal to NULL without asking for consent", async () => {
+    const presented: string[] = [];
+    const planned = await planEnumRemoval({
       nullable: true,
-      callback: (change) =>
-        change.type === "enumValueRemoval" ? change.useNull() : undefined,
+      callback: (change) => {
+        presented.push(change.type);
+        return;
+      },
     });
-    expect(recorded.plan.resolutions).toEqual([
-      expect.objectContaining({ decision: "useNull" }),
-    ]);
 
-    const replayed = await planEnumRemoval({
-      nullable: true,
-      resolutions: recorded.plan.resolutions,
-    });
-    expect(replayed.plan.operations).toContainEqual(
+    expect(presented).not.toContain("enumValueRemoval");
+    expect(planned.plan.resolutions).toEqual([]);
+    expect(planned.plan.operations).toContainEqual(
       expect.objectContaining({
         type: "alterEnum",
+        defaultReplacement: null,
         columnValueReplacements: {
           "account.status": { retired: null },
         },

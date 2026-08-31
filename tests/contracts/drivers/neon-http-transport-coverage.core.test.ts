@@ -1,3 +1,19 @@
+/**
+ * The Neon HTTP transport, driven through a controlled stand-in for
+ * `@neondatabase/serverless`.
+ *
+ * A core test takes no hosted credential, so the provider module is replaced by
+ * a fake whose surface is EXACTLY what `src/drivers/neon-http/index.ts` calls:
+ * `neon(url, options)` returning a query function that also carries
+ * `transaction`, plus the `types.getTypeParser` the UTC-safe wrapper delegates
+ * to. Everything asserted here is local driver code — parser installation,
+ * statement submission, result validation, failure attribution.
+ *
+ * What a fake CANNOT prove is deliberately absent: durable commit, cross-
+ * statement visibility, and hosted error attribution stay with
+ * `tests/providers/hosted/neon-http.test.ts`.
+ */
+
 import { NeonHTTPDriver } from "@drivers/neon-http";
 import { QueryError } from "@errors";
 import { sql } from "@sql";
@@ -14,12 +30,24 @@ interface CapturedNeonOptions {
 
 const neonProvider = vi.hoisted(() => {
   const state: {
+    /** One provider result per submitted statement, in submission order. */
     batchResults: unknown[];
+    /**
+     * How many results the request actually comes back with. Neon answers a
+     * batch with whatever the server sent, which is the only way the driver's
+     * post-commit cardinality check (`index.ts:306`) can ever be reached.
+     */
+    providerResultCount: number | undefined;
     singleResult: unknown;
+    /** Every statement handed to the submitted-query builder, in order. */
+    submitted: { params: unknown[]; sql: string }[];
+    /** The statement that builder refuses synchronously. */
     synchronousFailureSql: string | undefined;
   } = {
     batchResults: [],
+    providerResultCount: undefined,
     singleResult: undefined,
+    submitted: [],
     synchronousFailureSql: undefined,
   };
   const fallbackParser = vi.fn((value: string) => `fallback:${value}`);
@@ -28,20 +56,19 @@ const neonProvider = vi.hoisted(() => {
   );
   const transaction = vi.fn(
     async (
-      callback: (
-        query: (sql: string, params: unknown[]) => unknown
-      ) => unknown[]
+      build: (submit: (sql: string, params: unknown[]) => unknown) => unknown[]
     ) => {
-      let resultIndex = 0;
-      const query = vi.fn((statement: string, _params: unknown[]) => {
+      const submit = (statement: string, params: unknown[]) => {
+        state.submitted.push({ params, sql: statement });
         if (statement === state.synchronousFailureSql) {
           throw new Error("provider rejected statement synchronously");
         }
-        const result = state.batchResults[resultIndex];
-        resultIndex += 1;
-        return Promise.resolve(result);
-      });
-      return Promise.all(callback(query));
+        return Promise.resolve(state.batchResults[state.submitted.length - 1]);
+      };
+      const results = await Promise.all(build(submit));
+      return state.providerResultCount === undefined
+        ? results
+        : results.slice(0, state.providerResultCount);
     }
   );
   const query = Object.assign(
@@ -58,9 +85,15 @@ vi.mock("@neondatabase/serverless", () => ({
   types: { getTypeParser: neonProvider.getTypeParser },
 }));
 
+/**
+ * One well-formed `fullResults` payload. `rowCount` is REQUIRED because
+ * `normalizePostgresRowCount` (`src/drivers/shared/postgres-result.ts:104`)
+ * refuses a null count for a counted command tag: defaulting it would build a
+ * malformed payload while reading like a valid one.
+ */
 function fullResult(
-  rows: Record<string, unknown>[] = [],
-  rowCount: number | null = null,
+  rows: Record<string, unknown>[],
+  rowCount: number | null,
   command = "SELECT"
 ) {
   return { command, fields: [], rowAsArray: false, rowCount, rows };
@@ -73,19 +106,21 @@ async function captureQueryError(promise: Promise<unknown>) {
     if (error instanceof QueryError) return error;
     throw error;
   }
-  throw new Error("Expected a malformed Neon payload to fail.");
+  throw new Error("Expected the Neon driver to refuse this provider answer.");
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   neonProvider.state.batchResults = [];
-  neonProvider.state.singleResult = fullResult();
+  neonProvider.state.providerResultCount = undefined;
+  neonProvider.state.singleResult = fullResult([], 0);
+  neonProvider.state.submitted = [];
   neonProvider.state.synchronousFailureSql = undefined;
 });
 
 describe("Neon HTTP controlled transport execution", () => {
   test("initializes the HTTP query with UTC-safe parsers and executes typed and raw statements", async () => {
-    neonProvider.state.singleResult = fullResult([{ id: 7 }], null);
+    neonProvider.state.singleResult = fullResult([{ id: 7 }], 1);
     const fetchOptions = { cache: "no-store" as const };
     const driver = new NeonHTTPDriver({
       databaseUrl: "postgres://local.test/viborm",
@@ -97,7 +132,7 @@ describe("Neon HTTP controlled transport execution", () => {
         operation: "findMany",
       })
     ).resolves.toEqual({ rows: [{ id: 7 }], rowCount: 1 });
-    await expect(driver._executeRaw("DELETE FROM events")).resolves.toEqual({
+    await expect(driver._executeRaw("SELECT id FROM events")).resolves.toEqual({
       rows: [{ id: 7 }],
       rowCount: 1,
     });
@@ -116,7 +151,7 @@ describe("Neon HTTP controlled transport execution", () => {
     });
     expect(neonProvider.query).toHaveBeenNthCalledWith(
       2,
-      "DELETE FROM events",
+      "SELECT id FROM events",
       [],
       { arrayMode: false, fullResults: true }
     );
@@ -129,24 +164,25 @@ describe("Neon HTTP controlled transport execution", () => {
     const binaryParser = types.getTypeParser(1114, "binary");
     const ordinaryParser = types.getTypeParser(23);
 
+    // Identity for the two text timestamp OIDs — a delegated parser would
+    // answer "fallback:…" here — and delegation for everything else.
     expect(timestampParser("2026-08-31 10:20:30")).toBe("2026-08-31 10:20:30");
     expect(dateParser("2026-08-31")).toBe("2026-08-31");
     expect(binaryParser("value")).toBe("fallback:value");
     expect(ordinaryParser("42")).toBe("fallback:42");
-    expect(neonProvider.getTypeParser).toHaveBeenCalledTimes(2);
-
-    await driver.disconnect();
   });
 
-  test("submits a native batch in order and normalizes command row counts", async () => {
+  test("submits one native batch in statement order and counts an empty mutation from its command tag", async () => {
     neonProvider.state.batchResults = [
-      fullResult([{ id: 1 }], null, "SELECT"),
+      fullResult([{ id: 1 }], 1),
       fullResult([], 2, "UPDATE"),
     ];
     const driver = new NeonHTTPDriver({
       databaseUrl: "postgres://local.test/viborm",
     });
 
+    // The UPDATE answers with no rows, so its count of 2 can only have come
+    // from the command tag — reading `rows.length` would report 0.
     await expect(
       driver._executeBatch([
         {
@@ -165,8 +201,12 @@ describe("Neon HTTP controlled transport execution", () => {
       { rows: [], rowCount: 2 },
     ]);
 
-    const callback = neonProvider.transaction.mock.calls[0]?.[0];
-    expect(callback).toBeTypeOf("function");
+    // One request, carrying both statements in the order they were given.
+    expect(neonProvider.transaction).toHaveBeenCalledOnce();
+    expect(neonProvider.state.submitted).toEqual([
+      { params: [1], sql: "SELECT id FROM events WHERE id = $1" },
+      { params: [false], sql: "UPDATE events SET active = $1" },
+    ]);
   });
 
   test("attributes a synchronous batch submission failure to its statement", async () => {
@@ -175,12 +215,15 @@ describe("Neon HTTP controlled transport execution", () => {
       databaseUrl: "postgres://local.test/viborm",
     });
 
+    // Only the refused statement carries a correlation id, which is what lets
+    // `findUniqueExecutionContextIndex` name it; the same id on both statements
+    // would leave the failure at batch scope instead.
     await expect(
       driver._executeBatch([
         { sql: "SELECT 1" },
         {
           sql: "BROKEN",
-          params: ["secret"],
+          params: ["e2"],
           context: {
             correlationId: "batch-2",
             model: "event",
@@ -201,12 +244,9 @@ describe("Neon HTTP controlled transport execution", () => {
 
   test.each([
     ["missing full-result fields", { command: "SELECT", rows: [] }],
-    ["array-mode rows", fullResult([], 0)],
+    ["array-mode rows", { ...fullResult([], 0), rowAsArray: true }],
     ["non-object rows", { ...fullResult([], 1), rows: [null] }],
   ])("rejects %s", async (_label, payload) => {
-    if (_label === "array-mode rows") {
-      Object.assign(payload, { rowAsArray: true });
-    }
     neonProvider.state.singleResult = payload;
     const error = await captureQueryError(
       new NeonHTTPDriver({
@@ -228,7 +268,10 @@ describe("Neon HTTP controlled transport execution", () => {
   });
 
   test("rejects native-batch result cardinality drift after provider completion", async () => {
-    neonProvider.state.batchResults = [fullResult([], 0)];
+    neonProvider.state.batchResults = [fullResult([], 0), fullResult([], 0)];
+    // Both statements are submitted, but the request comes back one result
+    // short — the drift `executeBatch` can only see after the round trip.
+    neonProvider.state.providerResultCount = 1;
     const error = await captureQueryError(
       new NeonHTTPDriver({
         databaseUrl: "postgres://local.test/viborm",
@@ -248,10 +291,28 @@ describe("Neon HTTP controlled transport execution", () => {
     });
   });
 
-  test("refuses initialization without the required URL before provider work", async () => {
+  test("refuses to connect without the required URL, before it builds an HTTP query", async () => {
+    // `initClient` throws a plain Error, so the generic connection lifecycle
+    // wraps it (`error-mapping.ts:415`) and `sanitizeErrorCause` redacts the
+    // driver's own wording: "Database connection failed" IS the public answer.
     await expect(new NeonHTTPDriver()._connect()).rejects.toThrow(
-      "Neon HTTP driver requires a databaseUrl"
+      "Database connection failed"
     );
+
     expect(neonProvider.neon).not.toHaveBeenCalled();
+  });
+});
+
+describe("coverage low value", () => {
+  test("closing an HTTP transport is a no-op the lifecycle still runs", async () => {
+    const driver = new NeonHTTPDriver({
+      databaseUrl: "postgres://local.test/viborm",
+    });
+    await driver._connect();
+
+    // `closeClient` has nothing to close over HTTP (`index.ts:205`). Executing
+    // it is not evidence for a behavioral contract; the lifecycle contract it
+    // belongs to is owned by the generic disconnect tests.
+    await expect(driver.disconnect()).resolves.toBeUndefined();
   });
 });
