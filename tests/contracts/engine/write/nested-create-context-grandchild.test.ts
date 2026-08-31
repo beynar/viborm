@@ -1,15 +1,16 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * T4a CLASS VI — deep create-context grandchildren (the three absorbed blast-radius keys).
@@ -117,6 +118,7 @@ async function runDirect(
   await op(client);
   const state = await snap(client);
   await client.$disconnect();
+  await closeTestPGlite(db);
   return state;
 }
 
@@ -142,6 +144,7 @@ async function runObserved(
   await op(observed.client);
   const state = await snap(fallback);
   await fallback.$disconnect();
+  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),

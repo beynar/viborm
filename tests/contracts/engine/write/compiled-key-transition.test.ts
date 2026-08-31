@@ -1,20 +1,21 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   compileTransitionSchema,
   registerCompileTransitionBehavior,
   resetCompileTransition,
 } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /** Rewrites the located counter's `id` after the database answered the locate. */
 class CorruptLocateDriver extends PGliteDriver {
@@ -172,6 +173,7 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
       expect(counters.map((row: any) => row.id)).toEqual([10]);
     }
     await stateClient.$disconnect();
+    await closeTestPGlite(db);
   }, 30_000);
 
   test("concurrency: a key moved between planning and the batch ABORTS the unit", async () => {
@@ -212,5 +214,6 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
       (await stateClient.counter.findMany()).map((row: any) => row.id)
     ).toEqual([77]);
     await stateClient.$disconnect();
+    await closeTestPGlite(db);
   }, 30_000);
 });

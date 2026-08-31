@@ -1,23 +1,22 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   createManySchema,
   runCreateManyBehavior,
 } from "@tests/contracts/engine/write/create-many-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 runCreateManyBehavior({
   name: "PGlite transaction",
@@ -196,5 +195,6 @@ describe("write boundary createMany routing", () => {
       boundary: "production",
     });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });

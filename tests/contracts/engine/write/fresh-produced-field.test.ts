@@ -3,7 +3,6 @@ import type { AnyDriver } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -18,12 +17,13 @@ import {
   twoSequenceSchema,
 } from "@tests/contracts/engine/write/fresh-produced-field-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 /**
  * PACKAGE F — the structural half. The behavior module owns "the child holds the value
@@ -435,6 +435,7 @@ describe("F4 — the substrate row of the value-state table", () => {
       });
     } finally {
       await setup.$disconnect();
+      await closeTestPGlite(database);
     }
   });
 

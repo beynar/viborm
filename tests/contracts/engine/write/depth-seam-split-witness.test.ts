@@ -12,7 +12,10 @@ import {
   TARGET_NOT_FOUND,
 } from "@tests/contracts/engine/write/depth-seam-fixtures";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -124,6 +127,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         await expect(stateClient.task.findMany({})).resolves.toEqual([]);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -167,6 +171,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         await expect(stateClient.task.findMany({})).resolves.toEqual([]);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -205,6 +210,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         ).resolves.toEqual(untouchedProjects);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -256,6 +262,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         ]);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -303,6 +310,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         });
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -361,6 +369,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         ]);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -414,6 +423,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
         await expect(stateClient.mark.findMany({})).resolves.toEqual([]);
       } finally {
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );

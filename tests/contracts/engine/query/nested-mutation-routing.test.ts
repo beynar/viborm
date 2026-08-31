@@ -3,12 +3,14 @@ import {
   createClient as PGliteCreateClient,
   PGliteDriver,
 } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 import { s } from "@schema";
 import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -18,7 +20,6 @@ import {
   test,
 } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const user = s.model({
   id: s.string().id(),
   name: s.string(),
@@ -1793,6 +1794,7 @@ describe("Nested Mutation Routing", () => {
       expect(posts[0]?.userId).toBe("user-1");
     } finally {
       await batchOnlyClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -1831,6 +1833,7 @@ describe("Nested Mutation Routing", () => {
       expect(user?.name).toBe("Alice");
     } finally {
       await batchOnlyClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -1865,6 +1868,7 @@ describe("Nested Mutation Routing", () => {
       expect(posts[0]?.userId).toBe("user-1");
     } finally {
       await batchOnlyClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -1913,6 +1917,7 @@ describe("Nested Mutation Routing", () => {
       expect(post?.title).toBe("Published");
     } finally {
       await batchOnlyClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -1956,6 +1961,7 @@ describe("Nested Mutation Routing", () => {
       expect(posts).toHaveLength(0);
     } finally {
       await noAtomicClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 });

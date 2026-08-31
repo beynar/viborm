@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { UnsupportedOperationError } from "@errors";
 
 import { s } from "@schema";
@@ -13,11 +13,12 @@ import {
   supplierContinuationSchema,
 } from "@tests/contracts/engine/write/supplier-continuation-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 const SEGMENT_REFUSAL =
   /cannot execute this record series as committed segments/;
@@ -225,8 +226,9 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
    * is the same function here, not a second copy.
    */
   test("routes the composition's placement through the pre-effect capacity refusal", async () => {
+    const db = openBorrowedPGlite();
     const cramped = new ProgressiveBatchOnlyPGliteDriver({
-      client: openBorrowedPGlite(),
+      client: db,
     });
     const client = createClient({
       schema: supplierContinuationSchema,
@@ -263,6 +265,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
     expect(cramped.batches).toEqual([]);
     expect(await client.badge.findMany({ where: { id: "b-new" } })).toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });
 
@@ -351,5 +354,6 @@ describe("E4 — supplier continuation keeps the write-side membership premise",
       { id: "b2", tag: "other", stationCode: "A" },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });

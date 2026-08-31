@@ -1,13 +1,15 @@
 import { createClient, type VibORMClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, UniqueConstraintError } from "@errors";
-
-import { describe, expect, test } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * M7 gate (§11 M7, §7.3): one error surface. When a planned-mode atomic batch
@@ -97,6 +99,7 @@ async function bothModes<S>(scenario: {
     }
     const state = await scenario.snapshot(client);
     await client.$disconnect();
+    await closeTestPGlite(db);
     results.push({ error, state });
   }
   return { live: results[0]!, planned: results[1]! };
@@ -270,6 +273,7 @@ describe("M7 one error surface", () => {
 
       expect(error).toBeInstanceOf(UniqueConstraintError);
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });

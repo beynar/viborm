@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -23,12 +23,13 @@ import {
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` —
 // the crossRelationTargetSchema of nested-write-conformance, the sibling-coupling
@@ -492,6 +493,7 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
     const posts = await (base as any).post.findMany({ where: { id: 40 } });
     expect(posts).toHaveLength(0);
     await (base as any).$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 
   test("connectOrCreate MISSING-arm racePin: a concurrent create converges by retry-and-adopt", async () => {
@@ -544,5 +546,6 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
     const users = await (base as any).user.findMany();
     expect(users).toEqual([{ id: "u1", name: "winner" }]); // no duplicate insert
     await (base as any).$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 });

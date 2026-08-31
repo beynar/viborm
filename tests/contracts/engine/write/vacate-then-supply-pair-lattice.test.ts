@@ -4,7 +4,10 @@ import {
   resetVacateThenSupply,
   vacateThenSupplySchema,
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -54,9 +57,10 @@ function disposition(error: unknown): string {
 
 describe("E6.5 the enumeration of every update-root to-one pair", () => {
   test("all 21 pairs and the empty payload land where this unit says they do", async () => {
+    const database = openBorrowedPGlite();
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+      driver: new PGliteDriver({ client: database }),
     }) as any;
     await syncLiveSchema(client);
 
@@ -117,6 +121,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
     });
     expect(disposition(emptyError)).toBe("EXECUTED");
     await client.$disconnect();
+    await closeTestPGlite(database);
   }, 120_000);
 
   /**
@@ -126,9 +131,10 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
    * the pairs.
    */
   test("the six vacate + supplier + modify triples land where H3 says they do", async () => {
+    const database = openBorrowedPGlite();
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+      driver: new PGliteDriver({ client: database }),
     }) as any;
     await syncLiveSchema(client);
 
@@ -176,14 +182,16 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       "delete+connectOrCreate+update": "VALIDATION-GUARD",
     });
     await client.$disconnect();
+    await closeTestPGlite(database);
   }, 120_000);
 });
 
 describe("Package H — the composed modify declares every field its probe reads", () => {
   test("a sibling write to the wrapper filter's field is a dependency, not a blind spot", async () => {
+    const database = openBorrowedPGlite();
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+      driver: new PGliteDriver({ client: database }),
     }) as any;
     await syncLiveSchema(client);
     await resetVacateThenSupply(client);
@@ -223,5 +231,6 @@ describe("Package H — the composed modify declares every field its probe reads
       ["b-alt", "alt"],
     ]);
     await client.$disconnect();
+    await closeTestPGlite(database);
   }, 30_000);
 });

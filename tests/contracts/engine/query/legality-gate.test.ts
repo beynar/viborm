@@ -2,12 +2,14 @@ import { createClient, type VibORMClient } from "@client/client";
 import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * M2 uniform legality gate (§11 M2 / §6.3).
@@ -128,6 +130,7 @@ describe("M2 legality gate", () => {
         expect(counts.users).toBe(0);
         expect(counts.posts).toBe(0);
         await client.$disconnect();
+        await closeTestPGlite(db);
       });
     }
   });
@@ -170,6 +173,7 @@ describe("M2 legality gate", () => {
         const counts = await dumpCounts(client);
         expect(counts.users).toBe(1);
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -199,6 +203,7 @@ describe("M2 legality gate", () => {
         const counts = await dumpCounts(client);
         expect(counts.users).toBe(1);
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -239,6 +244,7 @@ describe("M2 legality gate", () => {
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u1" });
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -284,6 +290,7 @@ describe("M2 legality gate", () => {
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u1" });
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -326,6 +333,7 @@ describe("M2 legality gate", () => {
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u2" });
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
   });

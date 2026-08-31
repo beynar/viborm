@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -14,12 +14,13 @@ import type {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 /**
  * E6.4 unit 0 — the hand-built prototype the plan's rule demands before any code in
@@ -197,6 +198,7 @@ for (const substrate of substrates) {
         after.find((r: any) => r.tenantId === "OTHER" && r.slot === "S")?.role
       ).toBe("decoy-slot");
       await client.$disconnect();
+      await closeTestPGlite(db);
     }, 30_000);
 
     test("corrupting ONE member makes the write miss", async () => {
@@ -227,6 +229,7 @@ for (const substrate of substrates) {
       // NOTHING moved: the corrupted tuple names no row.
       expect(after.every((r: any) => r.role !== "admin")).toBe(true);
       await client.$disconnect();
+      await closeTestPGlite(db);
     }, 30_000);
   });
 }

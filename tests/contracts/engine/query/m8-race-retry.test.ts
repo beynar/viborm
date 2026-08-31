@@ -2,17 +2,19 @@ import { createClient, type VibORMClient } from "@client/client";
 import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   NestedWriteAssertionError,
   NestedWriteError,
   UniqueConstraintError,
 } from "@errors";
-
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * M8 gate (DESIGN.md §11 M8, §7.4). The write-race retry is unified above
@@ -193,6 +195,7 @@ describe("M8 race-retry classification", () => {
       expect(driver.batchCount).toBe(1);
 
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -247,6 +250,7 @@ describe("M8 race-retry classification", () => {
       expect(driver.locateProbes).toBe(1);
 
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -296,6 +300,7 @@ describe("M8 race-retry classification", () => {
       expect(driver.txCount).toBe(1);
 
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -342,6 +347,7 @@ describe("M8 race-retry classification", () => {
       expect(driver.batchCount).toBe(1);
 
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });

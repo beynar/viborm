@@ -1,15 +1,16 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * X1b — the TS ceiling is the COMPILER's, not the boundary's.
@@ -148,6 +149,7 @@ describe("X1b — the boundary executes beyond the TS literal-inference ceiling"
         expect(byId.get(`n${i}`)?.tagId).not.toBeNull();
       }
       await base.$disconnect();
+      await closeTestPGlite(db);
     });
   }
 });

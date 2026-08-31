@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import {
   registerSharedPkConnectOrCreateBehavior,
@@ -10,11 +10,12 @@ import {
 } from "@tests/contracts/engine/write/shared-pk-connect-or-create-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { expect, test } from "vitest";
 
 /** The deterministic TOCTOU window: `beforeBatch` runs between the planning probe and
  *  the atomic WRITE batch (the `staleness-injection.test.ts` driver, same rule). */
@@ -128,6 +129,7 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
   expect(await setup.user.count()).toBe(0);
   // One PGlite instance backs both clients, so it is disconnected exactly once.
   await setup.$disconnect();
+  await closeTestPGlite(db);
 }, 30_000);
 
 test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different shared key", async () => {
@@ -173,4 +175,5 @@ test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different sh
     })
   ).toEqual({ id: "replacement" });
   await setup.$disconnect();
+  await closeTestPGlite(db);
 }, 30_000);

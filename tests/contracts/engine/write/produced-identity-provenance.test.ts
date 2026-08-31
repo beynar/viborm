@@ -1,21 +1,22 @@
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N4-U2 / N4-U4 — the PROVENANCE instrument for a PRODUCED identity.
@@ -170,6 +171,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     expect(drills[0]?.squadId).toBe(decoy.id);
     expect(drills[0]?.squadId).not.toBe(squads[1]?.id);
     await stateClient.$disconnect();
+    await closeTestPGlite(db);
   }, 30_000);
 
   test("a shared-primary-key child and its terminal read spend ONE produced identity", async () => {
@@ -217,6 +219,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     // name different rows and the operation would return nothing at all.
     expect(result).toMatchObject({ accountId: decoy.id, bio: "produced" });
     await stateClient.$disconnect();
+    await closeTestPGlite(db);
   }, 30_000);
 
   test("a produced-identity INSERT that reports no key fails closed, writing nothing", async () => {
@@ -267,5 +270,6 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     await expect(stateClient.drill.findMany({})).resolves.toEqual([]);
     await expect(stateClient.squad.findMany({})).resolves.toEqual([]);
     await stateClient.$disconnect();
+    await closeTestPGlite(db);
   }, 30_000);
 });

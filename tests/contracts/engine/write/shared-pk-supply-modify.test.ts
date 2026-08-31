@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { sharedPkUpdateRootSchema } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * PACKAGE H, the PACKAGE E PRECONDITION — **a supplier beside a modify, on the edge
@@ -48,11 +49,23 @@ import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lif
  * supplier means.
  */
 describe("Package H — shared-primary-key supplier + modify", () => {
-  const client = () =>
-    createClient({
+  /** Every database a seed opened, released as soon as its test is done. */
+  const opened: PGlite[] = [];
+  const client = () => {
+    const database = openBorrowedPGlite();
+    opened.push(database);
+    return createClient({
       schema: sharedPkUpdateRootSchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+      driver: new PGliteDriver({ client: database }),
     }) as any;
+  };
+
+  /** A test seeds twice where it needs two beds, so this releases whatever it opened. */
+  const releaseSeeded = async () => {
+    for (const database of opened.splice(0)) {
+      await closeTestPGlite(database);
+    }
+  };
 
   async function seeded({
     note = true,
@@ -129,6 +142,7 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       },
     });
     await db.$disconnect();
+    await releaseSeeded();
   }, 60_000);
 
   test("a dependent row blocks the shared-key move — exactly as a lone `connect` does", async () => {
@@ -165,6 +179,7 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       state: UNTOUCHED,
     });
     await db.$disconnect();
+    await releaseSeeded();
   }, 60_000);
 
   test("disconnect + connect on the shared key is not a spellable pair", async () => {
@@ -200,5 +215,6 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       stubs: [{ accountId: "a1", memo: "m" }],
     });
     await db.$disconnect();
+    await releaseSeeded();
   }, 60_000);
 });

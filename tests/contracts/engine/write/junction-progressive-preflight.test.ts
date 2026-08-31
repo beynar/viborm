@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -12,13 +12,14 @@ import { CreateManyRecordSeries } from "@src/query-engine/write-engine/CreateMan
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { junctionSkipAdoptSchema } from "@tests/contracts/engine/write/junction-skip-adoption-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 hydrateSchemaNames(junctionSkipAdoptSchema);
 
@@ -186,6 +187,7 @@ describe("root-first junction suppression on batch-only substrates", () => {
       });
       expect(linked.map((row) => row.tag)).toEqual(["kept"]);
       await state.$disconnect();
+      await closeTestPGlite(database);
     }, 60_000);
   }
 });
@@ -292,6 +294,7 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
     ).resolves.toEqual([]);
     expect(driver.statements).toBeGreaterThan(0);
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 
   test("junction updateMany lands its prefix without linking the skipped root", async () => {
@@ -354,6 +357,7 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
     ).resolves.toEqual([]);
     expect(driver.statements).toBeGreaterThan(0);
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -444,6 +448,7 @@ describe("replayable defaults are evaluated for each selected member", () => {
       })
     ).resolves.toEqual([{ stable: "S" }]);
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -786,6 +791,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
       state.holder.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "h1" }]);
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 
   /**
@@ -892,6 +898,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
       expect.arrayContaining(["b1", "n1"])
     );
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 
   test("a skipped collection-bearing root emits no member effect, and a fresh sibling lands", async () => {

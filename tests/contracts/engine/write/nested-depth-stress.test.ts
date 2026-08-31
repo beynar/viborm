@@ -1,13 +1,14 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * X1 depth STRESS — the engine's construction-time recursion has no depth
@@ -76,6 +77,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
       await seedChain(client, depth);
       const count = await client.node.count();
       await client.$disconnect();
+      await closeTestPGlite(db);
       expect(count).toBe(depth + 1); // c0 + c1..c{depth}
     });
 
@@ -96,6 +98,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
         where: { name: { startsWith: "u" } },
       });
       await client.$disconnect();
+      await closeTestPGlite(db);
       expect(renamed).toBe(depth); // c1..c{depth} renamed to u1..u{depth}
     });
   }
@@ -126,6 +129,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
       orderBy: { id: "asc" },
     });
     await client.$disconnect();
+    await closeTestPGlite(db);
     expect(fresh.map((r: any) => [r.id, r.parentId])).toEqual([
       ["f1", "c4"],
       ["f2", "f1"],

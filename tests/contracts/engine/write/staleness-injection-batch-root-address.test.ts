@@ -16,7 +16,10 @@ import {
   startsWithUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -178,6 +181,7 @@ describe("write engine staleness injection (batch root address)", () => {
     ]);
     await expect(client.post.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("write half: the root UPDATE addresses the captured row, not the one that took the discriminator", async () => {
@@ -226,6 +230,7 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 71, title: "mid", slug: "s71", userId: 1 },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("control: with no interference the located-parent batch is unchanged", async () => {
@@ -255,6 +260,7 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 72, title: "calm", slug: "s72", userId: 1 },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   // A `where` whose DISCRIMINATOR names the PK is still not, on its own, an
@@ -301,6 +307,7 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 73, title: "ext", slug: "s73", userId: 1 },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("control: an extended selector whose filter excludes the row fails closed", async () => {
@@ -325,6 +332,7 @@ describe("write engine staleness injection (batch root address)", () => {
     ]);
     await expect(client.post.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("control: an extended selector with no interference runs once", async () => {
@@ -353,6 +361,7 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 75, title: "ok", slug: "s75", userId: 1 },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   // The SECOND spelling of the same hazard, and the one that stays hidden if you look
@@ -391,6 +400,7 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 76, title: "cmp", userId: 1 },
     ]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   // The compound arm's no-interference control. Its `where` names `id` AND `count`, so
@@ -421,5 +431,6 @@ describe("write engine staleness injection (batch root address)", () => {
 
     expect(result).toEqual({ email: "pk@x", count: 1 });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });

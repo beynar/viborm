@@ -11,7 +11,10 @@ import {
   nonPkLocatedDeepCreate,
   TARGET_NOT_FOUND,
 } from "@tests/contracts/engine/write/depth-seam-fixtures";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -183,6 +186,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -240,6 +244,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -288,6 +293,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -320,6 +326,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -349,6 +356,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
           stateClient.project.findUnique({ where: { id: 20 } })
         ).resolves.toMatchObject({ title: "same" });
         await stateClient.$disconnect();
+        await closeTestPGlite(db);
       }
     );
   }

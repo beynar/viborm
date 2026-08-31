@@ -1,19 +1,20 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   parentHeldCompoundEdgeSchema,
   registerParentHeldCompoundEdgeBehavior,
   resetParentHeldCompoundEdge,
 } from "@tests/contracts/engine/write/parent-held-compound-edge-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * Rewrites ONE column of the rows the station LOCATE read returns, after the database
@@ -157,6 +158,7 @@ describe("E6.4 the correlation's provenance is the LOCATED row, per member", () 
       // THE CLAIM: the arm followed the CORRUPTED located value, per member.
       expect(notes["d-code-twin"]).toBe("followed-the-located-row");
       expect(notes["d-target"]).toBe("before");
+      await closeTestPGlite(db);
     });
   }
 });

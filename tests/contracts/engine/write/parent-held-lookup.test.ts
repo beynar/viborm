@@ -1,6 +1,6 @@
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
 
 import {
@@ -14,11 +14,12 @@ import {
 } from "@tests/contracts/engine/write/parent-held-lookup-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 runParentHeldLookupBehavior({
   name: "PGlite transaction",
@@ -169,6 +170,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
       // Only the state client disposes: both clients drive the SAME PGlite
       // instance, and closing it twice is the disconnect error, not a finding.
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -204,6 +206,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
       // Only the state client disposes: both clients drive the SAME PGlite
       // instance, and closing it twice is the disconnect error, not a finding.
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });
@@ -292,6 +295,7 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
         stateClient.book.findUnique({ where: { id: 2 } })
       ).resolves.toEqual({ id: 2, title: "book-2", authorId: null });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });
@@ -408,6 +412,7 @@ describe("E1 U3 — the subtree root's produced identity", () => {
       ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: decoy?.id });
       expect(decoy?.id).not.toBe(magazines[1]?.id);
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });
@@ -471,6 +476,7 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
         stateClient.author.findMany({ orderBy: { id: "asc" } })
       ).resolves.toEqual([{ id: 2, email: "target@x", name: "target" }]);
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });
@@ -519,6 +525,7 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
         { id: 2, slug: "gold-slug", code: "GOLD", tier: "gold" },
       ]);
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });
@@ -557,6 +564,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
         { id: 2, title: "fresh-magazine" },
       ]);
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -588,6 +596,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
         stateClient.issue.findUnique({ where: { id: 1 } })
       ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: 2 });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });

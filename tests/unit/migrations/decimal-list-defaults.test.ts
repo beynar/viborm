@@ -9,23 +9,20 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { getMigrationDriver, type MigrationDriver } from "@migrations/drivers";
-import { libsqlMigrationDriver } from "@migrations/drivers/libsql";
-import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
-import { postgresMigrationDriver } from "@migrations/drivers/postgres";
-import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
+import type { MigrationDriver } from "@migrations/drivers";
 import { introspect } from "@migrations/push";
 import { serializeModels } from "@migrations/serializer";
 import type { ColumnDef, SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import v from "@validation";
-import { getScalarSchemas } from "@validation/scalars";
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { d1EstateDriver, ddlContextFor, mysqlEstateDriver } from "./_estate";
+import { ddlContextFor } from "./_estate";
 
 const TABLE = "decimal_list_defaults";
 const LOGICAL_DEFAULT = ["1.20", "-3.40", "0.00", "90071992547409.93"];
@@ -291,6 +288,7 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
       expect((await push(client, { force: true })).operations).toEqual([]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(database);
     }
   });
 
@@ -329,6 +327,7 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
       ).toBeUndefined();
     } finally {
       await initial.$disconnect();
+      await closeTestPGlite(database);
     }
   });
 });

@@ -26,7 +26,10 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import {
   canonicalizeDecimal,
@@ -161,5 +164,6 @@ describe("PostgreSQL: the array typmod is the descriptor", () => {
     ]);
 
     await client.$disconnect();
+    await closeTestPGlite(database);
   });
 });

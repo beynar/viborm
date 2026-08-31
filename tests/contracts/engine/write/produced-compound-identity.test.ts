@@ -1,6 +1,5 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { UniqueConstraintError } from "@errors";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -14,13 +13,14 @@ import {
   registerProducedCompoundBehavior,
 } from "@tests/contracts/engine/write/produced-compound-identity-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import v from "@validation/primitives/v";
 import { expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 const substrates = [
   {
@@ -209,9 +209,10 @@ test("a single-column generated PK compiles the SAME shape it always did", () =>
 });
 
 test("an indivisible shared batch returns produced compound identity atomically", async () => {
+  const database = openBorrowedPGlite();
   const client = createClient({
     schema: producedCompoundSchema,
-    driver: new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
+    driver: new BatchOnlyPGliteDriver({ client: database }),
   }) as any;
   await syncLiveSchema(client);
   try {
@@ -232,6 +233,7 @@ test("an indivisible shared batch returns produced compound identity atomically"
     ).resolves.toEqual(created);
   } finally {
     await client.$disconnect();
+    await closeTestPGlite(database);
   }
 });
 
@@ -278,6 +280,7 @@ test("an untaken relation-bearing plural create is inert on an atomic batch", as
     ).resolves.toEqual({ label: "after" });
   } finally {
     await client.$disconnect();
+    await closeTestPGlite(database);
   }
 });
 
@@ -310,9 +313,10 @@ test("a relation-bearing race pin compares the once-parsed transformed value", (
 });
 
 test("the two-generated-member table is valid PostgreSQL DDL and returns its exact row", async () => {
+  const database = openBorrowedPGlite();
   const client = createClient({
     schema: pinSchema,
-    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+    driver: new PGliteDriver({ client: database }),
   });
   await syncLiveSchema(client);
   try {
@@ -348,13 +352,15 @@ test("the two-generated-member table is valid PostgreSQL DDL and returns its exa
     ).resolves.toEqual(created);
   } finally {
     await client.$disconnect();
+    await closeTestPGlite(database);
   }
 });
 
 test("a different create key cannot borrow the missing where's race pin", async () => {
+  const database = openBorrowedPGlite();
   const client = createClient({
     schema: pinSchema,
-    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
+    driver: new PGliteDriver({ client: database }),
   });
   await syncLiveSchema(client);
   try {
@@ -376,5 +382,6 @@ test("a different create key cannot borrow the missing where's race pin", async 
     expect(await client.twin.count()).toBe(1);
   } finally {
     await client.$disconnect();
+    await closeTestPGlite(database);
   }
 });

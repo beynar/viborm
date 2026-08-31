@@ -1,16 +1,15 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
-import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import type { PGlite } from "@electric-sql/pglite";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 function makeDirectClient(db: PGlite) {
   return createClient({
@@ -96,6 +95,7 @@ async function runDirect(): Promise<Snapshot> {
   await runWorkload((client as any).mutableUser);
   const state = await snapshot(client);
   await client.$disconnect();
+  await closeTestPGlite(db);
   return state;
 }
 
@@ -117,6 +117,7 @@ async function runObserved(
   await runWorkload(observed.client.mutableUser as any);
   const state = await snapshot(fallback);
   await fallback.$disconnect();
+  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(

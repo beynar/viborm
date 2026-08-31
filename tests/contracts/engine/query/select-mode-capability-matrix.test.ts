@@ -1,12 +1,14 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-
-import { describe, expect, test, vi } from "vitest";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test, vi } from "vitest";
 
 class BothCapabilitiesDriver extends PGliteDriver {
   override readonly supportsTransactions = true;
@@ -89,6 +91,7 @@ describe("operation executor capability matrix", () => {
       expect(transactionSpy).toHaveBeenCalledTimes(1);
       expect(batchSpy).not.toHaveBeenCalled();
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -107,6 +110,7 @@ describe("operation executor capability matrix", () => {
       expect(transactionSpy).toHaveBeenCalledTimes(1);
       expect(batchSpy).not.toHaveBeenCalled();
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -125,6 +129,7 @@ describe("operation executor capability matrix", () => {
       expect(batchSpy).toHaveBeenCalledTimes(1);
       expect(transactionSpy).not.toHaveBeenCalled();
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });

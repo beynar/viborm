@@ -5,7 +5,10 @@ import {
   runUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -79,6 +82,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
       })
     ).resolves.toEqual({ count: 0 });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("filter premise (delete): a stale extra filter aborts the batch typed", async () => {
@@ -111,6 +115,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
       })
     ).resolves.toEqual({ count: 0 });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("discriminator premise still fires under an extended where", async () => {
@@ -137,6 +142,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
 
     await expect(client.user.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });
 
@@ -178,6 +184,7 @@ describe("write engine staleness injection (located-parent Ref)", () => {
     // No child rode a foreign key to a parent that no longer exists.
     await expect(client.post.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("nested createMany by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
@@ -214,5 +221,6 @@ describe("write engine staleness injection (located-parent Ref)", () => {
 
     await expect(client.post.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });

@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -35,13 +35,14 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 /**
  * PACKAGE K — the record-series route for root `updateMany`, on PGlite.
@@ -373,6 +374,7 @@ describe("K2 — select keeps its typed refusal while count uses default batch",
       batchOnly.shelf.findMany({ select: { id: true, room: true } })
     ).resolves.toEqual([{ id: 1, room: "north" }]);
     await batchOnly.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 

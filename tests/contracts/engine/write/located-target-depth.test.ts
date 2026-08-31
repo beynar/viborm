@@ -1,17 +1,18 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 // A concurrent writer fires once, just before the atomic batch commits.
 class BeforeBatchDriver extends BatchOnlyPGliteDriver {
@@ -73,6 +74,7 @@ async function runObserved(
   await op(observed.client);
   const state = await snap(base);
   await base.$disconnect();
+  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
@@ -258,6 +260,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
     expect([m1s.name, m1s.badgeId]).toEqual(["m1s", null]);
     expect(await (base as any).badge.findMany()).toHaveLength(1);
     await base.$disconnect();
+    await closeTestPGlite(db);
   });
 
   // STALENESS pin: a concurrent writer deletes the located target (m1) between the
@@ -287,6 +290,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
     ).toHaveLength(0);
     expect(await (base as any).badge.findMany()).toHaveLength(1);
     await base.$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 });
 

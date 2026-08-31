@@ -1,15 +1,15 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * M1 — a literal FK rebind beside a DELEGATED parent-held to-one update correlates on
@@ -257,6 +257,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
           expect(after.avatars).toEqual([{ id: "av1", url: "https://x/av1" }]);
         } finally {
           await stateClient.$disconnect();
+          await closeTestPGlite(db);
         }
       });
     }
@@ -279,6 +280,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
           .map((profile) => profile.id);
       } finally {
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     }
     // The divergence pin: before M1 the delegated arm answered ["pA"] and the in-place
@@ -322,6 +324,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
       ).toEqual([{ id: "pC", tag: "TOUCHED", avatarId: "av1" }]);
     } finally {
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -350,6 +353,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
       ]);
     } finally {
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -382,6 +386,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
       ).toEqual([]);
     } finally {
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 });

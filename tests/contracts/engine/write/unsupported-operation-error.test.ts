@@ -1,6 +1,5 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import {
   QueryEngineError,
   UnsupportedOperationError,
@@ -12,11 +11,12 @@ import { UnsupportedOperationError as RootExport } from "@src/index";
 import { UnsupportedOperationError as EngineReexport } from "@src/query-engine/write-engine/shared";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * A deliberate execution boundary must not look like an engine crash. A batch-only
@@ -95,5 +95,6 @@ describe("UnsupportedOperationError public surface", () => {
     await expect(state.user.findMany({})).resolves.toEqual([]);
     await expect(state.post.findMany({})).resolves.toEqual([]);
     await state.$disconnect();
+    await closeTestPGlite(database);
   }, 30_000);
 });

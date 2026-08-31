@@ -1,14 +1,14 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { expect, test } from "vitest";
 
 test("nested update resolves a manyToOne target declared later", async () => {
   const team = s
@@ -99,5 +99,6 @@ test("nested update resolves a manyToOne target declared later", async () => {
     });
   } finally {
     await baseClient.$disconnect();
+    await closeTestPGlite(database);
   }
 });

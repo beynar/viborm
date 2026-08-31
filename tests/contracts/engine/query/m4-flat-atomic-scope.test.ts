@@ -2,14 +2,16 @@ import { createClient, type VibORMClient } from "@client/client";
 import { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-
-import { describe, expect, test, vi } from "vitest";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test, vi } from "vitest";
 
 /**
  * M4 gate (DESIGN.md §11 M4): the interpreter's recursion threads ONE emit/scope
@@ -145,6 +147,7 @@ describe("M4 one flat atomic scope", () => {
         expect(txSpy).toHaveBeenCalledTimes(1);
         txSpy.mockRestore();
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -166,6 +169,7 @@ describe("M4 one flat atomic scope", () => {
         // reaching executeBatch exactly once.
         expect(driver.batchCount).toBe(1);
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
 
@@ -201,6 +205,7 @@ describe("M4 one flat atomic scope", () => {
         expect(savepointCalls).toEqual([]);
         rawSpy.mockRestore();
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
   });
@@ -265,6 +270,7 @@ describe("M4 one flat atomic scope", () => {
       const posts = await client.post.findMany({});
       const postTags = await client.postTag.findMany({});
       await client.$disconnect();
+      await closeTestPGlite(db);
       return {
         threw,
         counts: {

@@ -1,5 +1,4 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
@@ -7,13 +6,14 @@ import {
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 function engineFor(driver: PGliteDriver) {
   return new QueryEngine(
@@ -64,6 +64,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     const result = await pendingFor(engine, args);
     expect(result).toEqual(expected);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("prepare() returns undefined for a multi-step operation", () => {
@@ -101,6 +102,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     const parsed = prepared.parseResult([...results]);
     expect(parsed).toEqual(expected);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("executeWith(driver) runs linearly on a caller-provided driver", async () => {
@@ -121,6 +123,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     ).executeWith(bound);
     expect(result).toEqual(expected);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("parseResult(raw) parses a terminal read row set into the public shape", () => {

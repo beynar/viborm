@@ -1,13 +1,9 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import type {
   OperationStep,
@@ -18,12 +14,16 @@ import {
   executeRoutedOperation,
 } from "@src/query-engine/write-engine/routing";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /** Runs one mutation on the same database just before the atomic batch commits — the
  *  concurrent-writer injection every other pin falsification in this estate uses. */
@@ -248,5 +248,6 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
     // One PGlite instance backs both the state client and the injecting driver, so the
     // client's disconnect closes it once.
     await base.$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 });

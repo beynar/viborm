@@ -7,7 +7,10 @@ import {
   SET_NULL_OCCUPIED_ERROR,
 } from "@tests/contracts/engine/query/relation-key-update-legality-fixtures";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -271,6 +274,7 @@ describe("relation-key update legality", () => {
       ]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(database);
     }
   });
 

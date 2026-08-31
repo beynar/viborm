@@ -5,7 +5,10 @@ import {
   makeClient,
   seed,
 } from "@tests/contracts/engine/write/located-parent-ref-fixtures";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -113,6 +116,7 @@ describe("located-parent Ref staleness injection", () => {
         stateClient.note.findUnique({ where: { id: 300 } })
       ).resolves.toEqual({ id: 300, body: "stale", accountId: 1 });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -141,6 +145,7 @@ describe("located-parent Ref staleness injection", () => {
       // The stale foreign key never landed: the whole atomic unit rolled back.
       await expect(stateClient.note.findMany()).resolves.toEqual([]);
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -185,6 +190,7 @@ describe("located-parent Ref staleness injection", () => {
         ownerSlot: "a",
       });
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 
@@ -212,6 +218,7 @@ describe("located-parent Ref staleness injection", () => {
       ).rejects.toThrow(UNRESOLVED_REFERENCED_COLUMN);
       await expect(stateClient.ticket.findMany()).resolves.toEqual([]);
       await stateClient.$disconnect();
+      await closeTestPGlite(db);
     }
   );
 });

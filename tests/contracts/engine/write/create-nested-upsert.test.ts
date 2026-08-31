@@ -9,7 +9,7 @@ import {
 } from "@drivers";
 import { getExecutionInstrumentation } from "@drivers/execution-context";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, QueryError, UniqueConstraintError } from "@errors";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -30,13 +30,14 @@ import {
 } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 class BatchCountingPGliteDriver extends BatchOnlyPGliteDriver {
   batchCalls = 0;
@@ -586,6 +587,7 @@ describe("write engine linear operation fragments", () => {
         await expect(setup.post.findMany()).resolves.toEqual([]);
       } finally {
         await setup.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -631,6 +633,7 @@ describe("write engine linear operation fragments", () => {
         ]);
       } finally {
         await setup.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -674,6 +677,7 @@ describe("write engine linear operation fragments", () => {
         await expect(setup.post.findMany()).resolves.toEqual([]);
       } finally {
         await setup.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );
@@ -778,6 +782,7 @@ describe("write engine linear operation fragments", () => {
         ]);
       } finally {
         await setup.$disconnect();
+        await closeTestPGlite(db);
       }
     }
   );

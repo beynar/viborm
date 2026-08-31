@@ -6,7 +6,10 @@ import {
   seed,
 } from "@tests/contracts/engine/write/located-parent-ref-fixtures";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
@@ -110,6 +113,7 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
             }))
         );
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     );
   }
@@ -215,6 +219,7 @@ describe("the batch root address, statement by statement", () => {
       ]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
@@ -249,6 +254,7 @@ describe("the batch root address, statement by statement", () => {
       ]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 });

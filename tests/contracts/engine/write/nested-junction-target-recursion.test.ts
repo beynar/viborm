@@ -1,16 +1,15 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import type { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe, expect, test } from "vitest";
 
 /**
  * T3b-2 family C witnesses — a m2m junction create/update/upsert
@@ -133,6 +132,7 @@ async function run(
     operations.length > 0 &&
     operations.every((r) => r.boundary === "production");
   await client.$disconnect();
+  await closeTestPGlite(db);
   return { state, related, routedToObserved };
 }
 
