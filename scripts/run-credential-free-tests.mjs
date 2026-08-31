@@ -26,11 +26,14 @@ function run(label, command, arguments_) {
 
 function runPackageScript(script) {
   const packageManager = process.env.npm_execpath;
-  if (packageManager) {
+  // Only re-enter through node when the package manager really is a JS entry
+  // point. pnpm installed as @pnpm/exe sets npm_execpath to a native binary,
+  // and `node <native binary>` dies with a SyntaxError before any test runs.
+  if (packageManager && /\.[cm]?js$/.test(packageManager)) {
     run(`pnpm ${script}`, process.execPath, [packageManager, script]);
     return;
   }
-  run(`pnpm ${script}`, "pnpm", [script]);
+  run(`pnpm ${script}`, packageManager || "pnpm", [script]);
 }
 
 function runVitest(label, wallLimitMs, project, files = []) {
