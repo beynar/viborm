@@ -8,6 +8,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * N1-U1 — the D4-deep non-PK reference, absorbed from the former T3b-2
  * named-reorder decline.
@@ -122,7 +125,7 @@ describe("nested update D4-deep non-PK reference (located-parent Ref at depth 2)
       `a deeper edge referencing a non-PK unique reads it from the located target (${substrate})`,
       { timeout: 30_000 },
       async () => {
-        const db = new PGlite();
+        const db = openBorrowedPGlite();
         const driver =
           substrate === "tx"
             ? new PGliteDriver({ client: db })

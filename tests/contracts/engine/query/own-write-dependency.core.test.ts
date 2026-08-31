@@ -9,7 +9,11 @@ import {
   getMembershipReadOrientation,
   getRelationMembershipEndpoints,
 } from "@query-engine/OwnWriteLedger";
-import { getRelationMembershipScope } from "@query-engine/RelationMembership";
+import {
+  getRelationMembershipScope,
+  type RelationMembershipScope,
+  relationMembershipScopesEqual,
+} from "@query-engine/RelationMembership";
 import { selectorConstraint } from "@query-engine/TargetConstraint";
 import { s } from "@schema";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
@@ -90,7 +94,7 @@ function selfRelationMutation(input: Record<string, unknown>) {
 
 function summarizeSelfChildrenStep(
   input: Record<string, unknown>,
-  kind: "connect" | "create" | "createMany" | "update"
+  kind: "connect" | "create" | "createMany" | "update" | "updateMany"
 ) {
   const plan = selfRelationMutation({ children: input });
   const parsed = plan.relations.find((entry) => entry.name === "children");
@@ -355,5 +359,121 @@ describe("operation-visible membership summaries", () => {
         summary.membershipOrientation
       )
     ).toThrow(`depends on an earlier '${kind}' membership write`);
+  });
+
+  test("exports a relation-bearing createMany row as one complete create tree", () => {
+    const summary = summarizeSelfChildrenStep(
+      {
+        createMany: {
+          data: [{ id: 2, parent: { connect: { id: 3 } } }],
+        },
+      },
+      "createMany"
+    );
+
+    expect(() =>
+      summary.ledger.assertMembershipRead(
+        "outer-children",
+        "upsert",
+        summary.endpoints,
+        summary.membershipScope,
+        summary.membershipOrientation
+      )
+    ).toThrow("depends on an earlier 'createMany' membership write");
+  });
+
+  test("publishes relation-bearing updateMany member effects after the series footprint", () => {
+    const summary = summarizeSelfChildrenStep(
+      {
+        updateMany: {
+          where: { id: 2 },
+          data: { parent: { connect: { id: 3 } } },
+        },
+      },
+      "updateMany"
+    );
+
+    expect(() =>
+      summary.ledger.assertMembershipRead(
+        "outer-children",
+        "upsert",
+        summary.endpoints,
+        summary.membershipScope,
+        summary.membershipOrientation
+      )
+    ).toThrow("depends on an earlier 'updateMany' membership write");
+  });
+});
+
+describe("relation membership scope identity", () => {
+  const polymorphicScope: RelationMembershipScope = {
+    kind: "polymorphicForeignKey",
+    holder: target,
+    referenced: parent,
+    typeField: "subjectType",
+    storedType: "target.v1",
+    identityField: "subjectId",
+    referencedField: "id",
+  };
+
+  test("compares every fixed polymorphic membership component", () => {
+    expect(
+      relationMembershipScopesEqual(polymorphicScope, {
+        ...polymorphicScope,
+      })
+    ).toBe(true);
+    expect(
+      relationMembershipScopesEqual(polymorphicScope, {
+        ...polymorphicScope,
+        referencedField: "code",
+      })
+    ).toBe(false);
+  });
+
+  test("never equates row-held membership protocols of different kinds", () => {
+    expect(
+      relationMembershipScopesEqual(polymorphicScope, {
+        kind: "foreignKey",
+        holder: target,
+        referenced: parent,
+        fields: [{ foreignKey: "subjectId", referencedKey: "id" }],
+      })
+    ).toBe(false);
+  });
+});
+
+describe("self-relation to-one update footprint", () => {
+  test("treats either side's key change as a write to the shared membership", () => {
+    const plan = selfRelationMutation({
+      parent: { update: { data: { parentId: 3 } } },
+    });
+    const parsed = plan.relations.find((entry) => entry.name === "parent");
+    if (parsed?.kind !== "ordinary") {
+      throw new Error("Expected parent relation mutation");
+    }
+    const boundRelation = bindRelation(plan.ctx, parsed.program.relationRef);
+    const membershipScope = getRelationMembershipScope(boundRelation);
+    const currentConstraint = selectorConstraint(selfNode, { id: 1 });
+    const targetConstraint = selectorConstraint(selfNode, { id: 2 });
+    const ledger = analyzeOwnWriteTree(plan.ctx, plan.relations, {
+      kind: "update",
+      scalarData: {},
+      selector: { id: 1 },
+    });
+
+    expect(() =>
+      ledger.assertMembershipRead(
+        "parent",
+        "upsert",
+        getRelationMembershipEndpoints(
+          boundRelation,
+          membershipScope,
+          currentConstraint,
+          targetConstraint
+        ),
+        membershipScope,
+        getMembershipReadOrientation(boundRelation)
+      )
+    ).toThrow("depends on an earlier 'update' membership write");
   });
 });

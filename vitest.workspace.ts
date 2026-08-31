@@ -1,10 +1,27 @@
 import { defineWorkspace } from "vitest/config";
+import { CLIENT_COVERAGE_TESTS } from "./scripts/client-test-manifest.mjs";
+import { EXTENDED_LOCAL_TESTS } from "./scripts/credential-free-test-manifest.mjs";
+import {
+  DRIVER_CORE_TESTS,
+  DRIVER_COVERAGE_TESTS,
+} from "./scripts/driver-test-manifest.mjs";
+import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
+import {
+  QUERY_ENGINE_CORE_TESTS,
+  WRITE_ENGINE_CORE_TESTS,
+  WRITE_ENGINE_COVERAGE_TESTS,
+} from "./scripts/query-engine-test-manifest.mjs";
 
-const layerProject = (name: string, include: string[]) => ({
+const layerProject = (
+  name: string,
+  include: string[],
+  exclude: string[] = []
+) => ({
   extends: "./vitest.config.ts",
   test: {
     name: `layer-${name}`,
     include,
+    ...(exclude.length === 0 ? {} : { exclude }),
   },
 });
 
@@ -14,6 +31,14 @@ const providerProject = (name: string, include: string[]) => ({
     name: `provider-${name}`,
     include,
     fileParallelism: false,
+  },
+});
+
+const coverageProject = (name: string, include: string[]) => ({
+  extends: "./vitest.config.ts",
+  test: {
+    name: `coverage-${name}`,
+    include,
   },
 });
 
@@ -28,13 +53,13 @@ export default defineWorkspace([
     "tests/unit/schema-validation/**/*.core.test.ts",
   ]),
   layerProject("schema-json", ["tests/unit/schema-json/**/*.core.test.ts"]),
-  layerProject("query-engine", [
-    "tests/contracts/architecture/**/*.core.test.ts",
-    "tests/contracts/engine/**/*.core.test.ts",
-  ]),
+  layerProject("query-engine", [...QUERY_ENGINE_CORE_TESTS]),
   layerProject("adapters", ["tests/contracts/adapters/**/*.core.test.ts"]),
-  layerProject("drivers", ["tests/contracts/drivers/*.core.test.ts"]),
-  layerProject("client", ["tests/contracts/public-client/*.core.test.ts"]),
+  layerProject("drivers", [...DRIVER_CORE_TESTS]),
+  layerProject("client", [
+    "tests/contracts/public-client/*.core.test.ts",
+    "tests/contracts/public-client/errors/**/*.core.test.ts",
+  ]),
   layerProject("cache", ["tests/unit/cache/**/*.core.test.ts"]),
   layerProject("instrumentation", [
     "tests/unit/instrumentation/**/*.core.test.ts",
@@ -64,28 +89,79 @@ export default defineWorkspace([
   {
     extends: "./vitest.config.ts",
     test: {
-      name: "coverage-write-engine",
+      name: "coverage-public",
       include: [
-        "tests/contracts/architecture/**/*.core.test.ts",
-        "tests/contracts/engine/query/**/*.core.test.ts",
-        "tests/contracts/engine/query/nested-create-many.test.ts",
-        "tests/contracts/engine/write/**/*.test.ts",
+        "tests/contracts/architecture/system-clock.core.test.ts",
+        "tests/contracts/public-client/config-subpath.core.test.ts",
+        "tests/contracts/public-client/public-runtime-surface.core.test.ts",
+        "tests/unit/instrumentation/version.core.test.ts",
       ],
     },
   },
   {
     extends: "./vitest.config.ts",
     test: {
-      name: "extended-local",
-      include: ["tests/**/*.test.ts"],
-      exclude: [
-        "tests/**/*.core.test.ts",
-        "tests/package/**/*.test.ts",
-        "tests/providers/**/*.test.ts",
-        "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
-        "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
-        "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
+      name: "coverage-extensions",
+      include: [
+        "tests/contracts/architecture/extension-system-census.core.test.ts",
+        "tests/contracts/public-client/default-omit-extension.core.test.ts",
+        "tests/contracts/public-client/extensions-foundation.core.test.ts",
+        "tests/contracts/public-client/official-cache-extension.core.test.ts",
+        "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
+        "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
+        "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
+        "tests/contracts/public-client/extensions/array-admission.core.test.ts",
+        "tests/contracts/public-client/query-interceptors*.core.test.ts",
+        "tests/contracts/public-client/request-transforms.core.test.ts",
+        "tests/contracts/public-client/statement-transforms-integration.core.test.ts",
+        "tests/contracts/drivers/statement-transforms.core.test.ts",
+        "tests/contracts/drivers/protected-observers.core.test.ts",
+        "tests/unit/instrumentation/official-observer*.core.test.ts",
       ],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-errors",
+      include: [
+        "tests/contracts/public-client/errors/**/*.test.ts",
+        "tests/unit/validation/boundaries.core.test.ts",
+      ],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-cli",
+      include: ["tests/contracts/public-client/cli/**/*.test.ts"],
+    },
+  },
+  coverageProject("cache", [
+    "tests/unit/cache/**/*.core.test.ts",
+    "tests/contracts/public-client/official-cache-extension.core.test.ts",
+    "tests/contracts/public-client/official-cache-instrumentation.core.test.ts",
+    "tests/contracts/public-client/official-cache-swr.core.test.ts",
+    "tests/contracts/public-client/protected-cache-observers.core.test.ts",
+  ]),
+  coverageProject("client", [...CLIENT_COVERAGE_TESTS]),
+  coverageProject("drivers", [...DRIVER_COVERAGE_TESTS]),
+  coverageProject("migrations", [...MIGRATION_COVERAGE_TESTS]),
+  coverageProject("write-engine-core", [...WRITE_ENGINE_CORE_TESTS]),
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "coverage-write-engine",
+      include: [...WRITE_ENGINE_COVERAGE_TESTS],
+      pool: "threads",
+      poolOptions: { threads: { singleThread: true } },
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "extended-local",
+      include: [...EXTENDED_LOCAL_TESTS],
     },
   },
   providerProject("pglite", ["tests/providers/local/pglite*.test.ts"]),

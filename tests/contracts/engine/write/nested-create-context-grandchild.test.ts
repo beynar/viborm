@@ -8,6 +8,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * T4a CLASS VI — deep create-context grandchildren (the three absorbed blast-radius keys).
  *
@@ -107,7 +110,7 @@ async function runDirect(
   op: (c: AnyClient) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<unknown> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeDirectClient(schema, db);
   await syncLiveSchema(client as never);
   await seed(client);
@@ -124,7 +127,7 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const fallback = makeDirectClient(schema, db);
   await syncLiveSchema(fallback as never);
   await seed(fallback);

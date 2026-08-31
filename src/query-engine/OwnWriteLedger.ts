@@ -80,7 +80,6 @@ export type OwnWriteFootprint =
       readonly dimension: "targetPredicate";
       readonly constraint: TargetConstraint;
       readonly predicateFields: PredicateFieldSet | undefined;
-      readonly visibility: "node" | "operation";
       readonly localScope: symbol;
     }
   | {
@@ -145,7 +144,6 @@ export class OwnWriteLedger {
       dimension,
       constraint,
       predicateFields,
-      visibility: "operation",
       localScope: this.#localScope,
     });
   }
@@ -285,13 +283,6 @@ function writeCanAffectRead(
       write.visibility === "operation" || write.localScope === read.localScope
     );
   }
-  if (
-    write.visibility !== "operation" &&
-    write.localScope !== read.localScope
-  ) {
-    return false;
-  }
-
   const changedFields = write.predicateFields;
   if (!changedFields || changedFields === "unknown") return false;
   const readFields =

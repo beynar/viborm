@@ -9,6 +9,9 @@ import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * X1 — THE DEPTH LIFT. A nested `create` under a LOCATED target may now carry its
  * own create-context grandchildren to ARBITRARY depth (a create SUBTREE). The
@@ -62,7 +65,7 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const base = makeClient(db);
   await syncLiveSchema(base as never);
   await seed(base);

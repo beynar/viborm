@@ -40,6 +40,9 @@ import { readTestTransactionOperation } from "@tests/fixtures/transaction-operat
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * PACKAGE K — the record-series route for root `updateMany`, on PGlite.
  *
@@ -331,7 +334,7 @@ describe("K2 — select keeps its typed refusal while count uses default batch",
   });
 
   test("the { count } arm executes as ordered batches with exact state", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: updateManySeriesSchema,
       driver: new PGliteDriver({ client: database }),

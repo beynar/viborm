@@ -16,6 +16,9 @@ import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * N4-U1's PROVENANCE instrument, one level below the one N1 built.
  *
@@ -248,7 +251,7 @@ describe("N4 — depth-seam boundaries (PGlite)", () => {
 
 describe("N4-U1 located-target provenance (staleness injection at depth)", () => {
   const setupDb = async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
     await syncLiveSchema(stateClient);
     await seedProjects(stateClient);
@@ -475,7 +478,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "a nested update by a non-PK unique refuses (RelationWritePart)",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -500,7 +503,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "a to-many upsert by a non-PK unique refuses (RelationUpsertPart)",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -543,7 +546,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "the SCALAR-ONLY spelling of that upsert refuses too",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -581,7 +584,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "a to-many upsert whose unique moves WITHIN the same parent refuses",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -632,7 +635,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "a to-many upsert whose located row is concurrently REPARENTED refuses",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -679,7 +682,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "N6-U1: a to-many upsert whose FILTERED column moves before the batch refuses",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);
@@ -737,7 +740,7 @@ describe("N4-U1 split-witness: the unique moves between planning and the batch",
     "an m2m update by a non-PK unique refuses (RelationJunctionPart)",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
       try {
         await syncLiveSchema(stateClient);

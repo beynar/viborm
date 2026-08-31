@@ -813,7 +813,7 @@ and is kept because a coordinate that vanishes teaches nothing.
 |---|---|---|---|---|---|
 | 22 | `relation-key-legality.ts:162` | `assertSelectedUpdateManyDataIsScalar` (`:155`), junction arm | **MSI** | `:173` / `:167` (both arms) | Twin of 9. |
 | 23 | `relation-key-legality.ts:166` | the same function, ordinary arm | **MSI** | **RETIRED → 22** | Twin of 10. |
-| 24 | former `builders/decimal-portability.ts:56` | `assertExactDecimalOperation` (`:48`) | — | RETIRED | §7.5's premise is false: SQLite stores a decimal as its unscaled integer coefficient, so ordering, aggregating and arithmetic are exact there. File, capability and all sixteen call sites deleted (8 files: aggregate-utils 1, orderby-builder 1, relation-orderby-builder 1, set-builder 4, where-builder 4, cursor-order 2, groupby 2, groupby-having 1); the refusal enumeration is inverted into `decimal-exact-surface.core.test.ts`. |
+| 24 | former `builders/decimal-portability.ts:56` | `assertExactDecimalOperation` (`:48`) | — | RETIRED | §7.5's premise is false: SQLite stores a decimal as its unscaled integer coefficient, so ordering, aggregating and arithmetic are exact there. File, capability and all sixteen call sites deleted (8 files: aggregate-utils 1, orderby-builder 1, relation-orderby-builder 1, set-builder 4, where-builder 4, cursor-order 2, groupby 2, groupby-having 1); the refusal enumeration is inverted into `decimal-exact-surface.test.ts`. |
 
 ### The 2 `src` sites outside the query engine
 

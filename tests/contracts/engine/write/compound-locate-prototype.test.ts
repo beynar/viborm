@@ -18,6 +18,9 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * E6.4 unit 0 — the hand-built prototype the plan's rule demands before any code in
  * the compound-identity family moves.
@@ -158,7 +161,7 @@ const substrates = [
 for (const substrate of substrates) {
   describe(`E6.4 prototype (${substrate.name})`, () => {
     test("a two-member locate addresses the compound row and misses on a corrupt member", async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client: any = createClient({
         schema,
         driver: new PGliteDriver({ client: db }),
@@ -197,7 +200,7 @@ for (const substrate of substrates) {
     }, 30_000);
 
     test("corrupting ONE member makes the write miss", async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client: any = createClient({
         schema,
         driver: new PGliteDriver({ client: db }),

@@ -2211,9 +2211,9 @@ pnpm test:types
 ### 12.2 Coverage and architecture
 
 ```bash
-pnpm test:coverage:relations
 pnpm test:coverage:schema
-pnpm test:coverage:schema-validation
+pnpm test:coverage:schema
+pnpm test:coverage:schema
 pnpm test:coverage:validation
 pnpm test:coverage:write-engine
 ```

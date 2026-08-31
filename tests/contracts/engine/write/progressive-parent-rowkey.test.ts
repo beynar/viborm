@@ -1,13 +1,15 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
+
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 /**
  * RESIDUAL PACKAGE H, unit H1 — the complete parent row key at a nested
@@ -189,13 +191,14 @@ async function world(client: any): Promise<unknown> {
 describe("H1 — the complete parent row key at a progressive nested series", () => {
   let driver: ProgressivePGliteDriver | undefined;
   let client: any;
+  let database: PGlite | undefined;
   /** A second client over the SAME database, for the out-of-band concurrent writer.
    *  It needs its own driver: re-entering the driver under test from inside its own
    *  `executeBatch` deadlocks on that driver's queue rather than racing it. */
   let concurrent: any;
   const open = async () => {
     if (!client) {
-      const database = new PGlite();
+      database = openBorrowedPGlite();
       driver = new ProgressivePGliteDriver({ client: database });
       client = createClient({ schema: rowKeySchema, driver }) as any;
       concurrent = createClient({
@@ -403,13 +406,14 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     // The strong ordered-commit capability improves callback-before-decode attribution;
     // it is not the execution gate. A native atomic batch driver can continue after a
     // normalized success and must still apply the same complete parent premise.
-    const plainDriver = new BatchOnlyPGliteDriver({ client: new PGlite() });
+    await open();
+    if (!database) throw new Error("database was not provisioned");
+    const plainDriver = new BatchOnlyPGliteDriver({ client: database });
     expect(plainDriver.supportsOrderedCommittedSegments).toBe(false);
     const plain = createClient({
       schema: rowKeySchema,
       driver: plainDriver,
     }) as any;
-    await syncLiveSchema(plain);
     await seed(plain);
 
     await expect(
@@ -427,12 +431,13 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
   }, 60_000);
 
   test("an interactive driver is untouched: same rows, and no parent presence guard", async () => {
-    const recorder = new RecordingPGliteDriver({ client: new PGlite() });
+    await open();
+    if (!database) throw new Error("database was not provisioned");
+    const recorder = new RecordingPGliteDriver({ client: database });
     const interactive = createClient({
       schema: rowKeySchema,
       driver: recorder,
     }) as any;
-    await syncLiveSchema(interactive);
     await seed(interactive);
     recorder.statements = [];
 
@@ -544,7 +549,7 @@ describe("H1 — each placement guards its exact progressive premise", () => {
   let client: any;
   const open = async () => {
     if (!client) {
-      driver = new ProgressivePGliteDriver({ client: new PGlite() });
+      driver = new ProgressivePGliteDriver({ client: openBorrowedPGlite() });
       client = createClient({ schema: junctionRowKeySchema, driver }) as any;
       await syncLiveSchema(client);
       await client.hub.create({

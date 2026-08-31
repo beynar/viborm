@@ -29,6 +29,7 @@ import {
 import type Database from "better-sqlite3";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -152,6 +153,13 @@ const withTransactions = <TClient>(
 // =============================================================================
 
 let db: PGlite;
+const caseDatabases = new Set<PGlite>();
+
+const createCaseDatabase = (): PGlite => {
+  const database = new PGlite();
+  caseDatabases.add(database);
+  return database;
+};
 let client: ReturnType<
   typeof createClient<
     typeof schema,
@@ -169,7 +177,17 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await client.$disconnect();
+  try {
+    await client.$disconnect();
+  } finally {
+    await db.close();
+  }
+});
+
+afterEach(async () => {
+  const databases = [...caseDatabases];
+  caseDatabases.clear();
+  await Promise.all(databases.map((database) => database.close()));
 });
 
 beforeEach(async () => {
@@ -517,7 +535,7 @@ describe("$transaction with array (batch mode)", () => {
   });
 
   test("batch-only driver batches nested write operations atomically", async () => {
-    const batchDb = new PGlite();
+    const batchDb = createCaseDatabase();
     const setupClient = createClient({
       schema,
       driver: new PGliteDriver({ client: batchDb }),
@@ -560,7 +578,7 @@ describe("$transaction with array (batch mode)", () => {
   });
 
   test("batch-only shared parsing keeps exact partitions with insert ids", async () => {
-    const batchDb = new PGlite();
+    const batchDb = createCaseDatabase();
     const setupClient = createClient({
       schema,
       driver: new PGliteDriver({ client: batchDb }),
@@ -644,7 +662,7 @@ describe("$transaction with array (batch mode)", () => {
     "batch-only transaction rolls back earlier generated refs when a later nested plan fails",
     { timeout: 30_000 },
     async () => {
-      const batchDb = new PGlite();
+      const batchDb = createCaseDatabase();
       const setupClient = createClient({
         schema: batchPrimaryKeyDataflowSchema,
         driver: new PGliteDriver({ client: batchDb }),
@@ -782,7 +800,7 @@ describe("$transaction with array (batch mode)", () => {
  */
 describe("$transaction([...]) with statement-free operations", () => {
   const bootBatchOnly = async () => {
-    const batchDb = new PGlite();
+    const batchDb = createCaseDatabase();
     const setupClient = createClient({
       schema,
       driver: new PGliteDriver({ client: batchDb }),
@@ -962,7 +980,7 @@ describe("$transaction([...]) with statement-free operations", () => {
  */
 describe("$transaction([...]) guard attribution after rollback", () => {
   const bootBatchOnly = async () => {
-    const batchDb = new PGlite();
+    const batchDb = createCaseDatabase();
     const setupClient = createClient({
       schema,
       driver: new PGliteDriver({ client: batchDb }),
@@ -1145,7 +1163,7 @@ describe("$transaction([...]) attribution of a failure no guard caused", () => {
   const counterSchema = { counter };
 
   const bootCounters = async () => {
-    const batchDb = new PGlite();
+    const batchDb = createCaseDatabase();
     const setupClient = createClient({
       schema: counterSchema,
       driver: new PGliteDriver({ client: batchDb }),

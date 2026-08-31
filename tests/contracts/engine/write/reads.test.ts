@@ -4,6 +4,9 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // The read family on PGlite, in transaction and forced atomic-batch modes.
 runReadBehavior({
   name: "PGlite transaction",
@@ -16,7 +19,7 @@ let sharedBatchDb: PGlite | undefined;
 runReadBehavior({
   name: "PGlite atomic batch",
   createDriver: () => {
-    sharedBatchDb = new PGlite();
+    sharedBatchDb = openBorrowedPGlite();
     return new PGliteDriver({ client: sharedBatchDb });
   },
   createObservedDriver: () =>

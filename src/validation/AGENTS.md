@@ -390,12 +390,13 @@ Putting `filter`, `create`, `update`, or model args schemas on scalar/relation/m
 
 ## Coverage Gate
 
-`pnpm test:coverage:validation` runs the validation, scalar,
-operation-schema, and relation core projects in one worker with a 768 MB heap,
-one coverage-processing worker, and a 60-second process limit. It writes
-`coverage/validation/index.html` and requires 100% statements, lines,
-functions, and branches for `src/validation/**/*.ts`. This gate does not include
-definition-time `src/schema/validation`.
+`pnpm test:coverage:validation` runs the validation, scalar, operation-schema,
+and relation core projects as four sequential bounded parts, each with one
+worker, a 768 MB heap, one coverage-processing worker, a 1536 MiB sampled
+process-group RSS ceiling, and verified teardown. It merges those parts, writes
+`coverage/validation/index.html`, and requires 100% statements, lines,
+functions, and branches for `src/validation/**/*.ts`. This gate does not
+include definition-time `src/schema/validation`.
 
 ---
 

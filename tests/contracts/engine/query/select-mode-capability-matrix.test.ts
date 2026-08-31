@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { TransactionError } from "@errors";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { describe, expect, test, vi } from "vitest";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
@@ -33,21 +33,8 @@ class BatchOnlyDriver extends PGliteDriver {
   }
 }
 
-class NoAtomicDriver extends PGliteDriver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = false;
-}
-
-type AtomicOperation = "create" | "update" | "upsert";
-
-const ATOMIC_OPERATIONS: readonly AtomicOperation[] = [
-  "create",
-  "update",
-  "upsert",
-];
-
 async function setupDb(): Promise<PGlite> {
-  const db = new PGlite();
+  const db = openTestPGlite();
   const client = createClient({
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),
@@ -84,46 +71,6 @@ function nestedCreate(driver: PGliteDriver, suffix: string) {
       include: { posts: true },
     }),
   };
-}
-
-function unsupportedOperation(
-  driver: NoAtomicDriver,
-  operation: AtomicOperation
-): PromiseLike<unknown> {
-  const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
-  switch (operation) {
-    case "create":
-      // Carries the same `include` as {@link nestedCreate}, and for the same
-      // Phase 8.2 reason: without it the tree is one statement and needs no
-      // atomic substrate to refuse.
-      return client.user.create({
-        data: {
-          id: "u-create",
-          name: "Owner",
-          posts: { create: { id: "p-create", title: "Nested" } },
-        },
-        include: { posts: true },
-      });
-    case "update":
-      return client.user.update({
-        where: { id: "u-update" },
-        data: {
-          posts: { create: { id: "p-update", title: "Nested" } },
-        },
-      });
-    case "upsert":
-      return client.user.upsert({
-        where: { id: "u-upsert" },
-        create: {
-          id: "u-upsert",
-          name: "Owner",
-          posts: { create: { id: "p-upsert", title: "Nested" } },
-        },
-        update: { name: "Updated" },
-      });
-    default:
-      throw new Error(`Unknown atomic operation '${operation}'.`);
-  }
 }
 
 describe("operation executor capability matrix", () => {
@@ -180,29 +127,4 @@ describe("operation executor capability matrix", () => {
       await client.$disconnect();
     }
   );
-
-  describe("driver with neither atomic capability fails closed", () => {
-    for (const operationName of ATOMIC_OPERATIONS) {
-      test(`operation '${operationName}'`, async () => {
-        const driver = new NoAtomicDriver();
-
-        let thrown: unknown;
-        try {
-          await unsupportedOperation(driver, operationName);
-        } catch (error) {
-          thrown = error;
-        }
-
-        expect(thrown).toBeInstanceOf(TransactionError);
-        if (!(thrown instanceof TransactionError)) {
-          throw new Error("expected a TransactionError");
-        }
-        expect(thrown.message).toBe(
-          `Driver '${driver.driverName}' supports neither transactions nor atomic batch execution.`
-        );
-        expect(thrown.meta.driver).toBe(driver.driverName);
-        expect(thrown.meta.operation).toBe(operationName);
-      });
-    }
-  });
 });

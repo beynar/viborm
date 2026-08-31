@@ -24,7 +24,7 @@ import type {
   MigrationParentTransitionV1,
   MigrationStateManifestV1,
 } from "@src/migrations/v1-types";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 async function publishEstate() {
@@ -168,7 +168,7 @@ describe("migration v1 graph merges", () => {
     const storage = new MemoryEstateStorage();
     const client = createClient({
       schema: { user },
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     const init = await generateV1(client, storage, { name: "init" });
     expect(init.stateId).toBeTruthy();

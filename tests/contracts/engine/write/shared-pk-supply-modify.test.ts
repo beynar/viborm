@@ -6,6 +6,9 @@ import { sharedPkUpdateRootSchema } from "@tests/contracts/engine/write/shared-p
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * PACKAGE H, the PACKAGE E PRECONDITION — **a supplier beside a modify, on the edge
  * whose foreign key is the record's own primary key.**
@@ -48,7 +51,7 @@ describe("Package H — shared-primary-key supplier + modify", () => {
   const client = () =>
     createClient({
       schema: sharedPkUpdateRootSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
 
   async function seeded({

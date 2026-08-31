@@ -55,10 +55,7 @@ export function buildSet(
       ? adapter.identifiers.column(alias, columnName)
       : adapter.identifiers.escape(columnName);
 
-    const assignment = buildAssignment(ctx, key, column, value);
-    if (assignment) {
-      assignments.push(assignment);
-    }
+    assignments.push(buildAssignment(ctx, key, column, value));
   }
 
   appendPolymorphicAssignments(ctx, assignments, alias, polymorphicStorage);
@@ -101,7 +98,7 @@ function buildAssignment(
   fieldName: string,
   column: Sql,
   value: unknown
-): Sql | undefined {
+): Sql {
   const { adapter } = ctx;
 
   // Handle Sql values directly (from connect subqueries)

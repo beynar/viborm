@@ -1,4 +1,3 @@
-import { MySQL2Driver } from "@drivers/mysql2";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
@@ -6,6 +5,7 @@ import type { OperationStep } from "@src/query-engine/write-engine/OperationFrag
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -29,9 +29,9 @@ function sqlOf(step: OperationStep): string {
  * leg via the shared driver suite — this is the cheap structural tripwire that
  * does not need it.
  *
- * MySQL2Driver is transaction-capable and non-returning, so the ATOM §7
- * batch-only refusal does not pre-empt the plan. No connection is made: planning
- * and compile are pure.
+ * The planning-only MySQL driver is transaction-capable and non-returning, so
+ * the ATOM §7 batch-only refusal does not pre-empt the plan. Any accidental
+ * provider dispatch fails.
  */
 const gadget = s
   .model({
@@ -50,7 +50,7 @@ beforeAll(() => {
 function engine(): QueryEngine {
   const schemas = createSchemaRegistry(schema);
   return new QueryEngine(
-    new MySQL2Driver(),
+    new PlanningDriver("mysql"),
     createModelRegistry(schema, schemas)
   );
 }

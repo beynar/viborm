@@ -108,9 +108,10 @@ scalar continues to rebuild the validation primitive that owns its value type.
 scalar base class that hides the state type or moves base-schema ownership out
 of the concrete scalar.
 
-Use `pnpm test:coverage:scalars` for the memory-capped L2 report. It gates
-statements, branches, functions, and lines at 100% and writes
-`coverage/scalars/index.html`.
+Use `pnpm test:coverage:schema` for the memory-capped schema-subsystem report.
+It gates statements, branches, functions, and lines at 100% and writes
+`coverage/schema/index.html`. Scalars share that one schema denominator; there
+is no separate scalar coverage command.
 
 ### Rule 6: Fixed Decimal Has One Descriptor
 

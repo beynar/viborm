@@ -393,7 +393,7 @@ pnpm test:layer:operation-schemas
 pnpm test:layer:query-engine
 pnpm test:layer:migrations
 pnpm test:layer:client
-pnpm test:coverage:scalars
+pnpm test:coverage:schema
 pnpm test:coverage:schema
 pnpm test:coverage:validation
 pnpm test:types

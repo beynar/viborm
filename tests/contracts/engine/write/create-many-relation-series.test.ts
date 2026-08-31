@@ -25,6 +25,9 @@ import { readTestTransactionOperation } from "@tests/fixtures/transaction-operat
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * PACKAGE J — the record-series route for root `createMany`, on PGlite.
  *
@@ -315,7 +318,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     // prepared batch, so the merge falls through to the client's own sentence); this
     // is the first payload that actually reaches it. No new machinery: the message is
     // the client's pre-existing one, word for word.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -346,7 +349,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     // record series — so the refusal is the same client sentence, reached one
     // payload shape wider. The pin is that E did NOT open a path where a
     // collection member is prepared as a merged fragment and half-lands.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -434,7 +437,7 @@ describe("child-held relation-bearing skip on default batch execution", () => {
   };
 
   test("a duplicate root suppresses its subtree and a fresh sibling lands", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -603,7 +606,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
   test("…and on a batch-only substrate the empty payload still ANSWERS", async () => {
     // No row means no relation-bearing member and no batch to submit. The common
     // spread-a-possibly-empty-array call stays on the no-op arm and answers zero.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),

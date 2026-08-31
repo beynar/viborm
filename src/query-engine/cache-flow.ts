@@ -8,8 +8,8 @@ import {
   cacheInvalidationSchema,
   withCacheSchema,
 } from "@cache";
-import type { WaitUntilFn } from "@cache/cache-contract";
 import {
+  type WaitUntilFn,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
 } from "@cache/driver";
@@ -89,16 +89,13 @@ export function prepareMutationCacheInput(
   }
 
   const args: Record<string, unknown> = {};
-  try {
-    for (const [key, descriptor] of descriptors) {
-      if (key === "cache") continue;
-      Object.defineProperty(args, key, descriptor);
-    }
-  } catch (cause) {
-    throw mutationCacheInputError(
-      `Mutation input for '${operation}' could not be copied.`,
-      cause
-    );
+  for (const [key, descriptor] of descriptors) {
+    if (key === "cache") continue;
+    // `getOwnPropertyDescriptor` has already normalized and validated every
+    // descriptor. Defining that descriptor on a fresh ordinary object cannot
+    // fail, so a catch here only advertised a recovery path that JavaScript
+    // cannot reach.
+    Object.defineProperty(args, key, descriptor);
   }
   const options =
     cache === undefined
@@ -200,11 +197,7 @@ export function prepareMutationCacheWriteOutcome(
 function isCacheConfigurationError(
   value: unknown
 ): value is CacheConfigurationError {
-  try {
-    return value instanceof CacheConfigurationError;
-  } catch {
-    return false;
-  }
+  return value instanceof CacheConfigurationError;
 }
 
 export function validateCacheableOperation(operation: string): void {

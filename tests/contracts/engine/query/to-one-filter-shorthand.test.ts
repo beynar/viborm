@@ -13,6 +13,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -55,7 +56,7 @@ const post = s
 const createShorthandClient = () =>
   createClient({
     schema: { user, profile, post },
-    driver: new PGliteDriver({ client: new PGlite() }),
+    driver: new PGliteDriver({ client: openTestPGlite() }),
   });
 
 let client: ReturnType<typeof createShorthandClient>;

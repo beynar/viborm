@@ -101,6 +101,22 @@ describe.each(dialects)("$name count result carrier", (dialect) => {
     ).toEqual({ _result: 4 });
   });
 
+  test("keeps _all beside selected field counts", () => {
+    const statement = buildCount(createScope(), {
+      select: { _all: true, count: true, _result: false },
+    }).toStatement("$n");
+
+    expect(statement).toContain(
+      `AS ${dialect.name === "MySQL" ? "`_all`" : '"_all"'}`
+    );
+    expect(statement).toContain(
+      `AS ${dialect.name === "MySQL" ? "`count`" : '"count"'}`
+    );
+    expect(statement).not.toContain(
+      `AS ${dialect.name === "MySQL" ? "`_result`" : '"_result"'}`
+    );
+  });
+
   test("rejects unknown and mixed private result shapes", () => {
     const parser = createParser();
 

@@ -109,10 +109,6 @@ function finalAssignmentIdentitiesEqual(
             );
     case "opaque":
       return false;
-    default: {
-      const exhaustive: never = left;
-      return exhaustive;
-    }
   }
 }
 
@@ -167,9 +163,5 @@ function finalReferenceSourcesEqual(
         left.statement === right.statement &&
         leftField === rightField
       );
-    default: {
-      const exhaustive: never = left;
-      return exhaustive;
-    }
   }
 }

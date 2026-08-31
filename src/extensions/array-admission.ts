@@ -31,9 +31,9 @@ type StartArrayQuery<Slot extends ArrayAdmissionSlot> = (
 /** Create one privately observed result rail for array admission. */
 export function createArrayDeferred<Value>(): ArrayDeferred<Value> {
   let settled = false;
-  let rejectPromise: (reason?: unknown) => void = () => undefined;
-  let resolvePromise: (value: Value | PromiseLike<Value>) => void = () =>
-    undefined;
+  // Promise executors run synchronously; TypeScript does not model that guarantee.
+  let rejectPromise!: (reason?: unknown) => void;
+  let resolvePromise!: (value: Value | PromiseLike<Value>) => void;
   const promise = new Promise<Value>((resolve, reject) => {
     resolvePromise = resolve;
     rejectPromise = reject;
@@ -122,20 +122,14 @@ export async function admitArrayQueries<Slot extends ArrayAdmissionSlot>(
   } catch (fallback) {
     outcomes.discardAll();
     for (const slot of slots) slot.child.reject(fallback);
-    const settled = await Promise.allSettled(slots.map(readArrayQuery));
-    const reported = slots.flatMap((slot) => slot.admissionFailures ?? []);
-    const primary = reported[0] ?? fallback;
-    const failures: unknown[] = reported.length === 0 ? [primary] : reported;
-    for (const outcome of settled) {
-      if (
-        outcome.status === "rejected" &&
-        outcome.reason !== primary &&
-        failures.indexOf(outcome.reason, 1) === -1
-      ) {
-        failures.push(outcome.reason);
+    await Promise.allSettled(slots.map(readArrayQuery));
+    const reported: unknown[] = [];
+    for (const slot of slots) {
+      for (const failure of slot.admissionFailures ?? []) {
+        if (!reported.includes(failure)) reported.push(failure);
       }
     }
-    return failures;
+    return reported;
   }
 }
 

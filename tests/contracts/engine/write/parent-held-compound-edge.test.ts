@@ -12,6 +12,9 @@ import {
 } from "@tests/contracts/engine/write/parent-held-compound-edge-behavior";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * Rewrites ONE column of the rows the station LOCATE read returns, after the database
  * answered and before the engine consumes it. Armed once, and only for a read of the
@@ -98,7 +101,7 @@ for (const substrate of substrates) {
   // One client per leg: the schema is migrated once and each test reseeds.
   let shared: any;
   registerParentHeldCompoundEdgeBehavior(substrate.name, async () => {
-    shared ??= await setup(substrate.make(new PGlite()));
+    shared ??= await setup(substrate.make(openBorrowedPGlite()));
     return shared;
   });
 }
@@ -106,7 +109,7 @@ for (const substrate of substrates) {
 describe("E6.4 the correlation's provenance is the LOCATED row, per member", () => {
   for (const substrate of substrates) {
     test(`corrupting ONE member moves the write to the twin that member names (${substrate.name})`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = await setup(new PGliteDriver({ client: db }));
       await resetParentHeldCompoundEdge(stateClient);
       await stateClient.depot.create({

@@ -649,32 +649,39 @@ describe("the ON CONFLICT fold — the accepted divergences", () => {
       await syncLiveSchema(client);
 
       const competitor = new Database(file);
-      driver.onWindow = () => {
-        // The competitor commits the very key the operation is about to write.
-        competitor
-          .prepare(
-            'INSERT INTO "p71_accounts" ("id","email","handle","label","score") VALUES (80, ?, ?, ?, 0)'
-          )
-          .run("rival@x", "rival", "RIVAL");
-      };
+      try {
+        driver.onWindow = () => {
+          // The competitor commits the very key the operation is about to write.
+          competitor
+            .prepare(
+              'INSERT INTO "p71_accounts" ("id","email","handle","label","score") VALUES (80, ?, ?, ?, 0)'
+            )
+            .run("rival@x", "rival", "RIVAL");
+        };
 
-      driver.recording = true;
-      const answer = await client.account.upsert({
-        where: { id: 80 },
-        create: {
-          id: 80,
-          email: "mine@x",
-          handle: "mine",
-          label: "MINE",
-          score: 0,
-        },
-        update: { label: "ADOPTED" },
-      });
-      const statements = drain(driver);
-      driver.recording = false;
-      competitor.close();
-      await client.$disconnect();
-      return { answer, statements };
+        driver.recording = true;
+        const answer = await client.account.upsert({
+          where: { id: 80 },
+          create: {
+            id: 80,
+            email: "mine@x",
+            handle: "mine",
+            label: "MINE",
+            score: 0,
+          },
+          update: { label: "ADOPTED" },
+        });
+        const statements = drain(driver);
+        return { answer, statements };
+      } finally {
+        driver.recording = false;
+        driver.onWindow = undefined;
+        try {
+          competitor.close();
+        } finally {
+          await client.$disconnect();
+        }
+      }
     };
 
     // Probe-first: the locate proved the row absent, the competitor then took the

@@ -16,6 +16,9 @@ import {
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 runCreateManyBehavior({
   name: "PGlite transaction",
   pgliteMode: "transaction",
@@ -177,7 +180,7 @@ describe("write boundary createMany dual-run oracle (Direct vs Observed)", () =>
 
 describe("write boundary createMany routing", () => {
   test("createMany operations to Observed and empty data is a count-0 no-op", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
 

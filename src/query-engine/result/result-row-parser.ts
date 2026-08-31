@@ -18,7 +18,6 @@ import {
 } from "./result-count-parser";
 import {
   assertExpectedRowKeys,
-  assertUniformRowKeys,
   malformedResult,
   normalizeResultRows,
   parseResultRows,
@@ -66,6 +65,13 @@ export function parseResultDefault(
 
   if (shape && shape.carrier !== "rows") {
     return parseCountCarrierDefault(ctx, operation, raw, shape);
+  }
+  if (!shape) {
+    return malformedResult(
+      ctx,
+      operation,
+      "a row result has no expected result shape"
+    );
   }
 
   if (isNullableSingleRecordOperation(operation)) {
@@ -130,7 +136,7 @@ function parseRequiredSingleRow(
   ctx: ResultParser,
   operation: Operation,
   raw: unknown[],
-  shape: ExpectedResultShape | undefined,
+  shape: ExpectedResultShape,
   parsers: RowValueParsers | undefined,
   rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
@@ -144,9 +150,6 @@ function parseRequiredSingleRow(
     );
   }
   const [row] = normalizeResultRows(ctx, operation, raw);
-  if (!row) {
-    return malformedResult(ctx, operation, "the required row is absent");
-  }
   if (operation === "aggregate" && Object.keys(row).length === 0) {
     return malformedResult(
       ctx,
@@ -154,7 +157,7 @@ function parseRequiredSingleRow(
       "the aggregate row has no selected columns"
     );
   }
-  if (shape) assertExpectedRowKeys(ctx, operation, row, shape);
+  assertExpectedRowKeys(ctx, operation, row, shape);
   const keys = Object.keys(row);
   return parseRow(
     ctx,
@@ -173,7 +176,7 @@ function parseRowArray(
   ctx: ResultParser,
   operation: Operation,
   raw: unknown[],
-  shape: ExpectedResultShape | undefined,
+  shape: ExpectedResultShape,
   parsers: RowValueParsers | undefined,
   rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
@@ -185,15 +188,9 @@ function parseRowArray(
     return [];
   }
 
-  let keys: readonly string[];
-  if (shape) {
-    keys = Object.keys(first);
-    for (const row of rows) {
-      assertExpectedRowKeys(ctx, operation, row, shape);
-    }
-  } else {
-    keys = Object.keys(first);
-    assertUniformRowKeys(ctx, operation, rows, keys);
+  const keys = Object.keys(first);
+  for (const row of rows) {
+    assertExpectedRowKeys(ctx, operation, row, shape);
   }
   const model = ctx.model;
   const rowParser =
@@ -218,7 +215,7 @@ function parseRow(
   operation: Operation,
   row: Record<string, unknown>,
   keys: readonly string[],
-  shape: ExpectedResultShape | undefined,
+  shape: ExpectedResultShape,
   parsers: RowValueParsers | undefined,
   rowKeys?: RowKeyCapture,
   compiledRoot?: CompiledRowParser,
@@ -279,7 +276,7 @@ export function createRowParser(
   operation: Operation,
   keys: readonly string[],
   model: Model<any>,
-  shape: ExpectedResultShape | undefined,
+  shape: ExpectedResultShape,
   parsers: RowValueParsers,
   rowKeys?: RowKeyCapture
 ): CompiledRowParser {
@@ -385,20 +382,12 @@ export function createRowParser(
       allIdentity = false;
       mayReuseContainer = false;
       const expectedRelations = column.relations;
-      if (!(expectedRelations && expectedRelations.size > 0)) {
-        malformedResult(
-          ctx,
-          operation,
-          "an unrequested relation-count carrier was returned"
-        );
-      }
       steps[i] = (result, value) =>
         assignRelationCounts(
           ctx,
           operation,
           result,
           value,
-          relations,
           expectedRelations
         );
       continue;
@@ -410,6 +399,7 @@ export function createRowParser(
       // ONE map, dispatched on TARGET KIND: a variant slot arrives as a tagged
       // carrier with per-arm sub-shapes, an ordinary one as a nested row set.
       if (column.kind === "polymorphic") {
+        const expected = column.expected;
         steps[i] = (result, value) => {
           result[key] = parsers.parsePolymorphic(
             model,
@@ -417,11 +407,12 @@ export function createRowParser(
             relation,
             value,
             operation,
-            column.expected
+            expected
           );
         };
         continue;
       }
+      const expected = column.expected;
       steps[i] = (result, value) => {
         result[key] = parsers.parseRelation(
           model,
@@ -429,7 +420,7 @@ export function createRowParser(
           relation,
           value,
           operation,
-          column.expected?.shape
+          expected.shape
         );
       };
       continue;

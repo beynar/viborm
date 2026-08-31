@@ -22,6 +22,9 @@ import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /** Runs one mutation on the same database just before the atomic batch commits — the
  *  concurrent-writer injection every other pin falsification in this estate uses. */
 class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
@@ -191,7 +194,7 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
   }
 
   test("a concurrent create between the probe and the arm's INSERT converges by retry-and-adopt", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = createClient({
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),

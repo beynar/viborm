@@ -19,6 +19,9 @@ import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
 
 interface ErrorShape {
@@ -622,7 +625,7 @@ async function runSelfRefArm(
   kind: ArmKind,
   act: (client: Record<string, RoutedModel>) => Promise<unknown>
 ) {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeClient(db);
   await syncLiveSchema(client);
   await selfRefSeed(client);
@@ -700,7 +703,7 @@ describe("write boundary self-referential M2M direction", () => {
 
 describe("M2M connectOrCreate Pin Rule structure", () => {
   const makeOperation = () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const driver = new BatchOnlyPGliteDriver({ client: db });
     // Hydrates the shared schema fixture's name registry (createClient does it
     // as a side effect; no I/O happens — the operation is never executed).

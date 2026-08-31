@@ -8,6 +8,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * X1b — the TS ceiling is the COMPILER's, not the boundary's.
  *
@@ -117,7 +120,7 @@ describe("X1b — the boundary executes beyond the TS literal-inference ceiling"
 
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: a ${DEPTH}-level rich create chain folds and persists, native Observed`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const base = makeClient(db);
       await syncLiveSchema(base as never);
       await seed(base);

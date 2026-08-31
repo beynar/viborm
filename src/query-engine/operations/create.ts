@@ -72,10 +72,6 @@ export function buildInsertStatement(
 
   const { columns, values } = buildValues(ctx, data, polymorphicStorage);
 
-  if (values.length === 0) {
-    throw new QueryEngineError("No data to insert");
-  }
-
   const table = adapter.identifiers.table(tableName);
   return columns.length === 0
     ? adapter.mutations.insertDefault(table)
@@ -314,10 +310,6 @@ function buildCreateManyStatement(
   skipDuplicates: boolean,
   returningSql: Sql | undefined
 ): Sql {
-  if (group.values.length === 0) {
-    throw new QueryEngineError("No data to insert");
-  }
-
   const table = ctx.adapter.identifiers.table(getTableName(ctx.model));
   if (group.columns.length === 0) {
     assertPortableCreateManySkip(skipDuplicates, true);

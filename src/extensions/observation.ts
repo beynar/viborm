@@ -1,4 +1,4 @@
-import { sanitizeErrorForLogging, serializeSanitizedError } from "@errors";
+import { sanitizeErrorForLogging } from "@errors";
 import type {
   InstrumentationLifecycleCompletionFacts,
   InstrumentationLifecycleFacts,
@@ -166,9 +166,7 @@ export function runProtectedObservers<Result>(
   const immutableUnit = freezeLifecycleUnit(unit);
   let trustedIndex = -1;
   let trustedRegistration: TrustedProtectedObserverRegistration | undefined;
-  for (let index = 0; index < observers.length; index += 1) {
-    const observer = observers[index];
-    if (observer === undefined) continue;
+  for (const [index, observer] of observers.entries()) {
     const registration = trustedObservers.get(observer.handler);
     if (registration !== undefined) {
       trustedIndex = index;
@@ -205,28 +203,18 @@ export function runProtectedObservers<Result>(
     failure?: unknown
   ): void => {
     const durationMs = Math.max(0, Date.now() - startedAt);
-    let completion: ObservationCompletion;
     let commitCertainty: CommitCertainty | undefined;
     try {
       commitCertainty = readCompletionFacts?.()?.commitCertainty;
     } catch {
       commitCertainty = undefined;
     }
-    try {
-      completion = createCompletion(
-        status,
-        durationMs,
-        commitCertainty,
-        failure
-      );
-    } catch {
-      completion = Object.freeze({
-        status,
-        durationMs,
-        ...(status === "failure" ? { error: unreadableErrorSummary() } : {}),
-        ...(commitCertainty === undefined ? {} : { commitCertainty }),
-      });
-    }
+    const completion = createCompletion(
+      status,
+      durationMs,
+      commitCertainty,
+      failure
+    );
     settledCompletion = completion;
     const factsState = lifecycleFacts.get(immutableUnit);
     if (factsState !== undefined) {
@@ -270,7 +258,6 @@ export function runProtectedObservers<Result>(
   };
 
   const startChild = (): Promise<Result> => {
-    if (applicationPromise !== undefined) return applicationPromise;
     let started: Promise<Result>;
     try {
       started = child();
@@ -296,10 +283,9 @@ export function runProtectedObservers<Result>(
           // Instrumentation fact production cannot stop the application.
         }
       }
-      let resolveApplication:
-        | ((value: Result | PromiseLike<Result>) => void)
-        | undefined;
-      let rejectApplication: ((reason?: unknown) => void) | undefined;
+      // Promise executors run synchronously; TypeScript does not model that guarantee.
+      let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
+      let rejectApplication!: (reason?: unknown) => void;
       const applicationBridge = new Promise<Result>((resolve, reject) => {
         resolveApplication = resolve;
         rejectApplication = reject;
@@ -309,8 +295,8 @@ export function runProtectedObservers<Result>(
         if (!proceeded) {
           proceeded = true;
           startObserver(index + 1).then(
-            (value) => resolveApplication?.(value),
-            (failure: unknown) => rejectApplication?.(failure)
+            (value) => resolveApplication(value),
+            (failure: unknown) => rejectApplication(failure)
           );
         }
         return readCompletionPromise();
@@ -339,15 +325,17 @@ export function runProtectedObservers<Result>(
       return applicationBridge;
     }
 
-    let proceeded = false;
     let nextApplicationPromise: Promise<Result> | undefined;
-    const proceed = (): Promise<ObservationCompletion> => {
-      if (!proceeded) {
-        proceeded = true;
+    const startNextApplication = (): Promise<Result> => {
+      if (nextApplicationPromise === undefined) {
         nextApplicationPromise = startObserver(index + 1);
       }
-      return index < trustedIndex
-        ? (outerCompletionPromise ?? readCompletionPromise())
+      return nextApplicationPromise;
+    };
+    const proceed = (): Promise<ObservationCompletion> => {
+      startNextApplication();
+      return outerCompletionPromise !== undefined && index < trustedIndex
+        ? outerCompletionPromise
         : readCompletionPromise();
     };
 
@@ -360,12 +348,9 @@ export function runProtectedObservers<Result>(
     } catch {
       returned = undefined;
     }
-    if (!proceeded) {
-      proceeded = true;
-      nextApplicationPromise = startObserver(index + 1);
-    }
+    const nextApplication = startNextApplication();
     consumeObserverReturn(returned);
-    return nextApplicationPromise ?? startChild();
+    return nextApplication;
   };
 
   const readiness =
@@ -374,18 +359,17 @@ export function runProtectedObservers<Result>(
       : prewarmTrustedObserver(trustedRegistration.capability);
   if (readiness === undefined) return startObserver(0);
 
-  let resolveApplication:
-    | ((value: Result | PromiseLike<Result>) => void)
-    | undefined;
-  let rejectApplication: ((reason?: unknown) => void) | undefined;
+  // Promise executors run synchronously; TypeScript does not model that guarantee.
+  let resolveApplication!: (value: Result | PromiseLike<Result>) => void;
+  let rejectApplication!: (reason?: unknown) => void;
   const applicationBridge = new Promise<Result>((resolve, reject) => {
     resolveApplication = resolve;
     rejectApplication = reject;
   });
   const startAfterPrewarm = (): void => {
     startObserver(0).then(
-      (value) => resolveApplication?.(value),
-      (failure: unknown) => rejectApplication?.(failure)
+      (value) => resolveApplication(value),
+      (failure: unknown) => rejectApplication(failure)
     );
   };
   readiness.then(startAfterPrewarm);
@@ -514,24 +498,11 @@ function summarizeFailure(failure: unknown): ObservationErrorSummary {
   const normalized = isError(failure)
     ? failure
     : new Error("Application rejected with a non-Error value");
-  const serialized = serializeSanitizedError(
-    sanitizeErrorForLogging(normalized)
-  );
-  if (!serialized) return unreadableErrorSummary();
-  const name = serialized.name;
-  const message = serialized.message;
-  const code = serialized.code;
+  const sanitized = sanitizeErrorForLogging(normalized);
+  const code = Object.getOwnPropertyDescriptor(sanitized, "code")?.value;
   return Object.freeze({
-    name: typeof name === "string" ? name : "Error",
-    message:
-      typeof message === "string" ? message : "Error details unavailable",
+    name: sanitized.name,
+    message: sanitized.message,
     ...(typeof code === "string" ? { code } : {}),
-  });
-}
-
-function unreadableErrorSummary(): ObservationErrorSummary {
-  return Object.freeze({
-    name: "Error",
-    message: "Error details unavailable",
   });
 }

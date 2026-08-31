@@ -22,15 +22,7 @@ export class UniqueConstraintError extends VibORMError {
       };
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.UNIQUE_CONSTRAINT, opts);
+    super(message, VibORMErrorCode.UNIQUE_CONSTRAINT, options);
   }
 }
 
@@ -51,15 +43,7 @@ export class ForeignKeyError extends VibORMError {
       meta?: VibORMErrorMeta & { constraint?: string };
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT, opts);
+    super(message, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT, options);
   }
 }
 
@@ -83,15 +67,7 @@ export class NotNullConstraintError extends VibORMError {
       };
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.NOT_NULL_CONSTRAINT, opts);
+    super(message, VibORMErrorCode.NOT_NULL_CONSTRAINT, options);
   }
 }
 
@@ -112,15 +88,7 @@ export class CheckConstraintError extends VibORMError {
       meta?: VibORMErrorMeta & { constraint?: string };
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.CHECK_CONSTRAINT, opts);
+    super(message, VibORMErrorCode.CHECK_CONSTRAINT, options);
   }
 }
 
@@ -155,15 +123,7 @@ export class ValueTooLongError extends VibORMError {
       };
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.VALUE_TOO_LONG, opts);
+    super(message, VibORMErrorCode.VALUE_TOO_LONG, options);
   }
 }
 

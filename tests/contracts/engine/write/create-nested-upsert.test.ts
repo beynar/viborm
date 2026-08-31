@@ -35,6 +35,9 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 class BatchCountingPGliteDriver extends BatchOnlyPGliteDriver {
   batchCalls = 0;
 
@@ -564,7 +567,7 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const setup = createClient({
         schema: operationFragmentSchema,
         driver: new PGliteDriver({ client: db }),
@@ -593,7 +596,7 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const setup = createClient({
         schema: operationFragmentSchema,
         driver: new PGliteDriver({ client: db }),
@@ -638,7 +641,7 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const setup = createClient({
         schema: operationFragmentSchema,
         driver: new PGliteDriver({ client: db }),
@@ -718,7 +721,7 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const setup = createClient({
         schema: operationFragmentSchema,
         driver: new PGliteDriver({ client: db }),

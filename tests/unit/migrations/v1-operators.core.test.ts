@@ -39,6 +39,7 @@ import type {
   MigrationParentTransitionV1,
   ResolveV1Options,
 } from "@src/migrations/v1-types";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, expectTypeOf, test, vi } from "vitest";
@@ -61,6 +62,13 @@ function liveClient() {
   });
 }
 
+function offlineClient() {
+  return createClient({
+    schema: { user },
+    driver: new PlanningDriver("sqlite"),
+  });
+}
+
 describe("migration v1 operators", () => {
   test.each([
     0,
@@ -71,19 +79,18 @@ describe("migration v1 operators", () => {
     Number.MAX_SAFE_INTEGER + 1,
   ])("down refuses hostile step count %s before storage or provider work", async (steps) => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = offlineClient();
     const migrations = createMigrationClient(client, { storage });
     await expect(migrations.down({ steps })).rejects.toMatchObject({
       code: VibORMErrorCode.INVALID_INPUT,
       message: expect.stringContaining("positive safe integer"),
     });
     expect(await storage.readEstate()).toBeNull();
-    await client.$disconnect();
   });
 
   test("down snapshots its selector once before estate access", async () => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = offlineClient();
     const migrations = createMigrationClient(client, { storage });
     let reads = 0;
     const options = Object.defineProperty({}, "steps", {
@@ -100,7 +107,6 @@ describe("migration v1 operators", () => {
       code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
     });
     expect(reads).toBe(1);
-    await client.$disconnect();
   });
 
   test.each([
@@ -109,19 +115,18 @@ describe("migration v1 operators", () => {
     { steps: 1, dryRun: "yes" },
   ])("down refuses malformed exact options before estate access", async (options) => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = offlineClient();
     const migrations = createMigrationClient(client, { storage });
 
     await expect(
       Reflect.apply(migrations.down, migrations, [options])
     ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
     expect(await storage.readEstate()).toBeNull();
-    await client.$disconnect();
   });
 
   test("down translates a hostile selector accessor at its boundary", async () => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = offlineClient();
     const migrations = createMigrationClient(client, { storage });
     const failure = new Error("selector trap");
     const options = Object.defineProperty({}, "steps", {
@@ -140,12 +145,14 @@ describe("migration v1 operators", () => {
         name: failure.name,
       }),
     });
-    await client.$disconnect();
   });
 
   test("status and log are read-only on an unmarked database", async () => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = createClient({
+      schema: { user },
+      driver: sqliteEstateDriver(),
+    });
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const status = await migrations.status();
@@ -154,7 +161,6 @@ describe("migration v1 operators", () => {
     await expect(migrations.log()).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_NOT_FOUND,
     });
-    await client.$disconnect();
   });
 
   test("read-only commands authenticate present control tables", async () => {
@@ -310,7 +316,6 @@ describe("migration v1 operators", () => {
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
     await client.$disconnect();
-    await next.$disconnect();
   });
 
   test("push refuses an interrupted control bootstrap before user DDL", async () => {
@@ -329,6 +334,31 @@ describe("migration v1 operators", () => {
         ["user"]
       )
     ).resolves.toMatchObject({ rows: [] });
+    await client.$disconnect();
+  });
+
+  test("effectful reset clears the live namespace and replays authenticated history", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const storage = new MemoryEstateStorage();
+    const client = createClient({ schema: { user }, driver });
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({ name: "init" });
+    await migrations.apply();
+    await driver._executeRaw(
+      'INSERT INTO "user" ("id", "email") VALUES (?, ?)',
+      ["u1", "before-reset@example.test"]
+    );
+
+    await expect(migrations.reset()).resolves.toMatchObject({
+      preview: false,
+    });
+    await expect(migrations.verify()).resolves.toEqual({ ok: true });
+    await expect(
+      driver._executeRaw('SELECT "id" FROM "user"')
+    ).resolves.toMatchObject({ rows: [] });
+    const log = await migrations.log();
+    expect(log.some((event) => event.kind === "reset-started")).toBe(true);
+    expect(log.some((event) => event.kind === "reset-applied")).toBe(true);
     await client.$disconnect();
   });
 

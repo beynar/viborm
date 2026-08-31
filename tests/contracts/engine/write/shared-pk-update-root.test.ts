@@ -11,6 +11,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * Package E's live legs on the credential-free substrates. The atomic-batch leg is the
  * one that matters most: the create-root defect this lift had to avoid reproducing
@@ -21,12 +24,12 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const substrates = [
   {
     name: "PGlite transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
+    make: () => new PGliteDriver({ client: openBorrowedPGlite() }),
     includeProducedKey: true,
   },
   {
     name: "PGlite atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    make: () => new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
     includeProducedKey: false,
   },
   {

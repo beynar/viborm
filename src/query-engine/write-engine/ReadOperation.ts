@@ -301,10 +301,6 @@ export class ReadOperation {
         }
         return buildGroupBy(ctx, { ...args, by });
       }
-      default: {
-        const exhaustive: never = this.base;
-        throw new QueryEngineError(`Unknown read operation: ${exhaustive}`);
-      }
     }
   }
 }

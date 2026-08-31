@@ -803,7 +803,7 @@ raw operations, and statement-transform chains bypass cached reads.
    site must name a distinct first-knowable invariant and have one unique
    reachable falsifier. Before adding, moving or deleting one, read
    `docs/architecture/guard-ownership-ledger.md` — it owns the reasoning for
-   every surviving site — and `tests/contracts/engine/write/operation-construction-inventory.test.ts`,
+   every surviving site — and `tests/contracts/engine/write/operation-construction-inventory.core.test.ts`,
    which owns the count and re-resolves every coordinate. A guard whose unique
    coverage cannot be named does not go in.
 9. Use direct owner imports; do not recreate a query-engine barrel.
@@ -840,6 +840,32 @@ disconnect. Keep a fresh database only for DDL, lifecycle, destructive-schema,
 independently committed concurrency, staleness/race, or rollback-isolation
 contracts. Structural fragment proofs do not boot PGlite.
 
-`pnpm test:coverage:write-engine` is the authoritative credential-free write
-estate. It includes core query/architecture sentinels and every local write
-behavior; `pnpm test:layer:query-engine` remains the representative fast gate.
+Structural SQL contracts use the shared
+`tests/fixtures/drivers/sql-only.ts` fixture. Keep a local recording driver only
+when the contract observes execution behavior that the shared empty-result
+fixture does not own.
+Provider parity files, including the decimal scalar and list surfaces, stay in
+the extended `.test.ts` estate even when they are credential-free; starting an
+embedded provider is not a core sentinel.
+
+`pnpm test:coverage:query-engine-core` and
+`pnpm test:coverage:write-engine` are the two exact query-engine ownership
+reports. Each requires 98% in all four metrics. The query-core report owns the
+non-`write-engine` source and merges coverage from the disjoint read and write
+projects because operation shells and builders are shared. The write report
+owns `src/query-engine/write-engine/`. Its fast contribution is the explicit
+provider-free write core. Its focused report also admits an explicit
+provider-free high-signal subset in one single-thread
+`coverage-write-engine` process. `test:all` retains every credential-free
+PGlite combination. The merged coverage map is the report authority; do not
+admit embedded-provider estates into this diagnostic lane.
+`scripts/query-engine-test-manifest.mjs` is the fail-closed registration owner
+for both projects. It lists every admitted deterministic file literally, and
+the coverage policy rejects a missing or duplicate architecture, query, or
+write core assignment. Do not replace it with a recursive glob: a core suffix
+does not prove that a future fixture is provider-free.
+`pnpm test:layer:query-engine` remains the representative fast gate and selects
+only architecture and `tests/contracts/engine/query` core contracts. Write-core
+contracts remain registered only in the provider-free
+`coverage-write-engine-core` project; merging their coverage into the
+query-core report does not register them in the fast layer project.

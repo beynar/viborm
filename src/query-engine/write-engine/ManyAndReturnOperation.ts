@@ -124,16 +124,12 @@ export function refusesRowReturningSubstrate(
  */
 export class ManyAndReturnOperation {
   readonly mode: ExecutionMode;
-
   /** The canonical payload validated at construction. */
-  get validatedArgs(): Record<string, unknown> {
-    return this.args;
-  }
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   private readonly kind: AndReturnKind;
-  private readonly args: Record<string, unknown>;
   private readonly select: Record<string, unknown> | undefined;
   /** A statically-built fragment (returning, or non-returning createMany). */
   private readonly staticSteps: readonly OperationStep[] | undefined;
@@ -168,13 +164,15 @@ export class ManyAndReturnOperation {
     this.mode = selectExecutionMode(engine, kind);
     this.scope = new StepScope();
 
-    this.args = validate<Record<string, unknown>>(
+    this.validatedArgs = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,
       kind as Operation,
       args
     );
-    this.select = isRecord(this.args.select) ? this.args.select : undefined;
+    this.select = isRecord(this.validatedArgs.select)
+      ? this.validatedArgs.select
+      : undefined;
 
     const supportsReturning = engine.adapter.capabilities.supportsReturning;
     // ATOM “Error-order rules” refusal (kept as contract): a non-returning driver in forced batch
@@ -193,7 +191,7 @@ export class ManyAndReturnOperation {
     }
 
     if (kind === "createManyAndReturn") {
-      const data = this.args.data;
+      const data = this.validatedArgs.data;
       if (!Array.isArray(data)) {
         throw new QueryEngineError(
           "query-engine-v2 createMany with 'select' requires a data array."
@@ -208,7 +206,7 @@ export class ManyAndReturnOperation {
       );
       this.createManySupportsReturning = supportsReturning;
       if (this.bulkPolymorphic.probes.length > 0) {
-        if (!supportsReturning && this.args.skipDuplicates === true) {
+        if (!supportsReturning && this.validatedArgs.skipDuplicates === true) {
           throw new TransactionError(
             `Driver '${engine.driver.driverName}' cannot execute 'createMany' with 'select', 'skipDuplicates', and polymorphic connects because skipped insert identities cannot be observed.`,
             {
@@ -280,7 +278,11 @@ export class ManyAndReturnOperation {
     }
 
     // updateMany with select
-    const data = requireRecord(this.args.data, "updateMany", "data");
+    const data = requireRecord(
+      this.validatedArgs.data,
+      "updateMany",
+      "data"
+    );
     if (supportsReturning) {
       const step: WriteStep = {
         id: this.scope.allocate(`${this.modelName()}.updateManyReturn`),
@@ -309,14 +311,18 @@ export class ManyAndReturnOperation {
 
   /** The validated `limit`, or `undefined` when the caller omitted it. */
   private limit(): number | undefined {
-    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+    return typeof this.validatedArgs.limit === "number"
+      ? this.validatedArgs.limit
+      : undefined;
   }
 
   /** The `where`/`limit` pair the bulk builders take, both optional. */
   private bulkScope(): { where?: Record<string, unknown>; limit?: number } {
     const limit = this.limit();
     return {
-      ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+      ...(isRecord(this.validatedArgs.where)
+        ? { where: this.validatedArgs.where }
+        : {}),
       ...(limit === undefined ? {} : { limit }),
     };
   }
@@ -340,7 +346,9 @@ export class ManyAndReturnOperation {
       statement: buildFind(
         this.ctx(),
         {
-          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          ...(isRecord(this.validatedArgs.where)
+            ? { where: this.validatedArgs.where }
+            : {}),
           select: this.pkSelect(),
           forUpdate: true,
         },
@@ -408,7 +416,7 @@ export class ManyAndReturnOperation {
       this.engine,
       this.model,
       this.engine.driver
-    ).parse<T>(this.kind as Operation, rows, this.args);
+    ).parse<T>(this.kind as Operation, rows, this.validatedArgs);
   }
 
   /**
@@ -577,8 +585,8 @@ export class ManyAndReturnOperation {
         wheres: readonly Record<string, unknown>[];
       }
     | undefined {
-    if (supportsReturning || this.args.skipDuplicates !== true) return;
-    const data = this.args.data;
+    if (supportsReturning || this.validatedArgs.skipDuplicates !== true) return;
+    const data = this.validatedArgs.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(
         "query-engine-v2 createMany with 'select' requires a data array."
@@ -698,7 +706,7 @@ export class ManyAndReturnOperation {
     steps: readonly OperationStep[];
     output: FragmentOutputSource | undefined;
   } {
-    const data = this.bulkPolymorphic?.scalarRows ?? this.args.data;
+    const data = this.bulkPolymorphic?.scalarRows ?? this.validatedArgs.data;
     if (!Array.isArray(data)) {
       throw new QueryEngineError(
         "query-engine-v2 createMany with 'select' requires a data array."
@@ -706,7 +714,7 @@ export class ManyAndReturnOperation {
     }
     if (data.length === 0) return { steps: [], output: undefined };
 
-    const skipDuplicates = this.args.skipDuplicates === true;
+    const skipDuplicates = this.validatedArgs.skipDuplicates === true;
     const ctx = this.ctx();
     const resolved =
       this.bulkPolymorphic && known

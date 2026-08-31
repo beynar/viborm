@@ -17,6 +17,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 runParentHeldLookupBehavior({
   name: "PGlite transaction",
   pgliteMode: "transaction",
@@ -141,7 +144,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     "the written key comes from the LOOKUP, not from the probe row",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -173,7 +176,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     "a probe row whose required referenced column reads NULL fails typed parsing",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -253,7 +256,7 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
     "a target deleted between planning and the batch aborts typed, writing nothing",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -368,7 +371,7 @@ describe("E1 U3 — the subtree root's produced identity", () => {
     "the enclosing UPDATE's SET follows the key the SUBTREE's INSERT returned",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -422,7 +425,7 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
     "a target that vanishes before the batch aborts with the upsert family's wording",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -483,7 +486,7 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
     "the arm's UPDATE addresses the primary key the PROBE returned",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);
@@ -533,7 +536,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
     "the transaction path spends the key the subtree's INSERT produced",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(client);
       await seedLookupBed(client);
@@ -561,7 +564,7 @@ describe("E1 U3 — the produced identity by substrate", () => {
     "the PostgreSQL atomic batch spends the producer's exact RETURNING key",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await seedLookupBed(stateClient);

@@ -137,6 +137,237 @@ describe("migration v1 hostile parsers", () => {
     expect(parseSnapshot(completeSnapshot)).toEqual(completeSnapshot);
   });
 
+  test("round-trips every persisted snapshot descriptor", () => {
+    const snapshot = {
+      tables: [
+        {
+          name: "comments",
+          columns: [
+            {
+              name: "id",
+              type: "integer",
+              nullable: false,
+              autoIncrement: true,
+              default: "1",
+            },
+            { name: "subject_type", type: "text", nullable: false },
+            { name: "subject_id", type: "text", nullable: false },
+          ],
+          primaryKey: { columns: ["id"] },
+          indexes: [
+            {
+              name: "comments_subject_idx",
+              columns: ["subject_type", "subject_id"],
+              unique: false,
+              type: "btree",
+              where: "subject_id IS NOT NULL",
+            },
+          ],
+          foreignKeys: [
+            {
+              name: "comments_subject_fk",
+              columns: ["subject_id"],
+              referencedTable: "subjects",
+              referencedColumns: ["id"],
+              onDelete: "cascade",
+              onUpdate: "restrict",
+            },
+          ],
+          uniqueConstraints: [
+            { name: "comments_subject_key", columns: ["subject_id"] },
+          ],
+          relationStorage: {
+            subject_type: {
+              kind: "polymorphicToOne",
+              typeColumn: "subject_type",
+              idColumn: "subject_id",
+              index: "comments_subject_idx",
+            },
+          },
+        },
+      ],
+      enums: [{ name: "subject_kind", values: ["post", "video"] }],
+      polymorphicStorage: [
+        {
+          ownerTable: "comments",
+          relation: "subject",
+          kind: "toOne",
+          storageRef: "subject_type",
+          members: [
+            {
+              publicType: "post",
+              storedType: "content.post",
+              targetTable: "posts",
+            },
+          ],
+        },
+        {
+          ownerTable: "comments",
+          relation: "attachments",
+          kind: "toMany",
+          members: [
+            {
+              publicType: "video",
+              storedType: "content.video",
+              targetTable: "videos",
+              memberJunctionTable: "comment_videos",
+              inverseCardinality: "many",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(parseSnapshot(snapshot)).toEqual(snapshot);
+  });
+
+  test("refuses invalid persisted snapshot descriptor variants", () => {
+    const baseTable = completeSnapshot.tables[0]!;
+    const cases = [
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            columns: [{ ...baseTable.columns[0], autoIncrement: "yes" }],
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            columns: [{ ...baseTable.columns[0], default: 1 }],
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        tables: [{ ...baseTable, indexes: "indexes" }],
+      },
+      {
+        ...completeSnapshot,
+        tables: [{ ...baseTable, foreignKeys: "foreignKeys" }],
+      },
+      {
+        ...completeSnapshot,
+        tables: [{ ...baseTable, uniqueConstraints: "constraints" }],
+      },
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            indexes: [
+              {
+                ...baseTable.indexes[0],
+                type: "bitmap",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            indexes: [{ ...baseTable.indexes[0], where: false }],
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            foreignKeys: [
+              {
+                name: "users_parent_fk",
+                columns: ["id"],
+                referencedTable: "users",
+                referencedColumns: ["id"],
+                onDelete: "archive",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        tables: [{ ...baseTable, relationStorage: "storage" }],
+      },
+      {
+        ...completeSnapshot,
+        tables: [
+          {
+            ...baseTable,
+            relationStorage: {
+              subject: {
+                kind: "ordinary",
+                typeColumn: "subject_type",
+                idColumn: "subject_id",
+                index: "subject_idx",
+              },
+            },
+          },
+        ],
+      },
+      { ...completeSnapshot, polymorphicStorage: "storage" },
+      {
+        ...completeSnapshot,
+        polymorphicStorage: [{ kind: "unknown" }],
+      },
+      {
+        ...completeSnapshot,
+        polymorphicStorage: [
+          {
+            ownerTable: "comments",
+            relation: "subject",
+            kind: "toOne",
+            storageRef: "subject_type",
+            members: "members",
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        polymorphicStorage: [
+          {
+            ownerTable: "comments",
+            relation: "subjects",
+            kind: "toMany",
+            members: "members",
+          },
+        ],
+      },
+      {
+        ...completeSnapshot,
+        polymorphicStorage: [
+          {
+            ownerTable: "comments",
+            relation: "subjects",
+            kind: "toMany",
+            members: [
+              {
+                publicType: "post",
+                storedType: "post",
+                targetTable: "posts",
+                memberJunctionTable: "comment_posts",
+                inverseCardinality: "optional",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    for (const snapshot of cases) {
+      expect(() => parseSnapshot(snapshot)).toThrow(MigrationError);
+    }
+  });
+
   test("admits and validates fixed-decimal column descriptors", () => {
     const decimalSnapshot = {
       ...completeSnapshot,

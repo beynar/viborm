@@ -67,6 +67,15 @@ describe("scalar module exports", () => {
 });
 
 describe("coverage low value", () => {
+  it("executes the public schema barrel", async () => {
+    const schema = await import("@schema/exports");
+
+    expect(schema.s).toBeDefined();
+    expect(schema.PG).toBeDefined();
+    expect(schema.MYSQL).toBeDefined();
+    expect(schema.SQLITE).toBeDefined();
+  });
+
   it.each(
     BARRELS
   )("executes the internal %s barrel", async (_name, load, expected) => {

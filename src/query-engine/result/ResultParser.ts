@@ -56,26 +56,20 @@ type FieldParser = (
 type RelationParser = (
   value: unknown,
   operation: Operation,
-  shape?: ExpectedResultShape
+  shape: ExpectedResultShape
 ) => unknown;
 type PolymorphicParser = (
   ownerModel: Model<any>,
   relationName: string,
   value: unknown,
   operation: Operation,
-  shape?: ExpectedPolymorphicResultShape
+  shape: ExpectedPolymorphicResultShape
 ) => unknown;
 type ResultParserChain = (
   value: unknown,
   operation: Operation,
   shape?: ExpectedResultShape
 ) => unknown;
-interface CachedRowParser {
-  readonly model: Model<any>;
-  readonly operation: Operation;
-  readonly parser: CompiledRowParser;
-}
-
 type PrepareResultRowsFriend = (
   parser: ResultParser,
   operation: Operation,
@@ -141,19 +135,13 @@ export class ResultParser {
     Map<string, PolymorphicParser>
   >();
   /**
-   * Keyed by the requested SHAPE, then narrowed by `(model, operation)` in the
-   * small array below. One compiled callable lazily exposes the consumable
-   * invocation only when a parser-owned carrier asks for it.
-   *
-   * This one is sound as it stands and is deliberately left alone: a shape
-   * describes the exact columns ONE compiled read asked for, so it is already a
-   * contextual identity, and the linear scan disambiguates the two facts a
-   * shape does not carry. The list stays short because shapes are built per
-   * compiled operation rather than memoized per model.
+   * `buildExpectedResultShape` creates each nested shape for one projection of
+   * one model in one operation. Shape identity therefore owns the compiled row
+   * program; a second model/operation bucket would only recheck its provenance.
    */
   private readonly nestedRowParsers = new WeakMap<
     ExpectedResultShape,
-    CachedRowParser[]
+    CompiledRowParser
   >();
   private resultChain: ResultParserChain | undefined;
   private captureResultChain: ResultParserChain | undefined;
@@ -525,36 +513,22 @@ export class ResultParser {
     model: Model<any>,
     row: Record<string, unknown>,
     operation: Operation,
-    shape: ExpectedResultShape | undefined,
-    parsers: RowValueParsers,
-    knownKeys?: readonly string[]
+    shape: ExpectedResultShape,
+    parsers: RowValueParsers
   ): CompiledRowParser {
-    if (!shape) {
-      const keys = knownKeys ?? Object.keys(row);
-      return createRowParser(this, operation, keys, model, shape, parsers);
-    }
-
     const cached = this.nestedRowParsers.get(shape);
-    if (cached) {
-      for (const rowParser of cached) {
-        if (rowParser.model === model && rowParser.operation === operation) {
-          return rowParser.parser;
-        }
-      }
-    }
+    if (cached) return cached;
 
-    const keys = knownKeys ?? Object.keys(row);
+    const keys = Object.keys(row);
     const parse = createRowParser(this, operation, keys, model, shape, parsers);
-    const rowParser: CachedRowParser = { model, operation, parser: parse };
-    if (cached) cached.push(rowParser);
-    else this.nestedRowParsers.set(shape, [rowParser]);
+    this.nestedRowParsers.set(shape, parse);
     return parse;
   }
 
   private createRowValueParsers(captureOnly = false): RowValueParsers {
     const parsers: RowValueParsers = {
-      getRowParser: (model, row, operation, shape, keys) =>
-        this.getNestedRowParser(model, row, operation, shape, parsers, keys),
+      getRowParser: (model, row, operation, shape) =>
+        this.getNestedRowParser(model, row, operation, shape, parsers),
       parseField: captureOnly
         ? (scalar, value, operation) =>
             this.getFieldChain(scalar)(value, operation, undefined, false)
@@ -653,7 +627,7 @@ export class ResultParser {
     const adapterParse = (
       value: unknown,
       operation: Operation,
-      shape?: ExpectedResultShape
+      shape: ExpectedResultShape
     ) =>
       this.adapter.result.parseRelation(value, (transformed) =>
         parseRelationValueDefault(
@@ -700,7 +674,7 @@ export class ResultParser {
       relationName: string,
       value: unknown,
       operation: Operation,
-      shape?: ExpectedPolymorphicResultShape
+      shape: ExpectedPolymorphicResultShape
     ) =>
       this.adapter.result.parseRelation(value, (transformed) =>
         parsePolymorphicValueDefault(
@@ -760,7 +734,10 @@ export class ResultParser {
       this.adapter.result.dateTimeRepresentation?.(dateTimeNativeTypeOf(scalar))
     );
     const parseDecimalScalar: FieldParser | undefined =
-      !widenedSum && scalarType === "decimal" && !isList
+      !widenedSum &&
+      scalarType === "decimal" &&
+      !isList &&
+      decimalColumn !== undefined
         ? (value, operation, captureRowKey, materializePublic = true) => {
             if (value === undefined) {
               return malformedScalarValue(
@@ -783,16 +760,10 @@ export class ResultParser {
               return null;
             }
             if (materializePublic && captureRowKey === undefined) {
-              const materialized =
-                decimalColumn === undefined
-                  ? undefined
-                  : materializeDecimalValue(value, decimalColumn);
+              const materialized = materializeDecimalValue(value, decimalColumn);
               if (materialized !== undefined) return materialized;
             } else {
-              const canonical =
-                decimalColumn === undefined
-                  ? undefined
-                  : decodeDecimalValue(value, decimalColumn);
+              const canonical = decodeDecimalValue(value, decimalColumn);
               if (canonical !== undefined) {
                 captureRowKey?.(canonical);
                 return materializePublic ? toDecimal(canonical) : canonical;
@@ -844,7 +815,6 @@ export class ResultParser {
           provider,
           operation,
           undefined,
-          false,
           dateTimeForm,
           this.adapter.result.enumListRepresentation === "arrayText"
         );
@@ -915,7 +885,11 @@ export class ResultParser {
       };
     }
 
-    const defaultParse = widenedSum
+    const defaultParse: (
+      value: unknown,
+      operation: Operation,
+      materializeDecimal?: boolean
+    ) => unknown = widenedSum
       ? (value: unknown, operation: Operation, materializeDecimal = false) =>
           parseWidenedSumDefault(
             value,
@@ -925,7 +899,7 @@ export class ResultParser {
             operation,
             materializeDecimal
           )
-      : (value: unknown, operation: Operation, materializeDecimal = false) =>
+      : (value: unknown, operation: Operation) =>
           parseFieldValueDefault(
             value,
             scalarType,
@@ -936,8 +910,7 @@ export class ResultParser {
             jsonSchema,
             provider,
             operation,
-            decimalColumn,
-            materializeDecimal
+            decimalColumn
           );
 
     // An uncaptured scalar asks the codec to validate and construct its one
@@ -1039,5 +1012,3 @@ export function parsePreparedResult<T>(
     consumableRows
   );
 }
-
-export { parseMutationCount } from "./result-count-parser";

@@ -33,7 +33,6 @@
  */
 
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { PGliteDriver } from "@drivers/pglite";
 import { variantCarrier } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { isVariantRowCarrier } from "@query-engine/types";
@@ -42,6 +41,7 @@ import { bindPolymorphicCollectionMember } from "@src/query-engine/builders/poly
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -73,7 +73,7 @@ prepareSchema(collectionSchema);
 
 function collectionEngine(): QueryEngine {
   return new QueryEngine(
-    new PGliteDriver(),
+    new PlanningDriver("postgresql"),
     createModelRegistry(
       collectionSchema,
       createSchemaRegistry(collectionSchema)
@@ -234,7 +234,7 @@ prepareSchema(compoundSchema);
 
 function compoundEngine(): QueryEngine {
   return new QueryEngine(
-    new PGliteDriver(),
+    new PlanningDriver("postgresql"),
     createModelRegistry(compoundSchema, createSchemaRegistry(compoundSchema))
   );
 }

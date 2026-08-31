@@ -20,6 +20,9 @@ import {
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // The bulk-write stragglers on PGlite, both substrates.
 runBulkWriteBehavior({
   name: "PGlite transaction",
@@ -294,7 +297,7 @@ const scenarios: Scenario[] = [
 describe("the removed *AndReturn method names (runtime)", () => {
   for (const removed of ["createManyAndReturn", "updateManyAndReturn"]) {
     test(`${removed} fails with a clear unknown-operation error`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeClient(db);
       await syncLiveSchema(client);
       try {
@@ -366,7 +369,7 @@ describe("a validation error names the operation the caller spelled", () => {
       ["count (select absent)", withoutSelect],
     ] as const) {
       test(`${family} — ${arm}`, async () => {
-        const db = new PGlite();
+        const db = openBorrowedPGlite();
         const client = makeClient(db);
         await syncLiveSchema(client);
         try {
@@ -409,7 +412,7 @@ const DELETE_MANY_VALIDATION_FAILURE = /Validation failed for deleteMany/;
 
 describe("an explicitly-absent select takes the count arm (runtime)", () => {
   test("all three bulk families agree on select: undefined", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {
@@ -446,7 +449,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
   });
 
   test("a present select still returns rows on all three", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {
@@ -477,7 +480,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
   });
 
   test("a malformed select still rejects rather than falling back to count", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {

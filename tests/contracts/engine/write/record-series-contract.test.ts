@@ -71,6 +71,9 @@ import {
 } from "vitest";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * PACKAGE I3 — the transactional record series, proven on a FAKE operation.
  *
@@ -543,7 +546,7 @@ function seedRow(id: number, label: string): Promise<unknown> {
 }
 
 beforeAll(async () => {
-  database = new PGlite();
+  database = openBorrowedPGlite();
   stateClient = makeStateClient();
   await syncLiveSchema(stateClient);
 }, 60_000);

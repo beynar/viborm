@@ -315,9 +315,6 @@ async function executeInterceptedQuery<Result, Input extends object>(
             () => directCommitCertainty ?? control?.readCommitCertainty?.(),
             control?.reportAdmissionFailure
           );
-    if (!isWrite && transactionWriteOutcomes) {
-      transactionWriteOutcomes.discard(registrations);
-    }
     return value;
   } catch (error) {
     if (transactionWriteOutcomes && !transactionConfirmed) {
@@ -330,6 +327,14 @@ async function executeInterceptedQuery<Result, Input extends object>(
 type Settled<Value> =
   | { readonly status: "fulfilled"; readonly value: Value }
   | { readonly status: "rejected"; readonly reason: unknown };
+
+type HandlerOutcome<Value> =
+  | { readonly status: "fulfilled"; readonly value: Value }
+  | {
+      readonly status: "rejected";
+      readonly reason: unknown;
+      readonly failure: QueryError;
+    };
 
 type ExtensionFailures =
   | readonly [QueryError]
@@ -498,33 +503,38 @@ async function runOneInterceptor<Result, Input extends object>(
     handlerValue = Promise.reject(reason);
   }
 
-  const handlerOutcome = await settle(handlerValue);
+  const settledHandler = await settle(handlerValue);
   handlerSettled = true;
   registrationOpen = false;
-  let reportedHandlerFailure: QueryError | undefined;
+  const handlerOutcome: HandlerOutcome<Result> =
+    settledHandler.status === "fulfilled"
+      ? settledHandler
+      : {
+          ...settledHandler,
+          failure:
+            protocolFailure !== undefined &&
+            settledHandler.reason === protocolFailure
+              ? protocolFailure
+              : interceptorFailure(
+                  interceptor.extension,
+                  prepared,
+                  settledHandler.reason,
+                  readCommitCertainty?.()
+                ),
+        };
 
   if (
     childOutcomePromise !== undefined &&
     handlerOutcome.status === "rejected" &&
     handlerOutcome.reason !== protocolFailure
   ) {
-    reportedHandlerFailure = interceptorFailure(
-      interceptor.extension,
-      prepared,
-      handlerOutcome.reason,
-      readCommitCertainty?.()
-    );
-    reportAdmissionFailure?.(reportedHandlerFailure);
+    reportAdmissionFailure?.(handlerOutcome.failure);
   }
 
   if (childOutcomePromise === undefined) {
     if (protocolFailure) throw protocolFailure;
     if (handlerOutcome.status === "rejected") {
-      throw interceptorFailure(
-        interceptor.extension,
-        prepared,
-        handlerOutcome.reason
-      );
+      throw handlerOutcome.failure;
     }
     if (requiresProceed(prepared)) {
       throw interceptorError(
@@ -540,11 +550,7 @@ async function runOneInterceptor<Result, Input extends object>(
   const extensionFailures = selectExtensionFailures(
     protocolFailure,
     handlerOutcome,
-    childOutcome,
-    interceptor.extension,
-    prepared,
-    readCommitCertainty?.(),
-    reportedHandlerFailure
+    childOutcome
   );
 
   if (childOutcome.status === "rejected") {
@@ -557,14 +563,10 @@ async function runOneInterceptor<Result, Input extends object>(
   return childOutcome.value;
 }
 
-function selectExtensionFailures<Input extends object>(
+function selectExtensionFailures(
   protocolFailure: QueryError | undefined,
-  handlerOutcome: Settled<unknown>,
-  childOutcome: Settled<unknown>,
-  extension: string,
-  context: PreparedQueryContext<Input>,
-  commitCertainty: WriteOutcome["certainty"] | undefined,
-  reportedHandlerFailure: QueryError | undefined
+  handlerOutcome: HandlerOutcome<unknown>,
+  childOutcome: Settled<unknown>
 ): ExtensionFailures {
   if (
     protocolFailure &&
@@ -577,25 +579,19 @@ function selectExtensionFailures<Input extends object>(
     return protocolFailure ? [protocolFailure] : undefined;
   }
   if (
-    handlerOutcome.reason === protocolFailure ||
+    (protocolFailure !== undefined &&
+      handlerOutcome.reason === protocolFailure) ||
     (childOutcome.status === "rejected" &&
       handlerOutcome.reason === childOutcome.reason)
   ) {
     return protocolFailure ? [protocolFailure] : undefined;
   }
-  const handlerFailure =
-    reportedHandlerFailure ??
-    interceptorFailure(
-      extension,
-      context,
-      handlerOutcome.reason,
-      commitCertainty
-    );
+  const handlerFailure = handlerOutcome.failure;
   if (
     childOutcome.status === "rejected" &&
     childOutcome.reason === handlerFailure
   ) {
-    return protocolFailure ? [protocolFailure] : undefined;
+    return undefined;
   }
   return protocolFailure ? [protocolFailure, handlerFailure] : [handlerFailure];
 }

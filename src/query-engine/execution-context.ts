@@ -210,9 +210,5 @@ export function createCorrelationId(): string {
 
 /** Whether the exact failure has not already been presented downstream. */
 function isUnloggedError(error: unknown): error is Error {
-  try {
-    return error instanceof Error && !isErrorLogged(error);
-  } catch {
-    return false;
-  }
+  return error instanceof Error && !isErrorLogged(error);
 }

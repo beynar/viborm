@@ -4,13 +4,13 @@
 
 import { resolve } from "node:path";
 import { Command, InvalidArgumentError } from "commander";
-import type { StateSelector } from "../../migrations";
 import {
-  createFsStorageWriter,
   createMigrationClient,
   type WritableMigrations,
-} from "../../migrations";
+} from "../../migrations/client";
 import { isSha256 } from "../../migrations/identity";
+import { createFsStorageWriter } from "../../migrations/storage/fs-estate";
+import type { StateSelector } from "../../migrations/v1-types";
 import { failCli, loadConfig } from "../utils";
 
 const STATE_ID_PREFIX = /^[0-9a-f]{8,63}$/;
@@ -38,10 +38,7 @@ function printJson(value: unknown, json: boolean): void {
 
 async function withMigrations(
   dir: string | undefined,
-  run: (
-    migrations: WritableMigrations,
-    client: { $disconnect(): Promise<void> }
-  ) => Promise<void>
+  run: (migrations: WritableMigrations) => Promise<void>
 ): Promise<void> {
   let client: { $disconnect(): Promise<void> } | undefined;
   try {
@@ -51,7 +48,7 @@ async function withMigrations(
     const storage =
       config.migrations?.storage ?? createFsStorageWriter(directory);
     const migrations = createMigrationClient(config.client, { storage });
-    await run(migrations, config.client);
+    await run(migrations);
   } catch (error) {
     failCli(error);
   } finally {

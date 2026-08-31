@@ -1101,4 +1101,100 @@ describe("compiled detached cache result codec", () => {
       expectBoundary(() => codec.materialize(snapshot), "materialize");
     }
   });
+
+  test("keeps a required to-one relation non-null through cache transport", () => {
+    const codec = codecFor(pointStop, "findMany", {
+      select: { id: true, tripId: true, trip: true },
+    });
+    const value = [
+      { id: "stop-1", tripId: "trip-1", trip: { id: "trip-1" } },
+    ];
+
+    expect(codec.materialize(codec.snapshot(value))).toEqual(value);
+  });
+});
+
+describe("coverage low value", () => {
+  function shapeFor(
+    model: Parameters<typeof buildExpectedResultShape>[0],
+    operation: Operation,
+    args: Record<string, unknown>
+  ) {
+    const shape = buildExpectedResultShape(
+      model,
+      operation,
+      args,
+      indexFor(model)
+    );
+    if (!shape) throw new Error("The coverage witness needs a result shape.");
+    return shape;
+  }
+
+  test("refuses incoherent trusted result shapes during cache compilation", () => {
+    const missingRelation = shapeFor(author, "findMany", {
+      include: { posts: true },
+    });
+    missingRelation.relations = new Map();
+
+    const missingPolymorphic = shapeFor(feed, "findMany", {
+      select: { id: true, subject: true },
+    });
+    missingPolymorphic.polymorphic = new Map();
+
+    const missingAggregate = shapeFor(scalarModel, "aggregate", {
+      _avg: { ratio: true },
+    });
+    missingAggregate.aggregates = new Map();
+
+    const unknownColumn = shapeFor(scalarModel, "findMany", {
+      select: { text: true },
+    });
+
+    const duplicateColumn = shapeFor(scalarModel, "findMany", {
+      select: { id: true },
+    });
+    duplicateColumn.rawKeys = ["id", "id"];
+
+    for (const [model, operation, shape] of [
+      [author, "findMany", missingRelation],
+      [feed, "findMany", missingPolymorphic],
+      [scalarModel, "aggregate", missingAggregate],
+      [author, "findMany", unknownColumn],
+      [scalarModel, "findMany", duplicateColumn],
+    ] as const) {
+      expect(() =>
+        compileCacheResultCodec(model, operation, operation, shape)
+      ).toThrow(/incomplete/i);
+    }
+  });
+
+  test("refuses a cache codec for a non-read operation token", () => {
+    const shape = shapeFor(scalarModel, "findMany", {
+      select: { id: true },
+    });
+
+    expect(() =>
+      compileCacheResultCodec(scalarModel, "create", "create", shape)
+    ).toThrow(/incomplete/i);
+  });
+
+  test("normalizes a non-Error cache codec failure cause", () => {
+    const codec = codecFor(scalarModel, "findMany", {
+      select: { id: true },
+    });
+    const hostileRow = new Proxy(
+      { id: "one" },
+      {
+        getPrototypeOf() {
+          throw "non-error failure";
+        },
+      }
+    );
+
+    const error = expectBoundary(
+      () => codec.snapshot([hostileRow]),
+      "snapshot"
+    );
+    expect(error.originalCause).toBeInstanceOf(Error);
+  });
 });

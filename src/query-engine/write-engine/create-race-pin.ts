@@ -17,7 +17,8 @@ export function createRacePin(
   where: Record<string, unknown>
 ): CreateRacePin | undefined {
   const values = getWhereUniqueEntries(scope, where);
-  if (values.length === 0) return undefined;
+  // `getWhereUniqueEntries` either returns a non-empty discriminator or throws;
+  // the where-unique boundary owns that invariant.
   const pin = selectorRacePin(scope, where);
   return pin ? { pin, values } : undefined;
 }

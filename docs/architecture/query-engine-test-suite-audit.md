@@ -85,7 +85,8 @@ executed the same setup once per test or arm.
 
 - Run large selections through the memory-capped launchers.
 - Run only one Vitest, layer runner, or TypeScript process group at a time.
-- Focused write commands must select `coverage-write-engine` explicitly.
+- The focused write command is `pnpm test:coverage:write-engine`; its disjoint
+  projects are a memory boundary, and the merged report is authoritative.
 - The dedicated command has a five-minute wall limit and one fork.
 - Docker-only PostgreSQL and MySQL witnesses skip visibly when unavailable; a
   local skip is not a provider pass.

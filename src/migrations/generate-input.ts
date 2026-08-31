@@ -6,7 +6,7 @@
 import { Sql } from "@sql";
 import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { snapshotExactRecord } from "./input-boundary";
+import { snapshotExactArray, snapshotExactRecord } from "./input-boundary";
 import type { ResolveCallback } from "./types";
 import type {
   GenerateV1Options,
@@ -58,7 +58,7 @@ function snapshotManualMigration(value: unknown): ManualMigrationInput {
     "manual migration",
     refuseManualDefinition
   );
-  const transitions = snapshotArray(
+  const transitions = snapshotExactArray(
     record.transitions,
     "manual migration transitions",
     refuseManualDefinition
@@ -73,7 +73,7 @@ function snapshotManualMigration(value: unknown): ManualMigrationInput {
   const destinationChecks =
     record.destinationChecks === undefined
       ? undefined
-      : snapshotArray(
+      : snapshotExactArray(
           record.destinationChecks,
           "manual destination checks",
           refuseManualDefinition
@@ -111,7 +111,7 @@ function snapshotManualTransition(
   const originChecks =
     record.originChecks === undefined
       ? undefined
-      : snapshotArray(
+      : snapshotExactArray(
           record.originChecks,
           `${label}.originChecks`,
           refuseManualDefinition
@@ -192,7 +192,7 @@ function snapshotManualCheck(
 }
 
 function snapshotSqlArray(value: unknown, label: string): readonly Sql[] {
-  const entries = snapshotArray(value, label, refuseManualDefinition);
+  const entries = snapshotExactArray(value, label, refuseManualDefinition);
   const sql: Sql[] = [];
   for (let index = 0; index < entries.length; index++) {
     sql.push(snapshotSql(entries[index], `${label}[${index}]`));
@@ -229,21 +229,6 @@ function snapshotSql(value: unknown, label: string): Sql {
       errorCause(failure)
     );
   }
-}
-
-function snapshotArray(
-  value: unknown,
-  label: string,
-  refuse: (message: string, cause?: Error) => never
-): readonly unknown[] {
-  let entries: unknown[] | undefined;
-  try {
-    if (Array.isArray(value)) entries = Array.from(value);
-  } catch (failure) {
-    return refuse(`${label} could not be read`, errorCause(failure));
-  }
-  if (!entries) return refuse(`${label} must be an array`);
-  return Object.freeze(entries);
 }
 
 function isResolveCallback(value: unknown): value is ResolveCallback {

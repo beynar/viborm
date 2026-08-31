@@ -1,5 +1,4 @@
 import { tryParseJsonString } from "@adapters/shared/result-parsing";
-import type { AnyRelation } from "@schema/relation";
 import { type Operation, QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
 import { parseSafeCountValue } from "./result-count-parser";
@@ -12,49 +11,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function assignRelationCount(
-  ctx: ResultParser,
-  operation: Operation,
-  result: Record<string, unknown>,
-  relationName: string,
-  value: unknown
-): void {
-  const existingCount = result._count;
-  let countResult: Record<string, unknown>;
-  if (existingCount === undefined) {
-    countResult = {};
-  } else if (isRecord(existingCount)) {
-    countResult = existingCount;
-  } else {
-    throw relationCountError(
-      ctx,
-      operation,
-      relationName,
-      "the existing _count result is not an object"
-    );
-  }
-
-  countResult[relationName] = parseRelationCountValue(
-    ctx,
-    operation,
-    relationName,
-    value
-  );
-  result._count = countResult;
-}
-
 /**
- * @param relations - the model's ONE relation map, both target domains. A
- *   variant collection joins the count surface (plan §7.4) through the same
- *   key set as every other list relation, so the carrier check is one lookup
- *   and a name can no longer be claimed by two namespaces at once.
+ * `expectedRelations` was derived from the model's one relation map. Exact-key
+ * validation therefore proves every decoded entry is one requested relation;
+ * no second model-map lookup can add information here.
  */
 export function assignRelationCounts(
   ctx: ResultParser,
   operation: Operation,
   result: Record<string, unknown>,
   value: unknown,
-  relations: Record<string, AnyRelation>,
   expectedRelations: ReadonlySet<string>
 ): void {
   const decoded = typeof value === "string" ? tryParseJsonString(value) : value;
@@ -80,17 +46,16 @@ export function assignRelationCounts(
     );
   }
 
+  const countResult: Record<string, number> = {};
   for (const [relationName, count] of entries) {
-    if (!Object.hasOwn(relations, relationName)) {
-      throw relationCountError(
-        ctx,
-        operation,
-        undefined,
-        "the carrier contains an unknown relation"
-      );
-    }
-    assignRelationCount(ctx, operation, result, relationName, count);
+    countResult[relationName] = parseRelationCountValue(
+      ctx,
+      operation,
+      relationName,
+      count
+    );
   }
+  result._count = countResult;
 }
 
 function parseRelationCountValue(

@@ -2,6 +2,7 @@ import { createClient, type VibORMClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { NestedWriteError, UniqueConstraintError } from "@errors";
 
 import { describe, expect, test } from "vitest";
@@ -54,7 +55,7 @@ class BatchOnlyDriver extends PGliteDriver {
 }
 
 async function setupDb(): Promise<PGlite> {
-  const db = new PGlite();
+  const db = openTestPGlite();
   const setupClient = createClient({
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),

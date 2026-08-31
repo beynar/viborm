@@ -28,38 +28,28 @@
  * the rounded value, and the parent's `include` answers with an empty list — a
  * silent precision loss on write plus a silently wrong read.
  *
- * So this file pins the property in both places it can be pinned:
+ * The adjacent core contract and this live contract pin the property in both
+ * places it can be pinned:
  *
  *  - LIVE, on the two local dialects, that a decimal relation key round-trips —
  *    PGlite with native numeric storage and SQLite3 with a scaled integer
  *    coefficient. Assertions are on the LINK (the child is reachable
  *    from the parent and its FK reads back exactly), not on the absence of a
  *    throw, because the bun:sqlite witness proves an absent throw means nothing.
- *  - ON THE SQL, for all three dialects including MySQL (which has no local
+ *  - ON THE SQL, in `decimal-relation-key-write.core.test.ts`, for all three
+ *    dialects including MySQL (which has no local
  *    leg), that the FK expression is byte-identical to the write lowering of
  *    the referenced column. That is the invariant — "an FK is written like the
  *    key it references" — rather than a dialect spelling, so it survives a
  *    change to any adapter's decimal literal.
  */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import { type Dialect, Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 
-import { buildScalarSqlValue } from "@query-engine/builders/values-builder";
-import { createQueryScope } from "@query-engine/context";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames, s } from "@schema";
-import { sql } from "@sql";
-import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
-import { createSchemaRegistry } from "@validation";
-import Decimal from "decimal.js";
+import { s } from "@schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
@@ -133,8 +123,19 @@ type Live = {
   readonly create: () => ReturnType<typeof createPGliteClient>;
 };
 
-const createPGliteClient = () =>
-  createClient({ schema, driver: new PGliteDriver({ client: new PGlite() }) });
+const borrowedPGliteClients = new Set<PGlite>();
+
+const createPGliteClient = () => {
+  const client = new PGlite();
+  borrowedPGliteClients.add(client);
+  return createClient({ schema, driver: new PGliteDriver({ client }) });
+};
+
+afterAll(async () => {
+  await Promise.all(
+    [...borrowedPGliteClients].map((client) => client.close())
+  );
+});
 
 const createSQLite3Client = () =>
   createClient({
@@ -274,167 +275,3 @@ describe.each(
     expect(found?.slips[0]?.vaultKey.eq("42.12")).toBe(true);
   });
 });
-
-// ============================================================================
-// SQL — the FK expression IS the referenced column's write lowering
-// ============================================================================
-
-class SqlOnlyDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `decimal-relkey-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // SQL-only driver: no external client is allocated.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
-
-const sqlDialects = [
-  {
-    name: "PostgreSQL",
-    dialect: "postgresql" as Dialect,
-    adapter: () => new PostgresAdapter(),
-    /** The corruption spelling this dialect must never produce for a decimal. */
-    forbidden: [] as string[],
-    deferredDomain: "NUMERIC(16,2)",
-  },
-  {
-    name: "MySQL",
-    dialect: "mysql" as Dialect,
-    adapter: () => new MySQLAdapter(),
-    // Bare `DECIMAL` is `DECIMAL(10,0)`: every fraction rounded away.
-    forbidden: ["AS DECIMAL)", "DECIMAL(65,30)"],
-    deferredDomain: "DECIMAL(16,2)",
-  },
-  {
-    name: "SQLite",
-    dialect: "sqlite" as Dialect,
-    adapter: () => new SQLiteAdapter(),
-    // NUMERIC affinity puts the canonical TEXT spelling through a double.
-    forbidden: ["AS NUMERIC)", "AS REAL)"],
-    deferredDomain: "INTEGER",
-  },
-];
-
-beforeAll(() => hydrateSchemaNames(schema));
-
-const rendered = (fragment: ReturnType<typeof referenceSql>) => ({
-  statement: fragment.toStatement("$n"),
-  values: fragment.values,
-});
-
-describe.each(sqlDialects)("$name decimal FK lowering", (dialectCase) => {
-  const engineFor = () => {
-    const adapter = dialectCase.adapter();
-    const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    return new QueryEngine(
-      new SqlOnlyDriver(adapter, dialectCase.dialect),
-      registry
-    );
-  };
-
-  /**
-   * The reference: how the PARENT's own decimal key is written. Every FK
-   * carrying that same value has to be spelled this way or the two ends of the
-   * relation disagree inside one statement pair.
-   */
-  const referencedColumnLowering = (
-    engine: QueryEngine,
-    value: unknown
-  ): { statement: string; values: unknown[] } => {
-    const scope = createQueryScope(engine, vault);
-    return rendered(buildScalarSqlValue(scope, vault, "key", value));
-  };
-
-  // A `bigint` is deliberately absent: `DecimalInput` is
-  // `Decimal | string | number`, so a bigint operand is refused by the schema
-  // rather than lowered here.
-  for (const value of [BIG30, HALF, HALF_UNCANONICAL, 9.5, new Decimal(12)]) {
-    test(`FK lowering of ${String(value)} equals the referenced column's`, () => {
-      const engine = engineFor();
-      const fk = rendered(referenceSql(engine, slip, "vaultKey", value));
-
-      expect(fk).toEqual(referencedColumnLowering(engine, value));
-    });
-  }
-
-  test("the FK never wears a lossy decimal cast", () => {
-    const engine = engineFor();
-    const fk = rendered(referenceSql(engine, slip, "vaultKey", BIG30));
-
-    for (const spelling of dialectCase.forbidden) {
-      expect(fk.statement).not.toContain(spelling);
-    }
-    // Canonicalized before binding, not passed through as the caller spelled
-    // it — and bound in the DIALECT's own physical spelling, which is the
-    // referenced column's: the coefficient on SQLite, the logical value
-    // elsewhere. Comparing against the parent's lowering is the claim; a
-    // written-down string would only be one dialect's half of it.
-    const uncanonical = rendered(
-      referenceSql(engine, slip, "vaultKey", HALF_UNCANONICAL)
-    );
-    expect(uncanonical.values).toEqual(
-      referencedColumnLowering(engine, HALF).values
-    );
-    expect(uncanonical.values).not.toContain(HALF_UNCANONICAL);
-  });
-
-  test("a deferred FK expression takes the EXACT-decimal cast, not the number one", () => {
-    const engine = engineFor();
-    // A `Ref`/subquery cannot be canonicalized at build time — its value does
-    // not exist yet — so it keeps the cast path. That path must still land in
-    // the exact decimal domain.
-    const deferred = rendered(
-      referenceSql(engine, slip, "vaultKey", sql.raw`captured_key`)
-    );
-
-    for (const spelling of dialectCase.forbidden) {
-      expect(deferred.statement).not.toContain(spelling);
-    }
-    expect(deferred.statement).toContain("captured_key");
-    expect(deferred.statement).toContain(dialectCase.deferredDomain);
-  });
-
-  test("an approximate column keeps the numeric cast — the two are not merged", () => {
-    // The fix splits `decimal` off from `numeric`; this pins that `number` was
-    // not dragged along with it into the exact-decimal domain.
-    const engine = engineFor();
-    const numberFk = rendered(referenceSql(engine, gauge, "readingRef", 1.5));
-
-    expect(numberFk.statement).toContain("CAST(");
-    expect(numberFk.values).toEqual([1.5]);
-  });
-});
-
-/**
- * An approximate-number FK, to prove the `decimal`/`numeric` split did not
- * swallow the `number` scalar.
- */
-const gauge = s
-  .model({
-    id: s.string().id(),
-    readingRef: s.number(),
-  })
-  .map("decimal_relkey_gauges");

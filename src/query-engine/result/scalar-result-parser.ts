@@ -10,13 +10,10 @@ import {
   isGregorianCalendarDate,
 } from "@validation/primitives/datetime-values";
 import type { Operation } from "../types";
-import { QueryEngineError } from "../types";
 import {
   type DecimalColumn,
   decodeDecimalListValue,
-  decodeDecimalValue,
   decodeWidenedSumValue,
-  materializeDecimalValue,
   materializeWidenedSumValue,
 } from "./decimal-result-decode";
 import { malformedScalarValue } from "./result-parser-contract";
@@ -82,7 +79,6 @@ export function parseFieldValueDefault(
   provider: string,
   operation: Operation,
   decimalColumn: DecimalColumn | undefined,
-  materializeDecimal = false,
   dateTimeForm?: DateTimeNumericForm,
   enumListArrayText = false
 ): unknown {
@@ -96,8 +92,6 @@ export function parseFieldValueDefault(
       jsonSchema,
       provider,
       operation,
-      decimalColumn,
-      materializeDecimal,
       dateTimeForm
     );
   }
@@ -172,8 +166,7 @@ export function parseFieldValueDefault(
       vectorDimension,
       jsonSchema,
       provider,
-      operation,
-      decimalColumn
+      operation
     );
   }
   return parsedItems;
@@ -201,7 +194,7 @@ function providerArrayMembers(text: string): unknown[] | undefined {
 
   const members: unknown[] = [];
   let cursor = 0;
-  while (cursor <= body.length) {
+  while (true) {
     const member =
       body[cursor] === '"'
         ? readQuotedMember(body, cursor)
@@ -213,7 +206,6 @@ function providerArrayMembers(text: string): unknown[] | undefined {
     if (body[member.next] !== ",") return undefined;
     cursor = member.next + 1;
   }
-  return undefined;
 }
 
 /** One `"…"` member, and the offset just past its closing quote. */
@@ -292,8 +284,6 @@ function parseTypedValueDefault(
   jsonSchema: StandardSchemaV1 | undefined,
   provider: string,
   operation: Operation,
-  decimalColumn: DecimalColumn | undefined,
-  materializeDecimal = false,
   dateTimeForm?: DateTimeNumericForm
 ): unknown {
   if (value === null) {
@@ -471,32 +461,6 @@ function parseTypedValueDefault(
       return parsed;
     }
 
-    // A decimal NEVER becomes a JS number here. Identity and list paths answer
-    // with canonical private text. An ordinary uncaptured public scalar asks
-    // the same codec scan to construct its one public Decimal directly.
-    //
-    // The accepted spelling is the exact physical one the active adapter
-    // promised for THIS column, held to its declared precision and scale: a
-    // decimal that arrives outside either is a column the schema no longer
-    // describes, not a value to widen the field for.
-    case "decimal": {
-      const parsed =
-        decimalColumn === undefined
-          ? undefined
-          : materializeDecimal
-            ? materializeDecimalValue(value, decimalColumn)
-            : decodeDecimalValue(value, decimalColumn);
-      if (parsed === undefined) {
-        return malformedScalarValue(
-          provider,
-          operation,
-          scalarType,
-          "the value is not an exact decimal in this column's declared domain"
-        );
-      }
-      return parsed;
-    }
-
     case "boolean": {
       if (typeof value === "boolean") return value;
       if (value === 0 || value === 0n) return false;
@@ -588,67 +552,11 @@ function parseTypedValueDefault(
       return parsePointValue(value, provider, operation);
 
     default:
-      return parseValueWithoutContext(value);
+      return malformedScalarValue(
+        provider,
+        operation,
+        scalarType,
+        "the scalar type is unsupported"
+      );
   }
-}
-
-function parseValueWithoutContext(value: unknown): unknown {
-  if (value === undefined) {
-    throw new QueryEngineError("Cannot parse an absent result value.");
-  }
-  if (value === null) {
-    return null;
-  }
-
-  // Handle BigInt - keep as BigInt to preserve precision for large values
-  // Users can convert to Number if needed for smaller values
-  if (typeof value === "bigint") {
-    return value;
-  }
-
-  // Try to parse JSON strings (MySQL/SQLite may return JSON as strings)
-  if (typeof value === "string") {
-    // Check if it looks like JSON
-    const trimmed = value.trim();
-    if (
-      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-      (trimmed.startsWith("[") && trimmed.endsWith("]"))
-    ) {
-      try {
-        return JSON.parse(value);
-      } catch {
-        // Not valid JSON, return as-is
-        return value;
-      }
-    }
-    return value;
-  }
-
-  // Already parsed object (PostgreSQL returns JSON as objects)
-  if (typeof value === "object") {
-    // Preserve Date objects - they have no enumerable properties
-    // so Object.entries would return empty array
-    if (value instanceof Date) {
-      return value;
-    }
-
-    // Preserve environment-neutral binary objects for schema-aware parsing.
-    if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
-      return value;
-    }
-
-    if (Array.isArray(value)) {
-      return value.map(parseValueWithoutContext);
-    }
-
-    // Recursively parse nested objects (JSON scalars, etc.)
-    const result: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      result[k] = parseValueWithoutContext(v);
-    }
-    return result;
-  }
-
-  // Primitive values
-  return value;
 }

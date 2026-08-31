@@ -26,6 +26,9 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // ---------------------------------------------------------------------------
 // Staleness injection (PLAN P2a instrument 3). The single-threaded dual-run
 // oracle cannot observe raceability, so each existing-row premise class gets a
@@ -155,7 +158,7 @@ function runRoutedUpsert(
 
 describe("write engine staleness injection (per premise class)", () => {
   test("root-presence premise (update): a concurrent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "s@x", count: 1 } });
@@ -191,7 +194,7 @@ describe("write engine staleness injection (per premise class)", () => {
   });
 
   test("root-presence premise (delete): a concurrent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "d@x", count: 1 } });
@@ -214,7 +217,7 @@ describe("write engine staleness injection (per premise class)", () => {
   });
 
   test("disconnect-correlation premise: a concurrent reparent aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -255,7 +258,7 @@ describe("write engine staleness injection (per premise class)", () => {
   });
 
   test("connect-target premise: a concurrent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "c@x", count: 0 } });
@@ -283,7 +286,7 @@ describe("write engine staleness injection (per premise class)", () => {
   });
 
   test("upsert found premise: a concurrent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -364,7 +367,7 @@ function runNestedUpdate(
 
 describe("write engine staleness injection (set orphan pin)", () => {
   test("set departing-rows orphan pin: a concurrently added required-FK child aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeNestedClient(db);
     await syncLiveSchema(client);
     await client.tag.create({ data: { id: "t1", name: "one" } });
@@ -453,7 +456,7 @@ function runM2mUpdate(
 
 describe("write engine staleness injection (M2M deleteMany materialized-set pin)", () => {
   test("a concurrently added member aborts the batch typed and raceable, then a rerun converges", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeM2mClient(db);
     await syncLiveSchema(client);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
@@ -509,7 +512,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
   });
 
   test("a concurrently removed member aborts the batch typed and raceable, then a rerun converges", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeM2mClient(db);
     await syncLiveSchema(client);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
@@ -582,7 +585,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
 
 describe("write engine staleness injection (M2M adopt premises)", () => {
   test("connectOrCreate found premise: a concurrent delete of the adopted target aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeM2mClient(db);
     await syncLiveSchema(client);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
@@ -623,7 +626,7 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
   });
 
   test("upsert member premise: a concurrent disconnect of the member aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeM2mClient(db);
     await syncLiveSchema(client);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
@@ -693,7 +696,7 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
 
 describe("write engine staleness injection (extended whereUnique)", () => {
   test("filter premise (update): a stale extra filter aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "f@x", count: 5 } });
@@ -732,7 +735,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
   });
 
   test("filter premise (delete): a stale extra filter aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "fd@x", count: 5 } });
@@ -764,7 +767,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
   });
 
   test("discriminator premise still fires under an extended where", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "fk@x", count: 5 } });
@@ -803,7 +806,7 @@ describe("write engine staleness injection (extended whereUnique)", () => {
 
 describe("write engine staleness injection (located-parent Ref)", () => {
   test("nested create by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "ref@x", count: 0 } });
@@ -831,7 +834,7 @@ describe("write engine staleness injection (located-parent Ref)", () => {
   });
 
   test("nested createMany by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "refm@x", count: 0 } });
@@ -1055,7 +1058,7 @@ function runUpsertMidBatch(
 
 describe("write engine staleness injection (batch root address)", () => {
   test("guard half: a reassigned discriminator aborts the batch, writing neither row", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "split@x", count: 0 } });
@@ -1103,7 +1106,7 @@ describe("write engine staleness injection (batch root address)", () => {
   });
 
   test("write half: the root UPDATE addresses the captured row, not the one that took the discriminator", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "mid@x", count: 0 } });
@@ -1151,7 +1154,7 @@ describe("write engine staleness injection (batch root address)", () => {
   });
 
   test("control: with no interference the located-parent batch is unchanged", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "calm@x", count: 0 } });
@@ -1187,7 +1190,7 @@ describe("write engine staleness injection (batch root address)", () => {
   // lowers no `affectedRows` postcondition. That is the silent zero-row root the
   // address rule exists to forbid, reached through the PK-named door.
   test("write half: an extended selector's filter does not ride into the root UPDATE", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "ext@x", count: 0 } });
@@ -1226,7 +1229,7 @@ describe("write engine staleness injection (batch root address)", () => {
   });
 
   test("control: an extended selector whose filter excludes the row fails closed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "excl@x", count: 9 } });
@@ -1250,7 +1253,7 @@ describe("write engine staleness injection (batch root address)", () => {
   });
 
   test("control: an extended selector with no interference runs once", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "ok@x", count: 0 } });
@@ -1285,7 +1288,7 @@ describe("write engine staleness injection (batch root address)", () => {
   // Both spellings are why the address rule has no arms: the root UPDATE addresses the
   // captured PK whatever the selector named, so neither spelling has a door to enter by.
   test("write half: a compound unique's non-PK member does not ride into the root UPDATE", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = createClient({
       schema: compoundRootSchema,
       driver: new PGliteDriver({ client: db }),
@@ -1319,7 +1322,7 @@ describe("write engine staleness injection (batch root address)", () => {
   // it is the same selector as the arm above with the mid-batch move removed: the
   // premise holds, the guard passes, and the unit runs exactly once.
   test("control: a compound-unique selector with no interference runs once", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = createClient({
       schema: compoundRootSchema,
       driver: new PGliteDriver({ client: db }),
@@ -1355,7 +1358,7 @@ describe("write engine staleness injection (batch root address)", () => {
 
 describe("write engine upsert captured-row staleness", () => {
   test("targetWhere skip rejects a matching replacement without retry", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -1405,7 +1408,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("targetWhere skip reports deletion as non-raceable not found", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -1446,7 +1449,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("targetWhere skip preserves SQL UNKNOWN as a stable no-match", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.post.create({
@@ -1482,7 +1485,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("no-condition found guard rejects a replacement row without retry", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -1532,7 +1535,7 @@ describe("write engine upsert captured-row staleness", () => {
     "targetWhere",
     "setWhere",
   ] as const)("%s matched guard rejects a matching replacement row without retry", async (conditionalField) => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     const stem = conditionalField === "targetWhere" ? "target" : "set";
@@ -1579,7 +1582,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("compiler-backed found guard rejects a replacement before relation writes", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({
@@ -1632,7 +1635,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("folded UPDATE RETURNING addresses captured A after the guard", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "up-fold@x", count: 0 } });
@@ -1665,7 +1668,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("ordinary UPDATE plus terminal read addresses captured A after the guard", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "up-plain@x", count: 0 } });
@@ -1708,7 +1711,7 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("found-arm unique conflicts stay unpinned and do not retry", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await client.user.create({ data: { email: "up-conflict-a@x", count: 0 } });

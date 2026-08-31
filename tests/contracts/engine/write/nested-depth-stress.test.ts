@@ -6,6 +6,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * X1 depth STRESS — the engine's construction-time recursion has no depth
  * constraint. A self-referential tree lets a nested `create` / `update` chain go
@@ -67,7 +70,7 @@ async function seedChain(client: any, depth: number) {
 describe("X1 depth stress — unbounded nested create / update chains", () => {
   for (const depth of [5, 8, 12]) {
     test(`nested create chain of ${depth} levels executes`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeClient(db);
       await syncLiveSchema(client);
       await seedChain(client, depth);
@@ -77,7 +80,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
     });
 
     test(`nested update chain of ${depth} levels executes`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeClient(db);
       await syncLiveSchema(client);
       await seedChain(client, depth);
@@ -98,7 +101,7 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
   }
 
   test("mixed update→…→create chain of 6 levels grafts a fresh subtree at the bottom (X1)", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     await seedChain(client, 5); // c0..c5 exist

@@ -3,6 +3,7 @@ import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import {
   NestedWriteAssertionError,
   NestedWriteError,
@@ -140,7 +141,7 @@ class CountingTxDriver extends PGliteDriver {
 }
 
 async function setupDb(): Promise<PGlite> {
-  const db = new PGlite();
+  const db = openTestPGlite();
   const setupClient = createClient({
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),

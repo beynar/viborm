@@ -1,36 +1,27 @@
 /**
  * Unit tests for `src/cli/utils.ts` — the CLI's pure/config layer.
  *
- * Three concerns, three styles:
+ * Two concerns, two styles:
  *   1. loadConfig — driven through real `viborm.config.ts` fixtures written by
  *      the harness (`writeConfigFixture`) + `process.cwd()` chdir, so path
  *      discovery, module-shape extraction, client/model validation and the
  *      schema-validation gate all run exactly as in production. No mock of the
  *      unit under test.
- *   2. validateSchemaOrThrow — the schema-validation entry loadConfig calls. It
- *      once infinitely recursed; tested directly (accept, reject, and a
- *      self-referential-schema regression guard against the old stack overflow).
- *   3. formatBytes / formatDuration / defineConfig — pure, tested by value.
+ *   2. defineConfig — the public config-subpath identity helper.
  */
 
+import { join } from "node:path";
 import { chdir, cwd } from "node:process";
-import { s } from "@schema";
-import {
-  defineConfig,
-  formatBytes,
-  formatDuration,
-  loadConfig,
-} from "@src/cli/utils";
-import {
-  SchemaValidationError,
-  validateSchemaOrThrow,
-} from "@src/schema/validation";
+import { pathToFileURL } from "node:url";
+import { defineConfig, failCli, loadConfig } from "@src/cli/utils";
+import { SchemaValidationError } from "@src/schema/validation";
 import {
   makeTempProject,
   type TempProject,
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================================================
 // loadConfig
@@ -86,6 +77,15 @@ describe("loadConfig", () => {
     expect(Object.keys(loaded.models)).toContain("user");
   });
 
+  it("discovers viborm.config.mjs when earlier candidates are absent", async () => {
+    writeConfigFixture(project, { configName: "viborm.config.mjs" });
+    chdir(project.dir);
+
+    const loaded = await loadConfig();
+
+    expect(Object.keys(loaded.models)).toContain("user");
+  });
+
   it("throws (listing the searched path) when --config points at a missing file", async () => {
     const missing = `${project.dir}/nope.config.ts`;
 
@@ -121,6 +121,29 @@ describe("loadConfig", () => {
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
       /Make sure you're running with a TypeScript loader/
+    );
+  });
+
+  it("re-throws the TypeScript-loader hint when a discovered .mts config fails", async () => {
+    writeConfigFixture(project, {
+      configName: "viborm.config.mts",
+      rawConfigSource: "throw new Error('boom inside mts config');",
+    });
+    chdir(project.dir);
+
+    await expect(loadConfig()).rejects.toThrow(
+      /Make sure you're running with a TypeScript loader/
+    );
+  });
+
+  it("preserves a JavaScript config import failure", async () => {
+    const configPath = writeConfigFixture(project, {
+      configName: "viborm.config.mjs",
+      rawConfigSource: "throw new Error('plain JavaScript config exploded');",
+    });
+
+    await expect(loadConfig({ config: configPath })).rejects.toThrow(
+      "plain JavaScript config exploded"
     );
   });
 
@@ -246,15 +269,25 @@ describe("loadConfig", () => {
     );
   });
 
-  it("accepts a real createClient() client (regression: isValidClient probe)", async () => {
-    // BUG #1 regression: `"$driver" in client` was always false on the get-only
-    // Proxy, so every real config threw Invalid "client". A clean load proves
-    // the property-access probe accepts a genuine client.
-    writeConfigFixture(project);
+  it('throws Invalid "client" for a truthy primitive', async () => {
+    writeConfigFixture(project, {
+      rawConfigSource: "export default { client: 1 };",
+    });
 
-    await expect(
-      loadConfig({ config: project.configPath })
-    ).resolves.toMatchObject({ driver: expect.anything() });
+    await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
+      /Invalid "client"/
+    );
+  });
+
+  it('throws Invalid "client" when $driver exists but $schema is absent', async () => {
+    writeConfigFixture(project, {
+      rawConfigSource:
+        "export default { client: { $driver: {}, $schema: undefined } };",
+    });
+
+    await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
+      /Invalid "client"/
+    );
   });
 
   // --- model extraction + validation -------------------------------------
@@ -292,16 +325,6 @@ describe("loadConfig", () => {
     );
   });
 
-  it("returns { client, driver, models } with driver === client.$driver", async () => {
-    writeConfigFixture(project);
-
-    const loaded = await loadConfig({ config: project.configPath });
-
-    expect(loaded.client).toBeDefined();
-    expect(loaded.driver).toBe(loaded.client.$driver);
-    expect(loaded.models).toBeTypeOf("object");
-  });
-
   it("passes the migrations config block through", async () => {
     writeConfigFixture(project, {
       migrationsBlock: `migrations: { dir: "./db/migrations", tableName: "_my_migrations" }`,
@@ -313,14 +336,6 @@ describe("loadConfig", () => {
       dir: "./db/migrations",
       tableName: "_my_migrations",
     });
-  });
-
-  it("ACCEPT: a valid schema loads without throwing (validation runs)", async () => {
-    writeConfigFixture(project);
-
-    await expect(
-      loadConfig({ config: project.configPath })
-    ).resolves.toBeDefined();
   });
 
   it('REJECT: a model with no .id() throws "Schema validation failed"', async () => {
@@ -340,109 +355,87 @@ describe("loadConfig", () => {
 });
 
 // ===========================================================================
-// validateSchemaOrThrow (the resurrected validation entry)
+// Public config helper
 // ===========================================================================
-
-describe("validateSchemaOrThrow", () => {
-  it("accepts a valid single-model schema", () => {
-    const user = s.model({ id: s.string().id(), email: s.string() });
-
-    expect(() => validateSchemaOrThrow({ user })).not.toThrow();
-  });
-
-  it("rejects a model with no ID field (M001)", () => {
-    const user = s.model({ email: s.string() });
-
-    expect(() => validateSchemaOrThrow({ user })).toThrow(
-      /Schema validation failed/
-    );
-    expect(() => validateSchemaOrThrow({ user })).toThrow(/must have an ID/);
-  });
-
-  it("rejects a bad relation config (relation with no matching inverse)", () => {
-    // `post.author` with no inverse slot on `user` -> R002.
-    const post: any = s.model({
-      id: s.string().id(),
-      title: s.string(),
-      authorId: s.string(),
-      author: s
-        .toOne(() => user)
-        .fields("authorId")
-        .references("id"),
-    });
-    const user: any = s.model({ id: s.string().id() });
-
-    expect(() => validateSchemaOrThrow({ user, post })).toThrow(
-      /Schema validation failed/
-    );
-    expect(() => validateSchemaOrThrow({ user, post })).toThrow(
-      /has no inverse relation/
-    );
-  });
-
-  it("does NOT infinitely recurse on a self-referential schema (stack-overflow regression)", () => {
-    // This is the shape that used to blow the stack. A validation that returns
-    // (valid, no throw) proves the recursion is bounded.
-    const employee: any = s.model({
-      id: s.string().id(),
-      managerId: s.string().nullable(),
-      manager: s
-        .toOne(() => employee)
-        .fields("managerId")
-        .references("id"),
-      reports: s.toMany(() => employee),
-    });
-
-    expect(() => validateSchemaOrThrow({ employee })).not.toThrow();
-  });
-});
-
-// ===========================================================================
-// Pure formatters + defineConfig
-// ===========================================================================
-
-describe("formatBytes", () => {
-  it("formats 0 as '0 B'", () => {
-    expect(formatBytes(0)).toBe("0 B");
-  });
-
-  it("keeps sub-kilobyte values in bytes", () => {
-    expect(formatBytes(500)).toBe("500 B");
-  });
-
-  it("formats 1536 as '1.5 KB'", () => {
-    expect(formatBytes(1536)).toBe("1.5 KB");
-  });
-
-  it("formats MB and GB boundaries", () => {
-    expect(formatBytes(1024)).toBe("1 KB");
-    expect(formatBytes(1024 ** 2)).toBe("1 MB");
-    expect(formatBytes(1024 ** 3)).toBe("1 GB");
-  });
-});
-
-describe("formatDuration", () => {
-  it("formats sub-second durations as milliseconds", () => {
-    expect(formatDuration(0)).toBe("0ms");
-    expect(formatDuration(999)).toBe("999ms");
-  });
-
-  it("formats 1000–59999ms as seconds with one decimal", () => {
-    expect(formatDuration(1000)).toBe("1.0s");
-    expect(formatDuration(1500)).toBe("1.5s");
-    expect(formatDuration(59_999)).toBe("60.0s");
-  });
-
-  it("formats >= 60000ms as minutes with one decimal", () => {
-    expect(formatDuration(60_000)).toBe("1.0m");
-    expect(formatDuration(90_000)).toBe("1.5m");
-  });
-});
 
 describe("defineConfig", () => {
   it("returns its argument unchanged (identity)", () => {
     const config = { client: {} as any, migrations: { dir: "./m" } };
 
     expect(defineConfig(config)).toBe(config);
+  });
+});
+
+describe("CLI failure boundary", () => {
+  it("prints Error and non-Error failures before exiting unsuccessfully", () => {
+    const exitSentinel = new Error("process exited");
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw exitSentinel;
+    });
+
+    try {
+      expect(() => failCli(new Error("typed failure"))).toThrow(exitSentinel);
+      expect(() => failCli("string failure")).toThrow(exitSentinel);
+      expect(stderr.mock.calls.map(([message]) => message)).toEqual([
+        "typed failure\n",
+        "string failure\n",
+      ]);
+      expect(exit).toHaveBeenCalledTimes(2);
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      stderr.mockRestore();
+      exit.mockRestore();
+    }
+  });
+});
+
+describe("coverage low value", () => {
+  it("refuses a callable impostor client", async () => {
+    const project = makeTempProject();
+    try {
+      writeConfigFixture(project, {
+        rawConfigSource:
+          "function client() {}\nexport default { client };\n",
+      });
+
+      await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
+        /Invalid "client"/
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("ignores malformed non-model members behind the config client shape", async () => {
+    const project = makeTempProject();
+    const schemaUrl = pathToFileURL(join(SOURCE_ROOT, "schema/index.ts")).href;
+    try {
+      writeConfigFixture(project, {
+        rawConfigSource: `import { hydrateSchemaNames, s } from ${JSON.stringify(schemaUrl)};
+const user = s.model({ id: s.string().id() });
+hydrateSchemaNames({ user });
+const schema = {
+  user,
+  nullMember: null,
+  primitiveMember: 1,
+  objectMember: {},
+  nullMetadata: { "~": null },
+  missingState: { "~": {} },
+  nullState: { "~": { state: null } },
+  missingScalars: { "~": { state: {} } },
+};
+export default { client: { $driver: {}, $schema: schema } };
+`,
+      });
+
+      const loaded = await loadConfig({ config: project.configPath });
+
+      expect(Object.keys(loaded.models)).toEqual(["user"]);
+    } finally {
+      project.cleanup();
+    }
   });
 });

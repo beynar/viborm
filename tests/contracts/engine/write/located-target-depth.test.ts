@@ -10,6 +10,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // A concurrent writer fires once, just before the atomic batch commits.
 class BeforeBatchDriver extends BatchOnlyPGliteDriver {
   private hook: (() => Promise<void>) | undefined;
@@ -55,7 +58,7 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const base = makeClient(schema, db);
   await syncLiveSchema(base as never);
   await seed(base);
@@ -220,7 +223,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   // locate finds no row and the whole tree rejects with Direct's verbatim not-found; no
   // partial write, no badge created.
   test("cross-parent selector at depth rejects with the located-target not-found", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = makeClient(chainSchema, db);
     await syncLiveSchema(base as never);
     await seed(base);
@@ -262,7 +265,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   // presence guard fails the batch closed — never a silent no-op, never a dangling
   // badge whose member vanished.
   test("batch: a concurrent delete of the located target fails the batch closed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = makeClient(chainSchema, db);
     await syncLiveSchema(base as never);
     await seed(base);

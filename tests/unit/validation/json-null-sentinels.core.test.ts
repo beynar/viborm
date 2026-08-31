@@ -1,12 +1,7 @@
-import { generateCacheKey } from "@cache/key";
 import {
   AnyNull,
   DbNull,
-  isJsonNullSentinel,
-  JSON_NULL_BRAND,
   JsonNull,
-  JsonNullSentinel,
-  jsonNullKindOf,
 } from "@schema/json-null";
 import { json } from "@schema/scalars/json/scalar";
 import { parse, v } from "@validation";
@@ -14,69 +9,14 @@ import { getScalarSchemas } from "@validation/scalars";
 import { describe, expect, test } from "vitest";
 
 /**
- * The sentinels as VALUES: what they are, what recognizes them, and the two
- * places a plain-object token would have gone wrong.
+ * Validation contracts for the sentinels in JSON operation positions.
  *
- * Dialect SQL lives in `tests/query-engine/json-null-sentinel-sql.test.ts`;
- * execution in `tests/drivers/json-null-sentinel-behavior.ts`.
+ * Token identity lives with schema scalars; cache identity, dialect SQL, and
+ * provider execution remain with their owning layers.
  */
 describe("JSON null sentinels", () => {
   const nullable = getScalarSchemas(json().nullable()["~"].state);
   const required = getScalarSchemas(json()["~"].state);
-
-  describe("the tokens", () => {
-    test("each is frozen, named, and recognized", () => {
-      for (const token of [DbNull, JsonNull, AnyNull]) {
-        expect(Object.isFrozen(token)).toBe(true);
-        expect(isJsonNullSentinel(token)).toBe(true);
-        expect(jsonNullKindOf(token)).toBe(token.kind);
-        expect(String(token)).toBe(token.kind);
-      }
-      expect(DbNull.kind).toBe("DbNull");
-      expect(JsonNull.kind).toBe("JsonNull");
-      expect(AnyNull.kind).toBe("AnyNull");
-    });
-
-    test("the brand check is a property probe, not instanceof", () => {
-      // A token from a duplicated copy of the module must still be recognized,
-      // which is why `Symbol.for` and a probe are used rather than `instanceof`
-      const foreign = new JsonNullSentinel("DbNull");
-      expect(isJsonNullSentinel(foreign)).toBe(true);
-      expect(isJsonNullSentinel({ [JSON_NULL_BRAND]: "DbNull" })).toBe(true);
-    });
-
-    test("nothing else is a sentinel", () => {
-      for (const value of [
-        null,
-        undefined,
-        "DbNull",
-        {},
-        { kind: "DbNull" },
-        { [JSON_NULL_BRAND]: "Nope" },
-        [],
-      ]) {
-        expect(isJsonNullSentinel(value)).toBe(false);
-        expect(jsonNullKindOf(value)).toBeUndefined();
-      }
-    });
-
-    /**
-     * Two different questions must not share one cache entry. Telling the three
-     * APART is only half of it — telling a sentinel from the look-alike
-     * document `{ kind: "DbNull" }` (legal user data in a JSON column, and
-     * refused as a sentinel two tests above) is the other half, pinned in
-     * `tests/cache/brand-token-keys.test.ts`.
-     */
-    test("the three hash to different cache keys", () => {
-      const keyFor = (value: unknown) =>
-        generateCacheKey("entry", "findMany", {
-          where: { meta: { equals: value } },
-        });
-      const keys = [keyFor(DbNull), keyFor(JsonNull), keyFor(AnyNull)];
-      expect(new Set(keys).size).toBe(3);
-      expect(keys).not.toContain(keyFor(null));
-    });
-  });
 
   describe("write slots", () => {
     test("a nullable JSON field takes DbNull and JsonNull", () => {

@@ -1,524 +1,476 @@
-/**
- * INTEGRATION tests for `viborm migrate` against the V1 estate CLI.
- *
- * Subcommands print JSON. Generation publishes `estate.json`, content-addressed
- * snapshots/SQL, and state manifests — not numbered files and not a journal.
- *
- * A file-backed PGlite is required: every command disconnects, and an
- * in-memory PGlite is destroyed on close. The V1 migrate CLI discovers
- * `viborm.config.ts` from cwd; it has no `--config` flag.
- */
+import { Command } from "commander";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { isSha256 } from "@src/migrations/identity";
-import { isRecord } from "@src/validation/value-guards";
-import {
-  invokeCLI,
-  makeTempProject,
-  type TempProject,
-  writeConfigFixture,
-} from "@tests/contracts/public-client/cli/_harness";
-import type { Command } from "commander";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+const SHA256 = "a".repeat(64);
+const PREFIX = "b".repeat(8);
 
-const NUMBERED_SQL = /^\d+_.*\.sql$/;
-const ESTATE = /estate/i;
-const NAMED_ZERO_OR_MISSING = /named 0|not found/i;
-const UNKNOWN_OPTION_FORCE = /unknown option|force/;
-const ROLL_BACK_OR_NOTHING = /roll back|nothing/i;
-
-function writePersistentConfig(
-  project: TempProject,
-  schemaBody?: string,
-  migrationsBlock?: string
-): string {
-  return writeConfigFixture(project, {
-    schemaBody,
-    migrationsBlock,
-    dataDir: join(project.dir, "pgdata"),
-  });
-}
-
-function resetCommand(cmd: Command): void {
-  for (const child of cmd.commands) {
-    resetCommand(child);
-  }
-  const values = Reflect.get(cmd, "_optionValues");
-  if (isRecord(values)) {
-    for (const key of Object.keys(values)) {
-      delete values[key];
-    }
-  }
-  Reflect.set(cmd, "_optionValueSources", {});
-  for (const opt of cmd.options) {
-    if (opt.defaultValue !== undefined) {
-      cmd.setOptionValueWithSource(
-        opt.attributeName(),
-        opt.defaultValue,
-        "default"
-      );
-    }
-  }
-}
-
-async function resetCommands(): Promise<void> {
-  const mod = await import("@src/cli/commands/migrate");
-  const command =
-    "migrateCommand" in mod && mod.migrateCommand
-      ? mod.migrateCommand
-      : mod.createMigrateCommand();
-  resetCommand(command);
-}
-
-async function cli(argv: string[], cwd: string) {
-  await resetCommands();
-  return invokeCLI(argv, { cwd });
-}
-
-function readJson(result: { stdout: string; output: string }): unknown {
-  const text = result.stdout.trim() || result.output.trim();
-  const objectStart = text.indexOf("{");
-  const arrayStart = text.indexOf("[");
-  const start =
-    objectStart >= 0 && (arrayStart < 0 || objectStart < arrayStart)
-      ? objectStart
-      : arrayStart;
-  if (start < 0) {
-    throw new Error(`Expected JSON in CLI output:\n${text}`);
-  }
-  return JSON.parse(text.slice(start));
-}
-
-function estateLayout(dir: string) {
-  const list = (subdirectory: string, suffix: string): string[] => {
-    const path = join(dir, subdirectory);
-    if (!existsSync(path)) return [];
-    return readdirSync(path).filter((name) => name.endsWith(suffix));
+const boundary = vi.hoisted(() => {
+  const disconnect = vi.fn();
+  const migrations = {
+    apply: vi.fn(),
+    baseline: vi.fn(),
+    check: vi.fn(),
+    down: vi.fn(),
+    generate: vi.fn(),
+    graph: vi.fn(),
+    list: vi.fn(),
+    log: vi.fn(),
+    reset: vi.fn(),
+    resolve: vi.fn(),
+    show: vi.fn(),
+    status: vi.fn(),
+    verify: vi.fn(),
   };
   return {
-    estate: existsSync(join(dir, "estate.json")),
-    states: list("states", ".json"),
-    snapshots: list("snapshots", ".json"),
-    sql: list("sql", ".sql"),
-    numbered: existsSync(dir)
-      ? readdirSync(dir).filter((name) => NUMBERED_SQL.test(name))
-      : [],
-    journal: existsSync(join(dir, "meta", "_journal.json")),
+    client: { $disconnect: disconnect },
+    createFsStorageWriter: vi.fn(),
+    createMigrationClient: vi.fn(),
+    disconnect,
+    failCli: vi.fn((error: unknown): never => {
+      throw error;
+    }),
+    loadConfig: vi.fn(),
+    migrations,
   };
+});
+
+vi.mock("@src/cli/utils", () => ({
+  failCli: boundary.failCli,
+  loadConfig: boundary.loadConfig,
+}));
+
+vi.mock("@src/migrations/client", () => ({
+  createMigrationClient: boundary.createMigrationClient,
+}));
+
+vi.mock("@src/migrations/storage/fs-estate", () => ({
+  createFsStorageWriter: boundary.createFsStorageWriter,
+}));
+
+import { createMigrateCommand } from "@src/cli/commands/migrate";
+
+interface Invocation {
+  readonly exitCode: number | undefined;
+  readonly output: string;
+  readonly thrown: unknown;
 }
 
-async function tableExists(
-  configPath: string,
-  table: string
-): Promise<boolean> {
-  const mod = await import(pathToFileURL(configPath).href);
-  const client = mod.client;
-  if (client.$driver.connect) {
-    await client.$driver.connect();
+async function invoke(
+  args: readonly string[],
+  cwd: string = "/tmp/viborm-cli-routing"
+): Promise<Invocation> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const originalExitCode = process.exitCode;
+  const stdoutSpy = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+  const stderrSpy = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+  const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+  const program = new Command();
+  program.exitOverride();
+  program.addCommand(createMigrateCommand());
+  let thrown: unknown;
+  let exitCode: number | undefined;
+
+  try {
+    await program.parseAsync(["node", "viborm", "migrate", ...args]);
+  } catch (error) {
+    thrown = error;
+  } finally {
+    exitCode = process.exitCode;
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+    cwdSpy.mockRestore();
+    process.exitCode = originalExitCode;
   }
-  const rows = await client.$queryRawUnsafe(
-    "SELECT 1 FROM information_schema.tables WHERE table_name = $1",
-    table
-  );
-  return Array.isArray(rows) && rows.length > 0;
+
+  return { exitCode, output: [...stdout, ...stderr].join(""), thrown };
 }
 
-async function generatePublished(
-  project: TempProject,
-  extra: string[] = []
-): Promise<{ stateId: string; name: string }> {
-  const result = await cli(["migrate", "generate", ...extra], project.dir);
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
-  expect(result.thrown).toBeUndefined();
-  const body = readJson(result) as {
-    outcome: string;
-    stateId: string | null;
-    name: string | null;
-  };
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
-  expect(body.outcome).toBe("published");
-  // biome-ignore lint/suspicious/noMisplacedAssertion: helper owns the generate contract
-  expect(isSha256(body.stateId)).toBe(true);
-  return { stateId: body.stateId!, name: body.name ?? "" };
+function expectCall(
+  operation: keyof typeof boundary.migrations,
+  expected?: unknown
+): void {
+  const calls = boundary.migrations[operation].mock.calls;
+  expect(calls).toHaveLength(1);
+  if (arguments.length === 2) expect(calls[0]?.[0]).toEqual(expected);
 }
 
-describe("migrate", () => {
-  let project: TempProject;
-
+describe("migrate command routing", () => {
   beforeEach(() => {
-    project = makeTempProject();
+    vi.clearAllMocks();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: undefined,
+    });
+    boundary.createFsStorageWriter.mockReturnValue({ kind: "filesystem" });
+    boundary.createMigrationClient.mockReturnValue(boundary.migrations);
+    boundary.migrations.apply.mockResolvedValue({ outcome: "applied" });
+    boundary.migrations.baseline.mockResolvedValue({ outcome: "baselined" });
+    boundary.migrations.check.mockResolvedValue({ ok: true });
+    boundary.migrations.down.mockResolvedValue({ outcome: "rolled-back" });
+    boundary.migrations.generate.mockResolvedValue({ outcome: "published" });
+    boundary.migrations.graph.mockResolvedValue({ roots: [], leaves: [] });
+    boundary.migrations.list.mockResolvedValue([]);
+    boundary.migrations.log.mockResolvedValue(["first", "second"]);
+    boundary.migrations.reset.mockResolvedValue({ outcome: "reset" });
+    boundary.migrations.resolve.mockResolvedValue({ outcome: "complete" });
+    boundary.migrations.show.mockResolvedValue({ stateId: SHA256 });
+    boundary.migrations.status.mockResolvedValue({ pending: [] });
+    boundary.migrations.verify.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
-    project.cleanup();
+    process.exitCode = undefined;
   });
 
-  describe("parent command", () => {
-    it("with no subcommand lists the V1 verbs and exits 1", async () => {
-      const result = await cli(["migrate"], project.dir);
-      for (const name of [
-        "generate",
-        "check",
-        "list",
-        "show",
-        "graph",
-        "status",
-        "verify",
-        "log",
-        "apply",
-        "down",
-        "baseline",
-        "resolve",
-        "reset",
-      ]) {
-        expect(result.output).toContain(name);
-      }
-      expect(result.output).not.toContain("squash");
-      expect(result.exitCode).toBe(1);
-    });
+  it("publishes the exact command vocabulary", () => {
+    const command = createMigrateCommand();
+    expect(command.commands.map((child) => child.name())).toEqual([
+      "generate",
+      "check",
+      "list",
+      "show",
+      "graph",
+      "status",
+      "verify",
+      "log",
+      "apply",
+      "down",
+      "baseline",
+      "resolve",
+      "reset",
+    ]);
   });
 
-  describe("generate", () => {
-    it("publishes estate.json, a snapshot, a SQL blob, and a state manifest", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project);
-      const layout = estateLayout(project.migrationsDir);
-      expect(layout.estate).toBe(true);
-      expect(layout.states).toHaveLength(1);
-      expect(layout.states[0]).toBe(`${published.stateId}.json`);
-      expect(layout.snapshots).toHaveLength(1);
-      expect(layout.sql).toHaveLength(1);
-      expect(layout.numbered).toHaveLength(0);
-      expect(layout.journal).toBe(false);
+  it("routes generate options and all parent selector forms", async () => {
+    const ordinary = await invoke([
+      "generate",
+      "--name",
+      "initial",
+      "--dry-run",
+    ]);
+    expect(ordinary.thrown).toBeUndefined();
+    expect(ordinary.output).toBe('{"outcome":"published"}\n');
+    expectCall("generate", {
+      name: "initial",
+      from: undefined,
+      dryRun: true,
+    });
+    expect(boundary.createFsStorageWriter).toHaveBeenCalledWith(
+      "/tmp/viborm-cli-routing/migrations"
+    );
+    expect(boundary.disconnect).toHaveBeenCalledOnce();
+
+    boundary.migrations.generate.mockClear();
+    const virtualRoot = await invoke([
+      "generate",
+      "--from",
+      "empty",
+      "--json",
+    ]);
+    expect(virtualRoot.output).toContain('\n  "outcome": "published"\n');
+    expectCall("generate", {
+      name: undefined,
+      from: null,
+      dryRun: undefined,
     });
 
-    it("--dry-run previews SQL and writes no estate", async () => {
-      writePersistentConfig(project);
-      const result = await cli(
-        ["migrate", "generate", "--dry-run"],
-        project.dir
-      );
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { outcome: string; sql: string };
-      expect(body.outcome).toBe("preview");
-      expect(body.sql.toUpperCase()).toContain("CREATE TABLE");
-      expect(estateLayout(project.migrationsDir).estate).toBe(false);
-      expect(estateLayout(project.migrationsDir).states).toHaveLength(0);
+    boundary.migrations.generate.mockClear();
+    await invoke(["generate", "--from", SHA256]);
+    expectCall("generate", {
+      name: undefined,
+      from: SHA256,
+      dryRun: undefined,
     });
 
-    it("--dir writes into a custom estate root", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project, ["--dir", "custom-mig"]);
-      expect(estateLayout(`${project.dir}/custom-mig`).estate).toBe(true);
-      expect(estateLayout(project.migrationsDir).estate).toBe(false);
+    boundary.migrations.generate.mockClear();
+    boundary.migrations.show.mockClear();
+    await invoke(["generate", "--from", "named-parent"]);
+    expect(boundary.migrations.show).toHaveBeenCalledWith({
+      name: "named-parent",
     });
-
-    it("config migrations.dir is used when no --dir is given", async () => {
-      writePersistentConfig(
-        project,
-        undefined,
-        `migrations: { dir: "./cfg-mig" }`
-      );
-      await generatePublished(project);
-      expect(estateLayout(`${project.dir}/cfg-mig`).estate).toBe(true);
-    });
-
-    it("--name is stored as state metadata, not a numbered filename", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project, [
-        "--name",
-        "hello-world",
-      ]);
-      expect(published.name).toBe("hello-world");
-      expect(estateLayout(project.migrationsDir).numbered).toHaveLength(0);
-    });
-
-    it("a second generate is a noop and publishes no new state", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-      const second = await cli(["migrate", "generate"], project.dir);
-      const body = readJson(second) as { outcome: string };
-      expect(body.outcome).toBe("noop");
-      expect(estateLayout(project.migrationsDir).states).toHaveLength(1);
-    });
-
-    it("missing config surfaces an error", async () => {
-      const result = await cli(["migrate", "generate"], project.dir);
-      expect(result.thrown ?? result.exitCode).toBeTruthy();
-      expect(result.output).toContain(
-        "Could not find VibORM configuration file"
-      );
+    expectCall("generate", {
+      name: undefined,
+      from: SHA256,
+      dryRun: undefined,
     });
   });
 
-  describe("apply", () => {
-    it("without an estate refuses before effects", async () => {
-      writePersistentConfig(project);
-      const result = await cli(["migrate", "apply"], project.dir);
-      expect(result.thrown ?? result.exitCode).toBeTruthy();
-      expect(`${result.thrown ?? ""}${result.output}`).toMatch(ESTATE);
-      expect(await tableExists(project.configPath, "user")).toBe(false);
+  it("uses CLI directory, config directory, storage, and default precedence", async () => {
+    await invoke(["generate", "--dir", "command-estate"], "/work/project");
+    expect(boundary.createFsStorageWriter).toHaveBeenLastCalledWith(
+      "/work/project/command-estate"
+    );
+
+    vi.clearAllMocks();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: { dir: "config-estate" },
+    });
+    boundary.createFsStorageWriter.mockReturnValue({ kind: "filesystem" });
+    boundary.createMigrationClient.mockReturnValue(boundary.migrations);
+    boundary.migrations.generate.mockResolvedValue({ outcome: "published" });
+    await invoke(["generate"], "/work/project");
+    expect(boundary.createFsStorageWriter).toHaveBeenCalledWith(
+      "/work/project/config-estate"
+    );
+
+    const storage = { kind: "configured" };
+    vi.clearAllMocks();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: { dir: "ignored", storage },
+    });
+    boundary.createMigrationClient.mockReturnValue(boundary.migrations);
+    boundary.migrations.generate.mockResolvedValue({ outcome: "published" });
+    await invoke(["generate"]);
+    expect(boundary.createFsStorageWriter).not.toHaveBeenCalled();
+    expect(boundary.createMigrationClient).toHaveBeenCalledWith(
+      boundary.client,
+      { storage }
+    );
+  });
+
+  it("routes every read-only operation and preserves selectors", async () => {
+    const check = await invoke(["check", "--json"]);
+    expect(check.thrown).toBeUndefined();
+    expect(check.output).toContain('  "ok": true');
+    expectCall("check");
+
+    await invoke(["list"]);
+    expectCall("list");
+    await invoke(["graph"]);
+    expectCall("graph");
+    await invoke(["status"]);
+    expectCall("status");
+    await invoke(["verify"]);
+    expectCall("verify");
+
+    await invoke(["show", SHA256]);
+    expect(boundary.migrations.show).toHaveBeenLastCalledWith({ id: SHA256 });
+    await invoke(["show", PREFIX]);
+    expect(boundary.migrations.show).toHaveBeenLastCalledWith({
+      prefix: PREFIX,
+    });
+    await invoke(["show", "named-state"]);
+    expect(boundary.migrations.show).toHaveBeenLastCalledWith({
+      name: "named-state",
     });
 
-    it("applies the unique leaf: table created and marker advanced", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
+    const fullLog = await invoke(["log"]);
+    expect(fullLog.output).toBe('["first","second"]\n');
+    const limitedLog = await invoke(["log", "--limit", "1"]);
+    expect(limitedLog.output).toBe('["second"]\n');
+  });
 
-      const result = await cli(["migrate", "apply"], project.dir);
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { outcome: string; path: string[] };
-      expect(body.outcome).toBe("applied");
-      expect(body.path).toHaveLength(1);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
+  it("sets failing check and verification exit codes without hiding their JSON", async () => {
+    boundary.migrations.check.mockResolvedValue({ ok: false });
+    const check = await invoke(["check"]);
+    expect(check.thrown).toBeUndefined();
+    expect(check.exitCode).toBe(1);
+    expect(check.output).toBe('{"ok":false}\n');
 
-      const statusBody = readJson(
-        await cli(["migrate", "status"], project.dir)
-      ) as {
-        control: string;
-        pending: string[];
-        unfinished: boolean;
-      };
-      expect(statusBody.control).toBe("present");
-      expect(statusBody.pending).toEqual([]);
-      expect(statusBody.unfinished).toBe(false);
+    boundary.migrations.verify.mockResolvedValue({ ok: false });
+    const verify = await invoke(["verify"]);
+    expect(verify.thrown).toBeUndefined();
+    expect(verify.exitCode).toBe(1);
+    expect(verify.output).toBe('{"ok":false}\n');
+  });
+
+  it("keeps numeric selectors as names and refuses retired verbs and options", async () => {
+    await invoke(["apply", "--to", "0"]);
+    expectCall("apply", {
+      to: { name: "0" },
+      via: undefined,
+      dryRun: undefined,
     });
 
-    it("--dry-run previews and applies nothing", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
+    for (const verb of ["drop", "squash", "journal", "pending"]) {
+      const removed = await invoke([verb]);
+      expect(removed.thrown).toBeDefined();
+      expect(removed.output).toContain("unknown command");
+    }
 
-      const result = await cli(["migrate", "apply", "--dry-run"], project.dir);
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { outcome: string; path: string[] };
-      expect(body.outcome).toBe("preview");
-      expect(body.path).toHaveLength(1);
-      expect(await tableExists(project.configPath, "user")).toBe(false);
+    const force = await invoke(["apply", "--force"]);
+    expect(force.thrown).toBeDefined();
+    expect(force.output).toContain("unknown option '--force'");
+  });
 
-      const statusBody = readJson(
-        await cli(["migrate", "status"], project.dir)
-      ) as {
-        control: string;
-        pending: string[];
-      };
-      expect(statusBody.control).toBe("absent");
-      expect(statusBody.pending).toHaveLength(1);
+  it("routes apply, down, and baseline plans without interpreting them", async () => {
+    await invoke([
+      "apply",
+      "--to",
+      PREFIX,
+      "--via",
+      "left",
+      "right",
+      "--dry-run",
+    ]);
+    expectCall("apply", {
+      to: { prefix: PREFIX },
+      via: ["left", "right"],
+      dryRun: true,
     });
 
-    it("--to <name> applies the named state", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project, [
-        "--name",
-        "users-only",
-      ]);
-
-      const result = await cli(
-        ["migrate", "apply", "--to", published.name],
-        project.dir
-      );
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { outcome: string; path: string[] };
-      expect(body.outcome).toBe("applied");
-      expect(body.path).toEqual([published.stateId]);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
+    boundary.migrations.apply.mockClear();
+    await invoke(["apply"]);
+    expectCall("apply", {
+      to: undefined,
+      via: undefined,
+      dryRun: undefined,
     });
 
-    it("numeric --to is a name, not an index, and refuses when unmatched", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-
-      const result = await cli(["migrate", "apply", "--to", "0"], project.dir);
-      expect(result.thrown ?? result.exitCode).toBeTruthy();
-      expect(`${result.thrown ?? ""}${result.output}`).toMatch(
-        NAMED_ZERO_OR_MISSING
-      );
-      expect(await tableExists(project.configPath, "user")).toBe(false);
+    await invoke(["down", "--to", "destination", "--dry-run"]);
+    expectCall("down", {
+      to: { name: "destination" },
+      dryRun: true,
     });
 
-    it("--dir apply reads the custom estate root", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project, ["--dir", "alt-mig"]);
+    boundary.migrations.down.mockClear();
+    await invoke(["down", "--steps", "2"]);
+    expectCall("down", { steps: 2, dryRun: undefined });
 
-      const missing = await cli(["migrate", "apply"], project.dir);
-      expect(missing.thrown ?? missing.exitCode).toBeTruthy();
-
-      const result = await cli(
-        ["migrate", "apply", "--dir", "alt-mig"],
-        project.dir
-      );
-      const body = readJson(result) as { outcome: string };
-      expect(body.outcome).toBe("applied");
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-    });
-
-    it("--force is not an apply option", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-
-      const result = await cli(["migrate", "apply", "--force"], project.dir);
-      expect(result.thrown ?? result.exitCode).toBeTruthy();
-      expect(result.output.toLowerCase()).toMatch(UNKNOWN_OPTION_FORCE);
+    await invoke([
+      "baseline",
+      "--to",
+      SHA256,
+      "--via",
+      "root",
+      "merge",
+    ]);
+    expectCall("baseline", {
+      to: { id: SHA256 },
+      via: ["root", "merge"],
     });
   });
 
-  describe("status / check / list / graph", () => {
-    it("status after generate reports an absent control plane and a pending root", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project);
-
-      const body = readJson(await cli(["migrate", "status"], project.dir)) as {
-        control: string;
-        marker: null;
-        pending: string[];
-        unfinished: boolean;
-      };
-      expect(body.control).toBe("absent");
-      expect(body.marker).toBeNull();
-      expect(body.pending).toEqual([published.stateId]);
-      expect(body.unfinished).toBe(false);
+  it("routes every resolve outcome and refuses an absent outcome", async () => {
+    await invoke(["resolve", "--complete"]);
+    expect(boundary.migrations.resolve).toHaveBeenLastCalledWith({
+      outcome: "complete",
+    });
+    await invoke(["resolve", "--rolled-back"]);
+    expect(boundary.migrations.resolve).toHaveBeenLastCalledWith({
+      outcome: "rolled-back",
+    });
+    await invoke(["resolve", "--retry"]);
+    expect(boundary.migrations.resolve).toHaveBeenLastCalledWith({
+      outcome: "retry",
     });
 
-    it("check, list, and graph read the estate without touching the database", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project);
+    boundary.migrations.resolve.mockClear();
+    const missing = await invoke(["resolve"]);
+    expect(missing.thrown).toEqual(
+      new Error("resolve requires --complete, --rolled-back, or --retry")
+    );
+    expect(boundary.migrations.resolve).not.toHaveBeenCalled();
+  });
 
-      const check = readJson(await cli(["migrate", "check"], project.dir)) as {
-        ok: boolean;
-      };
-      expect(check.ok).toBe(true);
+  it("routes confirmed reset and lets Commander reject an unconfirmed reset", async () => {
+    await invoke([
+      "reset",
+      "--confirm",
+      "--to",
+      PREFIX,
+      "--via",
+      "root",
+      "--dry-run",
+    ]);
+    expectCall("reset", {
+      to: { prefix: PREFIX },
+      via: ["root"],
+      dryRun: true,
+    });
 
-      const list = readJson(await cli(["migrate", "list"], project.dir)) as {
-        stateId: string;
-        name: string;
-      }[];
-      expect(list).toEqual([
-        expect.objectContaining({ stateId: published.stateId }),
-      ]);
+    boundary.migrations.reset.mockClear();
+    const missing = await invoke(["reset"]);
+    expect(missing.thrown).toBeDefined();
+    expect(missing.output).toContain("required option '--confirm'");
+    expect(boundary.migrations.reset).not.toHaveBeenCalled();
+  });
 
-      const graph = readJson(await cli(["migrate", "graph"], project.dir)) as {
-        roots: string[];
-        leaves: string[];
-      };
-      expect(graph.roots).toEqual([published.stateId]);
-      expect(graph.leaves).toEqual([published.stateId]);
+  it("contains load and migration failures and always disconnects an acquired client", async () => {
+    const loadFailure = new Error("config unavailable");
+    boundary.loadConfig.mockRejectedValueOnce(loadFailure);
+    const failedLoad = await invoke(["list"]);
+    expect(failedLoad.thrown).toBe(loadFailure);
+    expect(boundary.failCli).toHaveBeenCalledWith(loadFailure);
+    expect(boundary.disconnect).not.toHaveBeenCalled();
 
-      const shown = readJson(
-        await cli(["migrate", "show", published.name], project.dir)
-      ) as { stateId: string; name: string };
-      expect(shown.stateId).toBe(published.stateId);
+    vi.clearAllMocks();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: undefined,
+    });
+    boundary.createFsStorageWriter.mockReturnValue({ kind: "filesystem" });
+    boundary.createMigrationClient.mockReturnValue(boundary.migrations);
+    const operationFailure = new Error("estate unavailable");
+    boundary.migrations.list.mockRejectedValueOnce(operationFailure);
+    const failedOperation = await invoke(["list"]);
+    expect(failedOperation.thrown).toBe(operationFailure);
+    expect(boundary.failCli).toHaveBeenCalledWith(operationFailure);
+    expect(boundary.disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("coverage low value", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: undefined,
+    });
+    boundary.createFsStorageWriter.mockReturnValue({ kind: "filesystem" });
+    boundary.createMigrationClient.mockReturnValue(boundary.migrations);
+    boundary.migrations.down.mockResolvedValue({ outcome: "preview" });
+    boundary.migrations.generate.mockResolvedValue({ outcome: "preview" });
+    boundary.migrations.log.mockResolvedValue([]);
+    boundary.migrations.reset.mockResolvedValue({ outcome: "preview" });
+  });
+
+  it("covers empty parent text, zero log limit, and absent down/reset selectors", async () => {
+    await invoke(["generate", "--from", ""]);
+    expectCall("generate", {
+      name: undefined,
+      from: null,
+      dryRun: undefined,
+    });
+
+    await invoke(["log", "--limit", "0"]);
+    expect(boundary.migrations.log).toHaveBeenCalledOnce();
+
+    await invoke(["down"]);
+    expectCall("down", { steps: undefined, dryRun: undefined });
+
+    await invoke(["reset", "--confirm"]);
+    expectCall("reset", {
+      to: undefined,
+      via: undefined,
+      dryRun: undefined,
     });
   });
 
-  describe("down", () => {
-    it("with no marker refuses and drops nothing", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
+  it("lets Commander reject non-positive and unsafe rollback counts", async () => {
+    const zero = await invoke(["down", "--steps", "0"]);
+    expect(zero.thrown).toBeDefined();
+    expect(zero.output).toContain("positive safe integer");
 
-      const result = await cli(["migrate", "down"], project.dir);
-      expect(result.thrown ?? result.exitCode).toBeTruthy();
-      expect(`${result.thrown ?? ""}${result.output}`).toMatch(
-        ROLL_BACK_OR_NOTHING
-      );
-    });
-
-    it("rolls back the arrival edge: table dropped and status pending again", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-      await cli(["migrate", "apply"], project.dir);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-
-      const result = await cli(["migrate", "down"], project.dir);
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { path: string[]; preview: boolean };
-      expect(body.preview).toBe(false);
-      expect(body.path).toHaveLength(1);
-      expect(await tableExists(project.configPath, "user")).toBe(false);
-
-      const status = readJson(
-        await cli(["migrate", "status"], project.dir)
-      ) as {
-        pending: string[];
-      };
-      expect(status.pending).toHaveLength(1);
-    });
-
-    it("--dry-run lists the rollback and executes nothing", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-      await cli(["migrate", "apply"], project.dir);
-
-      const result = await cli(["migrate", "down", "--dry-run"], project.dir);
-      const body = readJson(result) as { path: string[]; preview: boolean };
-      expect(body.preview).toBe(true);
-      expect(body.path).toHaveLength(1);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-    });
-
-    it("--to <name> of the current marker is a no-op rollback", async () => {
-      writePersistentConfig(project);
-      const published = await generatePublished(project, [
-        "--name",
-        "users-only",
-      ]);
-      await cli(["migrate", "apply"], project.dir);
-
-      const result = await cli(
-        ["migrate", "down", "--to", published.name],
-        project.dir
-      );
-      expect(result.thrown).toBeUndefined();
-      const body = readJson(result) as { path: string[]; preview: boolean };
-      expect(body.path).toEqual([]);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-    });
-  });
-
-  describe("removed journal verbs", () => {
-    it("drop, squash, journal, and pending are not subcommands", async () => {
-      writePersistentConfig(project);
-      await generatePublished(project);
-      await cli(["migrate", "apply"], project.dir);
-
-      for (const verb of ["drop", "squash", "journal", "pending"]) {
-        const result = await cli(["migrate", verb], project.dir);
-        expect(result.exitCode ?? 1).not.toBe(0);
-        expect(result.output.toLowerCase()).not.toContain("from tracking");
-      }
-
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-      const status = readJson(
-        await cli(["migrate", "status"], project.dir)
-      ) as {
-        control: string;
-        pending: string[];
-      };
-      expect(status.control).toBe("present");
-      expect(status.pending).toEqual([]);
-    });
-  });
-
-  describe("generate -> apply -> down", () => {
-    it("publishes a state, applies it, then rolls the arrival path back", async () => {
-      writePersistentConfig(project);
-      const generated = await generatePublished(project);
-      expect(estateLayout(project.migrationsDir).states).toHaveLength(1);
-
-      const apply = readJson(await cli(["migrate", "apply"], project.dir)) as {
-        outcome: string;
-        path: string[];
-      };
-      expect(apply.outcome).toBe("applied");
-      expect(apply.path).toEqual([generated.stateId]);
-      expect(await tableExists(project.configPath, "user")).toBe(true);
-
-      const down = readJson(await cli(["migrate", "down"], project.dir)) as {
-        path: string[];
-        preview: boolean;
-      };
-      expect(down.preview).toBe(false);
-      expect(down.path).toEqual([generated.stateId]);
-      expect(await tableExists(project.configPath, "user")).toBe(false);
-    });
+    const unsafe = await invoke([
+      "down",
+      "--steps",
+      String(Number.MAX_SAFE_INTEGER + 1),
+    ]);
+    expect(unsafe.thrown).toBeDefined();
+    expect(unsafe.output).toContain("positive safe integer");
   });
 });

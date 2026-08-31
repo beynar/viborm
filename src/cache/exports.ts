@@ -9,12 +9,12 @@
  * - Cloudflare KV: "viborm/cache/cloudflare-kv"
  */
 
-export type { WaitUntilFn } from "./cache-contract";
 // Cache driver base
 export {
   CacheDriver,
   type CacheEntry,
   type CacheSetOptions,
+  type WaitUntilFn,
 } from "./driver";
 export { type CacheExtensionConfig, cache } from "./extension";
 export type {

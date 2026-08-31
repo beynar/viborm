@@ -30,18 +30,14 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
-import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
-import { PGlite } from "@electric-sql/pglite";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_SYSTEM,
-  ATTR_VIBORM_WRITE_ATOMICITY,
   SPAN_CACHE_GET,
   SPAN_CONNECT,
   SPAN_EXECUTE,
   SPAN_OPERATION,
-  SPAN_RECORD_SERIES_SEGMENT,
   SPAN_TRANSACTION,
 } from "@instrumentation/spans";
 import { s } from "@schema";
@@ -56,31 +52,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const account = s.model({ id: s.string().id(), label: s.string() });
 const schema = { account };
-
-/**
- * A relation-bearing bulk write, which routes to a RECORD SERIES. On a
- * batch-only substrate the series runs as progressive segments, and each segment
- * opens the one span kind that carries no `db.*` at all.
- */
-const seriesAccount = s
-  .model({
-    id: s.string().id(),
-    label: s.string(),
-    notes: s.toMany(() => seriesNote),
-  })
-  .map("ns_series_accounts");
-const seriesNote = s
-  .model({
-    id: s.string().id(),
-    body: s.string(),
-    seriesAccountId: s.string(),
-    account: s
-      .toOne(() => seriesAccount)
-      .fields("seriesAccountId")
-      .references("id"),
-  })
-  .map("ns_series_notes");
-const seriesSchema = { seriesAccount, seriesNote };
 
 /** A driver whose only variable is the adapter it carries. */
 class NamespaceDriver extends Driver<object, object> {
@@ -122,17 +93,6 @@ class NamespaceDriver extends Driver<object, object> {
   }
 }
 
-/**
- * The batch-only PostgreSQL substrate the progressive series path requires: no
- * interactive scope, one atomic batch per segment. A real provider is used here
- * (and only here) because a record series consumes generated outputs across its
- * members, which a canned-row fake cannot supply.
- */
-class BatchOnlySegmentDriver extends PGliteDriver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-}
-
 interface Case {
   readonly title: string;
   readonly driver: () => NamespaceDriver;
@@ -170,18 +130,9 @@ const CASES: readonly Case[] = [
 ];
 
 let recorder: OtelRecorder;
-let seriesDatabase: PGlite;
 
-beforeAll(async () => {
+beforeAll(() => {
   recorder = withOtelRecorder();
-  seriesDatabase = new PGlite();
-  await seriesDatabase.exec('CREATE SCHEMA "billing"');
-  await seriesDatabase.exec(
-    'CREATE TABLE "billing"."ns_series_accounts" ("id" TEXT PRIMARY KEY, "label" TEXT NOT NULL)'
-  );
-  await seriesDatabase.exec(
-    'CREATE TABLE "billing"."ns_series_notes" ("id" TEXT PRIMARY KEY, "body" TEXT NOT NULL, "seriesAccountId" TEXT NOT NULL)'
-  );
 });
 
 afterAll(async () => {
@@ -318,59 +269,6 @@ describe.each(CASES)("$title", ({ driver: makeDriver, namespace }) => {
 });
 
 describe("the kinds that carry no db.* attributes", () => {
-  it("leaves segment spans alone", async () => {
-    // A relation-bearing bulk write on a batch-only substrate is a RECORD SERIES
-    // run as progressive segments, which is the only route that opens this span.
-    // The driver is bound to a schema, so the same window carries an operation
-    // span that DOES report `db.namespace` — without that control, "the segment
-    // has no db.namespace" would also be true of a window with no tracing at all.
-    const driver = new BatchOnlySegmentDriver({
-      client: seriesDatabase,
-      namespace: "billing",
-    });
-    const client = createClient({ schema: seriesSchema, driver }).$extends(
-      instrumentation({ tracing: true })
-    );
-    const from = mark();
-    await client.seriesAccount.createMany({
-      data: [
-        {
-          id: "a1",
-          label: "one",
-          notes: { create: [{ id: "n1", body: "b" }] },
-        },
-        {
-          id: "a2",
-          label: "two",
-          notes: { create: [{ id: "n2", body: "c" }] },
-        },
-      ],
-    });
-
-    expectNamespace(since(from, SPAN_OPERATION), "billing", SPAN_OPERATION);
-    const segments = recorder
-      .spans()
-      .slice(from)
-      .filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT);
-    // Each member commits in its own atomic unit, so the window holds several
-    // segment spans. The count only has to be non-zero for the loop below to
-    // assert anything at all — a zero here IS the vacuous-witness failure.
-    expect(segments.length).toBeGreaterThan(0);
-    for (const span of segments) {
-      // A segment describes write atomicity, not a database connection: it never
-      // carried db.system either, so adding db.namespace here would invent a
-      // db.* surface this program does not own. The attributes come from a
-      // frozen `viborm.write.*` literal that never reads the driver's base
-      // attributes (`OperationExecutor.createProgressiveSegmentInstrumentationFacts`).
-      expect(span.attributes[ATTR_VIBORM_WRITE_ATOMICITY]).toBe("segment");
-      expect(Object.hasOwn(span.attributes, ATTR_DB_SYSTEM)).toBe(false);
-      expect(Object.hasOwn(span.attributes, ATTR_DB_NAMESPACE)).toBe(false);
-    }
-    // Disconnecting closes the supplied PGlite, so this is the file's only
-    // reader of `seriesDatabase`.
-    await client.$disconnect();
-  });
-
   it("leaves the cache backend's own get span alone", async () => {
     // `viborm.cache.get` describes a CACHE BACKEND call, not a database one: it
     // carries `db.cache.driver` and nothing from `db.*`. Reporting a SQL

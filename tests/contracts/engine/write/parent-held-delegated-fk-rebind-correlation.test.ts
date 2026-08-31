@@ -8,6 +8,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * M1 — a literal FK rebind beside a DELEGATED parent-held to-one update correlates on
  * the FINAL FK value, not the stale located one.
@@ -233,7 +236,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   for (const substrate of SUBSTRATES) {
     for (const spelling of SPELLINGS) {
       test(`${substrate.name}, ${spelling.name}: the delegated write lands on the FINAL target`, async () => {
-        const db = new PGlite();
+        const db = openBorrowedPGlite();
         const stateClient = makeClient(new PGliteDriver({ client: db }));
         await syncLiveSchema(stateClient);
         await seed(stateClient);
@@ -262,7 +265,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   test("delegated and in-place paths agree on WHICH row they touch", async () => {
     const touched: Record<string, string[]> = {};
     for (const arm of ["delegated", "in-place"] as const) {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(client);
       await seed(client);
@@ -286,7 +289,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   });
 
   test("PROVENANCE (no rebind): the delegated correlation reads the LOCATED row", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
     await syncLiveSchema(stateClient);
     await seed(stateClient);
@@ -323,7 +326,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   });
 
   test("PROVENANCE (rebind): the override wins over the located row", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
     await syncLiveSchema(stateClient);
     await seed(stateClient);
@@ -351,7 +354,7 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   });
 
   test("the batch presence guard pins the FINAL value", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
     await syncLiveSchema(stateClient);
     await seed(stateClient);

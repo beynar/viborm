@@ -15,6 +15,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * A deliberate execution boundary must not look like an engine crash. A batch-only
  * createMany member cannot write a parent-held target before a skippable root, because
@@ -52,7 +55,7 @@ describe("UnsupportedOperationError public surface", () => {
   });
 
   test("a live pre-effect refusal surfaces the class with the V8003 code", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema: operationFragmentSchema,
       driver: new PGliteDriver({ client: database }),

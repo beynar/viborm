@@ -6,10 +6,11 @@ import {
   escapeGlobLiteral,
   escapeLikeLiteral,
 } from "@adapters/shared/standard-sql";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -34,38 +35,6 @@ import { beforeAll, describe, expect, test } from "vitest";
  * the index-range claim itself is witnessed in
  * {@link file://./starts-with-prefix-plan.test.ts}.
  */
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `starts-with-prefix-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // SQL-only driver: nothing is allocated.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const Doc = s
   .model({
@@ -141,7 +110,7 @@ function buildDocQuery(
 ) {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
   const engine = new QueryEngine(
-    new MockDriver(dialectCase.createAdapter(), dialectCase.dialect),
+    new SqlOnlyDriver(dialectCase.createAdapter(), dialectCase.dialect),
     registry
   );
   const query = engine.build(Doc, "findMany", args);

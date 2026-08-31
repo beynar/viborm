@@ -446,6 +446,15 @@ result-window loops local: extracting those measured hot loops adds per-member
 CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
 free of extension slots, outcome collectors, and async helper frames.
 
+## Coverage Gate
+
+`pnpm test:coverage:client` is the exact client-subsystem report. It requires
+98% statements, branches, functions, and lines and writes
+`coverage/client/index.html`. `scripts/client-test-manifest.mjs` admits every
+flat public-client core contract and only audited extended contracts that do not
+connect or own provider resources. Provider execution remains in the extended
+and provider projects.
+
 ---
 
 ## Related Layers

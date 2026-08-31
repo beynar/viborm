@@ -1,5 +1,6 @@
 import { sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "@src/errors";
+import { checkEstate } from "@src/migrations/check";
 import {
   assertManualStepwiseProof,
   classifyStoredAtomicity,
@@ -13,8 +14,9 @@ import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { evaluateCheck } from "@src/migrations/execute-dispatch";
 import { SqlAssembly } from "@src/migrations/sql-assembly";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import { describe, expect, expectTypeOf, test } from "vitest";
+import { sqliteEstateDriver } from "./_estate";
 
 describe("migration v1 checks", () => {
   test("stepwise manual work without origin and destination checks refuses before dispatch", () => {
@@ -76,8 +78,10 @@ describe("migration v1 checks", () => {
   });
 
   test("evaluateCheck accepts exactly one boolean cell", async () => {
-    const driver = createInMemorySQLite3Driver();
-    await driver._connect();
+    const driver = sqliteEstateDriver();
+    driver.respond = (statement) => [
+      { value: statement.includes("SELECT 0") ? 0 : 1 },
+    ];
     const matching = new SqlAssembly();
     const drafted = compileTrustedCheck(
       { kind: "trusted-read", query: sql`SELECT 1`, equals: true },
@@ -103,7 +107,6 @@ describe("migration v1 checks", () => {
     expect(await evaluateCheck(driver, sealedMismatch.bytes, mismatch!)).toBe(
       false
     );
-    await driver._disconnect();
   });
 
   test("driver probes and trusted-read checks keep distinct manifest arms", () => {
@@ -249,5 +252,19 @@ describe("migration v1 checks", () => {
         VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
       );
     }
+  });
+});
+
+describe("coverage low value", () => {
+  test("offline checking normalizes a non-Error storage failure", async () => {
+    const storage = new MemoryEstateStorage();
+    Object.defineProperty(storage, "readEstate", {
+      value: () => Promise.reject("storage unavailable"),
+    });
+
+    await expect(checkEstate(storage)).resolves.toEqual({
+      ok: false,
+      findings: [{ code: "invalid-estate", message: "storage unavailable" }],
+    });
   });
 });

@@ -6,6 +6,9 @@ import { hydrateSchemaNames, s } from "@schema";
 import { beforeAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * E5-U4 — **the `deferArmLegality` contract, after the envelope moved (E5-U3).**
  *
@@ -91,7 +94,7 @@ let client: any;
 beforeAll(async () => {
   client = createClient({
     schema: untakenArmSchema,
-    driver: new PGliteDriver({ client: new PGlite() }),
+    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
   }) as any;
   await syncLiveSchema(client);
 }, 120_000);

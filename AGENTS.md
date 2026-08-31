@@ -581,30 +581,48 @@ issues, and `SchemaRegistry` translates thrown external-validator failures.
 
 ```bash
 # Development
-pnpm build               # tsc with noEmit - type-checks only, compiles nothing
+pnpm build               # Complete safe TypeScript shards; compiles nothing
 pnpm package:build       # tsdown - actual package build (dist output)
-pnpm test:types          # Complete TypeScript check, including .core.types.ts
+pnpm test:types          # Complete sequential TypeScript shards, including every .core.types.ts project
 pnpm test                # Type-check plus the trusted aggregate core
 pnpm test:core           # All core runtime projects
-pnpm test:all            # Every credential-free extended/provider/package check
-pnpm test:coverage       # Core layers plus full write-engine V8 coverage
-pnpm test:coverage:instrumentation # Memory-capped L11 report; 100% in all four metrics
-pnpm test:coverage:scalars # Memory-capped L2 report; 100% in all four metrics
-pnpm test:coverage:relations # Memory-capped L4 report; 100% in all four metrics
-pnpm test:coverage:schema # Memory-capped runtime schema-metadata report; 100% in all four metrics
-pnpm test:coverage:sql   # Memory-capped SQL-fragment report; 100% in all four metrics
-pnpm test:coverage:schema-validation # Memory-capped L5 report; 100% in all four metrics
-pnpm test:coverage:validation # Memory-capped L1/L3 report; 100% in all four metrics
-pnpm test:coverage:write-engine # Memory-capped full write-engine report; numeric gate
+pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
+pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
+pnpm test:coverage:public # Public root surface; 100% in all four metrics
+pnpm test:coverage:schema # Whole schema subsystem; 100% in all four metrics
+pnpm test:coverage:validation # Validation subsystem; 100% in all four metrics
+pnpm test:coverage:sql   # SQL subsystem; 100% in all four metrics
+pnpm test:coverage:instrumentation # Instrumentation subsystem; 100% in all four metrics
+pnpm test:coverage:extensions # Extension subsystem; 100% in all four metrics
+pnpm test:coverage:errors # Error subsystem; 100% in all four metrics
+pnpm test:coverage:adapters # Adapter subsystem; 100% in all four metrics
+pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
+pnpm test:coverage:query-engine-core # Query-engine core; 98% in all four metrics
+pnpm test:coverage:write-engine # Write engine; 98% in all four metrics
+pnpm test:coverage:drivers # Drivers; 98% in all four metrics
+pnpm test:coverage:client # Client; 98% in all four metrics
+pnpm test:coverage:cache # Cache; 98% in all four metrics
+pnpm test:coverage:migrations # Migrations; 98% in all four metrics
+pnpm test:coverage:policy # Static ownership and bounded-runner policy tests
 pnpm test:package        # Build once and validate every declared export
-pnpm test:providers      # Docker and hosted projects; missing services skip visibly
+pnpm test:providers      # Docker and hosted projects only; missing environment values skip visibly
 pnpm test:watch          # Core projects only
+pnpm test:ui             # Core projects in the Vitest UI
 
-# Fast layer feedback (all 12 follow this form and enforce a 30 second budget)
+# Fast layer feedback (all 13 enforce one shared 30 second budget)
 pnpm test:layer:validation
+pnpm test:layer:scalars
+pnpm test:layer:operation-schemas
+pnpm test:layer:relations
+pnpm test:layer:schema-validation
+pnpm test:layer:schema-json
 pnpm test:layer:query-engine
+pnpm test:layer:adapters
 pnpm test:layer:drivers
 pnpm test:layer:client
+pnpm test:layer:cache
+pnpm test:layer:instrumentation
+pnpm test:layer:migrations
 
 # Operation-pipeline performance evidence
 pnpm bench:operation-pipeline
@@ -613,9 +631,39 @@ pnpm bench:operation-pipeline:describe
 pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never keep evidence
 
 # Large selections must use the package scripts. Vitest runs one file at a time
-# with a 768 MB heap. Full tsc has a measured 4 GB cap. Launchers stop the whole
-# process group on timeout or interruption so workers cannot survive.
+# with a 768 MB heap. Every child process group has a 1536 MiB sampled RSS ceiling.
+# Coverage orchestration and report merging also use a 768 MB Node heap.
+# Complete TypeScript checking is split into sequential 1280 MB heap shards.
+# Launchers verify whole-group teardown before they return.
 ```
+
+Query and write core admission is fail-closed in
+`scripts/query-engine-test-manifest.mjs`. Every architecture, query, and write
+`.core.test.ts` file appears exactly once; the coverage policy rejects missing
+or duplicate assignments. Do not replace this manifest with recursive globs,
+because a filename suffix does not prove that a future fixture is provider-free.
+Cache coverage admits every cache core file plus its four deterministic public
+client contracts and rejects resource-owning provider imports. Migration
+coverage uses `scripts/migration-test-manifest.mjs` for deterministic core and
+selected local extended contracts; its policy gate rejects omissions and live
+PGlite ownership. Client coverage uses `scripts/client-test-manifest.mjs` for
+its core and audited deterministic extended contracts. Full write coverage
+adds an explicit high-signal subset of the credential-free local estate. The
+focused set is entirely provider-free; `test:all` remains the exhaustive local
+owner for PGlite behavior. All run through dedicated coverage projects.
+Core layer projects use no network, Docker service, hosted credential, or live
+provider process. Keep provider-backed evidence in the extended or provider
+estate and use deterministic recording drivers for core contracts.
+
+The coverage runner executes subsystems sequentially. A subsystem with an
+explicit curated test list uses one bounded project invocation unless its
+manifest declares fixed chunks or explicit groups; all parts run sequentially
+and are merged only after each process exits. A multi-project subsystem runs each
+project once in sequence and merges its parts. Focused reports are written to
+`coverage/<subsystem>/index.html`. The global command replaces
+`coverage/index.html` and records `HEAD`, whether the working tree was dirty,
+the thresholds, and visible waivers in `coverage/metadata.json`. Waived source
+remains in the denominator.
 
 ## Release Ownership
 
@@ -645,7 +693,13 @@ and substrate. The fixture pushes once, truncates tables between tests, and owns
 disconnect. Fresh databases are reserved for DDL, lifecycle, destructive
 schema, independently committed concurrency, staleness/race, and
 rollback-isolation contracts. Never overlap a Vitest, layer, or TypeScript run;
-the launchers enforce a workspace lock.
+the launchers enforce a workspace lock. Before taking that lock they inspect
+the process table and refuse a stale workspace Vitest, TypeScript, tsdown, or
+Vitest worker process. They fail closed when that preflight cannot be completed.
+A stale or unreadable lock is never deleted automatically; first prove that no
+verification process remains, then remove it explicitly. Bounded verification
+fails closed on Windows until process-tree RSS enforcement and teardown can be
+verified there.
 
 A witness retained only to execute incidental implementation metadata for a
 numeric coverage gate belongs at the bottom of its owning layer file under

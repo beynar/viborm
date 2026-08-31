@@ -61,6 +61,11 @@ describe("parseIntegerBoolean", () => {
     expect(parseIntegerBoolean(0)).toBe(false);
   });
 
+  test("converts SQLite bigint boolean carriers", () => {
+    expect(parseIntegerBoolean(1n)).toBe(true);
+    expect(parseIntegerBoolean(0n)).toBe(false);
+  });
+
   test("returns null for null/undefined", () => {
     expect(parseIntegerBoolean(null)).toBe(null);
     expect(parseIntegerBoolean(undefined)).toBe(null);
@@ -131,6 +136,12 @@ describe("normalizeCountResult", () => {
 
   test("returns undefined for empty array", () => {
     expect(normalizeCountResult([])).toBeUndefined();
+  });
+
+  test("rejects single-row arrays without a record carrier", () => {
+    expect(normalizeCountResult([null])).toBeUndefined();
+    expect(normalizeCountResult([5])).toBeUndefined();
+    expect(normalizeCountResult([{}])).toBeUndefined();
   });
 
   test("returns undefined for non-object values", () => {

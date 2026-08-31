@@ -36,15 +36,7 @@ export class TransactionError extends VibORMError {
       code?: TransactionErrorCode | undefined;
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, options?.code ?? VibORMErrorCode.TRANSACTION_FAILED, opts);
+    super(message, options?.code ?? VibORMErrorCode.TRANSACTION_FAILED, options);
   }
 }
 
@@ -61,7 +53,7 @@ export class InvalidTransactionInputError extends VibORMError {
     super(
       "$transaction array must contain only pending operations from client methods",
       VibORMErrorCode.INVALID_TRANSACTION_INPUT,
-      { meta: options?.meta }
+      options
     );
   }
 }

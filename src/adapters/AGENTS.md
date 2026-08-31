@@ -249,6 +249,13 @@ WHERE "active" = TRUE
 WHERE `active` = 1
 ```
 
+## Coverage Gate
+
+`pnpm test:coverage:adapters` is the exact adapter-subsystem report. It uses the
+deterministic adapter core project, requires 100% statements, branches,
+functions, and lines, and writes `coverage/adapters/index.html`. Live provider
+execution belongs to provider projects and is not admitted to this core gate.
+
 ---
 
 ## Related Layers

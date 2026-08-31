@@ -587,10 +587,11 @@ Two paired self collection slots may use the field-derived default side tokens
 (`<field>Id` for a scalar row key, `<field>` as a compound prefix) instead of
 being forced to configure them explicitly.
 
-Use `pnpm test:coverage:relations` for the one-worker, memory-capped L4 report.
-It gates `src/schema/relation/**/*.ts` at 100% statements, branches, functions,
-and lines and writes `coverage/relations/index.html`. The suite is pure and must
-not boot a database or require a provider.
+Use `pnpm test:coverage:schema` for the one-worker, memory-capped schema report.
+It gates the whole schema subsystem at 100% statements, branches, functions,
+and lines and writes `coverage/schema/index.html`. Relations share that one
+schema denominator; there is no separate relation coverage command. Pure L4
+tests must not boot a database or require a provider.
 
 L4 tests only declarations, immutable terminal state, construction-time refusals,
 clearability, the static projection, and junction physical naming. Pairing,

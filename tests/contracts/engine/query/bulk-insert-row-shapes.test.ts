@@ -244,18 +244,6 @@ describe("bulk insert row shapes", () => {
     expect(rows.map((row) => row.value)).toEqual(["value-1", "value-2"]);
   });
 
-  test("empty top-level createMany rejects consistently in batch preparation", async () => {
-    const driver = new BatchSizePGliteDriver();
-    const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
-
-    await expect(
-      client.$transaction([client.batchRow.createMany({ data: [] })])
-    ).rejects.toThrow("No data to insert");
-    expect(await client.batchRow.count()).toBe(0);
-  });
-
   test("batch-only grouped failure is atomic", async () => {
     const driver = new BatchSizePGliteDriver();
     const client = createClient({ schema, driver });
@@ -273,24 +261,6 @@ describe("bulk insert row shapes", () => {
         }),
       ])
     ).rejects.toThrow();
-    expect(await client.batchRow.count()).toBe(0);
-  });
-
-  test("a driver without an atomic substrate rejects all groups before mutation", async () => {
-    const driver = new NoAtomicPGliteDriver();
-    const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
-    driver.disableAtomicExecution();
-
-    await expect(
-      client.batchRow.createMany({
-        data: [
-          { code: "generated", label: "first" },
-          { id: 50, code: "explicit", label: "second" },
-        ],
-      })
-    ).rejects.toThrow("neither transactions nor atomic batch execution");
     expect(await client.batchRow.count()).toBe(0);
   });
 

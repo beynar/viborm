@@ -8,6 +8,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * X1b COMBINED DEPTH STRESS — all four lifted mechanisms in ONE tree at >= 6 levels.
  *
@@ -80,7 +83,7 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const base = makeClient(db);
   await syncLiveSchema(base as never);
   await seed(base);

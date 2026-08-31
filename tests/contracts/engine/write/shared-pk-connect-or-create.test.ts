@@ -13,6 +13,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /** The deterministic TOCTOU window: `beforeBatch` runs between the planning probe and
  *  the atomic WRITE batch (the `staleness-injection.test.ts` driver, same rule). */
 class BeforeBatchPGliteDriver extends PGliteDriver {
@@ -52,11 +55,11 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
 const substrates = [
   {
     name: "PGlite transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
+    make: () => new PGliteDriver({ client: openBorrowedPGlite() }),
   },
   {
     name: "PGlite atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    make: () => new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
   },
   // The third dialect this fixture can express (its shared key is a string, so SQLite
   // has a table for it — unlike E6.2's generated compound key).
@@ -81,7 +84,7 @@ for (const substrate of substrates) {
 }
 
 test("BATCH TOCTOU: the found target deleted after planning aborts the batch, writing nothing", async () => {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const setup = createClient({
     schema: sharedPkConnectOrCreateSchema,
     driver: new PGliteDriver({ client: db }),
@@ -128,7 +131,7 @@ test("BATCH TOCTOU: the found target deleted after planning aborts the batch, wr
 }, 30_000);
 
 test("BATCH TOCTOU: an alternate-unique replacement cannot donate a different shared key", async () => {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const setup = createClient({
     schema: sharedPkConnectOrCreateSchema,
     driver: new PGliteDriver({ client: db }),

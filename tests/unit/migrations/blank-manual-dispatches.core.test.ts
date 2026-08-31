@@ -5,8 +5,7 @@ import { type Sql, sql } from "@sql";
 import { VibORMErrorCode } from "@src/errors";
 import { compileManualTransition } from "@src/migrations/compile";
 import { SqlAssembly } from "@src/migrations/sql-assembly";
-import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it, vi } from "vitest";
 
 const schema = {
@@ -26,60 +25,43 @@ const invalidForwardPrograms: readonly [string, () => readonly Sql[]][] = [
   ],
 ];
 
-type Issue34Driver =
-  | ReturnType<typeof createInMemorySQLite3Driver>
-  | ReturnType<typeof createInMemoryPGliteDriver>;
-
-const providers: readonly (readonly [string, () => Issue34Driver])[] = [
-  ["SQLite3", createInMemorySQLite3Driver],
-  ["PGlite", createInMemoryPGliteDriver],
-];
-
 describe("manual migration dispatch admission", () => {
-  for (const [provider, createDriver] of providers) {
-    describe(provider, () => {
-      it.each(
-        invalidForwardPrograms
-      )("refuses %s before publication or provider execution", async (_case, createUp) => {
-        const storage = new MemoryEstateStorage();
-        const driver = createDriver();
-        const execute = vi.spyOn(driver, "_executeRaw");
-        const client = createClient({ schema, driver });
-        const migrations = createMigrationClient(client, { storage });
+  it.each(
+    invalidForwardPrograms
+  )("refuses %s before publication or provider execution", async (_case, createUp) => {
+    const storage = new MemoryEstateStorage();
+    const driver = new PlanningDriver("sqlite");
+    const execute = vi.spyOn(driver, "_executeRaw");
+    const client = createClient({ schema, driver });
+    const migrations = createMigrationClient(client, { storage });
 
-        try {
-          await expect(
-            migrations.generate({
-              name: "blank-manual-dispatch",
-              manualMigration: {
-                transitions: [
-                  {
-                    from: null,
-                    execution: "transactional",
-                    up: createUp(),
-                    rollback: {
-                      kind: "irreversible",
-                      reason: "the transition is intentionally one-way",
-                    },
-                  },
-                ],
+    await expect(
+      migrations.generate({
+        name: "blank-manual-dispatch",
+        manualMigration: {
+          transitions: [
+            {
+              from: null,
+              execution: "transactional",
+              up: createUp(),
+              rollback: {
+                kind: "irreversible",
+                reason: "the transition is intentionally one-way",
               },
-            })
-          ).rejects.toMatchObject({
-            code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
-          });
-
-          expect(execute).not.toHaveBeenCalled();
-          expect(await storage.readEstate()).toBeNull();
-          expect(await storage.listSnapshots()).toEqual([]);
-          expect(await storage.listSql()).toEqual([]);
-          expect(await storage.listStates()).toEqual([]);
-        } finally {
-          await client.$disconnect();
-        }
-      });
+            },
+          ],
+        },
+      })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
     });
-  }
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(await storage.readEstate()).toBeNull();
+    expect(await storage.listSnapshots()).toEqual([]);
+    expect(await storage.listSql()).toEqual([]);
+    expect(await storage.listStates()).toEqual([]);
+  });
 
   it.each<[string, readonly Sql[]]>([
     ["an empty rollback program", []],

@@ -210,8 +210,6 @@ function buildFieldKeyedHaving(
 
   // Aggregate filters: { fieldName: { _count: { gt: 5 } } }
   if (hasAggregateKey) {
-    if (!isObject) return undefined;
-
     const conditions: Sql[] = [];
 
     // Resolve field name to column name

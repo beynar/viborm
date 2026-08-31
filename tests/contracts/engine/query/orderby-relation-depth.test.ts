@@ -5,9 +5,9 @@
  * (src/validation/relations/order-by.ts, the front line: past the cap the
  * schema stops offering relation keys) and the join builder
  * (src/query-engine/builders/relation-orderby-builder.ts, defense in depth).
- * This file pins that the two agree, that chains up to the cap actually order
- * rows correctly against a real database, and that one hop past the cap is
- * still refused.
+ * The adjacent core contract pins that the two caps agree and that invalid
+ * chains fail before dispatch. This file proves that accepted chains order
+ * rows correctly against a real database.
  *
  * The fixture is a self-referential `parent` chain nine deep, in three
  * families whose 5th and 8th ancestors are labelled in OPPOSITE orders — so a
@@ -15,29 +15,14 @@
  * than merely the wrong SQL.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
-import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-const DEPTH_CAP_RE = /const MAX_RELATION_ORDER_DEPTH = (\d+);/;
-const UNKNOWN_PARENT_KEY_ERROR = /Unknown key: parent/;
-const TO_MANY_MID_CHAIN_ERROR = /cannot order through a to-many relation/;
-
-const readDepthCap = (relativePath: string): number => {
-  const source = readFileSync(join(REPOSITORY_ROOT, relativePath), "utf8");
-  const match = source.match(DEPTH_CAP_RE);
-  if (!match?.[1]) {
-    throw new Error(`No MAX_RELATION_ORDER_DEPTH found in ${relativePath}`);
-  }
-  return Number(match[1]);
-};
 
 const node = s
   .model({
@@ -56,7 +41,7 @@ const node = s
 const createDepthClient = () =>
   createClient({
     schema: { node },
-    driver: new PGliteDriver({ client: new PGlite() }),
+    driver: new PGliteDriver({ client: openTestPGlite() }),
   });
 
 let client: ReturnType<typeof createDepthClient>;
@@ -116,19 +101,6 @@ afterAll(async () => {
   await client.$disconnect();
 });
 
-describe("orderBy relation depth - the two caps agree", () => {
-  test("validation and engine pin the same cap, and it is 8", () => {
-    const validationCap = readDepthCap("src/validation/relations/order-by.ts");
-    const engineCap = readDepthCap(
-      "src/query-engine/builders/relation-orderby-builder.ts"
-    );
-
-    expect(validationCap).toBe(engineCap);
-    // Decision D-5 (docs/architecture/prisma-parity-v2-plan.md) raised 3 -> 8.
-    expect(validationCap).toBe(8);
-  });
-});
-
 describe("orderBy relation depth - chains within the cap order rows", () => {
   test("a 5-hop to-one chain orders by the 5th ancestor", async () => {
     const rows = await client.node.findMany({
@@ -181,42 +153,7 @@ describe("orderBy relation depth - chains within the cap order rows", () => {
   });
 });
 
-describe("orderBy relation depth - past the cap", () => {
-  test("a 9-hop chain is rejected", async () => {
-    await expect(
-      client.node.findMany({
-        where: { depth: 9 },
-        orderBy: parentChainOrderBy(9) as never,
-        select: { id: true },
-      })
-    ).rejects.toThrow(UNKNOWN_PARENT_KEY_ERROR);
-  });
-
-  test("the 9-hop rejection is a validation error, not a database error", async () => {
-    let failure: unknown;
-    try {
-      await client.node.findMany({
-        where: { depth: 9 },
-        orderBy: parentChainOrderBy(9) as never,
-        select: { id: true },
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect((failure as Error).name).toBe("ValidationError");
-  });
-});
-
 describe("orderBy relation depth - to-many mid-chain still refused", () => {
-  test("a to-many relation inside a to-one chain is rejected", async () => {
-    await expect(
-      client.node.findMany({
-        orderBy: { parent: { children: { _count: "asc" } } } as never,
-        select: { id: true },
-      })
-    ).rejects.toThrow(TO_MANY_MID_CHAIN_ERROR);
-  });
-
   test("a top-level to-many _count orderBy is still accepted", async () => {
     const rows = await client.node.findMany({
       where: { depth: 8 },

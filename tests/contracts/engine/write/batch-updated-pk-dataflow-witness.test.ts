@@ -9,6 +9,9 @@ import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-p
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 function makeDirectClient(db: PGlite) {
   return createClient({
     schema,
@@ -86,7 +89,7 @@ const EXPECTED: Snapshot = {
 };
 
 async function runDirect(): Promise<Snapshot> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeDirectClient(db);
   await syncLiveSchema(client as any);
   await seed(client);
@@ -99,7 +102,7 @@ async function runDirect(): Promise<Snapshot> {
 async function runObserved(
   substrate: "tx" | "batch"
 ): Promise<{ state: Snapshot; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const fallback = makeDirectClient(db);
   await syncLiveSchema(fallback as any);
   await seed(fallback);

@@ -37,14 +37,13 @@ export function buildOrderByParts(
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
   alias: string
 ): OrderByParts {
-  return buildOrderByInternal(ctx, orderBy, alias, true);
+  return buildOrderByInternal(ctx, orderBy, alias);
 }
 
 function buildOrderByInternal(
   ctx: QueryScope,
   orderBy: Record<string, unknown> | Record<string, unknown>[] | undefined,
-  alias: string,
-  allowRelationOrder: boolean
+  alias: string
 ): OrderByParts {
   if (!orderBy) {
     return { orderBy: undefined, joins: [] };
@@ -63,11 +62,6 @@ function buildOrderByInternal(
       if (!isScalarField(ctx.model, field)) {
         const relationRef = lookupRelation(ctx, field);
         if (relationRef) {
-          if (!allowRelationOrder) {
-            throw new QueryEngineError(
-              `Relation orderBy '${field}' is not supported in this context.`
-            );
-          }
           orders.push(
             ...buildRelationOrders(
               ctx,
@@ -80,11 +74,6 @@ function buildOrderByInternal(
           continue;
         }
         if (isVariantRelation(ctx, field)) {
-          if (!allowRelationOrder) {
-            throw new QueryEngineError(
-              `Relation orderBy '${field}' is not supported in this context.`
-            );
-          }
           const polymorphic = variantCarrier(ctx, field);
           // A row-held polymorphic slot adds NO root ordering (plan §7.4), so it
           // stays the unknown key it has always been; only a collection's

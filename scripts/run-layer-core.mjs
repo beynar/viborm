@@ -1,6 +1,9 @@
-import { spawn } from "node:child_process";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+  startBoundedProcess,
+} from "./bounded-process.mjs";
 import { acquireTestRunLock } from "./test-run-lock.mjs";
 
 const LAYERS = new Set([
@@ -25,13 +28,14 @@ if (!(layer && LAYERS.has(layer))) {
   process.exit(2);
 }
 
+const describeError = (error) =>
+  error instanceof Error ? error.message : String(error);
+
 let releaseTestRunLock;
 try {
   releaseTestRunLock = acquireTestRunLock(`layer-${layer}`);
 } catch (error) {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`
-  );
+  process.stderr.write(`${describeError(error)}\n`);
   process.exit(1);
 }
 
@@ -41,103 +45,109 @@ const vitestEntry = fileURLToPath(
 const tscEntry = fileURLToPath(
   new URL("../node_modules/typescript/bin/tsc", import.meta.url)
 );
-const existingNodeOptions = (process.env.NODE_OPTIONS ?? "")
-  .replace(/--max-old-space-size(?:=|\s+)\d+/g, "")
-  .trim();
-const childOptions = (memoryLimitMb) => ({
-  detached: process.platform !== "win32",
-  env: {
-    ...process.env,
-    NODE_OPTIONS: [existingNodeOptions, `--max-old-space-size=${memoryLimitMb}`]
-      .filter(Boolean)
-      .join(" "),
-  },
-  stdio: "inherit",
-});
-
 const startedAt = performance.now();
-const children = [
-  spawn(
-    process.execPath,
+const wallLimitMs = 30_000;
+let activeRun;
+let interrupted = false;
+let interruptionCount = 0;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    interrupted = true;
+    interruptionCount += 1;
+    activeRun?.terminate(
+      interruptionCount === 1 ? signal : "SIGKILL",
+      interruptionCount === 1 ? "interrupted" : "forced interruption"
+    );
+  });
+}
+
+const runStage = async (label, entry, arguments_, heapLimitMb) => {
+  const remainingWallMs = Math.max(
+    1,
+    wallLimitMs - (performance.now() - startedAt)
+  );
+  const run = startBoundedProcess({
+    arguments: [entry, ...arguments_],
+    command: process.execPath,
+    heapLimitMb,
+    label,
+    rssLimitMb: DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+    wallLimitMs: remainingWallMs,
+  });
+  activeRun = run;
+  let outcome;
+  try {
+    outcome = await run.completion;
+  } finally {
+    if (activeRun === run) activeRun = undefined;
+  }
+  process.stderr.write(
+    `${label} resources: ${(outcome.wallMs / 1000).toFixed(2)}s wall, ${(outcome.peakGroupRssKb / 1024).toFixed(1)} MiB peak sampled process-group RSS (sampled ceiling ${DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB} MiB). ${outcome.error ? "Teardown not verified." : "Teardown verified."}\n`
+  );
+  if (outcome.error) process.stderr.write(`${outcome.error.message}\n`);
+  return outcome;
+};
+
+let failed = false;
+let elapsed = 0;
+try {
+  const runtime = await runStage(
+    `Layer ${layer} runtime`,
+    vitestEntry,
     [
-      vitestEntry,
       "run",
       "--workspace",
       "vitest.workspace.ts",
       "--project",
       `layer-${layer}`,
       "--reporter=dot",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism",
     ],
-    childOptions(768)
-  ),
-  spawn(
-    process.execPath,
-    [tscEntry, "--project", `tests/types/${layer}/tsconfig.json`, "--noEmit"],
-    childOptions(1280)
-  ),
-];
-
-const signalChild = (child, signal) => {
-  if (child.exitCode !== null || child.pid === undefined) return;
-  try {
-    if (process.platform === "win32") child.kill(signal);
-    else process.kill(-child.pid, signal);
-  } catch (error) {
-    if (
-      !(error instanceof Error && "code" in error && error.code === "ESRCH")
-    ) {
-      throw error;
-    }
+    768
+  );
+  let types = { code: 1 };
+  if (
+    !interrupted &&
+    !runtime.error &&
+    runtime.code === 0 &&
+    runtime.stopReason === undefined
+  ) {
+    types = await runStage(
+      `Layer ${layer} types`,
+      tscEntry,
+      ["--project", `tests/types/${layer}/tsconfig.json`, "--noEmit"],
+      1280
+    );
   }
-};
 
-let forceKill;
-const terminate = (signal = "SIGTERM") => {
-  for (const child of children) signalChild(child, signal);
-  forceKill ??= setTimeout(() => {
-    for (const child of children) signalChild(child, "SIGKILL");
-  }, 1000);
-};
-
-let exceededBudget = false;
-const budget = setTimeout(() => {
-  exceededBudget = true;
-  process.stderr.write(`Layer ${layer} exceeded the 30 second budget.\n`);
-  terminate();
-}, 30_000);
-
-process.once("SIGINT", () => terminate("SIGINT"));
-process.once("SIGTERM", () => terminate("SIGTERM"));
-process.once("SIGHUP", () => terminate("SIGHUP"));
-process.once("exit", () => {
-  terminate("SIGTERM");
-  releaseTestRunLock();
-});
-
-const exitCodes = await Promise.all(
-  children.map(
-    (child) =>
-      new Promise((resolve) => {
-        child.once("error", () => resolve(1));
-        child.once("exit", (code) => resolve(code ?? 1));
-      })
-  )
-);
-
-clearTimeout(budget);
-if (forceKill) clearTimeout(forceKill);
-const elapsed = performance.now() - startedAt;
-if (
-  exceededBudget ||
-  exitCodes.some((code) => code !== 0) ||
-  elapsed > 30_000
-) {
-  terminate();
-  releaseTestRunLock();
-  process.exit(1);
+  elapsed = performance.now() - startedAt;
+  failed =
+    interrupted ||
+    Boolean(runtime.error) ||
+    runtime.code !== 0 ||
+    Boolean(runtime.stopReason) ||
+    Boolean(types.error) ||
+    types.code !== 0 ||
+    Boolean(types.stopReason) ||
+    elapsed > wallLimitMs;
+} catch (error) {
+  failed = true;
+  process.stderr.write(`${describeError(error)}\n`);
+} finally {
+  try {
+    releaseTestRunLock();
+  } catch (error) {
+    failed = true;
+    process.stderr.write(`Test-run lock release failed: ${describeError(error)}\n`);
+  }
 }
 
-releaseTestRunLock();
-process.stdout.write(
-  `Layer ${layer} passed in ${(elapsed / 1000).toFixed(2)}s.\n`
-);
+if (failed) {
+  process.exitCode = 1;
+} else {
+  process.stdout.write(
+    `Layer ${layer} passed in ${(elapsed / 1000).toFixed(2)}s.\n`
+  );
+}

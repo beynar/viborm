@@ -1,12 +1,6 @@
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import {
-  type AnyDriver,
-  Driver,
-  type QueryExecutionContext,
-  type QueryResult,
-} from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
+import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
 import { variantCarrier } from "@query-engine/context";
 import { JunctionStatements } from "@query-engine/JunctionStatements";
@@ -28,13 +22,31 @@ import {
 } from "@src/query-engine/write-engine/race-retry";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
 
 const INVALID_POLYMORPHIC_TARGET =
   /Validation failed|Unknown polymorphic target/;
+
+class PostgresPlanningDriver extends PlanningDriver {
+  constructor() {
+    super("postgresql");
+  }
+}
+
+class BatchPlanningDriver extends PlanningDriver {
+  constructor() {
+    super("postgresql", {
+      supportsTransactions: false,
+      supportsBatch: true,
+    });
+  }
+}
+
+const PGliteDriver = PostgresPlanningDriver;
+const BatchOnlyPGliteDriver = BatchPlanningDriver;
 
 const collectionPlanSchema = (() => {
   const post = s.model({ id: s.int().id(), title: s.string() });
@@ -193,44 +205,9 @@ function inversePlanning(
 }
 
 /** A compiler-only MySQL carrier: the test observes planned steps, never a server. */
-class MySqlPlanDriver extends Driver<null, null> {
-  readonly adapter = new MySQLAdapter();
-
+class MySqlPlanDriver extends PlanningDriver {
   constructor() {
-    super("mysql", "singular-member-junction-plan");
-  }
-
-  protected async initClient(): Promise<null> {
-    return null;
-  }
-
-  protected async closeClient(_client: null): Promise<void> {
-    // This compiler-only driver owns no client.
-  }
-
-  protected async execute<T>(
-    _client: null,
-    _statement: string,
-    _params: unknown[],
-    _context?: QueryExecutionContext
-  ): Promise<QueryResult<T>> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(
-    client: null,
-    statement: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<QueryResult<T>> {
-    return this.execute<T>(client, statement, params ?? [], context);
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    execute: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return execute(null);
+    super("mysql", { driverName: "singular-member-junction-plan" });
   }
 }
 

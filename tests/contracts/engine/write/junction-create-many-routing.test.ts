@@ -6,6 +6,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const rowLocalSkipSchema = (() => {
   const collection = s
     .model({
@@ -58,7 +61,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("a spelled scalar key links only when that exact target exists", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.entry.create({
@@ -135,7 +138,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("a relation-bearing spelled duplicate suppresses its subtree and join", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.entry.create({
@@ -192,7 +195,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("an adoptable row and a relation-bearing unnameable row keep their own meanings", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.entry.create({
@@ -247,7 +250,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("spelled rows stay on both sides of a relation-bearing generated row", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.$executeRawUnsafe(
@@ -303,7 +306,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("a later adopter plans after an earlier suppressible series row", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
@@ -348,7 +351,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("each relation-bearing adopter plans after its predecessor", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
@@ -391,7 +394,7 @@ describe("residual F1 — junction skip disposition is row-local and ordered", (
   test("a scalar adopter plans after a relation-bearing adopter creates its target", async () => {
     const client = createClient({
       schema: rowLocalSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.collection.create({ data: { id: "c1" } });
@@ -461,7 +464,7 @@ describe("residual F1 — unnameable indexes dominate an adoptable selector", ()
   test("a raw unique index prevents an unsafe adopt route", async () => {
     const client = createClient({
       schema: mixedIndexSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.entry.create({
@@ -498,7 +501,7 @@ describe("residual F1 — unnameable indexes dominate an adoptable selector", ()
   test("a spelled key does not link when only a raw unique index conflicts", async () => {
     const client = createClient({
       schema: mixedIndexSkipSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     });
     await syncLiveSchema(client);
     await client.entry.create({

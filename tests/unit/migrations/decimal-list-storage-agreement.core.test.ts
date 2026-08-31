@@ -10,6 +10,10 @@
  * by construction is one refactor away from a container that stores fine and
  * converts to the sentinel.
  *
+ * Core coverage owns the deterministic MySQL marker agreement. Live SQLite
+ * and PostgreSQL storage agreement lives in
+ * `decimal-list-storage-agreement.test.ts`.
+ *
  * Three claims, one per provider family:
  *
  *  - SQLite — a container written by the CLIENT satisfies the reserved CHECK,
@@ -23,20 +27,14 @@
  */
 
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
 import {
   mysqlDecimalListMarker,
   readMysqlDecimalListMarker,
 } from "@src/migrations/decimal";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import {
-  canonicalizeDecimal,
   encodeDecimalListContainer,
 } from "@validation/primitives/decimal-codec";
 import { describe, expect, it } from "vitest";
@@ -73,73 +71,6 @@ async function storedContainer(driver: {
  * sixteen digits has no wider domain to move into on this provider.
  */
 const CONVERTIBLE = ["1.2", "-0.03"];
-
-describe("SQLite: the runtime container is the one the migration layer reads", () => {
-  it("writes exactly the bytes the codec spells", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema: listLedger(16, 2), driver });
-    await push(client, { force: true });
-
-    await client.ledger.create({ data: { id: "a", samples: MEMBERS } });
-
-    // The client's own bytes ARE the codec's container. The reserved CHECK
-    // proves only that the column holds a JSON array, so the spelling — a
-    // coefficient STRING per member, including one past 2^53 — is asserted
-    // outright rather than inferred from the INSERT succeeding.
-    expect(await storedContainer(driver)).toBe(
-      encodeDecimalListContainer(MEMBERS, 2)
-    );
-
-    await client.$disconnect();
-  });
-
-  it("hands the conversion bytes its member grammar accepts", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema: listLedger(10, 2), driver });
-    await push(client, { force: true });
-    await client.ledger.create({ data: { id: "a", samples: CONVERTIBLE } });
-
-    // A scale increase multiplies every member, so a spelling the SQL grammar
-    // refused would route the whole column to the sentinel and fail the push.
-    const widened = createClient({ schema: listLedger(12, 4), driver });
-    await push(widened, { force: true });
-
-    // What the conversion wrote back is byte-identical to what the client would
-    // write for the NEW domain — `json_group_array` of text members against
-    // `JSON.stringify` of the same members.
-    expect(await storedContainer(driver)).toBe(
-      encodeDecimalListContainer(CONVERTIBLE, 4)
-    );
-
-    // And the runtime reads it back as the same logical list.
-    const found = await widened.ledger.findUnique({ where: { id: "a" } });
-    expect(found?.samples.map((member) => canonicalizeDecimal(member))).toEqual(
-      CONVERTIBLE
-    );
-
-    await widened.$disconnect();
-  });
-
-  it("refuses a container the runtime never wrote, rather than converting it", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema: listLedger(10, 2), driver });
-    await push(client, { force: true });
-
-    // A JSON numeric token: valid JSON, a valid array, and NOT the coefficient
-    // grammar. The CHECK admits it (it proves the container's shape, not its
-    // members) and the conversion is what refuses it.
-    await driver._executeRaw(
-      `INSERT INTO "${TABLE}" ("id","samples") VALUES ('a', '[120]')`
-    );
-
-    const widened = createClient({ schema: listLedger(12, 4), driver });
-    await expect(push(widened, { force: true })).rejects.toThrow();
-
-    // The estate survives the refusal untouched.
-    expect(await storedContainer(driver)).toBe("[120]");
-    await widened.$disconnect();
-  });
-});
 
 describe("MySQL: the marker recovers the descriptor the runtime encodes against", () => {
   it("emits the marker for a decimal list and only for one", () => {
@@ -206,35 +137,5 @@ describe("MySQL: the marker recovers the descriptor the runtime encodes against"
     expect(new MySQLAdapter().result.decimalListRepresentation).toBe(
       "coefficient"
     );
-  });
-});
-
-describe("PostgreSQL: the array typmod is the descriptor", () => {
-  it("stores the members as column values, with no container between them", async () => {
-    const database = new PGlite();
-    const driver = new PGliteDriver({ client: database });
-    const client = createClient({ schema: listLedger(16, 2), driver });
-    await push(client, { force: true });
-
-    await client.ledger.create({ data: { id: "a", samples: MEMBERS } });
-
-    const stored = await driver._executeRaw<{ format_type: string }>(
-      `SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
-         JOIN pg_class c ON c.oid = a.attrelid
-        WHERE c.relname = '${TABLE}' AND a.attname = 'samples'`
-    );
-    expect(stored.rows[0]?.format_type).toBe("numeric(16,2)[]");
-
-    const members = await driver._executeRaw<{ samples: unknown }>(
-      `SELECT "samples" FROM "${TABLE}" WHERE "id" = 'a'`
-    );
-    // Every member is its own exact value, not a document to parse.
-    expect(members.rows[0]?.samples).toEqual([
-      "1.20",
-      "-0.03",
-      "90071992547409.93",
-    ]);
-
-    await client.$disconnect();
   });
 });

@@ -7,6 +7,9 @@ import { expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 test("nested update resolves a manyToOne target declared later", async () => {
   const team = s
     .model({
@@ -40,7 +43,7 @@ test("nested update resolves a manyToOne target declared later", async () => {
     })
     .map("forward_badge");
   const schema = { team, member, badge };
-  const database = new PGlite();
+  const database = openBorrowedPGlite();
   const driver = new PGliteDriver({ client: database });
   const baseClient = createClient({ schema, driver });
 

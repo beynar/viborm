@@ -22,6 +22,9 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * PACKAGE F — the structural half. The behavior module owns "the child holds the value
  * the parent's INSERT produced"; this file owns HOW MANY statements that costs and WHICH
@@ -48,11 +51,11 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const substrates = [
   {
     name: "transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
+    make: () => new PGliteDriver({ client: openBorrowedPGlite() }),
   },
   {
     name: "atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    make: () => new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
   },
 ] as const;
 
@@ -409,7 +412,7 @@ describe("F4 — the substrate row of the value-state table", () => {
   });
 
   test("PostgreSQL batch returns and spends the generated identity", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: singleSequenceSchema,
       driver: new PGliteDriver({ client: database }),

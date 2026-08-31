@@ -7,6 +7,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the
  * single engine).
@@ -158,7 +161,7 @@ function freshClient(substrate: "tx" | "batch"): {
   client: AnyClient;
   db: PGlite;
 } {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const driver =
     substrate === "tx"
       ? new PGliteDriver({ client: db })

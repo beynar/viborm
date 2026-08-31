@@ -131,6 +131,7 @@ const ERROR_META_KEYS = new Set([
   "model",
   "namespace",
   "operation",
+  "parameterIndex",
   "params",
   "providerCode",
   "providerErrno",
@@ -198,6 +199,7 @@ const NUMBER_META_KEYS = new Set([
   "expectedRowCount",
   "expectedStatementCount",
   "migrationIndex",
+  "parameterIndex",
   "resultIndex",
   "statementIndex",
   "timeout",
@@ -250,33 +252,18 @@ export function sanitizeErrorForLogging(
   error: Error,
   disclosure?: DiagnosticDisclosure
 ): Error {
-  try {
-    return sanitizeError(error, createState(disclosure), 0, false);
-  } catch {
-    return new Error(UNREADABLE_VALUE);
-  }
+  return sanitizeError(error, createState(disclosure), 0, false);
 }
 
 export function sanitizeErrorCause(error: Error): Error {
-  try {
-    return sanitizeError(error, createState(), 0, true);
-  } catch {
-    return new Error(REDACTED_CAUSE_MESSAGE);
-  }
+  return sanitizeError(error, createState(), 0, true);
 }
 
 export function serializeSanitizedError(
   error: Error | undefined
 ): Record<string, unknown> | undefined {
   if (!error) return undefined;
-  try {
-    return serializeError(error, createState(), 0);
-  } catch {
-    const fallback = createSafeRecord();
-    defineSafe(fallback, "name", "Error");
-    defineSafe(fallback, "message", UNREADABLE_VALUE);
-    return fallback;
-  }
+  return serializeError(error, createState(), 0);
 }
 
 export function registerTrustedError(
@@ -666,17 +653,15 @@ function sanitizeAllowedRecord(
     const descriptor = safeOwnPropertyDescriptor(value, key);
     if (!(descriptor && "value" in descriptor)) continue;
     const raw = descriptor.value;
-    let filtered: unknown;
-    try {
-      filtered = filterAllowedDiagnosticValue(key, raw, validateLogMetadata);
-    } catch {
-      continue;
-    }
+    const filtered = filterAllowedDiagnosticValue(
+      key,
+      raw,
+      validateLogMetadata
+    );
     if (filtered === undefined) continue;
     defineSafe(selected, key, filtered);
   }
-  const sanitized = sanitizeUnknown(selected, state, 0, false, false);
-  return isRecord(sanitized) ? sanitized : createSafeRecord();
+  return sanitizeObject(selected, state, 0, false, false);
 }
 
 function filterAllowedDiagnosticValue(
@@ -732,7 +717,8 @@ function filterAllowedDiagnosticValue(
   }
   if (key === "query") return typeof value === "string" ? value : undefined;
   if (key === "params") return isArrayValue(value) ? value : undefined;
-  return undefined;
+  // The two owner key sets contain no other member. A future unclassified key
+  // reaches JavaScript's fail-closed `undefined` until it receives a rule.
 }
 
 function safeProgressInteger(value: unknown): number | undefined {

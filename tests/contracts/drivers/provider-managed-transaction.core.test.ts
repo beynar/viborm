@@ -83,6 +83,41 @@ class PrematureProviderDriver extends Driver<object, object> {
 }
 
 describe("provider-managed transaction contract", () => {
+  test("propagates the callback failure when the provider preserves it", async () => {
+    const callbackFailure = new Error("callback failed");
+    const close = vi.fn(async () => undefined);
+
+    await expect(
+      runProviderManagedTransaction({
+        run: async (providerCallback) => providerCallback({}),
+        callback: async () => Promise.reject(callbackFailure),
+        close,
+      })
+    ).rejects.toBe(callbackFailure);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  test("announces ready-to-commit and committed around provider success", async () => {
+    const phases = {
+      readyToCommit: vi.fn(),
+      committed: vi.fn(),
+    };
+
+    await expect(
+      runProviderManagedTransaction({
+        run: async (providerCallback) => providerCallback({}),
+        callback: async () => "application result",
+        close: vi.fn(async () => undefined),
+        phases,
+      })
+    ).resolves.toBe("application result");
+    expect(phases.readyToCommit).toHaveBeenCalledOnce();
+    expect(phases.committed).toHaveBeenCalledOnce();
+    expect(phases.readyToCommit.mock.invocationCallOrder[0]).toBeLessThan(
+      phases.committed.mock.invocationCallOrder[0]!
+    );
+  });
+
   test("cleanup closes and retains close failure", async () => {
     const callbackError = new Error("callback failed");
     const cleanupError = new Error("provider cleanup failed");

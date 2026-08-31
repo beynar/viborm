@@ -10,9 +10,7 @@ export class CacheInvalidTTLError extends VibORMError {
   declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_TTL;
 
   constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
-    super(message, VibORMErrorCode.CACHE_INVALID_TTL, {
-      meta: options?.meta,
-    });
+    super(message, VibORMErrorCode.CACHE_INVALID_TTL, options);
   }
 }
 
@@ -26,9 +24,7 @@ export class CacheInvalidKeyError extends VibORMError {
   declare readonly code: typeof VibORMErrorCode.CACHE_INVALID_KEY;
 
   constructor(message: string, options?: { meta?: VibORMErrorMeta }) {
-    super(message, VibORMErrorCode.CACHE_INVALID_KEY, {
-      meta: options?.meta,
-    });
+    super(message, VibORMErrorCode.CACHE_INVALID_KEY, options);
   }
 }
 
@@ -69,9 +65,6 @@ export class CacheConfigurationError extends VibORMError {
     message: string,
     options?: { cause?: Error | undefined; meta?: VibORMErrorMeta }
   ) {
-    super(message, VibORMErrorCode.CACHE_CONFIGURATION, {
-      cause: options?.cause,
-      meta: options?.meta,
-    });
+    super(message, VibORMErrorCode.CACHE_CONFIGURATION, options);
   }
 }

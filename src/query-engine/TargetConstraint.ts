@@ -169,6 +169,7 @@ export function exactTargetConstraintKey(
 }
 
 function exactTargetValueKey(value: TargetValue): unknown {
+  // biome-ignore lint/style/useDefaultSwitchClause: Exact constraints cannot contain the excluded unknown arm.
   switch (value.kind) {
     case "null":
       return ["null"];
@@ -181,12 +182,6 @@ function exactTargetValueKey(value: TargetValue): unknown {
     case "boolean":
     case "date":
       return [value.kind, value.value];
-    case "unknown":
-      return undefined;
-    default: {
-      const exhaustive: never = value;
-      return exhaustive;
-    }
   }
 }
 
@@ -255,6 +250,7 @@ function provesPortableDisjointness(
 }
 
 function exactValuesEqual(left: TargetValue, right: TargetValue): boolean {
+  // biome-ignore lint/style/useDefaultSwitchClause: unknown values deliberately fall through to false below.
   switch (left.kind) {
     case "null":
       return right.kind === "null";
@@ -274,13 +270,8 @@ function exactValuesEqual(left: TargetValue, right: TargetValue): boolean {
         left.value.length === right.value.length &&
         left.value.every((byte, index) => byte === right.value[index])
       );
-    case "unknown":
-      return false;
-    default: {
-      const exhaustive: never = left;
-      return exhaustive;
-    }
   }
+  return false;
 }
 
 function normalizeTargetValue(value: unknown): TargetValue {
@@ -334,6 +325,7 @@ export function createIdentityConstraint(
 
 export function updateResultConstraints(
   model: Model<any>,
+  // biome-ignore lint/correctness/noUnusedFunctionParameters: The analysis contract retains the originating selector.
   selector: TargetConstraint,
   data: Readonly<Record<string, unknown>>,
   where: Readonly<Record<string, unknown>>
@@ -355,18 +347,9 @@ export function updateResultConstraints(
     scalarData,
     where
   )) {
-    if (
-      constraints.some(
-        (constraint) =>
-          classifyTargetConstraintOverlap(constraint, footprint.constraint) ===
-          "equal"
-      )
-    ) {
-      continue;
-    }
     constraints.push(footprint.constraint);
   }
-  return constraints.length > 0 ? constraints : [selector];
+  return constraints;
 }
 
 export function unknownConstraint(model: Model<any>): TargetConstraint {

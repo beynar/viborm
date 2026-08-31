@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import type { Model } from "@schema/model";
@@ -19,7 +19,6 @@ import {
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // A batch-only driver that runs a mutation on the same DB just before the atomic
 // batch commits — the staleness injection (a concurrent writer moved committed
@@ -583,12 +582,13 @@ const extensionScenarios: Scenario[] = [
   },
 ];
 
+const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
+const getDeepFamily = usePGliteSchemaFamily(deepSchema);
+const getManyToManyFamily = usePGliteSchemaFamily(m2m);
+const getCompoundFamily = usePGliteSchemaFamily(compound);
+const getNestedWriteFamily = usePGliteSchemaFamily(nb);
+
 describe("write boundary create family dual-run oracle (Direct vs Observed tx vs Observed batch)", () => {
-  const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
-  const getDeepFamily = usePGliteSchemaFamily(deepSchema);
-  const getManyToManyFamily = usePGliteSchemaFamily(m2m);
-  const getCompoundFamily = usePGliteSchemaFamily(compound);
-  const getNestedWriteFamily = usePGliteSchemaFamily(nb);
   const familyFor = (schema: Scenario["schema"]) => {
     if (schema === opf) return getOperationFragmentFamily();
     if (schema === deepSchema) return getDeepFamily();
@@ -625,10 +625,9 @@ describe("write boundary create family dual-run oracle (Direct vs Observed tx vs
 });
 
 describe("write boundary create family extension class (P−1.2 superset; the single boundary adopts)", () => {
-  const getFamily = usePGliteSchemaFamily(opf);
   for (const scenario of extensionScenarios) {
     test(scenario.name, { timeout: 45_000 }, async () => {
-      const family = getFamily();
+      const family = getOperationFragmentFamily();
       const tx = await runArm(family, "observed-tx", scenario);
       const batch = await runArm(family, "observed-batch", scenario);
 
@@ -658,12 +657,11 @@ describe("write boundary create family extension class (P−1.2 superset; the si
 
 describe("write boundary create family staleness (batch non-elided connect pins)", () => {
   test("parent-held to-one connect: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const db = getOperationFragmentFamily().database;
     const base = createClient({
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } });
 
     const driver = new BeforeBatchPGliteDriver(
@@ -702,12 +700,11 @@ describe("write boundary create family staleness (batch non-elided connect pins)
   }, 45_000);
 
   test("child-held connect: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const db = getOperationFragmentFamily().database;
     const base = createClient({
       schema: opf,
       driver: new PGliteDriver({ client: db }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).post.create({
       data: { id: 31, title: "orphan", slug: "s31", userId: null },
     });

@@ -1,6 +1,14 @@
 import type { AnyDriver } from "@drivers";
 import { PendingOperationError } from "@errors";
 
+function captureExecution<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return run();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 /** One deferred operation's mutually exclusive default/transaction execution. */
 export class PendingExecution<T> {
   private promise: Promise<T> | null = null;
@@ -24,7 +32,7 @@ export class PendingExecution<T> {
 
     if (!this.promise) {
       this.executedWith = "default";
-      this.promise = run();
+      this.promise = captureExecution(run);
     }
     return this.promise;
   }
@@ -51,7 +59,7 @@ export class PendingExecution<T> {
 
     if (!this.promise) {
       this.executedWith = driver;
-      this.promise = run();
+      this.promise = captureExecution(run);
     }
     return this.promise;
   }
@@ -81,7 +89,7 @@ export class PendingExecution<T> {
 
   /** Run the core child once after the array coordinator reserved this operation. */
   executeReserved(run: () => Promise<T>): Promise<T> {
-    if (!this.promise) this.promise = run();
+    if (!this.promise) this.promise = captureExecution(run);
     return this.promise;
   }
 }

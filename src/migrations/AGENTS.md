@@ -465,6 +465,12 @@ forged or stale value can only cause refusal. Resolution callbacks run outside
 the lock; their normalized decisions are closed into consent and checked
 against the locked replan.
 
+`input-boundary.ts` is the one hostile JavaScript snapshot owner for migration
+option records and arrays. Generate, down, push planning, and push consent read
+each caller-owned property once, reject unknown keys, detach arrays, and
+translate unreadable values to the command's `MigrationError` code before
+trusted planning begins. Do not add command-local record or array readers.
+
 Push may inspect the database control plane only to prevent history from being
 made false. A non-empty push against a valid migration marker is refused. A
 no-op is allowed only after the marker, unfinished-attempt state, desired
@@ -607,3 +613,13 @@ Before accepting an L12 change, answer all of these:
 The design goal is not the largest migration framework. It is the smallest one
 whose estate bytes, graph, database state, execution, and operator claims cannot
 contradict each other.
+
+## Coverage Gate
+
+`pnpm test:coverage:migrations` is the exact migration-subsystem report. It
+passes the deterministic core and selected local extended list from
+`scripts/migration-test-manifest.mjs` to one bounded `coverage-migrations`
+invocation, requires 98% statements, branches, functions, and lines, and writes
+`coverage/migrations/index.html`. Its policy check rejects omitted eligible
+tests and resource-owning PGlite imports. Live DDL and external-provider
+behavior remain in provider projects.

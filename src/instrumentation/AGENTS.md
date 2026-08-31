@@ -140,4 +140,6 @@ microtask to traced operations.
 
 Run focused instrumentation contracts, then the client, driver,
 instrumentation, query-engine, and cache layer gates sequentially. The
-instrumentation coverage script remains the 100% layer report.
+`pnpm test:coverage:instrumentation` command is the exact 100% subsystem report
+and writes `coverage/instrumentation/index.html`. It runs with one 768 MB worker
+under the 1536 MiB sampled process-group RSS ceiling and verifies process-group teardown.

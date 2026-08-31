@@ -4,6 +4,7 @@ import {
   PGliteDriver,
 } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
 import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
@@ -1755,7 +1756,7 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("batch-only driver executes planned nested writes atomically", async () => {
-    const db = new PGlite();
+    const db = openTestPGlite();
     const setupClient = createClient({
       schema: safetySchema,
       driver: new PGliteDriver({ client: db }),
@@ -1796,7 +1797,7 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("batch-only driver aborts missing nested connect before parent mutation", async () => {
-    const db = new PGlite();
+    const db = openTestPGlite();
     const setupClient = createClient({
       schema: safetySchema,
       driver: new PGliteDriver({ client: db }),
@@ -1834,7 +1835,7 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("batch-only driver executes top-level upsert create branch nested writes", async () => {
-    const db = new PGlite();
+    const db = openTestPGlite();
     const setupClient = createClient({
       schema: safetySchema,
       driver: new PGliteDriver({ client: db }),
@@ -1868,7 +1869,7 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("batch-only driver executes top-level upsert update branch nested writes", async () => {
-    const db = new PGlite();
+    const db = openTestPGlite();
     const setupClient = createClient({
       schema: safetySchema,
       driver: new PGliteDriver({ client: db }),
@@ -1916,7 +1917,7 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("driver lacking every atomic strategy rejects nested writes before parent mutation", async () => {
-    const db = new PGlite();
+    const db = openTestPGlite();
     const setupClient = createClient({
       schema: safetySchema,
       driver: new PGliteDriver({ client: db }),

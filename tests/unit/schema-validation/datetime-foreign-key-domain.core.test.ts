@@ -63,6 +63,26 @@ function datetimeListToScalarReference(
   return validateSchema({ parent, child });
 }
 
+function datetimeScalarToListReference(
+  local: Parameters<typeof s.dateTime>[0],
+  remote: Parameters<typeof s.dateTime>[0]
+) {
+  const parent = s.model({
+    id: s.string().id(),
+    instants: s.dateTime(remote).array().unique(),
+    children: s.toMany(() => child),
+  });
+  const child = s.model({
+    id: s.string().id(),
+    parentInstant: s.dateTime(local),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentInstant")
+      .references("instants"),
+  });
+  return validateSchema({ parent, child });
+}
+
 describe("SQLite DateTime foreign-key domains", () => {
   it.each([
     [TYPES.SQLITE.DATETIME.INTEGER, TYPES.SQLITE.DATETIME.REAL],
@@ -105,6 +125,17 @@ describe("SQLite DateTime foreign-key domains", () => {
 
     expect(issue?.message).toContain("datetime[]");
     expect(issue?.message).toContain("datetime(epochMillis)");
+    expect(issue?.repair).toMatch(SAME_SCALAR_LIST_SHAPE);
+  });
+
+  it("refuses a scalar that references a DateTime list", () => {
+    const issue = datetimeScalarToListReference(
+      TYPES.SQLITE.DATETIME.INTEGER,
+      TYPES.SQLITE.DATETIME.INTEGER
+    ).errors.find((candidate) => candidate.code === "FK003");
+
+    expect(issue?.message).toContain("datetime(epochMillis)");
+    expect(issue?.message).toContain("datetime[]");
     expect(issue?.repair).toMatch(SAME_SCALAR_LIST_SHAPE);
   });
 });

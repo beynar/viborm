@@ -73,17 +73,13 @@ import { getStepModelName, isRecord } from "./shared";
  */
 export class CreateManyRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
-
   /** The canonical payload validated at construction. */
-  get validatedArgs(): Record<string, unknown> {
-    return this.args;
-  }
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   /** The validated payload, as the `createMany` args schema left it (`omit`
    *  already desugared into `select`), reused verbatim for the public result. */
-  private readonly args: Record<string, unknown>;
   private readonly rows: readonly RecordMutationData[];
   private readonly skipDuplicates: boolean;
   /** The public returning projection, or `undefined` for the `{ count }` arm. */
@@ -107,7 +103,7 @@ export class CreateManyRecordSeries implements RecordSeriesOperation {
       "createMany",
       "createMany"
     );
-    this.args = parsed;
+    this.validatedArgs = parsed;
     const sourceRows = Array.isArray(args.data) ? args.data : [];
     this.rows = parsed.data.map((row, index) => ({
       parsed: row,
@@ -181,7 +177,7 @@ export class CreateManyRecordSeries implements RecordSeriesOperation {
     return {
       engine: this.engine,
       model: this.model,
-      args: this.args,
+      args: this.validatedArgs,
       select,
       expectedRowKeys,
       operation: "createManyAndReturn",

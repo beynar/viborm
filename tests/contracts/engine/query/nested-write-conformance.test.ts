@@ -2,6 +2,7 @@ import { createClient, type VibORMClient } from "@client/client";
 import type { Schema } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -425,7 +426,7 @@ async function runScenario<TSchema extends Schema>(
   scenario: Scenario<TSchema>,
   createDriver: (db: PGlite) => PGliteDriver
 ): Promise<Outcome> {
-  const db = new PGlite();
+  const db = openTestPGlite();
   const setupClient = createClient({
     schema: group.schema,
     driver: new PGliteDriver({ client: db }),

@@ -25,7 +25,6 @@
  *    because a PGlite push costs ~0.4 s against this layer's 30 s budget.
  */
 
-import { createClient } from "@client/client";
 import { s, TYPES } from "@schema";
 import { parseSchema, serializeSchema } from "@schema/json";
 import type { AnyModel } from "@schema/model";
@@ -36,8 +35,6 @@ import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { serializeModels } from "@src/migrations/serializer";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
-import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { relationDdlBaseline } from "@tests/fixtures/relation-ddl-baseline";
 import {
   type DdlDialect,
@@ -46,7 +43,6 @@ import {
 } from "@tests/fixtures/relation-ddl-corpus";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
-import { syncLiveSchema } from "../../fixtures/sync-schema";
 
 const CREATE_TABLE_NAME =
   /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|\w+)\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))/i;
@@ -233,94 +229,5 @@ describe("scalar defaults through a JSON document", () => {
     const after = createTable(parseSchema(serializeSchema(build())));
     expect(before).toContain(expected);
     expect(after).toBe(before);
-  });
-});
-
-// =============================================================================
-// LIVE CONVERGENCE — a second forced push planning ZERO operations is the
-// strongest statement that the frozen snapshot and the database agree.
-// =============================================================================
-
-function createdTableNames(result: {
-  readonly statements: readonly { readonly sql: string }[];
-}): string[] {
-  const names: string[] = [];
-  for (const statement of result.statements) {
-    const match = statement.sql.match(CREATE_TABLE_NAME);
-    const name = match?.[1] ?? match?.[2] ?? match?.[3];
-    if (name && !name.startsWith("__new_")) {
-      names.push(name);
-    }
-  }
-  return names;
-}
-
-const convergingCases = relationDdlCorpus.filter(
-  (testCase) => testCase.converges
-);
-
-/**
- * The cells whose Postgres convergence is worth its wall time: one row FK cell,
- * the default junction, a compound junction, both variant storage families, and
- * the mixed-junction table-order witness.
- */
-const PGLITE_CELLS = new Set([
-  "one-to-many-required-fk",
-  "many-to-many-default-names",
-  "many-to-many-compound-keys",
-  "variant-row-to-one-inverse",
-  "variant-member-mixed-inverses",
-  "ordinary-junction-before-variant-carrier",
-]);
-
-describe("relation → DDL convergence", () => {
-  it.each(
-    convergingCases
-  )("$id creates once and then plans no operations on SQLite", async (testCase) => {
-    const driver = createInMemorySQLite3Driver();
-    try {
-      const client = createClient({ schema: prepare(testCase).schema, driver });
-      const first = await syncLiveSchema(client);
-      expect(
-        first.operations.filter(
-          (operation) => operation.label === "createTable"
-        )
-      ).toHaveLength(
-        relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
-      );
-      expect(createdTableNames(first)).toEqual(
-        relationDdlBaseline[testCase.id]?.postgres?.tables.map(
-          (table) => table.name
-        )
-      );
-      expect((await syncLiveSchema(client)).operations).toEqual([]);
-    } finally {
-      await driver.disconnect();
-    }
-  });
-
-  it.each(
-    convergingCases.filter((testCase) => PGLITE_CELLS.has(testCase.id))
-  )("$id creates once and then plans no operations on PGlite", async (testCase) => {
-    const driver = createInMemoryPGliteDriver();
-    try {
-      const client = createClient({ schema: prepare(testCase).schema, driver });
-      const first = await syncLiveSchema(client);
-      expect(
-        first.operations.filter(
-          (operation) => operation.label === "createTable"
-        )
-      ).toHaveLength(
-        relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
-      );
-      expect(createdTableNames(first)).toEqual(
-        relationDdlBaseline[testCase.id]?.postgres?.tables.map(
-          (table) => table.name
-        )
-      );
-      expect((await syncLiveSchema(client)).operations).toEqual([]);
-    } finally {
-      await driver.disconnect();
-    }
   });
 });

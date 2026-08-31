@@ -6,6 +6,9 @@ import { s } from "@schema";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * X1 semantic-stability witnesses. THE DEPTH LIFT lifts DEPTH-ONLY refusals; a
  * SEMANTIC refusal (own-write independence, validation, and the new create-context
@@ -41,7 +44,7 @@ function makeClient(schema: any, db: PGlite) {
 }
 
 async function withClient(schema: any, fn: (c: any) => Promise<void>) {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeClient(schema, db);
   await syncLiveSchema(client);
   await fn(client);

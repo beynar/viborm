@@ -20,6 +20,9 @@ import {
 } from "@tests/contracts/engine/write/to-one-update-where-behavior";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // The whole surface on PGlite, both substrates. The driver matrix legs run the
 // same module from tests/drivers/*.test.ts.
 runToOneUpdateWhereBehavior({
@@ -197,7 +200,7 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
 
 for (const { relation } of DIRECTIONS) {
   test(`${relation}: a concurrent write that voids the wrapper filter aborts the batch typed`, async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const seed = createClient({
       schema: toOneUpdateWhereSchema,
       driver: new PGliteDriver({ client: db }),

@@ -10,6 +10,9 @@ import {
 } from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const substrates = [
   {
     name: "transaction",
@@ -27,7 +30,7 @@ for (const substrate of substrates) {
     if (!shared) {
       shared = createClient({
         schema: sqlOperandWallSchema,
-        driver: substrate.make(new PGlite()),
+        driver: substrate.make(openBorrowedPGlite()),
       }) as any;
       await syncLiveSchema(shared);
     }

@@ -12,6 +12,9 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 function engineFor(driver: PGliteDriver) {
   return new QueryEngine(
     driver,
@@ -48,7 +51,7 @@ const args = correlatedUpsertArgs({
 
 describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   test("execute() runs the composed operation and parses its result", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const engine = engineFor(new PGliteDriver({ client: db }));
     const { createClient } = await import("@client/client");
     const client = createClient({
@@ -71,7 +74,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   });
 
   test("prepareBatch() RETURNS entries the shared batch protocol executes", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = (await import("@client/client")).createClient({
       schema: updateSliceSchema,
       driver: new PGliteDriver({ client: db }),
@@ -101,7 +104,7 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   });
 
   test("executeWith(driver) runs linearly on a caller-provided driver", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = (await import("@client/client")).createClient({
       schema: updateSliceSchema,
       driver: new PGliteDriver({ client: db }),

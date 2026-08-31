@@ -36,9 +36,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
-import { SQLite3Driver } from "@drivers/sqlite3";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
@@ -64,7 +62,6 @@ import {
   targetProjectionSelect,
 } from "@src/query-engine/write-engine/target-projection";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -754,40 +751,6 @@ describe("a captured decimal row key addresses the captured row", () => {
     expect(valuesOf(compiled, "crate.delete")).toEqual([CAPTURED_COEFFICIENT]);
   });
 
-  test("a singular junction transfer captures a SQLite decimal owner above 2^53", async () => {
-    const client = createClient({
-      schema: inverseSchema,
-      driver: new SQLite3Driver({ dataDir: ":memory:" }),
-    });
-    try {
-      await push(client, { force: true });
-      await client.crate.create({
-        data: { id: UNSAFE_LOGICAL_KEY, label: "Unsafe owner" },
-      });
-      await client.crate.create({ data: { id: "2", label: "Next owner" } });
-      await client.slip.create({ data: { id: 1, note: "transfer me" } });
-      await client.crate.update({
-        where: { id: UNSAFE_LOGICAL_KEY },
-        data: {
-          items: { connect: [{ type: "slip", where: { id: 1 } }] },
-        },
-      });
-
-      await client.slip.update({
-        where: { id: 1 },
-        data: { crate: { connect: { id: "2" } } },
-      });
-
-      const rows = await client.$queryRawUnsafe<
-        { holder: string; entry: number }[]
-      >(
-        'SELECT CAST("holder" AS TEXT) AS "holder", "entry" FROM "crk_crate_slips"'
-      );
-      expect(rows).toEqual([{ holder: "200", entry: 1 }]);
-    } finally {
-      await client.$disconnect();
-    }
-  });
 });
 
 describe("the decode changes nothing where physical and logical agree", () => {

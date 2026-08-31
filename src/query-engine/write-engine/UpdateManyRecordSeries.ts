@@ -88,17 +88,13 @@ import { UpdateOperation } from "./UpdateOperation";
  */
 export class UpdateManyRecordSeries implements RecordSeriesOperation {
   readonly executionKind = "recordSeries" as const;
-
   /** The canonical payload validated at construction. */
-  get validatedArgs(): Record<string, unknown> {
-    return this.args;
-  }
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   /** The validated payload, as the `updateMany` args schema left it (`omit`
    *  already desugared into `select`), reused verbatim for the public result. */
-  private readonly args: Record<string, unknown>;
   /** The RAW update data. Each member parses it itself — see `capturedRoot` in
    *  `shared.ts` for the measurement that forbids sharing one parse. */
   private readonly rawData: Record<string, unknown>;
@@ -128,14 +124,16 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
     // primary-key check it runs under the public name `updateMany`. That check is
     // about `data`, which is shared by every member, so it belongs to the envelope
     // and the members do not repeat it.
-    this.args = validate<Record<string, unknown>>(
+    this.validatedArgs = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,
       "updateMany" as Operation,
       args
     );
     this.rawData = updateData(args.data);
-    this.select = isRecord(this.args.select) ? this.args.select : undefined;
+    this.select = isRecord(this.validatedArgs.select)
+      ? this.validatedArgs.select
+      : undefined;
     // `getPrimaryKeyFields` is TOTAL — a model that declares no `.id()` and no
     // compound id still answers `["id"]` — so there is no primary-key-less case to
     // refuse here, and a guard for one would be a check whose coverage cannot be
@@ -236,7 +234,7 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
     return {
       engine: this.engine,
       model: this.model,
-      args: this.args,
+      args: this.validatedArgs,
       select,
       expectedRowKeys,
       operation: "updateManyAndReturn",
@@ -249,7 +247,9 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
 
   /** The validated `limit`, or `undefined` when the caller omitted it. */
   private limit(): number | undefined {
-    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+    return typeof this.validatedArgs.limit === "number"
+      ? this.validatedArgs.limit
+      : undefined;
   }
 
   private buildCapture(): ReadStep {
@@ -262,7 +262,9 @@ export class UpdateManyRecordSeries implements RecordSeriesOperation {
       statement: buildFind(
         createQueryScope(this.engine, this.model),
         {
-          ...(isRecord(this.args.where) ? { where: this.args.where } : {}),
+          ...(isRecord(this.validatedArgs.where)
+            ? { where: this.validatedArgs.where }
+            : {}),
           select: Object.fromEntries(
             this.identityFields.map((field) => [field, true])
           ),

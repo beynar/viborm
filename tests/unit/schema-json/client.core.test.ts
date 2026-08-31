@@ -9,7 +9,7 @@ import { ValidationError } from "@errors";
 import { s } from "@schema";
 import { attachFieldSchemas, parseSchema, serializeSchema } from "@schema/json";
 import { SchemaValidationError } from "@schema/validation/error";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
 
 const UNKNOWN_MODEL = /not found in schema/;
@@ -41,11 +41,11 @@ const BLOG = {
   },
 };
 
-describe("client", () => {
+describe("parsed schema client boundary", () => {
   it("builds a working client from a document", () => {
     const client = createClient({
       schema: parseSchema(BLOG),
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     expect(typeof client.user?.findMany).toBe("function");
     expect(typeof client.post?.create).toBe("function");
@@ -54,7 +54,7 @@ describe("client", () => {
   it("refuses an unknown model name at runtime", () => {
     const client = createClient({
       schema: parseSchema(BLOG),
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     expect(() => client.ghost?.findMany()).toThrow(UNKNOWN_MODEL);
   });
@@ -84,7 +84,7 @@ describe("client", () => {
     });
     let thrown: unknown;
     try {
-      createClient({ schema: broken, driver: createInMemorySQLite3Driver() });
+      createClient({ schema: broken, driver: new PlanningDriver("sqlite") });
     } catch (error) {
       thrown = error;
     }
@@ -141,7 +141,7 @@ describe("parseSchema({ validate: true })", () => {
     expect(Object.keys(schema)).toEqual(["user", "post"]);
     let thrown: unknown;
     try {
-      createClient({ schema, driver: createInMemorySQLite3Driver() });
+      createClient({ schema, driver: new PlanningDriver("sqlite") });
     } catch (error) {
       thrown = error;
     }
@@ -168,7 +168,7 @@ describe("parseSchema({ validate: true })", () => {
     expect(schema.user?.["~"].names.ts).toBe("user");
     const client = createClient({
       schema,
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     expect(typeof client.user?.findMany).toBe("function");
   });

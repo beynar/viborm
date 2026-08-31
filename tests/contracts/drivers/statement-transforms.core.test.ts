@@ -357,3 +357,44 @@ describe("statement-transform failures", () => {
     }
   });
 });
+
+describe("coverage low value", () => {
+  test("contains malformed renderer results and non-Error reflection failures", () => {
+    const invalidRender = {
+      strings: ["SELECT 1"],
+      values: [],
+      toStatement() {
+        return 1;
+      },
+    };
+    const invalidRenderError = captureQueryError(() =>
+      applyStatementTransforms(sql`SELECT 1`, "post", "findMany", [
+        transformReturning("invalid-render-result", invalidRender),
+      ])
+    );
+    expect(invalidRenderError.message).toContain("returned an unreadable value");
+
+    const unreadable = Object.defineProperty({}, "then", {
+      get() {
+        // biome-ignore lint/style/useThrowOnlyError: hostile JavaScript can throw any value.
+        throw "unreadable";
+      },
+    });
+    const unreadableError = captureQueryError(() =>
+      applyStatementTransforms(sql`SELECT 1`, "post", "findMany", [
+        transformReturning("non-error-reflection", unreadable),
+      ])
+    );
+    expect(unreadableError.originalCause).toBeInstanceOf(Error);
+  });
+
+  test("attributes an unbound statement failure to its operation", () => {
+    const error = captureQueryError(() =>
+      applyStatementTransforms(sql`SELECT 1`, undefined, "$queryRaw", [
+        transformReturning("unbound", null),
+      ])
+    );
+
+    expect(error.message).toContain("for $queryRaw returned a non-Sql value");
+  });
+});

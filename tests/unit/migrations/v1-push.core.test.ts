@@ -9,6 +9,8 @@ import {
   pushV1,
 } from "@src/migrations/push-v1";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
+import type { ResolveCallback } from "@src/migrations/types";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { sqliteEstateDriver } from "./_estate";
@@ -27,15 +29,15 @@ const counter = s.model({
 
 describe("migration v1 authenticated push", () => {
   test("dry-run is effect-free and force-reset dry-run does not write", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema: { user }, driver });
+    const driver = sqliteEstateDriver();
+    const client = { $driver: driver, $schema: { user } };
     const preview = await previewPush(client, { forceReset: true });
     expect(preview.consent.mode).toBe("force-reset");
-    const tables = await driver._executeRaw<{ name: string }>(
-      `SELECT name FROM sqlite_master WHERE type = 'table'`
-    );
-    expect(tables.rows.filter((row) => row.name === "user")).toHaveLength(0);
-    await client.$disconnect();
+    expect(
+      driver.statements.filter((statement) =>
+        SCHEMA_WRITE.test(statement.trim())
+      )
+    ).toEqual([]);
   });
 
   test("stale consent refuses after an external schema change", async () => {
@@ -71,34 +73,18 @@ describe("migration v1 authenticated push", () => {
   });
 
   test("ordinary dry-run plans a diff and writes nothing", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema: { user }, driver });
+    const driver = sqliteEstateDriver();
+    const client = { $driver: driver, $schema: { user } };
     const preview = await previewPush(client);
     expect(preview.consent.mode).toBe("diff");
     expect(preview.outcome).toBe("planned");
-    const afterPreview = await driver._executeRaw<{ name: string }>(
-      `SELECT name FROM sqlite_master WHERE type = 'table'`
-    );
-    expect(afterPreview.rows.filter((row) => row.name === "user")).toHaveLength(
-      0
-    );
     const dry = await pushV1(client, { dryRun: true });
     expect(dry).toMatchObject({ outcome: "planned" });
-    const afterDry = await driver._executeRaw<{ name: string }>(
-      `SELECT name FROM sqlite_master WHERE type = 'table'`
-    );
-    expect(afterDry.rows.filter((row) => row.name === "user")).toHaveLength(0);
-    await client.$disconnect();
-  });
-
-  test("RecordingDriver dry-run records no DDL or DML writes", async () => {
-    const driver = sqliteEstateDriver();
-    const client = { $driver: driver, $schema: { user } };
-    await pushV1(client, { dryRun: true });
-    const writes = driver.statements.filter((sql) =>
-      SCHEMA_WRITE.test(sql.trim())
-    );
-    expect(writes).toEqual([]);
+    expect(
+      driver.statements.filter((statement) =>
+        SCHEMA_WRITE.test(statement.trim())
+      )
+    ).toEqual([]);
   });
 
   test("a non-empty push against a migration marker is refused", async () => {
@@ -117,14 +103,13 @@ describe("migration v1 authenticated push", () => {
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("migration marker"),
     });
-    await next.$disconnect();
     await client.$disconnect();
   });
 
   test("generic force is not a V1 option", async () => {
     const client = createClient({
       schema: { user },
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     await expect(
       pushV1(client, { force: true } as never)
@@ -133,7 +118,6 @@ describe("migration v1 authenticated push", () => {
       message: expect.stringContaining("unknown key force"),
     });
     expectTypeOf<PushOptionsV1>().not.toHaveProperty("force");
-    await client.$disconnect();
   });
 
   test("sqlite integer primary keys without AUTOINCREMENT attest", async () => {
@@ -184,5 +168,39 @@ describe("migration v1 authenticated push", () => {
     const second = await previewPush(client);
     expect(second.operations).toEqual([]);
     await client.$disconnect();
+  });
+
+  test("a resolved destructive change still requires consent, then applies the locked replan", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const initial = createClient({ schema: { user }, driver });
+    await pushV1(initial);
+    const reducedUser = s.model({ id: s.string().id() });
+    const reduced = createClient({ schema: { user: reducedUser }, driver });
+    const resolve: ResolveCallback = (change) =>
+      change.type === "destructive" ? change.proceed() : undefined;
+
+    await expect(pushV1(reduced, { resolve })).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
+    });
+    const preview = await previewPush(reduced, { resolve });
+    expect(preview.destructive).toBe(true);
+    await expect(
+      pushV1(reduced, { consent: preview.consent })
+    ).resolves.toMatchObject({ outcome: "applied" });
+    await expect(pushV1(reduced)).resolves.toMatchObject({ outcome: "noop" });
+    await initial.$disconnect();
+  });
+
+  test("push refuses success when the provider does not realize its statements", async () => {
+    const driver = sqliteEstateDriver();
+    const client = { $driver: driver, $schema: { user } };
+
+    await expect(pushV1(client)).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DRIFT,
+      message: expect.stringContaining("final live fingerprint"),
+    });
+    expect(
+      driver.statements.some((statement) => statement.startsWith("CREATE"))
+    ).toBe(true);
   });
 });

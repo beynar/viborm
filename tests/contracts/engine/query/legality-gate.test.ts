@@ -3,6 +3,7 @@ import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
@@ -79,7 +80,7 @@ function bootShared<TDriver extends PGliteDriver>(
 }
 
 async function setupDb(): Promise<PGlite> {
-  const db = new PGlite();
+  const db = openTestPGlite();
   const setupClient = createClient({
     schema: nestedWriteBehaviorSchema,
     driver: new PGliteDriver({ client: db }),

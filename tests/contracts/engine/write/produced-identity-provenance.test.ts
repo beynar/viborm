@@ -14,6 +14,9 @@ import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation"
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * N4-U2 / N4-U4 — the PROVENANCE instrument for a PRODUCED identity.
  *
@@ -115,7 +118,7 @@ function makeEngine(driver: PGliteDriver): QueryEngine {
 
 describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's returned key)", () => {
   test("an upsert CREATE arm's grandchild follows the key its OWN INSERT returned", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = createClient({
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
@@ -169,7 +172,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
   }, 30_000);
 
   test("a shared-primary-key child and its terminal read spend ONE produced identity", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = createClient({
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),
@@ -216,7 +219,7 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
   }, 30_000);
 
   test("a produced-identity INSERT that reports no key fails closed, writing nothing", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = createClient({
       schema: producedIdentitySchema,
       driver: new PGliteDriver({ client: db }),

@@ -1,6 +1,7 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
+import type { DriverResultParser } from "@drivers/driver";
 import { QueryEngineError } from "@errors";
 import { parseResult } from "@query-engine/result/ResultParser";
 import {
@@ -59,6 +60,12 @@ const models = (() => {
   return schema;
 })();
 
+class PolymorphicMiddlewareDriver extends D1Driver {
+  override readonly result: DriverResultParser = {
+    parseRelation: (_value, next) => next(undefined),
+  };
+}
+
 const projection = {
   select: {
     id: true,
@@ -93,6 +100,33 @@ function parseRequired(rawSubject: unknown): unknown {
 }
 
 describe("polymorphic result parsing", () => {
+  it("keeps the original polymorphic carrier when driver middleware supplies no replacement", () => {
+    const driver = new PolymorphicMiddlewareDriver({
+      database: Object.create(null),
+    });
+    expect(
+      parseResult(
+        parserFor(driver.adapter, models.requiredComment, driver),
+        "findMany",
+        [
+          {
+            id: "comment-1",
+            subject: linked("video", { id: "video-1", duration: 7 }),
+          },
+        ],
+        projection
+      )
+    ).toEqual([
+      {
+        id: "comment-1",
+        subject: {
+          type: "video",
+          data: { id: "video-1", duration: 7 },
+        },
+      },
+    ]);
+  });
+
   it("dispatches variants, parses nested targets, and removes the private tag", () => {
     expect(
       parseRequired(
@@ -249,12 +283,30 @@ describe("polymorphic result parsing", () => {
 
   it.each([
     ["required empty storage", null],
+    ["absent storage", undefined],
+    ["non-object carrier", []],
     [
       "half-null storage",
       {
         [POLYMORPHIC_RESULT_STATE_KEY]: POLYMORPHIC_RESULT_STATE_INVALID,
         storedType: "subject.post.v1",
         hasId: false,
+      },
+    ],
+    [
+      "invalid storage with a non-boolean id fact",
+      {
+        [POLYMORPHIC_RESULT_STATE_KEY]: POLYMORPHIC_RESULT_STATE_INVALID,
+        storedType: "subject.post.v1",
+        hasId: "false",
+      },
+    ],
+    [
+      "non-string discriminator",
+      {
+        [POLYMORPHIC_RESULT_STATE_KEY]: POLYMORPHIC_RESULT_STATE_LINKED,
+        type: 1,
+        data: { id: "post-1" },
       },
     ],
     ["unknown discriminator", linked("photo", { id: "photo-1" })],
@@ -303,6 +355,23 @@ const collectionModels = (() => {
   return schema;
 })();
 
+const copyPolicyModels = (() => {
+  const place = s.model({
+    id: s.string().id(),
+    location: s.point(),
+  });
+  const map = s.model({
+    id: s.string().id(),
+    places: s.toMany(
+      { place: () => place },
+      { values: { place: "copy.place.v1" } }
+    ),
+  });
+  const schema = { place, map };
+  prepareSchema(schema);
+  return schema;
+})();
+
 type Arm = {
   membership?: unknown;
   orphans?: unknown;
@@ -334,6 +403,33 @@ function parseCollection<T = unknown>(
 }
 
 describe("polymorphic collection result parsing", () => {
+  it("copies parser-owned collection targets whose scalar changes shape", () => {
+    const target = {
+      id: "place-1",
+      location: { longitude: -180, latitude: -0 },
+    };
+    const carrier = collection({
+      place: arm([linked("place", target)]),
+    });
+    const jsonParse = vi.spyOn(JSON, "parse").mockReturnValue(carrier);
+    const parsed = parseResult<
+      Array<{ places: Array<{ data: { location: unknown } }> }>
+    >(
+      parserFor(new PostgresAdapter(), copyPolicyModels.map),
+      "findMany",
+      [{ id: "map-1", places: "{}" }],
+      { select: { id: true, places: true } }
+    );
+
+    expect(parsed[0]?.places[0]?.data).not.toBe(target);
+    expect(parsed[0]?.places[0]?.data.location).toEqual({
+      longitude: 180,
+      latitude: 0,
+    });
+    expect(target.location).toEqual({ longitude: -180, latitude: -0 });
+    jsonParse.mockRestore();
+  });
+
   it("flattens allow-listed arms in declaration order into a fresh array", () => {
     expect(
       parseCollection(
@@ -380,6 +476,14 @@ describe("polymorphic collection result parsing", () => {
     ) as { items: unknown }[];
     expect(rows[0]?.items).toEqual([]);
     expect(rows[0]?.items).not.toBeNull();
+  });
+
+  it("normalizes a visible arm's null aggregate to an empty row set", () => {
+    const rows = parseCollection<Array<{ items: unknown[] }>>(
+      collection({ article: arm(null), clip: arm([]) })
+    );
+
+    expect(rows[0]?.items).toEqual([]);
   });
 
   it("decodes a collection JSON carrier at the variant boundary", () => {
@@ -437,6 +541,39 @@ describe("polymorphic collection result parsing", () => {
       "a3",
       "c1",
       "c2",
+    ]);
+  });
+
+  it("restores an arm-local reversed window inside an encoded carrier", () => {
+    const rows = parseCollection<
+      Array<{ items: Array<{ data: { id: string } }> }>
+    >(
+      JSON.stringify(
+        collection({
+          article: arm([
+            linked("article", { id: "a3", title: "third" }),
+            linked("article", { id: "a2", title: "second" }),
+          ]),
+          clip: arm([linked("clip", { id: "c1", seconds: 1 })]),
+        })
+      ),
+      {
+        select: {
+          id: true,
+          items: {
+            variants: {
+              article: { take: -2 },
+              clip: { take: 1 },
+            },
+          },
+        },
+      }
+    );
+
+    expect(rows[0]?.items.map((item) => item.data.id)).toEqual([
+      "a2",
+      "a3",
+      "c1",
     ]);
   });
 
@@ -618,6 +755,34 @@ describe("polymorphic collection result parsing", () => {
     ).toThrowError(
       "Polymorphic relation 'items' references a missing 'article' record."
     );
+  });
+
+  it.each([
+    ["mistagged envelope", linked("clip", { id: "a1", title: "t" })],
+    ["missing target", linked("article", null)],
+    ["non-object target", linked("article", "target")],
+  ])("refuses an encoded collection with a %s", (_label, envelope) => {
+    expect(() =>
+      parseCollection(
+        JSON.stringify(
+          collection({
+            article: arm([envelope]),
+            clip: arm([]),
+          })
+        )
+      )
+    ).toThrowError(QueryEngineError);
+  });
+
+  it("refuses a borrowed collection element with non-object target data", () => {
+    expect(() =>
+      parseCollection(
+        collection({
+          article: arm([linked("article", "target")]),
+          clip: arm([]),
+        })
+      )
+    ).toThrowError(QueryEngineError);
   });
 
   it("refuses an excluded arm that returned rows anyway", () => {

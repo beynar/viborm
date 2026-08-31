@@ -11,6 +11,9 @@ import {
 } from "@tests/contracts/engine/write/located-parent-ref-behavior";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * Records every statement the operation sends, in order. The hook is the PROTECTED
  * `execute`/`executeRaw` seam rather than `_execute`, because a transaction runs its
@@ -175,7 +178,7 @@ async function runOracleArm(
   substrate: "tx" | "batch",
   scenario: OracleScenario
 ): Promise<ArmOutcome> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const stateClient = makeClient(new PGliteDriver({ client: db }));
   await syncLiveSchema(stateClient);
   await scenario.seed(stateClient);
@@ -335,7 +338,7 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
       `${kind}: the where:{email} spelling issues the same statement count and the same write SQL as where:{id}`,
       { timeout: 30_000 },
       async () => {
-        const db = new PGlite();
+        const db = openBorrowedPGlite();
         const driver = new RecordingPGliteDriver({ client: db });
         const client = makeClient(driver);
         await syncLiveSchema(client);
@@ -466,7 +469,7 @@ describe("the batch root address, statement by statement", () => {
   const NOTE_INSERT = `INSERT INTO "public"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`;
 
   test("where:{id} issues the pre-change batch, statement for statement", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
     try {
@@ -501,7 +504,7 @@ describe("the batch root address, statement by statement", () => {
   });
 
   test("where:{email} moves exactly the guard and the root UPDATE onto the captured PK", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
     const client = makeClient(driver);
     try {
@@ -543,7 +546,7 @@ describe("the batch root address, statement by statement", () => {
  */
 describe("located-parent Ref staleness injection", () => {
   const setupDb = async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = makeClient(new PGliteDriver({ client: db }));
     await syncLiveSchema(stateClient);
     await seed(stateClient);
@@ -614,7 +617,7 @@ describe("located-parent Ref staleness injection", () => {
     "one corrupted member of a COMPOUND reference moves the whole tuple",
     { timeout: 30_000 },
     async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const stateClient = makeClient(new PGliteDriver({ client: db }));
       await syncLiveSchema(stateClient);
       await stateClient.owner.create({

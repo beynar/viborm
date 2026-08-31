@@ -9,6 +9,9 @@ import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * T3b-2 family C witnesses — a m2m junction create/update/upsert
  * target whose data carries its OWN relations folds them one level deeper against the
@@ -101,7 +104,7 @@ async function run(
   arm: Arm,
   act: (client: Record<string, any>) => Promise<unknown>
 ) {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeClient(db);
   await syncLiveSchema(client as any);
   await seed(client);

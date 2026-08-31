@@ -59,7 +59,7 @@ function liveClient() {
 describe("migration v1 apply", () => {
   test("dry-run authenticates the path and writes nothing", async () => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = clientFor(sqliteEstateDriver());
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const preview = await migrations.apply({ dryRun: true });
@@ -68,7 +68,6 @@ describe("migration v1 apply", () => {
     expect(preview.statements.length).toBeGreaterThan(0);
     const status = await migrations.status();
     expect(status.control).toBe("absent");
-    await client.$disconnect();
   });
 
   test("apply executes the authenticated path and a second apply is a no-op", async () => {
@@ -79,10 +78,74 @@ describe("migration v1 apply", () => {
     const applied = await migrations.apply();
     expect(applied.outcome).toBe("applied");
     expect(applied.path).toEqual([generated.stateId]);
+    await expect(migrations.apply({ dryRun: true })).resolves.toEqual({
+      outcome: "noop",
+      path: [],
+      statements: [],
+    });
     const again = await migrations.apply();
     expect(again.outcome).toBe("noop");
     const verified = await migrations.verify();
     expect(verified.ok).toBe(true);
+    await client.$disconnect();
+  });
+
+  test("apply proves drift before returning a same-target no-op", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = liveClient();
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({ name: "init" });
+    await migrations.apply();
+    await client.$driver._executeRaw(
+      'ALTER TABLE "user" ADD COLUMN "outside" TEXT'
+    );
+
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DRIFT,
+    });
+    await client.$disconnect();
+  });
+
+  test("ordinary apply refuses an occupied target without a marker", async () => {
+    const storage = new MemoryEstateStorage();
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({ schema: { user }, driver });
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({ name: "init" });
+    await driver._executeRaw('CREATE TABLE "outside" ("id" TEXT PRIMARY KEY)');
+
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("empty managed target"),
+    });
+    await client.$disconnect();
+  });
+
+  test("origin checks refuse before the first stored dispatch", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = liveClient();
+    const migrations = createMigrationClient(client, { storage });
+    await migrations.generate({
+      name: "guarded",
+      manualMigration: {
+        transitions: [
+          {
+            from: null,
+            execution: "transactional",
+            up: [sql`SELECT 'must not run'`],
+            originChecks: [
+              { kind: "trusted-read", query: sql`SELECT 0`, equals: true },
+            ],
+            rollback: { kind: "irreversible", reason: "test" },
+          },
+        ],
+      },
+    });
+
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DRIFT,
+      message: expect.stringContaining("Origin checks"),
+    });
     await client.$disconnect();
   });
 
@@ -104,7 +167,7 @@ describe("migration v1 apply", () => {
 
   test("a missing SQL blob on the selected path fails before the first effect", async () => {
     const storage = new MemoryEstateStorage();
-    const client = liveClient();
+    const client = clientFor(sqliteEstateDriver());
     const migrations = createMigrationClient(client, { storage });
     const generated = await migrations.generate({ name: "init" });
     if (!generated.sqlHash) throw new Error("expected published SQL");
@@ -116,7 +179,6 @@ describe("migration v1 apply", () => {
     await expect(migrations.apply({ dryRun: true })).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_CORRUPTION,
     });
-    await client.$disconnect();
   });
 });
 

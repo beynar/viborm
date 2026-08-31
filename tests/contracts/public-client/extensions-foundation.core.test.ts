@@ -1,4 +1,4 @@
-import { PGliteDriver } from "@drivers/pglite";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { ClientInitializationError, PendingOperationError } from "@errors";
 import {
   appendResolvedExtension,
@@ -6,6 +6,8 @@ import {
 } from "@extensions/chain";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createClient, defineExtension, s } from "@src/index";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +19,10 @@ const schema = { item, audit };
 const clients: Array<{ $disconnect(): Promise<void> }> = [];
 
 function baseClient() {
-  const client = createClient({ schema, driver: new PGliteDriver() });
+  const client = createClient({
+    schema,
+    driver: new SqlOnlyDriver(new PostgresAdapter(), "postgresql"),
+  });
   clients.push(client);
   return client;
 }
@@ -160,7 +165,7 @@ describe("client extension foundation", () => {
   it("threads the exact chain through derived and transaction engine scopes", () => {
     baseClient();
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    const driver = new PGliteDriver();
+    const driver = new PlanningDriver("postgresql");
     const root = new QueryEngine(driver, registry);
     const chain = appendResolvedExtension(
       undefined,
@@ -174,7 +179,7 @@ describe("client extension foundation", () => {
     );
 
     const derived = root.bind(driver, chain);
-    const transactionDriver = new PGliteDriver();
+    const transactionDriver = new PlanningDriver("postgresql");
     const transaction = derived.bind(transactionDriver);
     const sibling = root.bind(driver, siblingChain);
 
@@ -248,9 +253,14 @@ describe("client extension foundation", () => {
 
     for (const definition of [
       {},
+      { name: 1 },
       { name: " " },
       { name: "unknown-envelope", cliet: () => ({}) },
       { name: "unknown-model", model: { ghost: () => ({}) } },
+      {
+        name: "unknown-query-model",
+        query: { ghost: { findMany: () => Promise.resolve(null) } },
+      },
       {
         name: "unknown-operation",
         query: { item: { findManny: () => Promise.resolve(null) } },
@@ -263,6 +273,126 @@ describe("client extension foundation", () => {
     expect(() => applyUnsafe(once, { name: "once" })).toThrow(
       ClientInitializationError
     );
+  });
+
+  it("rejects malformed capability maps at the definition boundary", () => {
+    const base = baseClient();
+    const symbol = Symbol("hostile member");
+    const malformed: ReadonlyArray<readonly [unknown, string]> = [
+      [null, "Client extension must be an object"],
+      [[], "Client extension must be an object"],
+      [
+        { name: "symbol-envelope", [symbol]: () => undefined },
+        "unknown member",
+      ],
+      [
+        { name: "request-primitive", request: 1 },
+        "request must be a function or model map",
+      ],
+      [
+        { name: "request-symbol-model", request: { [symbol]: {} } },
+        "request contains a non-string model key",
+      ],
+      [
+        { name: "request-operation-map", request: { item: 1 } },
+        "request.item must be an operation map",
+      ],
+      [
+        {
+          name: "request-symbol-operation",
+          request: { item: { [symbol]: () => ({}) } },
+        },
+        "request.item contains a non-string operation key",
+      ],
+      [
+        {
+          name: "request-handler",
+          request: { item: { findMany: 1 } },
+        },
+        "request.item.findMany must be a function",
+      ],
+      [{ name: "model-primitive", model: 1 }, "model must be a model map"],
+      [
+        { name: "model-symbol", model: { [symbol]: () => ({}) } },
+        "model contains a non-string model key",
+      ],
+      [
+        { name: "model-factory", model: { item: 1 } },
+        "model.item must be a function",
+      ],
+      [
+        { name: "statement-handler", statement: 1 },
+        "statement must be a function",
+      ],
+      [{ name: "observe-handler", observe: 1 }, "observe must be a function"],
+      [{ name: "client-factory", client: 1 }, "client must be a function"],
+    ];
+
+    for (const [definition, message] of malformed) {
+      expect(() => applyUnsafe(base, definition)).toThrow(message);
+    }
+  });
+
+  it("attributes hostile nested definition inspection to its extension", () => {
+    const base = baseClient();
+    const nestedValues: unknown[] = [
+      {
+        name: "request-map-keys",
+        request: new Proxy(
+          {},
+          {
+            ownKeys() {
+              throw new Error("request keys failed");
+            },
+          }
+        ),
+      },
+      {
+        name: "request-model-read",
+        request: Object.defineProperty({}, "item", {
+          enumerable: true,
+          get() {
+            throw new Error("request model failed");
+          },
+        }),
+      },
+      {
+        name: "request-operation-keys",
+        request: {
+          item: new Proxy(
+            {},
+            {
+              ownKeys() {
+                throw new Error("operation keys failed");
+              },
+            }
+          ),
+        },
+      },
+      {
+        name: "request-operation-read",
+        request: {
+          item: Object.defineProperty({}, "findMany", {
+            enumerable: true,
+            get() {
+              throw new Error("operation failed");
+            },
+          }),
+        },
+      },
+    ];
+
+    for (const definition of nestedValues) {
+      try {
+        applyUnsafe(base, definition);
+        expect.unreachable();
+      } catch (error) {
+        expect(error).toBeInstanceOf(ClientInitializationError);
+        if (!(error instanceof ClientInitializationError)) throw error;
+        expect(error.message).toContain("Extension ");
+        expect(error.originalCause).toBeInstanceOf(Error);
+      }
+    }
   });
 
   it("wraps hostile definition and factory-result access with extension identity", () => {
@@ -298,6 +428,102 @@ describe("client extension foundation", () => {
       expect(error.message).toContain('Extension "hostile-methods"');
       expect(error.originalCause).toBeInstanceOf(Error);
     }
+  });
+
+  it("normalizes factory failures and hostile method records", () => {
+    const base = baseClient();
+    const methodSymbol = Symbol("hostile method");
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const definitions = [
+      {
+        name: "client-factory-throw",
+        client() {
+          // biome-ignore lint/style/useThrowOnlyError: hostile JavaScript can throw any value.
+          throw "client factory failed";
+        },
+      },
+      {
+        name: "model-factory-throw",
+        model: {
+          item() {
+            throw new Error("model factory failed");
+          },
+        },
+      },
+      {
+        name: "revoked-factory-throw",
+        client() {
+          // biome-ignore lint/style/useThrowOnlyError: hostile JavaScript can throw any value.
+          throw revoked.proxy;
+        },
+      },
+      { name: "client-result", client: () => 1 },
+      { name: "model-result", model: { item: () => 1 } },
+      {
+        name: "client-symbol-method",
+        client: () => ({ [methodSymbol]: () => undefined }),
+      },
+      {
+        name: "model-symbol-method",
+        model: { item: () => ({ [methodSymbol]: () => undefined }) },
+      },
+      {
+        name: "client-method-read",
+        client: () =>
+          Object.defineProperty({}, "$broken", {
+            enumerable: true,
+            get() {
+              throw new Error("client method failed");
+            },
+          }),
+      },
+      {
+        name: "model-method-read",
+        model: {
+          item: () =>
+            Object.defineProperty({}, "broken", {
+              enumerable: true,
+              get() {
+                throw new Error("model method failed");
+              },
+            }),
+        },
+      },
+    ];
+
+    for (const definition of definitions) {
+      expect(() => applyUnsafe(base, definition)).toThrow(
+        ClientInitializationError
+      );
+    }
+  });
+
+  it("reuses unchanged compiled lookups across method-only extensions", () => {
+    const withHandlers = appendResolvedExtension(
+      undefined,
+      {
+        name: "handlers",
+        request: { item: { findMany: () => ({}) } },
+        query: { item: { findMany: async () => [] } },
+        statement: ({ statement }: { statement: unknown }) => statement,
+        observe: () => undefined,
+      },
+      schema
+    );
+    const withMethods = appendResolvedExtension(
+      withHandlers,
+      {
+        name: "methods-only",
+        client: () => ({ $ready: () => true }),
+      },
+      schema
+    );
+
+    expect(withMethods.request).toBe(withHandlers.request);
+    expect(withMethods.query).toBe(withHandlers.query);
+    expect(withMethods.statement).toBe(withHandlers.statement);
+    expect(withMethods.observe).toBe(withHandlers.observe);
   });
 
   it("runs factories once for each concrete root and transaction view", async () => {
@@ -414,5 +640,39 @@ describe("client extension foundation", () => {
     await expect(
       first.$transaction([second.item.findMany()])
     ).rejects.toBeInstanceOf(PendingOperationError);
+  });
+});
+
+describe("coverage low value", () => {
+  it("returns no handlers for an absent compiled chain", () => {
+    expect(
+      lookupResolvedExtensionHandlers(
+        undefined,
+        "query",
+        "item",
+        "findMany"
+      )
+    ).toBeUndefined();
+  });
+
+  it("attributes an unreadable root definition before its name exists", () => {
+    const definition = new Proxy(
+      { name: "unreadable" },
+      {
+        ownKeys() {
+          throw new Error("definition keys are unreadable");
+        },
+      }
+    );
+
+    try {
+      applyUnsafe(baseClient(), definition);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ClientInitializationError);
+      expect(error).toMatchObject({
+        message: "Client extension members could not be inspected.",
+      });
+    }
   });
 });

@@ -136,6 +136,10 @@ interface OperationResolution {
   operation?: RoutedExecutableOperation;
 }
 
+type ResolvedPrepareOptions = Readonly<
+  PrepareOptions & { readonly originalOperation: string }
+>;
+
 const OR_THROW_SUFFIX = "OrThrow";
 const pendingOperationConstruction = Object.freeze({});
 
@@ -165,7 +169,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   readonly #args: Record<string, unknown>;
   readonly #modelName: string;
   readonly #operation: Operation;
-  readonly #options: PrepareOptions;
+  readonly #options: ResolvedPrepareOptions;
 
   readonly #execution: PendingExecution<T>;
   readonly #deferredExecution: DeferredExecution<T> | undefined;
@@ -227,9 +231,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       operation: (operation) => operation.#operation,
       context: (operation) => operation.#context.attribution,
       requiresInterception: (operation) => {
-        const requestedOperation = String(
-          operation.#options.originalOperation ?? operation.#operation
-        );
+        const requestedOperation = String(operation.#options.originalOperation);
         const requestHandlers = lookupResolvedExtensionHandlers(
           operation.#engine.extensionChain,
           "request",
@@ -261,9 +263,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         if (registration !== undefined) outcomes.stage(registration);
       },
       startInterception: (operation, child, outcomes, control) => {
-        const requestedOperation = String(
-          operation.#options.originalOperation ?? operation.#operation
-        );
+        const requestedOperation = String(operation.#options.originalOperation);
         const handlers = lookupResolvedExtensionHandlers(
           operation.#engine.extensionChain,
           "query",
@@ -308,9 +308,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
           )
         ),
       isWrite: (operation) =>
-        !isReadOperation(
-          String(operation.#options.originalOperation ?? operation.#operation)
-        ),
+        !isReadOperation(String(operation.#options.originalOperation)),
       hasObservation: (operation) =>
         (operation.#engine.extensionChain?.observe.length ?? 0) > 0,
       observe: (operation, child, readCompletionFacts) => {
@@ -318,7 +316,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         if (observers === undefined || observers.length === 0) return child();
         return observeOperation(
           observers,
-          String(operation.#options.originalOperation ?? operation.#operation),
+          String(operation.#options.originalOperation),
           operation.#modelName,
           child,
           readCompletionFacts,
@@ -338,9 +336,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         return operation.#execution.executeWith(driver, () =>
           observeOperation(
             observers,
-            String(
-              operation.#options.originalOperation ?? operation.#operation
-            ),
+            String(operation.#options.originalOperation),
             operation.#modelName,
             () => operation.#runCoreExecution(driver),
             () =>
@@ -501,7 +497,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     const operation = constructRoutedOperation(
       this.#engine,
       this.#model,
-      this.#options.originalOperation ?? this.#operation,
+      this.#options.originalOperation,
       this.#resolveArgs()
     );
     if (!operation) {
@@ -559,7 +555,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       }
       return observeOperation(
         observers,
-        String(this.#options.originalOperation ?? this.#operation),
+        String(this.#options.originalOperation),
         this.#modelName,
         () => this.#runExecution(),
         () =>
@@ -576,7 +572,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       this.#engine.driver,
       this.#context.attribution,
       this.#modelName,
-      String(this.#options.originalOperation ?? this.#operation),
+      String(this.#options.originalOperation),
       String(this.#operation),
       this.#model["~"].names.sql ?? this.#modelName,
       isCacheManagedExecution(this.#options)
@@ -591,9 +587,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     const observerCommitted = this.#observationNotification("committed");
     const observerMayHaveCommitted =
       this.#observationNotification("may-have-committed");
-    const requestedOperation = String(
-      this.#options.originalOperation ?? this.#operation
-    );
+    const requestedOperation = String(this.#options.originalOperation);
     const handlers = lookupResolvedExtensionHandlers(
       this.#engine.extensionChain,
       "query",

@@ -24,8 +24,8 @@ import type {
   OperationResult,
   Operations,
 } from "@client/types";
-import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import type { testUser } from "@tests/fixtures/schema.js";
 import { describe, expectTypeOf, test } from "vitest";
 
@@ -314,7 +314,7 @@ describe("a select that may be undefined is the union of both arms", () => {
 describe("the discriminant at a real call site", () => {
   const client = createClient({
     schema: { widget },
-    driver: new PGliteDriver(),
+    driver: new PlanningDriver("postgresql"),
   });
 
   const withUnionSelect = (select: { id: true } | undefined) =>

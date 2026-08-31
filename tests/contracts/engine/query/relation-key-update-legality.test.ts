@@ -3,6 +3,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
@@ -270,7 +271,7 @@ async function runScenario(
   mode: "batch" | "live",
   scenario: Scenario
 ): Promise<Outcome> {
-  const database = new PGlite();
+  const database = openTestPGlite();
   const driver =
     mode === "live"
       ? new PGliteDriver({ client: database })
@@ -701,7 +702,7 @@ describe("relation-key update legality", () => {
   });
 
   test("pins an empty setNull slot until the parent update executes", async () => {
-    const database = new PGlite();
+    const database = openTestPGlite();
     const driver = new MissingSlotRaceBatchDriver(
       database,
       async (plantingClient) => {

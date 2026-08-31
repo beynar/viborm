@@ -9,6 +9,9 @@ import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
 function makeClient(schema: Schema, db: PGlite) {
@@ -26,7 +29,7 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const base = makeClient(schema, db);
   await syncLiveSchema(base as never);
   await seed(base);

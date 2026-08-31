@@ -161,6 +161,16 @@ Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 
 ## Validation
 
+Cache `*.core.test.ts` files must not allocate a live database provider. Use a
+deterministic recording driver for cache semantics and keep provider-backed
+witnesses in the adjacent extended/provider lane. A suite that supplies a
+provider transport owns closing it; client `$disconnect()` does not transfer
+that ownership.
+
 Run the focused cache/client contract first, then the cache, client,
 query-engine, driver, and instrumentation layer gates sequentially. Never
-overlap Vitest or TypeScript processes.
+overlap Vitest or TypeScript processes. `pnpm test:coverage:cache` is the exact
+cache-subsystem report. Its `coverage-cache` project admits every cache core
+file plus the deterministic official extension, instrumentation, SWR, and
+protected-observer public contracts, and rejects resource-owning imports. It
+requires 98% in all four metrics and writes `coverage/cache/index.html`.

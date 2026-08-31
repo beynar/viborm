@@ -139,12 +139,23 @@ export type RequestTransform<
   ) => RequestTransformPatch<Operation, Input>
 >;
 
-interface DescriptorState {
-  readonly keys: PropertyKey[];
-  readonly descriptors: PropertyDescriptor[];
+interface DescriptorEntry {
+  readonly key: PropertyKey;
+  readonly descriptor: PropertyDescriptor;
 }
 
+type DescriptorState = DescriptorEntry[];
+
 const EMPTY_REQUEST_INPUT: Readonly<Record<string, never>> = Object.freeze({});
+
+function hasRequestTransforms(
+  transforms: readonly ResolvedExtensionHandler[] | undefined
+): transforms is readonly [
+  ResolvedExtensionHandler,
+  ...ResolvedExtensionHandler[],
+] {
+  return transforms !== undefined && transforms.length > 0;
+}
 
 /**
  * Apply an operation's synchronous request transforms without validating the
@@ -183,9 +194,8 @@ export function applyRequestTransforms<
     | readonly ResolvedExtensionHandler[]
     | undefined
 ): Input | Record<string, unknown> | undefined {
-  if (transforms === undefined || transforms.length === 0) return input;
+  if (!hasRequestTransforms(transforms)) return input;
   const firstTransform = transforms[0];
-  if (firstTransform === undefined) return input;
 
   const descriptors = readOwnDescriptors(
     input ?? EMPTY_REQUEST_INPUT,
@@ -197,9 +207,7 @@ export function applyRequestTransforms<
     descriptors,
     operation
   );
-  for (let index = 0; index < transforms.length; index += 1) {
-    const transform = transforms[index];
-    if (transform === undefined) continue;
+  for (const [index, transform] of transforms.entries()) {
     const context: RequestTransformContext<Operation, Input> = Object.freeze({
       model,
       operation,
@@ -286,12 +294,11 @@ function mergePatch(
       if (isResultShapeKey(operation, key)) continue;
       const descriptor = Object.getOwnPropertyDescriptor(patch, key);
       if (!descriptor) continue;
-      const existingIndex = state.keys.indexOf(key);
+      const existingIndex = state.findIndex((entry) => entry.key === key);
       if (existingIndex === -1) {
-        state.keys.push(key);
-        state.descriptors.push(descriptor);
+        state.push({ key, descriptor });
       } else {
-        state.descriptors[existingIndex] = descriptor;
+        state[existingIndex] = { key, descriptor };
       }
       changed = true;
     }
@@ -314,18 +321,13 @@ function readOwnDescriptors<Operation extends Operations>(
   operation: Operation
 ): DescriptorState {
   try {
-    const keys = Reflect.ownKeys(value);
-    const descriptors: PropertyDescriptor[] = [];
-    let retainedKeys = 0;
-    for (const key of keys) {
+    const state: DescriptorState = [];
+    for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (descriptor === undefined) continue;
-      keys[retainedKeys] = key;
-      retainedKeys += 1;
-      descriptors.push(descriptor);
+      state.push({ key, descriptor });
     }
-    keys.length = retainedKeys;
-    return { keys, descriptors };
+    return state;
   } catch (cause) {
     throw transformFailure(
       transform.extension,
@@ -362,12 +364,8 @@ function materializeDescriptors(
   state: DescriptorState,
   operation?: Operations
 ): Record<string, unknown> | undefined {
-  const descriptors = state.descriptors;
   let value: Record<string, unknown> | undefined;
-  for (let index = 0; index < state.keys.length; index += 1) {
-    const key = state.keys[index];
-    const descriptor = descriptors[index];
-    if (key === undefined || descriptor === undefined) continue;
+  for (const { key, descriptor } of state) {
     if (operation !== undefined && isResultShapeKey(operation, key)) continue;
     value ??= {};
     Object.defineProperty(value, key, descriptor);

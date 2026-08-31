@@ -113,6 +113,19 @@ class ContinuationIdentityDriver extends SQLite3Driver {
   }
 }
 
+class ThrowingFieldDriver extends SQLite3Driver {
+  override readonly result: DriverResultParser;
+
+  constructor(failure: unknown) {
+    super();
+    this.result = {
+      parseField: () => {
+        throw failure;
+      },
+    };
+  }
+}
+
 const scalarModel = s.model({
   id: s.string().id(),
   text: s.string(),
@@ -128,10 +141,13 @@ const scalarModel = s.model({
   large: s.bigInt(),
   flag: s.boolean(),
   happenedAt: s.dateTime(),
+  epochTime: s.dateTime({ db: "sqlite", type: "INTEGER" }),
+  julianTime: s.dateTime({ db: "sqlite", type: "REAL" }),
   bornOn: s.date(),
   wakeAt: s.time(),
   statusA: s.enum(["open"]),
   statusB: s.enum(["closed"]),
+  statuses: s.enum(["plain", "a,b", 'a"b', "a\\b"]).array(),
   texts: s.string().array(),
   integers: s.int().array(),
   flags: s.boolean().array(),
@@ -214,6 +230,9 @@ describe("strict scalar result contracts", () => {
     expect(
       parseField("happenedAt", "2026-07-10 12:30:45.123", new MySQLAdapter())
     ).toEqual(new Date("2026-07-10T12:30:45.123Z"));
+    expect(parseField("happenedAt", "2026-07-10T12:30:45.123")).toEqual(
+      new Date("2026-07-10T12:30:45.123Z")
+    );
     expect(parseField("happenedAt", "0000-01-01T23:59:59.999+23:59")).toEqual(
       new Date("0000-01-01T00:00:59.999Z")
     );
@@ -238,6 +257,103 @@ describe("strict scalar result contracts", () => {
     expect(parseField("wakeAt", "13:45:30.123000+00")).toBe("13:45:30.123");
     expect(parseField("nullableText", null)).toBeNull();
     expect(parseField("jsonValue", null)).toBeNull();
+  });
+
+  test("rejects present scalar columns whose provider value is absent", () => {
+    expect(() => parseField("text", undefined)).toThrow(STRING_ERROR_PATTERN);
+    expect(() => parseField("money", undefined)).toThrow(
+      DECIMAL_ERROR_PATTERN
+    );
+    expect(() => parseField("amounts", undefined)).toThrow(
+      DECIMAL_ERROR_PATTERN
+    );
+  });
+
+  test("captures nullable row keys in their private null form", () => {
+    const parser = createScalarContext();
+    const [rows, rowKeys] = parser.parseRowsWithRowKeys<
+      Record<string, unknown>[]
+    >(
+      "findMany",
+      [{ maybeMoney: null, nullableText: null }],
+      { select: { maybeMoney: true, nullableText: true } },
+      ["maybeMoney", "nullableText"]
+    );
+
+    expect(rows).toEqual([{ maybeMoney: null, nullableText: null }]);
+    expect(rowKeys).toEqual([{ maybeMoney: null, nullableText: null }]);
+  });
+
+  test("decodes each declared numeric SQLite DateTime form", () => {
+    expect(parseField("epochTime", 0, new SQLiteAdapter())).toEqual(
+      new Date("1970-01-01T00:00:00.000Z")
+    );
+    expect(parseField("julianTime", 2_440_587.5, new SQLiteAdapter())).toEqual(
+      new Date("1970-01-01T00:00:00.000Z")
+    );
+    expect(() =>
+      parseField("epochTime", "0", new SQLiteAdapter())
+    ).toThrow(/datetime/i);
+    expect(() =>
+      parseField("julianTime", "2440587.5", new SQLiteAdapter())
+    ).toThrow(/datetime/i);
+  });
+
+  test("translates provider scalar decoder failures without hiding VibORM errors", () => {
+    const privateFailure = new Error("private-provider-value");
+    const throwingDriver = new ThrowingFieldDriver(privateFailure);
+    const translated = captureParserError(() =>
+      parseResult(
+        parserFor(throwingDriver.adapter, scalarModel, throwingDriver),
+        "findMany",
+        [{ text: "value" }],
+        { select: { text: true } }
+      )
+    );
+    expect(translated.message).not.toContain(privateFailure.message);
+
+    const decimalFailure = new Error("private-decimal-provider-value");
+    const decimalDriver = new ThrowingFieldDriver(decimalFailure);
+    const translatedDecimal = captureParserError(() =>
+      parseResult(
+        parserFor(decimalDriver.adapter, scalarModel, decimalDriver),
+        "findMany",
+        [{ money: "1234" }],
+        { select: { money: true } }
+      )
+    );
+    expect(translatedDecimal.message).not.toContain(decimalFailure.message);
+
+    const decimalListFailure = new Error("private-decimal-list-provider-value");
+    const decimalListDriver = new ThrowingFieldDriver(decimalListFailure);
+    const translatedDecimalList = captureParserError(() =>
+      parseResult(
+        parserFor(decimalListDriver.adapter, scalarModel, decimalListDriver),
+        "findMany",
+        [{ amounts: ["1.20"] }],
+        { select: { amounts: true } }
+      )
+    );
+    expect(translatedDecimalList.message).not.toContain(
+      decimalListFailure.message
+    );
+
+    const vibormFailure = new QueryEngineError("owned decoder failure");
+    const driver = new ThrowingFieldDriver(vibormFailure);
+    for (const { field, value } of [
+      { field: "text", value: "value" },
+      { field: "money", value: "1234" },
+      { field: "amounts", value: ["1.20"] },
+    ]) {
+      expect(() =>
+        parseResult(
+          parserFor(driver.adapter, scalarModel, driver),
+          "findMany",
+          [{ [field]: value }],
+          { select: { [field]: true } }
+        )
+      ).toThrow(vibormFailure);
+    }
   });
 
   test("keeps distinct enum contracts isolated by scalar identity", () => {
@@ -275,10 +391,37 @@ describe("strict scalar result contracts", () => {
     );
     expect(() => parseField("integers", [1, "wat"])).toThrow(INT_ERROR_PATTERN);
     expect(() => parseField("texts", [null])).toThrow(STRING_ERROR_PATTERN);
+    expect(() => parseField("texts", [undefined])).toThrow(
+      STRING_ERROR_PATTERN
+    );
     expect(() => parseField("texts", null)).toThrow(LIST_ERROR_PATTERN);
 
     const sparse = new Array<unknown>(1);
     expect(() => parseField("texts", sparse)).toThrow(SPARSE_ERROR_PATTERN);
+  });
+
+  test("parses the PostgreSQL enum-array output grammar without JSON coercion", () => {
+    expect(
+      parseField(
+        "statuses",
+        String.raw`{plain,"a,b","a\"b","a\\b"}`,
+        new PostgresAdapter()
+      )
+    ).toEqual(["plain", "a,b", 'a"b', "a\\b"]);
+    expect(parseField("statuses", "{}", new PostgresAdapter())).toEqual([]);
+  });
+
+  test.each([
+    ["missing braces", "plain,a,b"],
+    ["unterminated quote", '{"plain}'],
+    ["empty member", "{plain,,a}"],
+    ["trailing delimiter", "{plain,}"],
+    ["text after a quoted member", '{"plain"x}'],
+    ["null member", "{plain,NULL}"],
+  ])("rejects malformed PostgreSQL enum-array output: %s", (_label, value) => {
+    expect(() =>
+      parseField("statuses", value, new PostgresAdapter())
+    ).toThrow();
   });
 
   test.each([
@@ -297,6 +440,18 @@ describe("strict scalar result contracts", () => {
     ["invalid datetime", "happenedAt", "not-a-date", "datetime"],
     ["rollover datetime", "happenedAt", "2024-02-30T10:00:00Z", "datetime"],
     ["hour-24 datetime", "happenedAt", "2024-02-29T24:00:00Z", "datetime"],
+    [
+      "zoned datetime with a space separator",
+      "happenedAt",
+      "2024-02-29 12:00:00+00:00",
+      "datetime",
+    ],
+    [
+      "datetime timezone outside the domain",
+      "happenedAt",
+      "2024-02-29T12:00:00+24:00",
+      "datetime",
+    ],
     [
       "datetime below the public range",
       "happenedAt",
@@ -338,6 +493,7 @@ describe("strict scalar result contracts", () => {
     ["numeric date", "bornOn", 0, "date"],
     ["object time", "wakeAt", { hour: 1 }, "time"],
     ["invalid time", "wakeAt", "25:00:00", "time"],
+    ["invalid time zone hour", "wakeAt", "12:00:00+24:00", "time"],
     ["excess time precision", "wakeAt", "12:00:00.1234", "time"],
     ["numeric string scalar", "text", 1, "string"],
     ["unknown enum member", "statusA", "closed", "enum"],
@@ -591,6 +747,17 @@ describe("strict scalar result contracts", () => {
       "ordinary scalar text"
     );
   });
+
+  test("refuses a distance projection that collides with a real _distance scalar", () => {
+    expect(() =>
+      parseResult(createScalarContext(), "findMany", [], {
+        select: {
+          _distance: true,
+          vector3: { _distance: { to: [0, 0, 0] } },
+        },
+      })
+    ).toThrow(/distance result/i);
+  });
 });
 
 /**
@@ -700,6 +867,23 @@ describe("decimal results are fresh exact values", () => {
         DECIMAL_ERROR_PATTERN
       );
     }
+  });
+
+  test("a SQLite driver decodes coefficient decimals through its field chain", () => {
+    const driver = new SQLite3Driver();
+    const [row] = parseResult<Record<string, unknown>[]>(
+      parserFor(driver.adapter, scalarModel, driver),
+      "findMany",
+      [{ money: "1234", maybeMoney: null }],
+      { select: { money: true, maybeMoney: true } }
+    );
+
+    expect(row?.money).toBeInstanceOf(Decimal);
+    expect(row?.maybeMoney).toBeNull();
+    if (!(row?.money instanceof Decimal)) {
+      throw new Error("Expected the SQLite decimal to materialize.");
+    }
+    expect(row.money.eq("12.34")).toBe(true);
   });
 
   test.each([

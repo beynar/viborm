@@ -17,6 +17,9 @@ import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 hydrateSchemaNames(junctionSkipAdoptSchema);
 
 /** The ONE sentence both root-conflict readers construct (`strandedRootConflictPrefix`). */
@@ -147,7 +150,7 @@ describe("root-first junction suppression on batch-only substrates", () => {
 
   for (const [substrate, createDriver] of substrates) {
     test(`${substrate} suppresses only the duplicate root and lands its sibling`, async () => {
-      const database = new PGlite();
+      const database = openBorrowedPGlite();
       const state = createClient({
         schema: junctionSkipAdoptSchema,
         driver: new PGliteDriver({ client: database }),
@@ -230,7 +233,7 @@ const progressiveSkipSchema = (() => {
 
 describe("nested root-first suppression keeps each progressive guard exact", () => {
   test("an outer scalar prefix and nested updateMany both land", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema: progressiveSkipSchema,
       driver: new PGliteDriver({ client: database }),
@@ -292,7 +295,7 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
   }, 60_000);
 
   test("junction updateMany lands its prefix without linking the skipped root", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema: progressiveSkipSchema,
       driver: new PGliteDriver({ client: database }),
@@ -393,7 +396,7 @@ describe("replayable defaults are evaluated for each selected member", () => {
   test("a default is reparsed after the committed prefix", async () => {
     const replay = { complete: false };
     const schema = alternatingDefaultSkipSchema(replay);
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema,
       driver: new PGliteDriver({ client: database }),
@@ -747,7 +750,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
    * would be observable.
    */
   test("PREFLIGHT: a planning member that promises a pre-root write refuses before member zero commits", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema: collectionBulkSchema,
       driver: new PGliteDriver({ client: database }),
@@ -834,7 +837,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
    * is still there afterwards, unreplayed and unrolled-back.
    */
   test("§10.2 — a failing successor reports exact progress and leaves the collection prefix committed", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const state = createClient({
       schema: collectionBulkSchema,
       driver: new PGliteDriver({ client: database }),

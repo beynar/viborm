@@ -824,12 +824,6 @@ export class RelationJunctionPart implements JunctionCompilePart {
               this.plan.slots,
               resolvedMemberships
             );
-      default: {
-        const exhaustive: never = this.plan;
-        throw new QueryEngineError(
-          `query-engine-v2 junction part has no compile for '${String(exhaustive)}'.`
-        );
-      }
     }
   }
 
@@ -3105,12 +3099,6 @@ export function buildJunctionParts(input: {
           );
         }
         break;
-      }
-      default: {
-        const exhaustive: never = entry;
-        throw new QueryEngineError(
-          `query-engine-v2 junction part has no builder for '${String(exhaustive)}'.`
-        );
       }
     }
   }

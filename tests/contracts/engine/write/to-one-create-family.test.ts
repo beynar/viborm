@@ -27,6 +27,9 @@ import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 // Two parent-held to-one relations on one record, BOTH referencing `account` —
 // the crossRelationTargetSchema of nested-write-conformance, the sibling-coupling
 // witness the incident lives in.
@@ -450,7 +453,7 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 // ---------------------------------------------------------------------------
 describe("write boundary to-one create family: T1 pin falsifications", () => {
   test("connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = createClient({
       schema: opf,
       driver: new PGliteDriver({ client: db }),
@@ -495,7 +498,7 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
     // A provided-PK target (nb.user.id is a string PK) so a concurrent create can
     // collide on the SAME key. The missing-arm INSERT's unique violation is the
     // raceable signal; the observed retry re-plans, finds the row, and adopts it.
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = createClient({
       schema: nb,
       driver: new PGliteDriver({ client: db }),

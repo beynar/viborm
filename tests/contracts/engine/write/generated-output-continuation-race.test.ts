@@ -15,6 +15,9 @@ import {
 } from "vitest";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const continuationRaceSchema = (() => {
   const account = s
     .model({
@@ -77,7 +80,7 @@ function clientFor(driver: MoveGeneratedCodeAfterProducerDriver) {
 }
 
 describe("generated-output continuation premise", () => {
-  const database = new PGlite();
+  const database = openBorrowedPGlite();
   const driver = new MoveGeneratedCodeAfterProducerDriver({ client: database });
   const client = clientFor(driver);
 

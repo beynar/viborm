@@ -322,7 +322,7 @@ describe("official cache instrumentation", () => {
         )
       );
       expect(scheduleCalls).toBe(2);
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => setImmediate(resolve));
       expect(unhandled).toEqual([]);
     } finally {
       process.off("unhandledRejection", onUnhandledRejection);

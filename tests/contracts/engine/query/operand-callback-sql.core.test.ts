@@ -3,7 +3,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
 import {
@@ -17,6 +17,7 @@ import { createSchemaRegistry } from "@validation";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { beforeAll, describe, expect, test } from "vitest";
 import { createModelFieldRefs as rootCreateModelFieldRefs } from "@src/index";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
 
 /**
@@ -42,38 +43,6 @@ const { post: Post, user: User } = schema;
 /** The operand callback context of each model — `ctx.fields` keyed to it. */
 type PostCtx = OperandCtx<typeof Post>;
 type UserCtx = OperandCtx<typeof User>;
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `operand-callback-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // No external client is allocated by this SQL-only driver.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 beforeAll(() => hydrateSchemaNames(schema));
 
@@ -114,7 +83,7 @@ function createEngine(dialectCase: DialectCase): QueryEngine {
   const adapter = dialectCase.createAdapter();
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
   return new QueryEngine(
-    new MockDriver(adapter, dialectCase.dialect),
+    new SqlOnlyDriver(adapter, dialectCase.dialect),
     registry
   );
 }
@@ -756,7 +725,7 @@ describe("operand typing", () => {
   const typedClient = () =>
     createClient({
       schema,
-      driver: new MockDriver(new PostgresAdapter(), "postgresql"),
+      driver: new SqlOnlyDriver(new PostgresAdapter(), "postgresql"),
     });
 
   test("`ctx` is inferred — the model in scope needs no annotation", () => {

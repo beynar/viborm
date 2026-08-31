@@ -175,9 +175,10 @@ native forms because every list uses its dialect's one list container. A scalar
 and a list never form a legal stored reference, even when their scalar type
 names match.
 
-Use `pnpm test:coverage:schema-validation` for the memory-capped L5 report. It
-gates statements, branches, functions, and lines at 100% and writes
-`coverage/schema-validation/index.html`.
+Use `pnpm test:coverage:schema` for the memory-capped schema-subsystem report.
+It gates statements, branches, functions, and lines at 100% and writes
+`coverage/schema/index.html`. Definition-time validation shares that single
+schema denominator; there is no separate schema-validation coverage command.
 
 ### Rule 7: GeoPoint Roles Are Fixed at Definition Time
 
@@ -197,9 +198,8 @@ TypeScript and SQL names and relation sources once before downstream layers use
 the schema. These two root-schema modules are owned by the L2 core; relation
 semantics remain in L4.
 
-Use `pnpm test:coverage:schema` for their one-worker, memory-capped report. It
-gates statements, branches, functions, and lines at 100% and writes
-`coverage/schema/index.html`.
+Use `pnpm test:coverage:schema` for the one-worker, memory-capped report. It
+gates the whole schema subsystem at 100% and writes `coverage/schema/index.html`.
 
 ---
 

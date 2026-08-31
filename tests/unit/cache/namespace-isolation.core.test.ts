@@ -16,25 +16,17 @@
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import type { CacheEntry } from "@cache/driver";
 import { cache as cacheExtension } from "@cache/extension";
 import { createOfficialCacheNamespace } from "@cache/key";
 import { createClient } from "@client/client";
-import { Driver, type QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
 import { instrumentation } from "@instrumentation/extension";
 import { s } from "@schema";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { createTestClock } from "@tests/fixtures/test-clock";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { describe, expect, test } from "vitest";
 
 const account = s
   .model({
@@ -107,35 +99,67 @@ class ObservableCache extends ClockedMemoryCache {
   }
 }
 
-let database: PGlite;
-
 const rowsFor = (tenant: Tenant) => [{ id: `${tenant}-1`, label: tenant }];
 
-beforeAll(async () => {
-  database = new PGlite();
-  for (const tenant of TENANTS) {
-    await database.exec(`CREATE SCHEMA "${tenant}"`);
-    await database.exec(
-      `CREATE TABLE "${tenant}"."cache_ns_accounts" ("id" TEXT PRIMARY KEY, "label" TEXT NOT NULL)`
-    );
-  }
-});
+type AccountRow = ReturnType<typeof rowsFor>[number];
 
-beforeEach(async () => {
-  for (const tenant of TENANTS) {
-    await database.exec(`TRUNCATE TABLE "${tenant}"."cache_ns_accounts"`);
-    for (const row of rowsFor(tenant)) {
-      await database.exec(
-        `INSERT INTO "${tenant}"."cache_ns_accounts" VALUES ('${row.id}', '${row.label}')`
-      );
-    }
-  }
-});
+/** A deterministic row source whose only identity fact is its namespace. */
+class NamespaceRowsDriver extends Driver<object, object> {
+  readonly adapter: DatabaseAdapter;
+  readonly rows: AccountRow[];
 
-afterAll(async () => {
-  // The database is supplied here, so this suite owns closing it.
-  await database.close();
-});
+  constructor(
+    namespace: string,
+    rows: AccountRow[],
+    dialect: "postgresql" | "mysql" = "postgresql"
+  ) {
+    super(dialect, `cache-namespace-${dialect}`);
+    this.rows = rows;
+    this.adapter =
+      dialect === "postgresql"
+        ? new PostgresAdapter(namespace)
+        : new MySQLAdapter(namespace);
+    this.client = {};
+  }
+
+  protected async initClient(): Promise<object> {
+    return {};
+  }
+
+  protected async closeClient(): Promise<void> {
+    // This fixture owns no provider resource.
+  }
+
+  protected async execute<T>(
+    _client: object,
+    statement: string,
+    _params: unknown[],
+    _context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    const selected: T[] = statement.trimStart().startsWith("SELECT")
+      ? JSON.parse(JSON.stringify(this.rows))
+      : statement.includes("RETURNING")
+        ? JSON.parse(JSON.stringify(this.rows.slice(0, 1)))
+        : [];
+    return { rows: selected, rowCount: selected.length || 1 };
+  }
+
+  protected executeRaw<T>(
+    client: object,
+    statement: string,
+    params?: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.execute(client, statement, params ?? [], context);
+  }
+
+  protected transaction<T>(
+    client: object,
+    run: (transaction: object) => Promise<T>
+  ): Promise<T> {
+    return run(client);
+  }
+}
 
 /**
  * Two clients that differ ONLY in namespace, over one shared definition and one
@@ -157,10 +181,15 @@ function tenants(version?: string | number) {
     },
   });
 
+  const drivers: Record<Tenant, NamespaceRowsDriver> = {
+    alpha: new NamespaceRowsDriver("alpha", rowsFor("alpha")),
+    beta: new NamespaceRowsDriver("beta", rowsFor("beta")),
+  };
+
   const clientFor = (tenant: Tenant) =>
     createClient({
       schema,
-      driver: new PGliteDriver({ client: database, namespace: tenant }),
+      driver: drivers[tenant],
     })
       .$extends(definition)
       .$extends(
@@ -184,6 +213,9 @@ function tenants(version?: string | number) {
     clock,
     alpha: clientFor("alpha"),
     beta: clientFor("beta"),
+    insert: (tenant: Tenant, row: AccountRow) => {
+      drivers[tenant].rows.push(row);
+    },
     namespaceFor: (tenant: Tenant) =>
       createOfficialCacheNamespace({
         version,
@@ -232,7 +264,7 @@ describe("two namespaces over one cache definition and one backend", () => {
   });
 
   test("a manual invalidation in one namespace leaves the other's entry", async () => {
-    const { alpha, beta, backend, settle, namespaceFor } = tenants();
+    const { alpha, beta, backend, insert, settle, namespaceFor } = tenants();
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
     await beta.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
@@ -244,9 +276,7 @@ describe("two namespaces over one cache definition and one backend", () => {
 
     // Beta's rows change in the database. From here on, a beta read that
     // returns the ORIGINAL rows can only have come from beta's cache entry.
-    await database.exec(
-      `INSERT INTO "beta"."cache_ns_accounts" VALUES ('beta-2', 'beta')`
-    );
+    insert("beta", { id: "beta-2", label: "beta" });
 
     await alpha.$invalidate("account:*");
 
@@ -273,7 +303,7 @@ describe("two namespaces over one cache definition and one backend", () => {
   });
 
   test("an automatic mutation invalidation cannot evict a sibling namespace", async () => {
-    const { alpha, beta, backend, settle, namespaceFor } = tenants();
+    const { alpha, beta, backend, insert, settle, namespaceFor } = tenants();
 
     await alpha.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
     await beta.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
@@ -282,9 +312,7 @@ describe("two namespaces over one cache definition and one backend", () => {
       .storedKeys()
       .find((key) => key.startsWith(`${namespaceFor("beta")}:`));
     if (betaKey === undefined) throw new Error("no beta entry was stored");
-    await database.exec(
-      `INSERT INTO "beta"."cache_ns_accounts" VALUES ('beta-2', 'beta')`
-    );
+    insert("beta", { id: "beta-2", label: "beta" });
 
     await alpha.account.create({
       data: { id: "alpha-2", label: "alpha" },
@@ -306,6 +334,7 @@ describe("two namespaces over one cache definition and one backend", () => {
       beta,
       backend,
       clock,
+      insert,
       settle,
       nextRevalidation,
       namespaceFor,
@@ -322,9 +351,7 @@ describe("two namespaces over one cache definition and one backend", () => {
     expect(keysAfterSeed).toHaveLength(2);
 
     // Alpha's row set changes underneath, then its entry goes stale.
-    await database.exec(
-      `INSERT INTO "alpha"."cache_ns_accounts" VALUES ('alpha-2', 'alpha')`
-    );
+    insert("alpha", { id: "alpha-2", label: "alpha" });
     clock.advance(40);
     const revalidated = nextRevalidation();
     await expect(
@@ -397,10 +424,11 @@ describe("the scope survives further extension", () => {
 function siblingVersions(shortVersion: string, longVersion: string) {
   const backend = new ObservableCache(createTestClock());
   const background: Promise<unknown>[] = [];
+  const rows = rowsFor("alpha");
   const clientFor = (version: string) =>
     createClient({
       schema,
-      driver: new PGliteDriver({ client: database, namespace: "alpha" }),
+      driver: new NamespaceRowsDriver("alpha", rows),
     }).$extends(
       cacheExtension({
         driver: backend,
@@ -415,6 +443,9 @@ function siblingVersions(shortVersion: string, longVersion: string) {
     backend,
     short: clientFor(shortVersion),
     long: clientFor(longVersion),
+    insert: (row: AccountRow) => {
+      rows.push(row);
+    },
     namespaceFor: (version: string) =>
       createOfficialCacheNamespace({
         version,
@@ -429,10 +460,8 @@ function siblingVersions(shortVersion: string, longVersion: string) {
 
 describe("a clear-all stops at the scope that issued it", () => {
   test('$invalidate("*") cannot reach a version whose name it prefixes', async () => {
-    const { short, long, backend, settle, namespaceFor } = siblingVersions(
-      "a",
-      "ab"
-    );
+    const { short, long, backend, insert, settle, namespaceFor } =
+      siblingVersions("a", "ab");
 
     await short.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
     await long.$withCache({ ttl: 60_000 }).account.findMany(IDENTICAL_READ);
@@ -447,9 +476,7 @@ describe("a clear-all stops at the scope that issued it", () => {
 
     // The rows change underneath, so a later `ab` read that answers with the
     // ORIGINAL rows can only have come from that surviving entry.
-    await database.exec(
-      `INSERT INTO "alpha"."cache_ns_accounts" VALUES ('alpha-2', 'alpha')`
-    );
+    insert({ id: "alpha-2", label: "alpha" });
 
     await short.$invalidate("*");
 
@@ -561,10 +588,7 @@ describe("a forged dialect cannot address another dialect's scope", () => {
       driver: new TaggedMySQLDriver(),
     }).$extends(definition);
 
-    const postgresDriver = new PGliteDriver({
-      client: database,
-      namespace: "alpha",
-    });
+    const postgresDriver = new NamespaceRowsDriver("alpha", rowsFor("alpha"));
     // The forgery, performed BEFORE the composition root derives the scope.
     const relabelled = Reflect.set(postgresDriver, "dialect", "mysql");
     const postgres = createClient({

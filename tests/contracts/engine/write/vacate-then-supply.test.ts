@@ -12,6 +12,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const substrates = [
   {
     name: "transaction",
@@ -29,7 +32,7 @@ for (const substrate of substrates) {
     if (!shared) {
       shared = createClient({
         schema: vacateThenSupplySchema,
-        driver: substrate.make(new PGlite()),
+        driver: substrate.make(openBorrowedPGlite()),
       }) as any;
       await syncLiveSchema(shared);
     }
@@ -77,7 +80,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
   test("all 21 pairs and the empty payload land where this unit says they do", async () => {
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(client);
 
@@ -149,7 +152,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
   test("the six vacate + supplier + modify triples land where H3 says they do", async () => {
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(client);
 
@@ -241,7 +244,7 @@ describe("Package H — the composed modify declares every field its probe reads
   test("a sibling write to the wrapper filter's field is a dependency, not a blind spot", async () => {
     const client = createClient({
       schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(client);
     await resetVacateThenSupply(client);
@@ -288,7 +291,7 @@ describe("Package H — the parent-held direction composes the replacement", () 
   const seed = async () => {
     const client = createClient({
       schema: parentHeldSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(client);
     await client.depot.create({ data: { id: "d1", note: "incumbent" } });

@@ -8,8 +8,11 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 async function boot(batchOnly: boolean) {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const driver = batchOnly
     ? new BatchOnlyPGliteDriver({ client: db })
     : new PGliteDriver({ client: db });

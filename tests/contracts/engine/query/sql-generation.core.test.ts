@@ -10,14 +10,22 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { ValidationError } from "@errors";
 import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
+import { buildDistinctColumns } from "@query-engine/builders/distinct-builder";
+import { buildRelationOrders } from "@query-engine/builders/relation-orderby-builder";
+import { buildSingleOrder } from "@query-engine/builders/sort-order-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
 import { buildWhereUnique } from "@query-engine/builders/where-unique-builder";
-import { getTableName } from "@query-engine/context";
+import { getTableName, lookupRelation } from "@query-engine/context";
+import { buildAggregate } from "@query-engine/operations/aggregate";
+import { buildGroupBy } from "@query-engine/operations/groupby";
+import { buildHaving } from "@query-engine/operations/groupby-having";
+import { buildUpsert } from "@query-engine/operations/upsert";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { s } from "@schema";
+import { DbNull, s } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -25,54 +33,6 @@ import { beforeAll, describe, expect, test } from "vitest";
 const DESC_SQL = /DESC/i;
 const LEFT_JOIN_SQL = /LEFT JOIN/i;
 const ORDER_BY_COUNT_SQL = /ORDER BY \(SELECT COUNT\(\*\)/i;
-
-// =============================================================================
-// MOCK DRIVER FOR TESTING
-// =============================================================================
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(
-    adapter: DatabaseAdapter,
-    dialect: Dialect = "postgresql",
-    driverName = `mock-${dialect}`
-  ) {
-    super(dialect, driverName);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // The SQL-only driver opens no provider resource.
-  }
-
-  protected async execute<T>(
-    _client: null,
-    _statement: string,
-    _params: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(
-    _client: null,
-    _statement: string,
-    _params?: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (tx: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const ASC_REGEX = /ASC/i;
 const DESC_REGEX = /DESC/i;
@@ -185,7 +145,7 @@ const schema = sqlGenerationUserPostSchema;
 prepareSchema(schema);
 
 const adapter = new PostgresAdapter();
-const mockDriver = new MockDriver(adapter);
+const mockDriver = new SqlOnlyDriver(adapter, "postgresql");
 
 interface DialectCase {
   name: string;
@@ -331,6 +291,21 @@ describe("Basic CRUD Operations", () => {
       expect(values).not.toContain(-2);
     });
 
+    test("negative take reverses a relation-order fallback recursively", () => {
+      const statement = optionalEngine
+        .build(nestedRelationOrderBySchema.Link, "findMany", {
+          orderBy: {
+            next: { nextId: { sort: "asc", nulls: "last" } },
+          },
+          take: -2,
+        })
+        .toStatement("$n");
+
+      expect(statement).toMatch(
+        /ORDER BY .*"nextId" DESC NULLS FIRST/
+      );
+    });
+
     test("compound unique cursor uses compound whereUnique fields", () => {
       const { statement, values } = getSql(Membership, "findMany", {
         cursor: {
@@ -424,6 +399,169 @@ describe("Basic CRUD Operations", () => {
       ).toThrow(
         "Filter for field 'metadata' must contain at least one operation"
       );
+    });
+
+    test("json root and path comparisons keep number and string classes distinct", () => {
+      const root = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            equals: { status: "active" },
+            not: { equals: { archived: true } },
+          },
+        },
+      });
+      const scoped = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: "$.score",
+            lt: 10,
+            lte: 11,
+            gt: 1,
+            gte: 2,
+            not: { equals: 5 },
+          },
+        },
+      });
+      const lexical = getSql(Author, "findMany", {
+        where: { metadata: { path: "$.status", gt: "alpha" } },
+      });
+
+      expect(root.values.map((value) => JSON.stringify(value))).toEqual(
+        expect.arrayContaining([
+          '{"status":"active"}',
+          '{"archived":true}',
+        ])
+      );
+      expect(scoped.values).toEqual(
+        expect.arrayContaining([["score"], 10, 11, 1, 2])
+      );
+      expect(scoped.statement).toContain("NOT");
+      expect(lexical.values).toContain("alpha");
+    });
+
+    test("json string operators inherit and can override case-folding scope", () => {
+      const inherited = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: "$.profile.name",
+            mode: "insensitive",
+            string_contains: "AR",
+            string_starts_with: "A",
+            string_ends_with: "D",
+            not: {
+              string_contains: "BOT",
+            },
+          },
+        },
+      });
+      const overridden = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: "$.profile.name",
+            mode: "insensitive",
+            string_contains: "AR",
+            not: { mode: "default", string_contains: "Exact" },
+          },
+        },
+      });
+
+      expect(inherited.statement.match(/TRANSLATE/g)).toHaveLength(10);
+      expect(inherited.statement).toContain("POSITION");
+      expect(inherited.values).toEqual(
+        expect.arrayContaining(["AR", "A", "D", "BOT"])
+      );
+      expect(overridden.statement.match(/TRANSLATE/g)).toHaveLength(2);
+      expect(overridden.values).toEqual(
+        expect.arrayContaining(["AR", "Exact"])
+      );
+      expect(() =>
+        getSql(Author, "findMany", {
+          where: {
+            metadata: { mode: "insensitive", equals: { name: "Arnaud" } },
+          },
+        })
+      ).toThrow(/mode: 'insensitive'.*has no string_contains/);
+    });
+
+    test("json array predicates preserve scalar containment and endpoint meaning", () => {
+      const { statement, values } = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: ["tags"],
+            array_contains: "orm",
+            array_starts_with: "typescript",
+            array_ends_with: "database",
+          },
+        },
+      });
+
+      expect(statement).toContain("@>");
+      expect(values.map((value) => JSON.stringify(value))).toEqual(
+        expect.arrayContaining([
+          '["orm"]',
+          '"typescript"',
+          '"database"',
+        ])
+      );
+
+      const arrayCandidate = getSql(Author, "findMany", {
+        where: {
+          metadata: {
+            path: ["tags"],
+            array_contains: ["orm", "typescript"],
+          },
+        },
+      });
+      expect(
+        arrayCandidate.values.map((value) => JSON.stringify(value))
+      ).toContain('["orm","typescript"]');
+    });
+
+    test("json null at the root and under a path remain different questions", () => {
+      const root = getSql(Author, "findMany", {
+        where: { metadata: { equals: null } },
+      });
+      const rootNot = getSql(Author, "findMany", {
+        where: { metadata: { not: DbNull } },
+      });
+      const nested = getSql(Author, "findMany", {
+        where: { metadata: { path: ["deletedAt"], equals: null } },
+      });
+      const nestedNot = getSql(Author, "findMany", {
+        where: {
+          metadata: { path: ["deletedAt"], not: { equals: null } },
+        },
+      });
+
+      expect(root.statement).toContain("IS NULL");
+      expect(rootNot.statement).toContain("IS NOT NULL");
+      expect(nested.statement).not.toContain('"metadata" IS NULL');
+      expect(nestedNot.statement).not.toContain('"metadata" IS NOT NULL');
+    });
+
+    test.each([
+      ["status", "must start with '$'"],
+      ["$.", "object key may not be empty"],
+      ["$.*", "wildcards are not supported"],
+      ["$[last]", "not a non-negative integer array index"],
+      ["$[0", "an unclosed '['"],
+      ["$status", "unexpected 's'"],
+    ])("refuses non-portable JSON string path %s", (path, message) => {
+      expect(() =>
+        getSql(Author, "findMany", {
+          where: { metadata: { path, equals: "active" } },
+        })
+      ).toThrow(message);
+    });
+
+    test("refuses path segments whose escaping is not portable", () => {
+      for (const path of [["quoted\"key"], ["back\\slash"], '$."quoted"']) {
+        expect(() =>
+          getSql(Author, "findMany", {
+            where: { metadata: { path, equals: "active" } },
+          })
+        ).toThrow(/requires a portable JSON path/);
+      }
     });
 
     test("empty accepted scalar filter fails closed", () => {
@@ -781,7 +919,7 @@ describe("Basic CRUD Operations", () => {
       // capability boundary `non-returning-delete-plan.test.ts` pins for
       // `deleteMany` + `select`.
       const mysqlEngine = new QueryEngine(
-        new MockDriver(new MySQLAdapter(), "mysql"),
+        new SqlOnlyDriver(new MySQLAdapter(), "mysql"),
         registry
       );
 
@@ -802,6 +940,36 @@ describe("Basic CRUD Operations", () => {
   });
 
   describe("upsert", () => {
+    test("assembles filtered conflict and update clauses through the adapter", () => {
+      const built = buildUpsert(scopeFor(adapter, Author), {
+        where: { email: "alice@example.com" },
+        create: {
+          id: "author-1",
+          name: "Alice",
+          email: "alice@example.com",
+        },
+        update: { name: { set: "Updated" } },
+        targetWhere: { age: { not: null } },
+        setWhere: { name: { not: "blocked" } },
+        select: { id: true },
+      });
+      const statement = built.toStatement("$n");
+
+      expect(statement).toContain("ON CONFLICT");
+      expect(statement).toContain("DO UPDATE SET");
+      expect(statement).toContain("RETURNING");
+      expect(statement.match(/WHERE/g)).toHaveLength(2);
+      expect(built.values).toEqual(
+        expect.arrayContaining([
+          "author-1",
+          "Alice",
+          "alice@example.com",
+          "Updated",
+          "blocked",
+        ])
+      );
+    });
+
     test("empty where fails before SQL generation", () => {
       expect(() =>
         getSql(Author, "upsert", {
@@ -1507,7 +1675,7 @@ describe("Multi-step writes", () => {
       dialect,
     }) => {
       const dialectEngine = new QueryEngine(
-        new MockDriver(createAdapter(), dialect),
+        new SqlOnlyDriver(createAdapter(), dialect),
         registry
       );
       const statement = dialectEngine
@@ -1529,7 +1697,7 @@ describe("Multi-step writes", () => {
       dialect,
     }) => {
       const dialectEngine = new QueryEngine(
-        new MockDriver(createAdapter(), dialect),
+        new SqlOnlyDriver(createAdapter(), dialect),
         registry
       );
       const statement = dialectEngine
@@ -1625,6 +1793,16 @@ describe("Aggregates", () => {
   });
 
   describe("aggregate", () => {
+    test("projects selected count members and ignores false selections", () => {
+      const { statement } = getSql(Post, "aggregate", {
+        _count: { _all: true, id: true, views: false },
+      });
+
+      expect(statement).toContain("COUNT(*)");
+      expect(statement).toContain('COUNT("aggregate_input"."id")');
+      expect(statement).not.toContain('COUNT("aggregate_input"."views")');
+    });
+
     test("with _sum, _avg, _min, _max", () => {
       const { statement } = getSql(Post, "aggregate", {
         _sum: { views: true },
@@ -1680,6 +1858,7 @@ describe("Aggregates", () => {
         })
       ).toThrow();
     });
+
   });
 
   describe("groupBy", () => {
@@ -1820,6 +1999,98 @@ describe("Aggregates", () => {
         })
       ).toThrow("must be included in 'by'");
     });
+
+    test("combines logical having arms without widening empty disjunctions", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: {
+          AND: [
+            { views: { _sum: { gte: 10, lte: 100 } } },
+            { NOT: [{ id: { _count: { equals: 0 } } }] },
+          ],
+          OR: [
+            { id: { _count: { gt: 2 } } },
+            { id: { _count: { lt: 8 } } },
+          ],
+        },
+      });
+
+      expect(statement).toContain("HAVING");
+      expect(statement).toContain("NOT");
+      expect(statement).toContain(" OR ");
+      expect(values).toEqual(expect.arrayContaining([10, 100, 0, 2, 8]));
+
+      const emptyOr = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: { OR: [] },
+      }).statement;
+      expect(emptyOr).toContain("FALSE");
+    });
+
+    test("orders groups by every aggregate expression and applies a window", () => {
+      const { statement, values } = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        where: { published: true },
+        orderBy: [
+          { authorId: "asc" },
+          { _count: { _all: "desc", id: "asc" } },
+          { _avg: { views: "desc" } },
+          { _sum: { views: "asc" } },
+          { _min: { title: "asc" } },
+          { _max: { title: "desc" } },
+        ],
+        take: 4,
+        skip: 1,
+        _count: true,
+        _avg: { views: true },
+        _sum: { views: true },
+        _min: { title: true },
+        _max: { title: true },
+      });
+
+      expect(statement).toContain("WHERE");
+      expect(statement).toContain("GROUP BY");
+      expect(statement).toContain("ORDER BY");
+      expect(statement).toContain("COUNT(*) DESC");
+      expect(statement).toContain("AVG");
+      expect(statement).toContain("SUM");
+      expect(statement).toContain("MIN");
+      expect(statement).toContain("MAX");
+      expect(statement).toContain("LIMIT");
+      expect(statement).toContain("OFFSET");
+      expect(values).toEqual(expect.arrayContaining([true, 4, 1]));
+    });
+
+    test("keeps empty aggregate membership comparisons mathematically exact", () => {
+      const never = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: { id: { _count: { in: [] } } },
+      }).statement;
+      const always = getSql(Post, "groupBy", {
+        by: ["authorId"],
+        having: { id: { _count: { notIn: [] } } },
+      }).statement;
+
+      expect(never).toContain("FALSE");
+      expect(always).toContain("TRUE");
+    });
+
+    test("compares nullable aggregate answers with IS NULL semantics", () => {
+      const having = buildHaving(
+        scopeFor(adapter, Post),
+        {
+          views: {
+            _sum: { equals: null, not: null },
+          },
+        },
+        "t0",
+        ["authorId"]
+      );
+
+      expect(having?.toStatement("$n")).toContain("IS NULL");
+      expect(having?.toStatement("$n")).toContain("IS NOT NULL");
+    });
+
   });
 });
 
@@ -2114,5 +2385,195 @@ describe("explicit undefined args behave like absent args", () => {
       select: { id: true, _count: { select: { posts: true } } },
     });
     expect(explicit.statement).toBe(absent.statement);
+  });
+});
+
+describe("coverage low value", () => {
+  test("operation builders fail closed on shapes excluded by validation", () => {
+    const scope = scopeFor(adapter, Post);
+
+    expect(() =>
+      buildAggregate(scope, {
+        _count: { id: false },
+        _sum: { views: false },
+      })
+    ).toThrow("requires at least one aggregate field");
+    expect(() => buildGroupBy(scope, { by: [] })).toThrow(
+      "requires at least one field"
+    );
+    expect(() => buildGroupBy(scope, { by: ["missing"] })).toThrow(
+      "GroupBy field 'missing' not found"
+    );
+    expect(() =>
+      buildGroupBy(scope, {
+        by: ["authorId"],
+        orderBy: { _sum: "asc" },
+      })
+    ).toThrow("requires an object mapping fields to sort directions");
+    expect(() =>
+      buildGroupBy(scope, {
+        by: ["authorId"],
+        orderBy: { title: "asc" },
+      })
+    ).toThrow("must be included in 'by'");
+    expect(() =>
+      buildHaving(
+        scope,
+        { views: { _sum: { in: "not-an-array" } } },
+        "t0",
+        ["authorId"]
+      )
+    ).toThrow("HAVING operation 'in' requires an array value");
+    expect(() =>
+      buildHaving(
+        scope,
+        { views: { _sum: { unknown: 1 } } },
+        "t0",
+        ["authorId"]
+      )
+    ).toThrow("Invalid operator: unknown");
+  });
+
+  test("relation order helpers fail closed on shapes excluded by validation", () => {
+    const postScope = scopeFor(adapter, nestedRelationOrderBySchema.NestedPost);
+    const authorRelation = lookupRelation(postScope, "author");
+    if (authorRelation === undefined) throw new Error("Expected author relation");
+
+    expect(() =>
+      buildRelationOrders(
+        postScope,
+        authorRelation,
+        "asc",
+        postScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/must be an object/);
+    expect(() =>
+      buildRelationOrders(
+        postScope,
+        authorRelation,
+        {},
+        postScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/requires at least one scalar field/);
+    expect(() =>
+      buildRelationOrders(
+        postScope,
+        authorRelation,
+        { missing: "asc" },
+        postScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/Unknown relation orderBy field 'author.missing'/);
+    expect(() =>
+      buildRelationOrders(
+        postScope,
+        authorRelation,
+        { publisher: "asc" },
+        postScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/author.publisher.*must be an object/);
+    expect(() =>
+      buildRelationOrders(
+        postScope,
+        authorRelation,
+        { posts: { _count: "asc" } },
+        postScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/cannot order through a to-many relation/);
+
+    const authorScope = scopeFor(adapter, nestedRelationOrderBySchema.Author);
+    const postsRelation = lookupRelation(authorScope, "posts");
+    if (postsRelation === undefined) throw new Error("Expected posts relation");
+    expect(() =>
+      buildRelationOrders(
+        authorScope,
+        postsRelation,
+        {},
+        authorScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/requires _count/);
+    expect(() =>
+      buildRelationOrders(
+        authorScope,
+        postsRelation,
+        { title: "asc" },
+        authorScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/is not supported.*_count/);
+    expect(() =>
+      buildRelationOrders(
+        authorScope,
+        postsRelation,
+        { _count: "sideways" },
+        authorScope.rootAlias,
+        new Map()
+      )
+    ).toThrow(/_count.*must be 'asc' or 'desc'/);
+  });
+
+  test("sort order helper refuses invalid directions excluded by validation", () => {
+    const scope = scopeFor(adapter, Author);
+    const vectorCapableAdapter = new PostgresAdapter();
+    vectorCapableAdapter.capabilities.supportsVector = true;
+    const vectorScope = scopeFor(vectorCapableAdapter, Author);
+    const geoPointScope = scopeFor(
+      new PostgresAdapter("public", true),
+      Author
+    );
+    const column = sql.raw`"t0"."name"`;
+
+    expect(() => buildSingleOrder(scope, column, "sideways")).toThrow(
+      /Unsupported sort direction/
+    );
+    expect(() => buildSingleOrder(scope, column, {})).toThrow(
+      /requires sort/
+    );
+    expect(() =>
+      buildSingleOrder(scope, column, { sort: "asc", nulls: "middle" })
+    ).toThrow(/nulls must be 'first' or 'last'/);
+    expect(() => buildSingleOrder(scope, column, 1)).toThrow(
+      /must be a sort direction object/
+    );
+    expect(() =>
+      buildSingleOrder(
+        vectorScope,
+        column,
+        {
+          _distance: {
+            to: [1, 2, 3],
+            metric: "l2",
+            sort: "sideways",
+          },
+        },
+        { name: "embedding", scalarState: { type: "vector", dimension: 3 } }
+      )
+    ).toThrow(/Vector distance orderBy sort must be 'asc' or 'desc'/);
+    expect(() =>
+      buildSingleOrder(
+        geoPointScope,
+        column,
+        {
+          _distance: {
+            to: { longitude: 2.3522, latitude: 48.8566 },
+            sort: "sideways",
+          },
+        },
+        { name: "location", scalarState: { type: "point" } }
+      )
+    ).toThrow(/GeoPoint distance orderBy sort must be 'asc' or 'desc'/);
+  });
+
+  test("distinct helper refuses a non-scalar field excluded by validation", () => {
+    const scope = scopeFor(adapter, Author);
+    expect(buildDistinctColumns(scope, [], scope.rootAlias)).toBeUndefined();
+    expect(() =>
+      buildDistinctColumns(scope, ["posts"], scope.rootAlias)
+    ).toThrow(/Distinct field 'posts' not found/);
   });
 });

@@ -97,36 +97,45 @@ export function usePGliteSchemaFamily<const S extends Schema>(
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
+      const tables = await client.$queryRawUnsafe<PublicTable>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+      );
+      const truncateStatement =
+        tables.length === 0
+          ? undefined
+          : `TRUNCATE TABLE ${tables
+              .map(({ tablename }) => quoteIdentifier(tablename))
+              .join(", ")} RESTART IDENTITY`;
+      family = {
+        database,
+        driver,
+        client,
+        reset: async () => {
+          if (truncateStatement) {
+            await client.$executeRawUnsafe(truncateStatement);
+          }
+        },
+      };
     } catch (setupError) {
+      const failures = [setupError];
       try {
         await client.$disconnect();
       } catch (disconnectError) {
+        failures.push(disconnectError);
+      }
+      try {
+        await database.close();
+      } catch (closeError) {
+        failures.push(closeError);
+      }
+      if (failures.length > 1) {
         throw new AggregateError(
-          [setupError, disconnectError],
+          failures,
           "PGlite behavior database setup and cleanup failed"
         );
       }
       throw setupError;
     }
-    const tables = await client.$queryRawUnsafe<PublicTable>(
-      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-    );
-    const truncateStatement =
-      tables.length === 0
-        ? undefined
-        : `TRUNCATE TABLE ${tables
-            .map(({ tablename }) => quoteIdentifier(tablename))
-            .join(", ")} RESTART IDENTITY`;
-    family = {
-      database,
-      driver,
-      client,
-      reset: async () => {
-        if (truncateStatement) {
-          await client.$executeRawUnsafe(truncateStatement);
-        }
-      },
-    };
   });
 
   beforeEach(async () => {
@@ -135,13 +144,29 @@ export function usePGliteSchemaFamily<const S extends Schema>(
   });
 
   afterAll(async () => {
-    if (family) {
-      await family.client.$disconnect();
-      // The fixture supplied this database, so the driver correctly declines
-      // to close it — the owner does, or every suite leaks one WASM instance.
-      await family.database.close();
-    }
+    const current = family;
     family = undefined;
+    if (!current) return;
+
+    const failures: unknown[] = [];
+    try {
+      await current.client.$disconnect();
+    } catch (disconnectError) {
+      failures.push(disconnectError);
+    }
+    // The fixture supplied this database, so the driver correctly declines
+    // to close it — the owner does, or every suite leaks one WASM instance.
+    try {
+      await current.database.close();
+    } catch (closeError) {
+      failures.push(closeError);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        "PGlite behavior database cleanup failed"
+      );
+    }
   });
 
   return () => {

@@ -7,6 +7,9 @@ import { s } from "@schema";
 import { beforeAll, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * A to-one create and a parent-held update have at most one active operation.
  * A child-held update additionally accepts the fixed vacate-then-supply pairs
@@ -128,7 +131,7 @@ class RecordingPGliteDriver extends PGliteDriver {
   }
 }
 
-const driver = new RecordingPGliteDriver({ client: new PGlite() });
+const driver = new RecordingPGliteDriver({ client: openBorrowedPGlite() });
 const client = createClient({ schema, driver });
 
 beforeAll(async () => {

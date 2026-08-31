@@ -3,6 +3,7 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 import { s } from "@schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -85,7 +86,7 @@ describe("planned m2m delete parent-PK dataflow", () => {
     plant: (database: PGlite) => Promise<void>
   ): Promise<StaleMembershipBatchDriver> {
     await client.$disconnect();
-    const database = new PGlite();
+    const database = openTestPGlite();
     const driver = new StaleMembershipBatchDriver(database, plant);
     client = createClient({ schema, driver });
     await syncLiveSchema(client);

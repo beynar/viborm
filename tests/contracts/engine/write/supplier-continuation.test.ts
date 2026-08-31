@@ -16,6 +16,9 @@ import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const SEGMENT_REFUSAL =
   /cannot execute this record series as committed segments/;
 const BADGE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"e7_badges"/;
@@ -29,7 +32,7 @@ registerSupplierContinuationBehavior("PGlite transaction", async () => {
   if (!transactionClient) {
     transactionClient = createClient({
       schema: supplierContinuationSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(transactionClient);
   }
@@ -40,7 +43,7 @@ registerSupplierContinuationRefusals("PGlite transaction", async () => {
   if (!transactionClient) {
     transactionClient = createClient({
       schema: supplierContinuationSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
+      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
     }) as any;
     await syncLiveSchema(transactionClient);
   }
@@ -51,7 +54,7 @@ let batchClient: any;
 let batchDriver: BatchOnlyPGliteDriver | undefined;
 const openBatch = async () => {
   if (!batchClient) {
-    batchDriver = new BatchOnlyPGliteDriver({ client: new PGlite() });
+    batchDriver = new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() });
     batchClient = createClient({
       schema: supplierContinuationSchema,
       driver: batchDriver,
@@ -142,7 +145,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
   const openProgressive = async () => {
     if (!progressiveClient) {
       progressive = new ProgressiveBatchOnlyPGliteDriver({
-        client: new PGlite(),
+        client: openBorrowedPGlite(),
       });
       progressiveClient = createClient({
         schema: supplierContinuationSchema,
@@ -223,7 +226,7 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
    */
   test("routes the composition's placement through the pre-effect capacity refusal", async () => {
     const cramped = new ProgressiveBatchOnlyPGliteDriver({
-      client: new PGlite(),
+      client: openBorrowedPGlite(),
     });
     const client = createClient({
       schema: supplierContinuationSchema,
@@ -288,7 +291,7 @@ const nonPkSupplierSchema = (() => {
 
 describe("E4 — supplier continuation keeps the write-side membership premise", () => {
   test("a reused non-PK reference cannot redirect the continuation", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const progressive = new ProgressiveBatchOnlyPGliteDriver({
       client: database,
     });

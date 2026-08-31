@@ -3,6 +3,9 @@ import { PGlite } from "@electric-sql/pglite";
 import { describe } from "vitest";
 import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip-select-capture-behavior";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /**
  * E6.9's RETURNING control, runnable without Docker.
  *
@@ -15,7 +18,7 @@ import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip
 describe("E6.9 — createMany select + skipDuplicates (PGlite control)", () => {
   runSkipSelectCaptureBehavior({
     name: "PGlite",
-    createDriver: () => new PGliteDriver({ client: new PGlite() }),
+    createDriver: () => new PGliteDriver({ client: openBorrowedPGlite() }),
     supportsReturning: true,
   });
 });

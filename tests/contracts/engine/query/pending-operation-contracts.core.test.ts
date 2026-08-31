@@ -2,27 +2,39 @@ import { createOfficialCacheScope } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { createOfficialCacheNamespace } from "@cache/key";
 import { PendingOperation as ClientPendingOperation } from "@client/exports";
-import { PgDriver } from "@drivers/pg";
 import {
   CacheConfigurationError,
   InvalidTransactionInputError,
   PendingOperationError,
   ValidationError,
 } from "@errors";
-import { executePreparedQuery } from "@extensions/query";
+import { appendResolvedExtension } from "@extensions/chain";
+import {
+  executePreparedQuery,
+  TransactionWriteOutcomes,
+  type WriteOutcomeNotifications,
+  type WriteOutcomeRegistration,
+} from "@extensions/query";
 import { prepareMutationCacheWriteOutcome } from "@query-engine/cache-flow";
 import {
   attachPendingCacheExecution,
   PendingOperation,
   type PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
+import { PendingExecution } from "@query-engine/pending-execution";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import {
+  readTransactionOperation,
+  type TransactionOperationCapability,
+  type TransactionOperationOwner,
+} from "@query-engine/transaction-operation";
 import { hydrateSchemaNames, s } from "@schema";
 import { PendingOperation as RootPendingOperation } from "@src/index";
 import {
   readTestTransactionOperation,
   type TestTransactionOperationView,
 } from "@tests/fixtures/transaction-operation";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it, vi } from "vitest";
 
@@ -64,7 +76,7 @@ function createOperation<T>(
   const schema = { user };
   hydrateSchemaNames(schema);
   const engine = new QueryEngine(
-    new PgDriver(),
+    new PlanningDriver("postgresql"),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
   return engine.prepare<T>(
@@ -100,6 +112,14 @@ function capability(operation: unknown): TestTransactionOperationView {
   const value = readTestTransactionOperation(operation);
   if (value === undefined) throw new Error("Expected pending operation");
   return value;
+}
+
+function ownerOf(
+  operation: object
+): TransactionOperationOwner<TransactionOperationCapability> {
+  const owner = readTransactionOperation(operation);
+  if (owner === undefined) throw new Error("Expected transaction owner");
+  return owner;
 }
 
 describe("PendingOperation frozen public contract", () => {
@@ -175,8 +195,11 @@ describe("PendingOperation frozen public contract", () => {
     const schema = { user };
     hydrateSchemaNames(schema);
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    const engine = new QueryEngine(new PgDriver(), registry);
-    const transactionDriver = new PgDriver();
+    const engine = new QueryEngine(
+      new PlanningDriver("postgresql"),
+      registry
+    );
+    const transactionDriver = new PlanningDriver("postgresql");
     const transactionEngine = engine.bind(transactionDriver);
 
     expect(transactionEngine.clientId).toBe(engine.clientId);
@@ -190,7 +213,7 @@ describe("PendingOperation frozen public contract", () => {
     const schema = { user };
     hydrateSchemaNames(schema);
     const engine = new QueryEngine(
-      new PgDriver(),
+      new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema))
     );
 
@@ -224,7 +247,7 @@ describe("PendingOperation frozen public contract", () => {
   });
 
   it("memoizes executeWith for the same driver", async () => {
-    const driver = new PgDriver();
+    const driver = new PlanningDriver("postgresql");
     const { operation, execute } = createControlledOperation(42);
 
     const first = capability(operation).executeWith(driver);
@@ -237,7 +260,7 @@ describe("PendingOperation frozen public contract", () => {
 
   it("rejects default execution after driver-bound execution", () => {
     const { operation } = createControlledOperation(42);
-    capability(operation).executeWith(new PgDriver());
+    capability(operation).executeWith(new PlanningDriver("postgresql"));
     expect(() => operation.then((value) => value)).toThrow(
       PendingOperationError
     );
@@ -246,15 +269,19 @@ describe("PendingOperation frozen public contract", () => {
   it("rejects driver-bound execution after default execution", () => {
     const { operation } = createControlledOperation(42);
     operation.then((value) => value);
-    expect(() => capability(operation).executeWith(new PgDriver())).toThrow(
+    expect(() =>
+      capability(operation).executeWith(new PlanningDriver("postgresql"))
+    ).toThrow(
       PendingOperationError
     );
   });
 
   it("rejects a second, different driver", () => {
     const { operation } = createControlledOperation(42);
-    capability(operation).executeWith(new PgDriver());
-    expect(() => capability(operation).executeWith(new PgDriver())).toThrow(
+    capability(operation).executeWith(new PlanningDriver("postgresql"));
+    expect(() =>
+      capability(operation).executeWith(new PlanningDriver("postgresql"))
+    ).toThrow(
       PendingOperationError
     );
   });
@@ -263,7 +290,7 @@ describe("PendingOperation frozen public contract", () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
     hydrateSchemaNames(schema);
-    const driver = new PgDriver();
+    const driver = new PlanningDriver("postgresql");
     const engine = new QueryEngine(
       driver,
       createModelRegistry(schema, createSchemaRegistry(schema))
@@ -320,9 +347,9 @@ describe("PendingOperation frozen public contract", () => {
     const wrapped = attachPendingCacheExecution(original, wrapper);
 
     expect(wrapped).not.toBe(original);
-    await expect(capability(wrapped).executeWith(new PgDriver())).resolves.toBe(
-      43
-    );
+    await expect(
+      capability(wrapped).executeWith(new PlanningDriver("postgresql"))
+    ).resolves.toBe(43);
     expect(wrapper).toHaveBeenCalledOnce();
     expect(source).toHaveBeenCalledOnce();
     expect(original.getArgs()).toBe(wrapped.getArgs());
@@ -450,5 +477,259 @@ describe("PendingOperation frozen public contract", () => {
   it("keeps PendingOperation as the root and client runtime export", () => {
     expect(RootPendingOperation).toBe(PendingOperation);
     expect(ClientPendingOperation).toBe(PendingOperation);
+  });
+});
+
+describe("pending execution ownership", () => {
+  it("memoizes default and same-driver execution while excluding the other authority", async () => {
+    const execution = new PendingExecution<number>("user", "findMany");
+    const run = vi.fn(() => Promise.resolve(42));
+    const first = execution.executeDefault(run);
+    const second = execution.executeDefault(run);
+
+    expect(second).toBe(first);
+    await expect(first).resolves.toBe(42);
+    expect(run).toHaveBeenCalledOnce();
+    expect(() =>
+      execution.executeWith(new PlanningDriver("postgresql"), run)
+    ).toThrow(PendingOperationError);
+  });
+
+  it("memoizes one driver and refuses a different driver or default execution", async () => {
+    const driver = new PlanningDriver("postgresql");
+    const execution = new PendingExecution<number>("user", "findMany");
+    const run = vi.fn(() => Promise.resolve(42));
+    const first = execution.executeWith(driver, run);
+    const second = execution.executeWith(driver, run);
+
+    expect(second).toBe(first);
+    await expect(first).resolves.toBe(42);
+    expect(run).toHaveBeenCalledOnce();
+    expect(() => execution.executeDefault(run)).toThrow(PendingOperationError);
+    expect(() =>
+      execution.executeWith(new PlanningDriver("postgresql"), run)
+    ).toThrow(PendingOperationError);
+  });
+
+  it("reserves exactly one driver for an array coordinator and runs its child once", async () => {
+    const driver = new PlanningDriver("postgresql");
+    const execution = new PendingExecution<number>("user", "findMany");
+    const run = vi.fn(() => Promise.resolve(42));
+    execution.reserveWith(driver);
+
+    const first = execution.executeReserved(run);
+    const second = execution.executeReserved(run);
+    expect(second).toBe(first);
+    await expect(first).resolves.toBe(42);
+    expect(run).toHaveBeenCalledOnce();
+    expect(() => execution.executeWith(driver, run)).toThrow(
+      PendingOperationError
+    );
+  });
+
+  it("refuses reservation after either execution authority was selected", () => {
+    const driver = new PlanningDriver("postgresql");
+    const defaultExecution = new PendingExecution<number>("user", "findMany");
+    defaultExecution.executeDefault(() => Promise.resolve(1));
+    expect(() => defaultExecution.reserveWith(driver)).toThrow(
+      PendingOperationError
+    );
+
+    const driverExecution = new PendingExecution<number>("user", "findMany");
+    driverExecution.executeWith(driver, () => Promise.resolve(1));
+    expect(() => driverExecution.reserveWith(driver)).toThrow(
+      PendingOperationError
+    );
+    expect(() =>
+      driverExecution.reserveWith(new PlanningDriver("postgresql"))
+    ).toThrow(PendingOperationError);
+  });
+});
+
+describe("pending operation transaction coordination", () => {
+  it("publishes the exact operation authority through the registered owner", async () => {
+    const read = createOperation<unknown>();
+    const write = createOperation<unknown>("update", VALID_UPDATE_ARGS);
+    const readOwner = ownerOf(read);
+    const writeOwner = ownerOf(write);
+
+    expect(readOwner.clientId(read)).toBe(capability(read).clientId);
+    expect(readOwner.scopeId(read)).toBe(capability(read).scopeId);
+    expect(readOwner.model(read)).toBe("user");
+    expect(readOwner.operation(read)).toBe("findMany");
+    expect(readOwner.context(read)).toBe(capability(read).context);
+    expect(readOwner.isWrite(read)).toBe(false);
+    expect(writeOwner.isWrite(write)).toBe(true);
+    expect(readOwner.requiresInterception(read)).toBe(false);
+    expect(readOwner.hasObservation(read)).toBe(false);
+    await expect(
+      readOwner.observe(read, () => Promise.resolve("child"))
+    ).resolves.toBe("child");
+  });
+
+  it("resolves request preparation once and rethrows the same preparation failure", () => {
+    const user = s.model({ id: s.string().id(), name: s.string() });
+    const schema = { user };
+    hydrateSchemaNames(schema);
+    const engine = new QueryEngine(
+      new PlanningDriver("postgresql"),
+      createModelRegistry(schema, createSchemaRegistry(schema))
+    );
+    const prepareInput = vi.fn(() => ({ where: { id: "user-1" } }));
+    const prepared = engine.prepare(user, "findMany", {}, undefined, prepareInput);
+    const preparedOwner = ownerOf(prepared);
+
+    preparedOwner.prepareAdmission(prepared);
+    preparedOwner.prepareAdmission(prepared);
+    expect(prepareInput).toHaveBeenCalledOnce();
+
+    const failure = new Error("request preparation failed");
+    const failInput = vi.fn(() => {
+      throw failure;
+    });
+    const failed = engine.prepare(user, "findMany", {}, undefined, failInput);
+    const failedOwner = ownerOf(failed);
+    expect(() => failedOwner.prepareAdmission(failed)).toThrow(failure);
+    expect(() => failedOwner.prepareAdmission(failed)).toThrow(failure);
+    expect(failInput).toHaveBeenCalledOnce();
+  });
+
+  it("stages one package listener and coordinates it through an array child", async () => {
+    const listener = vi.fn();
+    const registration: WriteOutcomeRegistration = Object.freeze({
+      extension: "package-listener",
+      failurePolicy: "boundary-owned",
+      listener,
+    });
+    const prepareRegistration = vi.fn(() => registration);
+    const operation = createOperation<unknown>(
+      "update",
+      VALID_UPDATE_ARGS,
+      prepareRegistration
+    );
+    const owner = ownerOf(operation);
+    const outcomes = new TransactionWriteOutcomes();
+
+    expect(owner.requiresInterception(operation)).toBe(true);
+    owner.prepareAdmission(operation);
+    owner.stagePackageWriteOutcomes(operation, outcomes);
+    owner.stagePackageWriteOutcomes(operation, outcomes);
+    expect(prepareRegistration).toHaveBeenCalledOnce();
+
+    const child = vi.fn(async (notifications?: WriteOutcomeNotifications) => {
+      await notifications?.committed();
+      return "child";
+    });
+    await expect(
+      owner.startInterception(operation, child, outcomes, {})
+    ).resolves.toBe("child");
+    outcomes.confirm([registration]);
+    await outcomes.publishCommitted();
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("runs query interception and observation through the owner without provider work", async () => {
+    const user = s.model({ id: s.string().id(), name: s.string() });
+    const schema = { user };
+    hydrateSchemaNames(schema);
+    const queryHandler = vi.fn(
+      async (context: { proceed(): Promise<unknown> }) => context.proceed()
+    );
+    const observer = vi.fn(
+      (_unit: unknown, proceed: () => Promise<unknown>) => proceed()
+    );
+    const chain = appendResolvedExtension(
+      appendResolvedExtension(
+        undefined,
+        { name: "query-owner", query: queryHandler },
+        schema
+      ),
+      { name: "observer-owner", observe: observer },
+      schema
+    );
+    const engine = new QueryEngine(
+      new PlanningDriver("postgresql"),
+      createModelRegistry(schema, createSchemaRegistry(schema)),
+      undefined,
+      undefined,
+      chain
+    );
+    const source = engine.prepare<unknown>(user, "findMany", {});
+    const operation = attachPendingCacheExecution(source, () =>
+      Promise.resolve("executed")
+    );
+    const owner = ownerOf(operation);
+
+    expect(owner.requiresInterception(operation)).toBe(true);
+    expect(owner.hasObservation(operation)).toBe(true);
+    await expect(
+      owner.startInterception(
+        operation,
+        () => Promise.resolve("intercepted"),
+        new TransactionWriteOutcomes(),
+        {}
+      )
+    ).resolves.toBe("intercepted");
+    expect(queryHandler).toHaveBeenCalledOnce();
+    await expect(
+      owner.observe(operation, () => Promise.resolve("observed"))
+    ).resolves.toBe("observed");
+    await expect(
+      owner.executeWith(operation, new PlanningDriver("postgresql"))
+    ).resolves.toBe("executed");
+    expect(observer).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires observed coordination for request-only array transforms", () => {
+    const user = s.model({ id: s.string().id(), name: s.string() });
+    const schema = { user };
+    hydrateSchemaNames(schema);
+    const chain = appendResolvedExtension(
+      appendResolvedExtension(
+        undefined,
+        { name: "request-owner", request: () => ({}) },
+        schema
+      ),
+      { name: "observer-owner", observe: () => undefined },
+      schema
+    );
+    const engine = new QueryEngine(
+      new PlanningDriver("postgresql"),
+      createModelRegistry(schema, createSchemaRegistry(schema)),
+      undefined,
+      undefined,
+      chain
+    );
+    const operation = engine.prepare(user, "findMany", {});
+
+    expect(ownerOf(operation).requiresInterception(operation)).toBe(true);
+  });
+
+  it("exposes canonical cache input only for read operations", () => {
+    const read = createOperation<unknown>("findMany", {
+      where: { name: { equals: "Arnaud" } },
+    });
+    const write = createOperation<unknown>("update", VALID_UPDATE_ARGS);
+
+    expect(read.cacheKeyArgs()).toEqual({
+      where: { name: { equals: "Arnaud" } },
+    });
+    expect(() => write.cacheKeyArgs()).toThrow(/exposes no validated payload/);
+  });
+
+  it("normalizes OrThrow operation identity and refuses unknown routed names", () => {
+    const user = s.model({ id: s.string().id(), name: s.string() });
+    const schema = { user };
+    hydrateSchemaNames(schema);
+    const engine = new QueryEngine(
+      new PlanningDriver("postgresql"),
+      createModelRegistry(schema, createSchemaRegistry(schema))
+    );
+    const orThrow = engine.prepare(user, "findFirstOrThrow", {});
+
+    expect(ownerOf(orThrow).operation(orThrow)).toBe("findFirst");
+    expect(() =>
+      Reflect.apply(engine.prepare, engine, [user, "missing", {}]).buildStatement()
+    ).toThrow(/Unknown operation 'missing'/);
   });
 });

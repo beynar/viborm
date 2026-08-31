@@ -6,14 +6,13 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { isRecord } from "../validation/value-guards";
 import { canonicalizeJsonText } from "./canonical-json";
 import { isSha256, type Sha256 } from "./identity";
+import { snapshotExactArray, snapshotExactRecord } from "./input-boundary";
 import { freezeDeep } from "./push-fingerprint";
 import type { ResolveCallback } from "./types";
 import type {
   PushConsent,
-  PushOptionsV1,
   PushResolution,
   PushTargetIdentity,
 } from "./v1-types";
@@ -34,15 +33,34 @@ export interface ParsedPlanningOptions {
   readonly dryRun: boolean;
 }
 
+export function snapshotPushOptions(
+  value: unknown
+): Readonly<Record<string, unknown>> {
+  return snapshotExactRecord(
+    value,
+    ["consent", "dryRun", "forceReset", "resolve", "skipValidation"],
+    "push options",
+    invalidOptions
+  );
+}
+
 export function parsePlanningOptions(
   value: unknown,
   dryRun: boolean
 ): ParsedPlanningOptions {
-  const record = exactRecord(
+  const record = snapshotExactRecord(
     value,
     ["dryRun", "forceReset", "resolve", "skipValidation"],
-    "push options"
+    "push options",
+    invalidOptions
   );
+  return parseSnapshottedPlanningOptions(record, dryRun);
+}
+
+export function parseSnapshottedPlanningOptions(
+  record: Readonly<Record<string, unknown>>,
+  dryRun: boolean
+): ParsedPlanningOptions {
   if (record.dryRun !== undefined && typeof record.dryRun !== "boolean") {
     invalidOptions("push options.dryRun must be boolean");
   }
@@ -75,7 +93,7 @@ export function parsePlanningOptions(
 }
 
 export function parseConsent(value: unknown): PushConsent {
-  const record = exactRecord(
+  const record = snapshotExactRecord(
     value,
     ["format", "mode", "planHash", "resolutions", "target", "validation"],
     "push consent",
@@ -91,11 +109,13 @@ export function parseConsent(value: unknown): PushConsent {
   if (!isSha256(record.planHash)) {
     consentMismatch("consent.planHash is invalid");
   }
-  if (!Array.isArray(record.resolutions)) {
-    consentMismatch("consent.resolutions must be an array");
-  }
-  const resolutions = record.resolutions.map((resolution, index) => {
-    const item = exactRecord(
+  const resolutionEntries = snapshotExactArray(
+    record.resolutions,
+    "consent.resolutions",
+    consentMismatch
+  );
+  const resolutions = resolutionEntries.map((resolution, index) => {
+    const item = snapshotExactRecord(
       resolution,
       ["decision", "id"],
       `consent.resolutions[${index}]`,
@@ -169,20 +189,25 @@ export function assertConsent(consent: PushConsent, plan: ConsentedPlan): void {
 }
 
 export function hasConsent(
-  options: PushOptionsV1
-): options is Extract<PushOptionsV1, { readonly consent: PushConsent }> {
-  return isRecord(options) && "consent" in options;
+  options: Readonly<Record<string, unknown>>
+): options is Readonly<Record<string, unknown>> & { readonly consent: unknown } {
+  return "consent" in options;
 }
 
 function parseTarget(value: unknown): PushTargetIdentity {
-  if (!isRecord(value)) consentMismatch("consent.target must be an object");
-  if (value.dialect === "postgresql") {
-    const record = exactRecord(
-      value,
-      ["bindingId", "database", "dialect", "namespace"],
-      "consent.target",
-      consentMismatch
-    );
+  const record = snapshotExactRecord(
+    value,
+    ["bindingId", "database", "dialect", "location", "namespace"],
+    "consent.target",
+    consentMismatch
+  );
+  if (record.dialect === "postgresql") {
+    refuseTargetKeys(record, [
+      "bindingId",
+      "database",
+      "dialect",
+      "namespace",
+    ]);
     return {
       dialect: "postgresql",
       database: requiredString(record.database, "consent.target.database"),
@@ -190,26 +215,16 @@ function parseTarget(value: unknown): PushTargetIdentity {
       bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
     };
   }
-  if (value.dialect === "mysql") {
-    const record = exactRecord(
-      value,
-      ["bindingId", "database", "dialect"],
-      "consent.target",
-      consentMismatch
-    );
+  if (record.dialect === "mysql") {
+    refuseTargetKeys(record, ["bindingId", "database", "dialect"]);
     return {
       dialect: "mysql",
       database: requiredString(record.database, "consent.target.database"),
       bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
     };
   }
-  if (value.dialect === "sqlite") {
-    const record = exactRecord(
-      value,
-      ["bindingId", "dialect", "location"],
-      "consent.target",
-      consentMismatch
-    );
+  if (record.dialect === "sqlite") {
+    refuseTargetKeys(record, ["bindingId", "dialect", "location"]);
     if (record.location !== null && typeof record.location !== "string") {
       consentMismatch("consent.target.location must be string or null");
     }
@@ -222,19 +237,15 @@ function parseTarget(value: unknown): PushTargetIdentity {
   consentMismatch("consent.target.dialect is invalid");
 }
 
-function exactRecord(
-  value: unknown,
-  allowed: readonly string[],
-  label: string,
-  refuse: (message: string) => never = invalidOptions
-): Record<string, unknown> {
-  if (!isRecord(value)) refuse(`${label} must be an object`);
-  for (const key of Object.keys(value)) {
+function refuseTargetKeys(
+  target: Readonly<Record<string, unknown>>,
+  allowed: readonly string[]
+): void {
+  for (const key of Object.keys(target)) {
     if (!allowed.includes(key)) {
-      refuse(`${label} contains unknown key ${key}`);
+      consentMismatch(`consent.target contains unknown key ${key}`);
     }
   }
-  return value;
 }
 
 function requiredString(value: unknown, label: string): string {
@@ -244,10 +255,12 @@ function requiredString(value: unknown, label: string): string {
   return value;
 }
 
-function invalidOptions(message: string): never {
-  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT);
+function invalidOptions(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
 }
 
-function consentMismatch(message: string): never {
-  throw new MigrationError(message, VibORMErrorCode.MIGRATION_CONSENT_MISMATCH);
+function consentMismatch(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.MIGRATION_CONSENT_MISMATCH, {
+    cause,
+  });
 }

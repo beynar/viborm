@@ -2,7 +2,6 @@
 import type { Model } from "@schema/model";
 import type { BoundRelation } from "./builders/relation-data-builder";
 import type {
-  NormalizedRelationUpsert,
   RecordMutationData,
   RelationMutationProgram,
 } from "./builders/relation-mutation-parser";
@@ -30,7 +29,6 @@ import {
   createIdentityConstraint,
   selectorConstraint,
   unknownConstraint,
-  updateResultConstraints,
 } from "./TargetConstraint";
 import type { QueryScope } from "./types";
 
@@ -248,28 +246,6 @@ export class OwnWriteRelation {
     const selector = selectorConstraint(this.target, where);
     this.assertTargetAndMembershipRead("upsert", selector);
     return selector;
-  }
-
-  appendUpsertUpdateSummary(
-    input: NormalizedRelationUpsert,
-    decision: TargetConstraint
-  ): void {
-    if (input.target.kind === "correlated") {
-      this.appendTarget("upsert", decision);
-      return;
-    }
-    const resultConstraints = updateResultConstraints(
-      this.target,
-      decision,
-      input.update.parsed,
-      input.target.where
-    );
-    if (resultConstraints.length === 0) {
-      this.ledger.appendRelationTarget("upsert", decision);
-    }
-    for (const constraint of resultConstraints) {
-      this.appendTarget("upsert", constraint);
-    }
   }
 
   appendCreateSummary(

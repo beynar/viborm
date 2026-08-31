@@ -19,10 +19,13 @@ import v from "@validation/primitives/v";
 import { expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 const substrates = [
   {
     name: "PGlite transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
+    make: () => new PGliteDriver({ client: openBorrowedPGlite() }),
   },
 ] as const;
 
@@ -119,7 +122,7 @@ function compileCreateArm(
   const engine = new QueryEngine(
     mode === "transaction"
       ? new PGliteDriver()
-      : new BatchOnlyPGliteDriver({ client: new PGlite() }),
+      : new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
     createModelRegistry(schema, schemas)
   );
   const operation = new UpsertOperation(engine, model, {
@@ -208,7 +211,7 @@ test("a single-column generated PK compiles the SAME shape it always did", () =>
 test("an indivisible shared batch returns produced compound identity atomically", async () => {
   const client = createClient({
     schema: producedCompoundSchema,
-    driver: new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    driver: new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() }),
   }) as any;
   await syncLiveSchema(client);
   try {
@@ -248,7 +251,7 @@ test("two absent generated members use field-keyed outputs with no privileged id
 });
 
 test("an untaken relation-bearing plural create is inert on an atomic batch", async () => {
-  const database = new PGlite();
+  const database = openBorrowedPGlite();
   const client = createClient({
     schema: pinSchema,
     driver: new BatchOnlyPGliteDriver({ client: database }),
@@ -309,7 +312,7 @@ test("a relation-bearing race pin compares the once-parsed transformed value", (
 test("the two-generated-member table is valid PostgreSQL DDL and returns its exact row", async () => {
   const client = createClient({
     schema: pinSchema,
-    driver: new PGliteDriver({ client: new PGlite() }),
+    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
   });
   await syncLiveSchema(client);
   try {
@@ -351,7 +354,7 @@ test("the two-generated-member table is valid PostgreSQL DDL and returns its exa
 test("a different create key cannot borrow the missing where's race pin", async () => {
   const client = createClient({
     schema: pinSchema,
-    driver: new PGliteDriver({ client: new PGlite() }),
+    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
   });
   await syncLiveSchema(client);
   try {

@@ -13,6 +13,9 @@ import {
 } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
 
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+
 /** Rewrites the located counter's `id` after the database answered the locate. */
 class CorruptLocateDriver extends PGliteDriver {
   private armed = true;
@@ -126,14 +129,14 @@ const substrates = [
 for (const substrate of substrates) {
   let shared: any;
   registerCompileTransitionBehavior(substrate.name, async () => {
-    shared ??= await setup(substrate.make(new PGlite()));
+    shared ??= await setup(substrate.make(openBorrowedPGlite()));
     return shared;
   });
 }
 
 describe("E6.7 the pre-value's provenance and the window it lives in", () => {
   test("corrupt-locate: the derivation runs over the LOCATED value, not the `where`", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = await setup(new PGliteDriver({ client: db }));
     await resetCompileTransition(stateClient);
     await stateClient.counter.create({ data: { id: 10, tag: "t" } });
@@ -172,7 +175,7 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
   }, 30_000);
 
   test("concurrency: a key moved between planning and the batch ABORTS the unit", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const stateClient = await setup(new PGliteDriver({ client: db }));
     await resetCompileTransition(stateClient);
     await stateClient.counter.create({ data: { id: 10, tag: "t" } });
