@@ -78,9 +78,13 @@ export function mergeSubsystemCoverageRuns({
   }
   const summary = merged.getCoverageSummary().toJSON();
   for (const metric of metrics) {
-    if (summary[metric].pct < subsystem.target) {
+    // A subsystem may declare a lower floor for ONE metric without dropping the
+    // others: branch coverage capped by unreachable defensive guards should not
+    // drag its statement floor down with it.
+    const target = subsystem.metricTargets?.[metric] ?? subsystem.target;
+    if (summary[metric].pct < target) {
       failures.push(
-        `${subsystem.label}: ${metric} ${summary[metric].pct}% is below ${subsystem.target}%.`
+        `${subsystem.label}: ${metric} ${summary[metric].pct}% is below ${target}%.`
       );
     }
   }
