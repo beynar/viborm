@@ -16,7 +16,10 @@ import {
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -66,6 +69,7 @@ describe("write engine staleness injection (per premise class)", () => {
     // No partial mutation survived.
     await expect(client.user.findMany()).resolves.toEqual([]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("root-presence premise (delete): a concurrent delete aborts the batch typed", async () => {
@@ -89,6 +93,7 @@ describe("write engine staleness injection (per premise class)", () => {
       )
     ).rejects.toBeInstanceOf(NotFoundError);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("disconnect-correlation premise: a concurrent reparent aborts the batch typed", async () => {
@@ -130,6 +135,7 @@ describe("write engine staleness injection (per premise class)", () => {
       client.post.findUnique({ where: { id: 5 } })
     ).resolves.toMatchObject({ userId: 2 });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("connect-target premise: a concurrent delete aborts the batch typed", async () => {
@@ -158,6 +164,7 @@ describe("write engine staleness injection (per premise class)", () => {
       )
     ).rejects.toBeInstanceOf(NestedWriteError);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("upsert found premise: a concurrent delete aborts the batch typed", async () => {
@@ -198,6 +205,7 @@ describe("write engine staleness injection (per premise class)", () => {
       )
     ).rejects.toBeInstanceOf(NestedWriteError);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });
 
@@ -280,6 +288,7 @@ describe("write engine staleness injection (set orphan pin)", () => {
     // Both children survive; the set never fired.
     await expect(client.postTag.findMany()).resolves.toHaveLength(2);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });
 
@@ -384,6 +393,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
     expect((afterRerun as { tags: unknown[] }).tags).toHaveLength(0);
     expect(await client.tag.findMany()).toHaveLength(0);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("a concurrently removed member aborts the batch typed and raceable, then a rerun converges", async () => {
@@ -445,6 +455,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
       (await client.tag.findMany()).map((t: { id: string }) => t.id)
     ).toEqual(["t2"]);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });
 
@@ -498,6 +509,7 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
     });
     expect((after as { tags: unknown[] }).tags).toHaveLength(0);
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 
   test("upsert member premise: a concurrent disconnect of the member aborts the batch typed", async () => {
@@ -544,5 +556,6 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
     const after = await client.tag.findUnique({ where: { id: "t1" } });
     expect((after as { name: string }).name).toBe("tag-1");
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });

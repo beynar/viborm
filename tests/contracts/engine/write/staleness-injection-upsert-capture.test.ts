@@ -18,7 +18,10 @@ import {
   startsWithUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -120,6 +123,7 @@ describe("write engine upsert captured-row staleness", () => {
       .catch((error) => error);
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     // Planning selected A and chose the skip arm. B satisfies the same public
     // selector and condition, but it is not the row whose skip was compiled.
@@ -166,6 +170,7 @@ describe("write engine upsert captured-row staleness", () => {
       .catch((error) => error);
     const users = await client.user.findMany();
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(NotFoundError);
     expect((outcome as NotFoundError).message).toBe(
@@ -207,6 +212,7 @@ describe("write engine upsert captured-row staleness", () => {
       select: { id: true, title: true, userId: true },
     });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(result).toEqual({ id: 400, title: "unchanged", userId: null });
   });
@@ -244,6 +250,7 @@ describe("write engine upsert captured-row staleness", () => {
       outcome instanceof NotFoundError ? outcome.meta.raceable : undefined;
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     // The routed seam is intentional: if this existing-row guard were marked
     // raceable, its one retry would locate user 2 and this call would resolve.
@@ -296,6 +303,7 @@ describe("write engine upsert captured-row staleness", () => {
       outcome instanceof TransactionError ? outcome.meta.raceable : undefined;
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(TransactionError);
     expect((outcome as TransactionError).message).toBe(
@@ -348,6 +356,7 @@ describe("write engine upsert captured-row staleness", () => {
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     const posts = await client.post.findMany();
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(NotFoundError);
     expect((outcome as NotFoundError).message).toBe(
@@ -386,6 +395,7 @@ describe("write engine upsert captured-row staleness", () => {
     );
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(result).toEqual({ email: "up-fold-moved@x", count: 1 });
     expect(users).toEqual([
@@ -425,6 +435,7 @@ describe("write engine upsert captured-row staleness", () => {
     );
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(result).toEqual({
       email: "up-plain-moved@x",
@@ -452,6 +463,7 @@ describe("write engine upsert captured-row staleness", () => {
     }).catch((error) => error);
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     await client.$disconnect();
+    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(UniqueConstraintError);
     expect((outcome as UniqueConstraintError).meta.raceable).not.toBe(true);
