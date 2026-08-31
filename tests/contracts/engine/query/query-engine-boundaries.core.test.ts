@@ -27,18 +27,21 @@ import {
   createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
 } from "@query-engine/execution-context";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { executeSkippableWrite } from "@query-engine/skippable-write";
 import {
   readTransactionOperation,
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
 import { validate } from "@query-engine/validator";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
-import { sql, type Sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+const MISSING_OPERATION_SCHEMA_PATTERN =
+  /Schema not found for operation: missing/;
 
 const CACHE_NAMESPACE = createOfficialCacheNamespace({
   version: "query-engine-boundaries",
@@ -115,7 +118,9 @@ describe("query-engine cache boundaries", () => {
     expect(Object.getOwnPropertyDescriptor(prepared.args, "where")).toEqual(
       Object.getOwnPropertyDescriptor(input, "where")
     );
-    expect(prepared.args[symbolKey]).toBe("kept");
+    // `PreparedMutationCacheInput.args` is a `Record<string, unknown>`; the
+    // symbol-keyed property it copied verbatim is read through the intrinsic.
+    expect(Reflect.get(prepared.args, symbolKey)).toBe("kept");
   });
 
   test("preserves identity when no client-owned cache option is present", () => {
@@ -175,7 +180,9 @@ describe("query-engine cache boundaries", () => {
     const attributes = { "db.system.name": "postgresql" };
     const waitUntil = vi.fn();
 
-    expect(createCacheExecutionOptions(undefined, waitUntil, attributes)).toEqual({
+    expect(
+      createCacheExecutionOptions(undefined, waitUntil, attributes)
+    ).toEqual({
       ttlMs: 300_000,
       swr: false,
       bypass: false,
@@ -185,18 +192,18 @@ describe("query-engine cache boundaries", () => {
     });
     expect(
       createCacheExecutionOptions(
-        { ttl: 1_000, swr: true, bypass: true, key: "mine" },
+        { ttl: 1000, swr: true, bypass: true, key: "mine" },
         undefined,
         attributes
       )
-    ).toMatchObject({ ttlMs: 1_000, swr: 2_000, bypass: true, key: "mine" });
+    ).toMatchObject({ ttlMs: 1000, swr: 2000, bypass: true, key: "mine" });
     expect(
       createCacheExecutionOptions(
         { ttl: "2 seconds", swr: "3 seconds" },
         undefined,
         attributes
       )
-    ).toMatchObject({ ttlMs: 2_000, swr: 5_000 });
+    ).toMatchObject({ ttlMs: 2000, swr: 5000 });
     expect(() =>
       createCacheExecutionOptions({ ttl: "never" }, undefined, attributes)
     ).toThrow(CacheConfigurationError);
@@ -230,11 +237,9 @@ describe("query-engine cache boundaries", () => {
       snapshot: (value: unknown) => value,
       materialize: (value: unknown) => value,
     };
-    const options = createCacheExecutionOptions(
-      { ttl: 1_000 },
-      undefined,
-      { "db.system.name": "postgresql" }
-    );
+    const options = createCacheExecutionOptions({ ttl: 1000 }, undefined, {
+      "db.system.name": "postgresql",
+    });
 
     await expect(
       executeCachedResultOperation(
@@ -395,7 +400,9 @@ describe("query-engine operation attribution", () => {
     expect(rawFacts.spanOptions).toMatchObject({
       attributes: { "db.operation.name": "$queryRaw" },
     });
-    expect(modelFacts.complete({ status: "success", durationMs: 1 })).toBeUndefined();
+    expect(
+      modelFacts.complete({ status: "success", durationMs: 1 })
+    ).toBeUndefined();
 
     const failure = new Error("query failed");
     expect(
@@ -572,7 +579,7 @@ describe("skippable write savepoint semantics", () => {
 describe("coverage low value", () => {
   test("uses the correlation fallback when randomUUID is unavailable", () => {
     vi.stubGlobal("crypto", {});
-    vi.spyOn(Date, "now").mockReturnValue(1_234);
+    vi.spyOn(Date, "now").mockReturnValue(1234);
     vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     expect(createCorrelationId()).toBe("ya-i");
@@ -599,7 +606,7 @@ describe("coverage low value", () => {
 
     expect(() =>
       Reflect.apply(validate, undefined, [registry, model, "missing", {}])
-    ).toThrow(/Schema not found for operation: missing/);
+    ).toThrow(MISSING_OPERATION_SCHEMA_PATTERN);
   });
 
   test("refuses a query engine registry without an operation schema owner", () => {

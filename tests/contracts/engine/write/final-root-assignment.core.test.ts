@@ -1,18 +1,19 @@
 import { UnsupportedOperationError } from "@errors";
-import { ref } from "@src/query-engine/write-engine/OperationFragment";
+import { sql } from "@sql";
 import {
   assignmentIdentityFromFieldValue,
   assignmentIdentityFromScalar,
-  FinalRootAssignmentTruth,
   type FinalAssignmentIdentity,
+  type FinalAssignmentOrigin,
+  FinalRootAssignmentTruth,
 } from "@src/query-engine/write-engine/final-root-assignment";
-import { sql } from "@sql";
+import { ref } from "@src/query-engine/write-engine/OperationFragment";
 import { describe, expect, test } from "vitest";
 
 const contribute = (
   truth: FinalRootAssignmentTruth,
   identity: FinalAssignmentIdentity,
-  origin: "scalar" | "fold" = "scalar",
+  origin: FinalAssignmentOrigin = "scalar",
   preserveExistingOnEqual = false
 ) =>
   truth.contribute(
@@ -33,12 +34,7 @@ describe("one final root assignment truth per physical column", () => {
       origin: "fold",
     });
 
-    contribute(
-      truth,
-      { kind: "literal", value: 7 },
-      "membership",
-      true
-    );
+    contribute(truth, { kind: "literal", value: 7 }, "membership", true);
     expect(truth.get("ownerId")?.origin).toBe("fold");
   });
 
@@ -205,4 +201,3 @@ describe("final reference source equality", () => {
     ).toThrowError(UnsupportedOperationError);
   });
 });
-

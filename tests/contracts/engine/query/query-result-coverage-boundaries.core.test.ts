@@ -346,7 +346,10 @@ describe("coverage low value", () => {
         undefined,
         undefined,
         "postgres",
-        "findMany"
+        "findMany",
+        // `decimalColumn`, the tenth REQUIRED parameter: the corrupted scalar
+        // under test is not a decimal column.
+        undefined
       )
     ).toThrow(QueryEngineError);
     expect(() =>
@@ -371,9 +374,12 @@ describe("coverage low value", () => {
     });
     const aggregateKey = unknownAggregate.rawKeys[0];
     if (!aggregateKey) throw new Error("Expected an aggregate result column.");
-    unknownAggregate.aggregates.set(aggregateKey, {
-      fields: new Set(["unknown"]),
-    });
+    // `ExpectedResultShape.aggregates` is a ReadonlyMap the parser is entitled
+    // to trust, so the corruption is a map this test owns, not a write into the
+    // engine's own collection.
+    const corruptedAggregates = new Map(unknownAggregate.aggregates);
+    corruptedAggregates.set(aggregateKey, { fields: new Set(["unknown"]) });
+    unknownAggregate.aggregates = corruptedAggregates;
 
     expect(() =>
       compileCacheResultCodec(

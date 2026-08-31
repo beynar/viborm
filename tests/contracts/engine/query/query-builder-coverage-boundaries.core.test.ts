@@ -855,12 +855,16 @@ describe("coverage low value", () => {
     expect(() => buildWhere(scope, { title: {} }, scope.rootAlias)).toThrow(
       "must contain at least one operation"
     );
-    for (const [operator, value] of [
+    // Typed as pairs: an unannotated literal infers `string[]`, whose
+    // destructured elements are `string | undefined` under
+    // `noUncheckedIndexedAccess` and cannot name a computed property.
+    const arrayOperatorCases: readonly (readonly [string, string])[] = [
       ["in", "not-an-array"],
       ["notIn", "not-an-array"],
       ["hasEvery", "not-an-array"],
       ["hasSome", "not-an-array"],
-    ]) {
+    ];
+    for (const [operator, value] of arrayOperatorCases) {
       expect(() =>
         buildWhere(
           scope,

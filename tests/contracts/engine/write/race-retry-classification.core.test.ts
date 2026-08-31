@@ -4,6 +4,7 @@ import {
   TransactionError,
   UniqueConstraintError,
   VibORMErrorCode,
+  type VibORMErrorMeta,
 } from "@errors";
 import type { TargetConstraintPin } from "@src/query-engine/write-engine/OperationFragment";
 import {
@@ -41,13 +42,16 @@ describe("write-race attribution", () => {
     expect(racePinMatches(error, pin)).toBe(true);
   });
 
-  test.each([
+  // `VibORMErrorMeta.columns` is a mutable `string[]`, so `as const` would hand
+  // the constructor readonly tuples it cannot accept. The table is typed from
+  // the meta shape the error itself publishes instead.
+  test.each<[name: string, meta: VibORMErrorMeta]>([
     ["wrong table", { table: "comments", columns: ["tenant_id", "slug"] }],
     ["missing attribution", {}],
     ["wrong column count", { columns: ["slug"] }],
     ["wrong column", { columns: ["tenant_id", "title"] }],
     ["wrong constraint", { constraint: "posts_slug_key" }],
-  ] as const)("refuses %s", (_name, meta) => {
+  ])("refuses %s", (_name, meta) => {
     const error = new UniqueConstraintError("duplicate", { meta });
     expect(racePinMatches(error, pin)).toBe(false);
     markRaceIfPinned(error, pin);
@@ -58,7 +62,10 @@ describe("write-race attribution", () => {
     VibORMErrorCode.DEADLOCK,
     VibORMErrorCode.SERIALIZATION_FAILURE,
   ] as const)("marks an in-flight %s failure at a pinned write", (code) => {
-    const error = new QueryError("retry the transaction", { code });
+    // Both codes belong to `TransactionErrorCode`, and the driver error mapping
+    // raises exactly this class for them (`drivers/error-mapping.ts`), so this is
+    // the error `markRaceIfPinned` actually meets in flight.
+    const error = new TransactionError("retry the transaction", { code });
     markRaceIfPinned(error, pin);
     expect(isRetryableRace(error)).toBe(true);
   });

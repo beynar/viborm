@@ -462,7 +462,17 @@ describe("coverage low value", () => {
     const { scope, carrier } = collectionCarrier();
     const emptyCarrier: VariantJunctionCarrierSlot = {
       ...carrier,
-      edge: { ...carrier.edge, members: [] },
+      edge: {
+        ...carrier.edge,
+        // Deliberately below the floor the TYPE states: L5 resolves a variant
+        // junction edge as a NON-EMPTY tuple
+        // (`ResolvedRelationEdge`, src/schema/validation/relation-resolution.ts),
+        // so this topology is unconstructible through the schema. The engine
+        // still refuses it rather than seeding a fold from nothing, and this
+        // is the only way to reach that refusal.
+        // @ts-expect-error - an empty member tuple is what is under test
+        members: [],
+      },
     };
     expect(() =>
       buildPolymorphicCollectionCount(

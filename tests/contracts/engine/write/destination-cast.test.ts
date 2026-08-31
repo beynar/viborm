@@ -1,15 +1,25 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import {
   destinationCastSchema,
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+/**
+ * `createClient` is generic over the whole configuration literal, so
+ * `ReturnType<typeof createClient>` names its CONSTRAINT instantiation
+ * (`VibORMClient<VibORMConfig<Schema>>`), which this suite's schema-shaped
+ * client is not assignable to. Naming the holder through `setup` keeps the real
+ * client type and leaves nothing to synchronize after the live schema is in.
+ */
+async function setup(driver: PGliteDriver) {
+  const client = createClient({ schema: destinationCastSchema, driver });
+  await syncLiveSchema(client);
+  return client;
+}
 
 const substrates = [
   {
@@ -23,15 +33,9 @@ const substrates = [
 ] as const;
 
 for (const substrate of substrates) {
-  let shared: ReturnType<typeof createClient> | undefined;
+  let shared: Awaited<ReturnType<typeof setup>> | undefined;
   registerDestinationCastBehavior(substrate.name, async () => {
-    if (!shared) {
-      shared = createClient({
-        schema: destinationCastSchema,
-        driver: substrate.make(),
-      });
-      await syncLiveSchema(shared);
-    }
+    shared ??= await setup(substrate.make());
     return shared;
   });
 }

@@ -1,7 +1,10 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { resolvePolymorphicMutationIntent } from "@query-engine/builders/polymorphic-mutation";
 import { variantCarrier } from "@query-engine/context";
-import { isVariantRowCarrier } from "@query-engine/types";
+import {
+  isVariantRowCarrier,
+  type VariantRowCarrierSlot,
+} from "@query-engine/types";
 import { s } from "@schema";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
@@ -21,10 +24,14 @@ const reaction = s.model({
 prepareSchema({ article, video, reaction });
 
 const scope = scopeFor(new PostgresAdapter(), reaction);
-const subject = variantCarrier(scope, "subject");
-if (!subject || !isVariantRowCarrier(subject)) {
+const resolvedSubject = variantCarrier(scope, "subject");
+if (!(resolvedSubject && isVariantRowCarrier(resolvedSubject))) {
   throw new Error("Expected a row-held polymorphic subject relation.");
 }
+// DECLARED, not narrowed: this module's flow narrowing does not reach the
+// closures below, and `resolvePolymorphicMutationIntent` takes the row carrier
+// exactly — `variantCarrier` answers the junction arm and `undefined` too.
+const subject: VariantRowCarrierSlot = resolvedSubject;
 
 function targeted(payload: unknown) {
   const intent = resolvePolymorphicMutationIntent(subject, payload);

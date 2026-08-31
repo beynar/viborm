@@ -3,7 +3,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { NestedWriteAssertionError } from "@errors";
+import { NestedWriteAssertionError, NestedWriteError } from "@errors";
 import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
@@ -329,8 +329,10 @@ describe("batch guard attribution contracts", () => {
 
     expect(attributed).not.toBe(error);
     expect(errorName(attributed)).toBe("NestedWriteError");
-    expect(attributed).toBeInstanceOf(Error);
-    if (!(attributed instanceof Error)) {
+    expect(attributed).toBeInstanceOf(NestedWriteError);
+    // The redacted cause below is `VibORMError.originalCause`, which only the
+    // ORM error class carries; narrowing to bare `Error` cannot see it.
+    if (!(attributed instanceof NestedWriteError)) {
       throw new Error("Expected a nested-write error.");
     }
     expect(attributed.originalCause).toBeInstanceOf(Error);

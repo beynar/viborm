@@ -1,6 +1,9 @@
 import { QueryEngineError } from "@errors";
-import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import type { PolymorphicStorageValue } from "@query-engine/builders/polymorphic-mutation";
+import {
+  bindRelation,
+  hasPolymorphicMembership,
+} from "@query-engine/builders/relation-data-builder";
 import {
   createQueryScope,
   lookupRelation,
@@ -8,6 +11,8 @@ import {
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { isSql, sql } from "@sql";
+import { ref } from "@src/query-engine/write-engine/OperationFragment";
+import { planningKey } from "@src/query-engine/write-engine/Part";
 import {
   applyRootMembershipAssignment,
   bindCorrelatedRelationMembership,
@@ -24,11 +29,13 @@ import {
   lowerEmptyMembership,
   lowerMembershipWrite,
   membershipProjection,
+  type PlanningReferenceSource,
   pairCorrelatedForeignKeyMembers,
   pairForeignKeyMembers,
   plannedParentId,
   planningMembershipCondition,
   planningSourceFromFinal,
+  type RootMembershipAssignment,
   recordHasMembership,
   resolveCorrelatedMembershipProgressivePremise,
   resolveFinalReferenceRowKey,
@@ -37,11 +44,7 @@ import {
   resolveMembershipWriteParentRowKey,
   selectedRowContinuity,
   transitionedParentId,
-  type PlanningReferenceSource,
-  type RootMembershipAssignment,
 } from "@src/query-engine/write-engine/relation-membership";
-import { ref } from "@src/query-engine/write-engine/OperationFragment";
-import { planningKey } from "@src/query-engine/write-engine/Part";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
@@ -121,10 +124,13 @@ function polymorphicBinding(queryEngine: QueryEngine) {
   const relationRef = lookupRelation(articleScope, "cards");
   if (!relationRef) throw new Error("expected article.cards relation");
   const relation = bindRelation(articleScope, relationRef);
-  if (
-    relation.position !== "childHeld" ||
-    relation.membership.kind !== "polymorphic"
-  ) {
+  // The membership axis is a NESTED discriminant: reading
+  // `relation.membership.kind` narrows the membership reference, never the
+  // relation holding it. `hasPolymorphicMembership` is production's narrowing
+  // spelling of that exact test, and `PolymorphicChildHeldRelation` is the only
+  // arm of `BoundRelation` carrying a polymorphic membership, so it proves
+  // child-held placement too.
+  if (!hasPolymorphicMembership(relation)) {
     throw new Error("expected a polymorphic child-held relation");
   }
   return { articleScope, relation };
@@ -153,9 +159,9 @@ describe("relation membership temporal sources", () => {
       ],
     };
 
-    expect(
-      resolveMembershipReadParentRowKey(binding, known, "update")
-    ).toEqual({ tenantId: "tenant-1", id: "account-1" });
+    expect(resolveMembershipReadParentRowKey(binding, known, "update")).toEqual(
+      { tenantId: "tenant-1", id: "account-1" }
+    );
     expect(
       resolveMembershipWriteParentRowKey(binding, known, "update")
     ).toEqual({ tenantId: "tenant-1", id: "account-1" });
@@ -281,12 +287,7 @@ describe("ordinary relation membership lowering", () => {
       )
     ).toEqual({ filters: [{ accountCode: { equals: "next-code" } }] });
     expect(
-      recordHasMembership(
-        binding,
-        { accountCode: "old-code" },
-        known,
-        "update"
-      )
+      recordHasMembership(binding, { accountCode: "old-code" }, known, "update")
     ).toBe(true);
     expect(
       recordHasMembership(
@@ -302,7 +303,10 @@ describe("ordinary relation membership lowering", () => {
     const queryEngine = engine();
     const { relation } = ordinaryBinding(queryEngine);
     const noteScope = createQueryScope(queryEngine, schema.note);
-    const binding = bindRelationMembership(relation, literalParentId("account-code"));
+    const binding = bindRelationMembership(
+      relation,
+      literalParentId("account-code")
+    );
     const linked = lowerMembershipWrite(
       queryEngine,
       noteScope,
@@ -324,9 +328,9 @@ describe("ordinary relation membership lowering", () => {
       fields: ["accountCode"],
       additionalColumns: [],
     });
-    expect(
-      resolveMembershipReferencedPremise(binding, {}, "create")
-    ).toEqual({ code: "account-code" });
+    expect(resolveMembershipReferencedPremise(binding, {}, "create")).toEqual({
+      code: "account-code",
+    });
   });
 });
 
@@ -466,9 +470,7 @@ describe("coverage low value", () => {
       { kind: "literal", value: "account-1" },
     ];
     expect(
-      pairForeignKeyMembers(pairs, write).map(
-        (member) => member.foreignField
-      )
+      pairForeignKeyMembers(pairs, write).map((member) => member.foreignField)
     ).toEqual(["tenantId", "accountId"]);
     expect(
       pairCorrelatedForeignKeyMembers(pairs, read, write).map(

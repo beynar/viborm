@@ -220,12 +220,13 @@ describe("root record-series coverage", () => {
     expect(members).toHaveLength(3);
     expect(
       members.map((member) => {
+        // A `PlanningFragment` is statement-only by type (`OperationFragment.ts`
+        // states it, and every `planning()` producer is typed
+        // `readonly StatementStep[]`), so "not a guard, not a nested series" is
+        // already proven. The refusal that can still fire is the locate itself:
+        // an update member publishes its row through a leading READ.
         const locate = member.planning().steps[0];
-        if (
-          !locate ||
-          locate.kind === "guard" ||
-          locate.kind === "recordSeries"
-        ) {
+        if (!locate || locate.kind !== "read") {
           throw new Error("expected an ordinary selected-record locate");
         }
         return locate.statement.values[0];

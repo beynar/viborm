@@ -155,9 +155,7 @@ describe("fresh nested record-series coverage", () => {
       )
     ).toBe(true);
     expect(
-      fragments.map((fragment) =>
-        fragment.steps.map((current) => current.id)
-      )
+      fragments.map((fragment) => fragment.steps.map((current) => current.id))
     ).toEqual([
       ["card.create", "tag.connect"],
       ["card.create#1", "tag.connect#1"],
@@ -232,12 +230,12 @@ describe("nested selected record-series coverage", () => {
     expect(members).toHaveLength(3);
     expect(
       members.map((member) => {
+        // `planning()` returns a `PlanningFragment`, which is statement-only by
+        // type, so a guard or a nested series cannot appear here. What is still
+        // worth refusing is the step itself: the selected member locates its row
+        // with a leading READ before any of its writes.
         const locate = member.planning().steps[0];
-        if (
-          !locate ||
-          locate.kind === "guard" ||
-          locate.kind === "recordSeries"
-        ) {
+        if (!locate || locate.kind !== "read") {
           throw new Error("expected a selected-record locate");
         }
         return locate.statement.values[0];
