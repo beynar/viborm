@@ -5,12 +5,12 @@ import {
   decomposeQueryCoordinationFailure,
   decomposeWriteOutcomePublicationFailure,
   executePreparedQuery,
-  publishWriteOutcomes,
-  retainWriteOutcomeFailure,
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
+  publishWriteOutcomes,
   type QueryInterceptionMode,
   type QueryInterceptor,
+  retainWriteOutcomeFailure,
   runQueryInterceptors,
   TransactionWriteOutcomes,
   type WriteOutcomeListener,
@@ -200,9 +200,9 @@ describe("prepared query execution outcomes", () => {
     const childPromise = Promise.resolve("direct");
     const child = vi.fn(() => childPromise);
 
-    expect(
-      executePreparedQuery(undefined, undefined, child, false)
-    ).toBe(childPromise);
+    expect(executePreparedQuery(undefined, undefined, child, false)).toBe(
+      childPromise
+    );
     expect(child).toHaveBeenCalledOnce();
   });
 
@@ -288,7 +288,6 @@ describe("prepared query execution outcomes", () => {
     expect(failure).toBeInstanceOf(QueryError);
     expect(decomposeQueryCoordinationFailure(failure)).toBeUndefined();
   });
-
 });
 
 describe("query continuation authority", () => {
@@ -1317,5 +1316,90 @@ describe("coverage low value", () => {
     await expect(
       publishWriteOutcomes([], { certainty: "committed" })
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * One interceptor can break the protocol more than once. The runner keeps the
+ * FIRST failure and answers every later break with that same error, so the
+ * reported cause is the one that actually broke the contract rather than
+ * whichever violation happened to be thrown last.
+ */
+describe("a repeated protocol break keeps the first failure", () => {
+  test("a second illegal proceed throws the first error by identity", async () => {
+    const child = vi.fn(async (): Promise<Rows> => [{ id: "child" }]);
+    const thrown: unknown[] = [];
+
+    const failure = await captureFailure(
+      runQueryInterceptors(
+        modelContext("findMany"),
+        [
+          {
+            extension: "repeatedly-illegal",
+            handler({ proceed }) {
+              const settled = proceed();
+              for (const _attempt of [1, 2]) {
+                try {
+                  proceed();
+                } catch (error) {
+                  thrown.push(error);
+                }
+              }
+              return settled;
+            },
+          },
+        ],
+        child,
+        ignoreRegistration
+      )
+    );
+
+    expect(thrown).toHaveLength(2);
+    expect(thrown[0]).toBe(thrown[1]);
+    expect(requireQueryError(thrown[0]).message).toContain(
+      "called proceed more than once"
+    );
+    expect(requireQueryError(failure).message).toContain(
+      "called proceed more than once"
+    );
+  });
+
+  test("a later listener registration answers the earlier proceed failure", async () => {
+    const child = vi.fn(async (): Promise<Rows> => [{ id: "child" }]);
+    const thrown: unknown[] = [];
+
+    await captureFailure(
+      runQueryInterceptors(
+        modelContext("findMany"),
+        [
+          {
+            extension: "proceed-then-register",
+            handler({ onWriteOutcome, proceed }) {
+              const settled = proceed();
+              try {
+                proceed();
+              } catch (error) {
+                thrown.push(error);
+              }
+              try {
+                onWriteOutcome(() => undefined);
+              } catch (error) {
+                thrown.push(error);
+              }
+              return settled;
+            },
+          },
+        ],
+        child,
+        ignoreRegistration
+      )
+    );
+
+    expect(thrown).toHaveLength(2);
+    // A different violation, but the recorded failure is still the first one.
+    expect(thrown[0]).toBe(thrown[1]);
+    expect(requireQueryError(thrown[0]).message).toContain(
+      "called proceed more than once"
+    );
   });
 });
