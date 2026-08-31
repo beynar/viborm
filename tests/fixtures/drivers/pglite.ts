@@ -6,8 +6,8 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 
 import type { ProviderFixture } from "@tests/contracts/contract";
-import { afterAll, beforeAll, beforeEach } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, beforeEach } from "vitest";
 
 /**
  * Exercises the batch-only execution substrate with PostgreSQL semantics.

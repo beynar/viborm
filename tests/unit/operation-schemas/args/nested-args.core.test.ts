@@ -406,21 +406,18 @@ describe("Deeply Nested Creates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested to-many connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          data: {
-            id: "author-1",
-            name: "Alice",
-            posts: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested to-many connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("output: normalizes connectOrCreate to array", () => {
       const result = parse(schema, {
@@ -446,21 +443,23 @@ describe("Deeply Nested Creates", () => {
       }
     });
 
-    test.each(["update", "updateMany", "upsert", "deleteMany"] as const)(
-      "runtime: rejects planned update-branch operation '%s' in parent create",
-      (operation) => {
-        const result = parse(schema, {
-          data: {
-            id: "author-1",
-            name: "Alice",
-            posts: {
-              [operation]: {},
-            },
+    test.each([
+      "update",
+      "updateMany",
+      "upsert",
+      "deleteMany",
+    ] as const)("runtime: rejects planned update-branch operation '%s' in parent create", (operation) => {
+      const result = parse(schema, {
+        data: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            [operation]: {},
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     // PACKAGE J1 (plan §6 J1) — a root `createMany` row is now the ORDINARY create
     // data shape. This test asserted the opposite ("rejects relation envelopes in
@@ -597,22 +596,19 @@ describe("Deeply Nested Creates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested to-one connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          data: {
-            id: "post-1",
-            title: "Hello World",
-            authorId: "author-1",
-            author: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested to-one connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        data: {
+          id: "post-1",
+          title: "Hello World",
+          authorId: "author-1",
+          author: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
   });
 });
 
@@ -798,20 +794,17 @@ describe("Deeply Nested Updates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects nested update connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          where: { id: "author-1" },
-          data: {
-            posts: {
-              connectOrCreate: envelope,
-            },
+    ] as const)("runtime: rejects nested update connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        data: {
+          posts: {
+            connectOrCreate: envelope,
           },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: rejects nested createMany without data", () => {
       const result = parse(schema, {
@@ -904,18 +897,15 @@ describe("Deeply Nested Updates", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects malformed planned operation %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          where: { id: "author-1" },
-          data: {
-            posts: envelope,
-          },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+    ] as const)("runtime: rejects malformed planned operation %s", (_, envelope) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        data: {
+          posts: envelope,
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("output: preserves combined operations structure", () => {
       const result = parse(schema, {
@@ -1076,25 +1066,27 @@ describe("Complex Combined Queries", () => {
       expect(result.issues).toBeUndefined();
     });
 
-    test.each(["update", "updateMany", "upsert", "deleteMany"] as const)(
-      "runtime: rejects planned update-branch operation '%s' in upsert create branch",
-      (operation) => {
-        const result = parse(schema, {
-          where: { id: "author-1" },
-          create: {
-            id: "author-1",
-            name: "Alice",
-            posts: {
-              [operation]: {},
-            },
+    test.each([
+      "update",
+      "updateMany",
+      "upsert",
+      "deleteMany",
+    ] as const)("runtime: rejects planned update-branch operation '%s' in upsert create branch", (operation) => {
+      const result = parse(schema, {
+        where: { id: "author-1" },
+        create: {
+          id: "author-1",
+          name: "Alice",
+          posts: {
+            [operation]: {},
           },
-          update: {
-            name: "Alice Updated",
-          },
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+        },
+        update: {
+          name: "Alice Updated",
+        },
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("output: preserves upsert nested create arrays", () => {
       const result = parse(schema, {

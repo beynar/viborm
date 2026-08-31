@@ -21,11 +21,11 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema";
 import type { Model } from "@schema/model";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import {
   NAMESPACE_SCHEMA_TABLES,
   namespaceSchema,
 } from "@tests/fixtures/namespace-schema";
-import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 

@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -6,10 +5,10 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { upsertAtomicitySchema as schema } from "@tests/fixtures/upsert-atomicity-schema";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { upsertAtomicitySchema as schema } from "@tests/fixtures/upsert-atomicity-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const UPDATED_NAME_PATTERN = /^updated-/;
 

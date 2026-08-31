@@ -34,9 +34,7 @@ import {
 } from "@src/migrations/decimal";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
 import { ddlContext } from "@tests/unit/migrations/_estate";
-import {
-  encodeDecimalListContainer,
-} from "@validation/primitives/decimal-codec";
+import { encodeDecimalListContainer } from "@validation/primitives/decimal-codec";
 import { describe, expect, it } from "vitest";
 
 const TABLE = "dec_list_agreement";

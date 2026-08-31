@@ -26,8 +26,8 @@ import {
   buildInsertStatement,
 } from "@query-engine/operations/create";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
 import { s } from "@schema";
+import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
 import { sql } from "@sql";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
@@ -96,7 +96,13 @@ const defaultOnly = s.model({
   id: s.int().id().increment(),
 });
 const schema = { item };
-prepareSchema({ item, valueModel, generatedBigInt, generatedText, defaultOnly });
+prepareSchema({
+  item,
+  valueModel,
+  generatedBigInt,
+  generatedText,
+  defaultOnly,
+});
 const engine = new QueryEngine(
   new PlanDriver(),
   createModelRegistry(schema, createSchemaRegistry(schema))
@@ -150,10 +156,7 @@ describe("bulk create planning", () => {
       { columns: ["label"], inputIndexes: [3] },
     ]);
     expect(() =>
-      buildValues(scope, [
-        { label: "generated" },
-        { id: 7, label: "manual" },
-      ])
+      buildValues(scope, [{ label: "generated" }, { id: 7, label: "manual" }])
     ).toThrow(/Heterogeneous insert rows require grouped execution/);
   });
 
@@ -187,19 +190,19 @@ describe("bulk create planning", () => {
     const scope = scopeFor(new PostgresAdapter("public", true), valueModel);
     const passthrough = sql`NOW()`;
 
-    expect(buildScalarSqlValue(scope, valueModel, "count", undefined).values).toEqual(
-      []
-    );
-    expect(buildScalarSqlValue(scope, valueModel, "count", null).values).toEqual(
-      []
-    );
+    expect(
+      buildScalarSqlValue(scope, valueModel, "count", undefined).values
+    ).toEqual([]);
+    expect(
+      buildScalarSqlValue(scope, valueModel, "count", null).values
+    ).toEqual([]);
     expect(buildScalarSqlValue(scope, valueModel, "count", passthrough)).toBe(
       passthrough
     );
     expect(
-      buildScalarSqlValue(scope, valueModel, "payload", { ready: true }).values.map(
-        (value) => JSON.stringify(value)
-      )
+      buildScalarSqlValue(scope, valueModel, "payload", {
+        ready: true,
+      }).values.map((value) => JSON.stringify(value))
     ).toEqual(['{"ready":true}']);
     expect(
       buildScalarSqlValue(scope, valueModel, "location", {
@@ -226,12 +229,11 @@ describe("bulk create planning", () => {
         .values
     ).toEqual(['{"ACTIVE","DONE"}']);
     expect(
-      buildScalarSqlValue(scope, valueModel, "amounts", ["1.20", "3.40"])
-        .values
+      buildScalarSqlValue(scope, valueModel, "amounts", ["1.20", "3.40"]).values
     ).toEqual([["1.2", "3.4"]]);
-    expect(buildScalarSqlValue(scope, valueModel, "payload", DbNull).values).toEqual(
-      []
-    );
+    expect(
+      buildScalarSqlValue(scope, valueModel, "payload", DbNull).values
+    ).toEqual([]);
     expect(
       buildScalarSqlValue(scope, valueModel, "payload", JsonNull).values.map(
         (value) => JSON.stringify(value)
@@ -249,10 +251,12 @@ describe("bulk create planning", () => {
       new SQLiteAdapter(),
     ]) {
       const scope = scopeFor(adapter, valueModel);
-      expect(scalarValueLiteral(scope, "scores", [1, 2]).values).toHaveLength(1);
-      expect(scalarValueLiteral(scope, "payload", { ready: true }).values).toHaveLength(
+      expect(scalarValueLiteral(scope, "scores", [1, 2]).values).toHaveLength(
         1
       );
+      expect(
+        scalarValueLiteral(scope, "payload", { ready: true }).values
+      ).toHaveLength(1);
       expect(
         scalarValueLiteral(scope, "location", {
           longitude: 2.3522,
@@ -260,11 +264,8 @@ describe("bulk create planning", () => {
         }).values
       ).toHaveLength(2);
       expect(
-        scalarValueLiteral(
-          scope,
-          "occurredAt",
-          "2026-08-30T12:34:56.789Z"
-        ).values
+        scalarValueLiteral(scope, "occurredAt", "2026-08-30T12:34:56.789Z")
+          .values
       ).toHaveLength(1);
       expect(scalarValueLiteral(scope, "amount", "12.30").values).toHaveLength(
         1
@@ -286,7 +287,12 @@ describe("bulk create planning", () => {
       decimalListMember(new SQLiteAdapter(), "amounts", {}, descriptor)
     ).toThrow(/received a member that is not an exact decimal/);
     expect(() =>
-      decimalListMembers(new SQLiteAdapter(), "amounts", ["1.20", {}], descriptor)
+      decimalListMembers(
+        new SQLiteAdapter(),
+        "amounts",
+        ["1.20", {}],
+        descriptor
+      )
     ).toThrow(/received a member that is not an exact decimal/);
     expect(
       decimalListMember(new SQLiteAdapter(), "amounts", "1.20", descriptor)
@@ -360,8 +366,10 @@ describe("bulk create planning", () => {
       }).toStatement("?")
     ).not.toContain("RETURNING");
     expect(
-      buildInsertStatement(scopeFor(new PostgresAdapter(), defaultOnly), {})
-        .toStatement("$n")
+      buildInsertStatement(
+        scopeFor(new PostgresAdapter(), defaultOnly),
+        {}
+      ).toStatement("$n")
     ).toContain("DEFAULT VALUES");
   });
 
@@ -378,10 +386,9 @@ describe("bulk create planning", () => {
     );
 
     expect(defaults.statements).toHaveLength(2);
-    expect(defaults.statements.map((statement) => statement.inputIndexes)).toEqual([
-      [0],
-      [1],
-    ]);
+    expect(
+      defaults.statements.map((statement) => statement.inputIndexes)
+    ).toEqual([[0], [1]]);
     expect(mysqlReturning.statements).toHaveLength(2);
     expect(
       mysqlReturning.statements.map((statement) => statement.inputIndexes)

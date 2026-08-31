@@ -7,8 +7,8 @@ import { NotFoundError, UniqueConstraintError } from "@errors";
 
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import { beforeAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * PHASE 8.1 — the terminal read, folded into the mutating statement

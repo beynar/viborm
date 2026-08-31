@@ -204,7 +204,9 @@ class RecordingPGliteDriver extends PGliteDriver {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     if (this.recording) this.statements.push(sql);
-    return Promise.reject(new Error("Compiler witness reached provider dispatch."));
+    return Promise.reject(
+      new Error("Compiler witness reached provider dispatch.")
+    );
   }
 
   protected override executeRaw<T>(
@@ -214,7 +216,9 @@ class RecordingPGliteDriver extends PGliteDriver {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     if (this.recording) this.statements.push(sql);
-    return Promise.reject(new Error("Compiler witness reached raw provider dispatch."));
+    return Promise.reject(
+      new Error("Compiler witness reached raw provider dispatch.")
+    );
   }
 }
 

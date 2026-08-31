@@ -750,7 +750,6 @@ describe("a captured decimal row key addresses the captured row", () => {
 
     expect(valuesOf(compiled, "crate.delete")).toEqual([CAPTURED_COEFFICIENT]);
   });
-
 });
 
 describe("the decode changes nothing where physical and logical agree", () => {

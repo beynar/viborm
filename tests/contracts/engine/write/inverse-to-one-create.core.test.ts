@@ -2,13 +2,11 @@ import { ValidationError } from "@errors";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
+import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { inverseToOneCreateSchema } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import {
-  inverseToOneCreateSchema,
-} from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 
 // ---------------------------------------------------------------------------
 // N2-U2 / N2-U3 — the parse-boundary surface, MEASURED against Prisma 7.9.1.

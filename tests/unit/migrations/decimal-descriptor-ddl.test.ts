@@ -100,4 +100,3 @@ describe("a live SQLite estate", () => {
     await client.$disconnect();
   });
 });
-

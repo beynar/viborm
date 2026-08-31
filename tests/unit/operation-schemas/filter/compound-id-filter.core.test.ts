@@ -5,13 +5,13 @@
  * constraints as single keys with nested field objects.
  */
 
-import { parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
+import { parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // TYPE TESTS - Compound ID Model

@@ -1,14 +1,12 @@
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { beforeAll, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { beforeAll, expect, test } from "vitest";
 
 /**
  * A to-one create and a parent-held update have at most one active operation.

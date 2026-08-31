@@ -261,9 +261,7 @@ describe("strict scalar result contracts", () => {
 
   test("rejects present scalar columns whose provider value is absent", () => {
     expect(() => parseField("text", undefined)).toThrow(STRING_ERROR_PATTERN);
-    expect(() => parseField("money", undefined)).toThrow(
-      DECIMAL_ERROR_PATTERN
-    );
+    expect(() => parseField("money", undefined)).toThrow(DECIMAL_ERROR_PATTERN);
     expect(() => parseField("amounts", undefined)).toThrow(
       DECIMAL_ERROR_PATTERN
     );
@@ -291,9 +289,9 @@ describe("strict scalar result contracts", () => {
     expect(parseField("julianTime", 2_440_587.5, new SQLiteAdapter())).toEqual(
       new Date("1970-01-01T00:00:00.000Z")
     );
-    expect(() =>
-      parseField("epochTime", "0", new SQLiteAdapter())
-    ).toThrow(/datetime/i);
+    expect(() => parseField("epochTime", "0", new SQLiteAdapter())).toThrow(
+      /datetime/i
+    );
     expect(() =>
       parseField("julianTime", "2440587.5", new SQLiteAdapter())
     ).toThrow(/datetime/i);

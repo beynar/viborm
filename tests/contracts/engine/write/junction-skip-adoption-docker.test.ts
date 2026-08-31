@@ -1,7 +1,7 @@
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { describe } from "vitest";
 import { runJunctionSkipAdoptBehavior } from "@tests/contracts/engine/write/junction-skip-adoption-behavior";
+import { describe } from "vitest";
 
 /**
  * E6.8 on the live servers.

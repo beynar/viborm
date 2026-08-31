@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
 import * as internalInstrumentation from "@src/instrumentation";
 import * as publicInstrumentation from "@src/instrumentation/exports";
+import { describe, expect, it } from "vitest";
 
 describe("instrumentation source entries", () => {
   it("executes both barrels and exposes their owned runtime surface", () => {

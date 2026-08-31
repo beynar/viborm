@@ -39,7 +39,10 @@ const slip = s
     id: s.string().id(),
     note: s.string(),
     vaultKey: s.decimal(MONEY),
-    vault: s.toOne(() => vault).fields("vaultKey").references("key"),
+    vault: s
+      .toOne(() => vault)
+      .fields("vaultKey")
+      .references("key"),
   })
   .map("decimal_relkey_slips");
 

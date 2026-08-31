@@ -15,9 +15,9 @@ import {
   runExtendedWhereUniqueBehavior,
 } from "@tests/contracts/engine/write/extended-where-unique-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The whole extended-whereUnique surface on PGlite, both substrates. The driver
 // matrix legs run the same module from tests/drivers/*.test.ts.

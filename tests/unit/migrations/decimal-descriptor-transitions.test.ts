@@ -17,9 +17,9 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  DECIMAL_TRANSITION_TABLE as TABLE,
   decimalLedger as ledger,
   decimalListLedger as listLedger,
+  DECIMAL_TRANSITION_TABLE as TABLE,
 } from "./_decimal-descriptor-models";
 
 function nullableListLedger(precision: number, scale: number) {

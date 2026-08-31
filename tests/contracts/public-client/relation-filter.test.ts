@@ -2,6 +2,7 @@
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -11,7 +12,6 @@ import {
   test,
 } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const user = s.model({
   id: s.string().id(),
   name: s.string(),

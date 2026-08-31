@@ -32,7 +32,10 @@ const report = s.model({
 const reportEntry = s.model({
   id: s.string().id(),
   reportId: s.string(),
-  report: s.toOne(() => report).fields("reportId").references("id"),
+  report: s
+    .toOne(() => report)
+    .fields("reportId")
+    .references("id"),
 });
 
 prepareSchema({ artifact, dashboard, row, report, reportEntry });

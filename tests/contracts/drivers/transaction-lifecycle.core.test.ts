@@ -12,8 +12,8 @@ import {
   type Config as PlanetScaleConfig,
 } from "@planetscale/database";
 import { sql } from "@sql";
-import { describe, expect, test, vi } from "vitest";
 import { executeSkippableWrite } from "@src/query-engine/skippable-write";
+import { describe, expect, test, vi } from "vitest";
 
 interface Deferred {
   readonly promise: Promise<void>;

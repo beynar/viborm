@@ -140,15 +140,12 @@ describe("ToOne Create - Required (Post.author)", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          connectOrCreate: envelope,
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        connectOrCreate: envelope,
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: rejects create with missing required field", () => {
       const result = parse(schema, {
@@ -425,15 +422,12 @@ describe("ToMany Create - Required (Author.posts)", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects connectOrCreate envelope %s",
-      (_, envelope) => {
-        const result = parse(schema, {
-          connectOrCreate: envelope,
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+    ] as const)("runtime: rejects connectOrCreate envelope %s", (_, envelope) => {
+      const result = parse(schema, {
+        connectOrCreate: envelope,
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts array of connectOrCreate objects", () => {
       const input = {
@@ -477,25 +471,22 @@ describe("ToMany Create - Required (Author.posts)", () => {
           },
         },
       ],
-    ] as const)(
-      "runtime: rejects connectOrCreate array item %s",
-      (_, invalidItem) => {
-        const result = parse(schema, {
-          connectOrCreate: [
-            {
-              where: { id: "post-valid" },
-              create: {
-                id: "post-valid",
-                title: "Valid",
-                content: "World",
-              },
+    ] as const)("runtime: rejects connectOrCreate array item %s", (_, invalidItem) => {
+      const result = parse(schema, {
+        connectOrCreate: [
+          {
+            where: { id: "post-valid" },
+            create: {
+              id: "post-valid",
+              title: "Valid",
+              content: "World",
             },
-            invalidItem,
-          ],
-        });
-        expect(result.issues).toBeDefined();
-      }
-    );
+          },
+          invalidItem,
+        ],
+      });
+      expect(result.issues).toBeDefined();
+    });
 
     test("runtime: accepts combined create and connect", () => {
       const input = {

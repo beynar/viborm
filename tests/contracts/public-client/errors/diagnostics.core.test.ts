@@ -5,9 +5,9 @@ import {
   hasCommittedRecordSeriesProgress,
   hasRecordSeriesProgress,
   QueryEngineError,
+  type RecordSeriesProgress,
   registerTrustedError,
   registerTrustedRecordSeriesProgress,
-  type RecordSeriesProgress,
   resolveDiagnosticDisclosure,
   sanitizeDiagnosticParameters,
   sanitizeErrorCause,
@@ -46,8 +46,8 @@ import {
   sanitizeString,
   sanitizeTrustedCode,
   sanitizeTrustedPrismaCode,
-  toError,
   TRUNCATED_DIAGNOSTIC_VALUE,
+  toError,
   UNREADABLE_DIAGNOSTIC_VALUE,
 } from "@src/errors/diagnostic-safety";
 
@@ -330,9 +330,9 @@ describe("trusted error diagnostics", () => {
     registerTrustedError(error, {
       cause: new Error("provider secret"),
       code: "not-a-viborm-code",
-      message: "m".repeat(5_000),
+      message: "m".repeat(5000),
       meta: { operation: "findMany", token: "hidden" },
-      name: "N".repeat(5_000),
+      name: "N".repeat(5000),
       prismaCode: "not-a-prisma-code",
       timestamp: new Date(Number.NaN),
     });
@@ -343,8 +343,8 @@ describe("trusted error diagnostics", () => {
       meta: { operation: "findMany" },
       timestamp: "Invalid Date",
     });
-    expect(serialized?.message).toBe(boundTrustedString("m".repeat(5_000)));
-    expect(serialized?.name).toBe(boundTrustedString("N".repeat(5_000)));
+    expect(serialized?.message).toBe(boundTrustedString("m".repeat(5000)));
+    expect(serialized?.name).toBe(boundTrustedString("N".repeat(5000)));
     expect(serialized).not.toHaveProperty("prismaCode");
     expect(serialized?.cause).toMatchObject({
       message: "Underlying error details redacted",
@@ -449,9 +449,11 @@ describe("trusted error diagnostics", () => {
   it("bounds circular and deeply nested Error causes", () => {
     const circular = new Error("circular");
     Object.defineProperty(circular, "cause", { value: circular });
-    expect(serializeSanitizedError(sanitizeErrorCause(circular))).toMatchObject({
-      cause: { message: "[Circular]" },
-    });
+    expect(serializeSanitizedError(sanitizeErrorCause(circular))).toMatchObject(
+      {
+        cause: { message: "[Circular]" },
+      }
+    );
 
     let nested = new Error("leaf");
     for (let depth = 0; depth < 10; depth += 1) {
@@ -564,7 +566,10 @@ describe("record-series progress diagnostics", () => {
   });
 
   it("recognizes a valid series with no committed segment", () => {
-    const error = new VibORMError("not committed", VibORMErrorCode.QUERY_FAILED);
+    const error = new VibORMError(
+      "not committed",
+      VibORMErrorCode.QUERY_FAILED
+    );
     registerTrustedRecordSeriesProgress(error, {
       atomicity: "segment",
       phase: "planning",
@@ -597,7 +602,9 @@ describe("coverage low value", () => {
       UNREADABLE_DIAGNOSTIC_VALUE
     );
     expect(safeHasOwn(revokedRecord.proxy, "value")).toBe(false);
-    expect(safeOwnPropertyDescriptor(revokedRecord.proxy, "value")).toBeUndefined();
+    expect(
+      safeOwnPropertyDescriptor(revokedRecord.proxy, "value")
+    ).toBeUndefined();
     expect(isRecord(revokedRecord.proxy)).toBe(false);
     expect(isError(revokedRecord.proxy)).toBe(false);
 
@@ -663,9 +670,9 @@ describe("coverage low value", () => {
         throw new Error("unreadable message");
       },
     });
-    expect(safeErrorString(error, "message", { characters: 0, entries: 0 })).toBe(
-      UNREADABLE_DIAGNOSTIC_VALUE
-    );
+    expect(
+      safeErrorString(error, "message", { characters: 0, entries: 0 })
+    ).toBe(UNREADABLE_DIAGNOSTIC_VALUE);
 
     Object.defineProperty(error, "name", { value: 7 });
     expect(safeErrorString(error, "name", { characters: 0, entries: 0 })).toBe(
@@ -693,7 +700,10 @@ describe("coverage low value", () => {
   });
 
   it("falls back for an unregistered toJSON receiver and empty class name", () => {
-    const registered = new VibORMError("registered", VibORMErrorCode.QUERY_FAILED);
+    const registered = new VibORMError(
+      "registered",
+      VibORMErrorCode.QUERY_FAILED
+    );
     const unregisteredReceiver = new Proxy(registered, {
       get(target, key, receiver) {
         return typeof key === "symbol"

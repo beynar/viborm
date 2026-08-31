@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { systemClock } from "@src/clock";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("system clock", () => {
   afterEach(() => {

@@ -18,9 +18,9 @@ import { expectIndivisibleGeneratedOutputRefusal } from "@tests/contracts/engine
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE M (plan §4.5 / §6 M2–M4) — **the PostgreSQL write-dependency fold, and

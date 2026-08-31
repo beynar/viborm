@@ -9,11 +9,11 @@ import {
   parseResult,
   prepareResultRows,
 } from "@query-engine/result/ResultParser";
+import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import {
   getAggregateResultKey,
   RELATION_COUNTS_RESULT_KEY,
 } from "@query-engine/result-aliases";
-import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import { s } from "@schema";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import Decimal from "decimal.js";
@@ -117,7 +117,10 @@ const relationCountAliasModels = (() => {
   const child = s.model({
     id: s.string().id(),
     rootId: s.string(),
-    root: s.toOne(() => root).fields("rootId").references("id"),
+    root: s
+      .toOne(() => root)
+      .fields("rootId")
+      .references("id"),
   });
   return { root, child };
 })();
@@ -995,12 +998,9 @@ describe("result parser contracts", () => {
       )
     ).toEqual({ _count: 3 });
     expect(
-      parseResult(
-        parser,
-        "count",
-        [{ _all: "4", id: 3n }],
-        { select: { _all: true, id: true } }
-      )
+      parseResult(parser, "count", [{ _all: "4", id: 3n }], {
+        select: { _all: true, id: true },
+      })
     ).toEqual({ _all: 4, id: 3 });
   });
 
@@ -1025,10 +1025,7 @@ describe("result parser contracts", () => {
       "an absent requested leaf",
       { [getAggregateResultKey("_avg")]: { ratio: undefined } },
     ],
-    [
-      "a null count leaf",
-      { [getAggregateResultKey("_count")]: { id: null } },
-    ],
+    ["a null count leaf", { [getAggregateResultKey("_count")]: { id: null } }],
   ])("rejects aggregate output with %s", (_label, row) => {
     const args = Object.hasOwn(row, getAggregateResultKey("_count"))
       ? { _count: { id: true } }

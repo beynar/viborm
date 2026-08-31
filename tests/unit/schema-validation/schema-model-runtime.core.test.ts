@@ -1,9 +1,5 @@
 import { hydrateSchemaNames, s } from "@schema";
-import {
-  findAddressableKey,
-  getColumnName,
-  getTableName,
-} from "@schema/model";
+import { findAddressableKey, getColumnName, getTableName } from "@schema/model";
 import { describe, expect, test } from "vitest";
 
 describe("schema model runtime projections", () => {

@@ -14,14 +14,13 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   clientUserPostSchema,
   sqliteUserPostSchema,
 } from "@tests/fixtures/user-post-schema";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 const ISOLATION_SQL = /SET TRANSACTION ISOLATION LEVEL/i;
 const SELECT_SQL = /select/i;
 const ANY_LEVEL_SQL =

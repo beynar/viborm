@@ -8,8 +8,8 @@ import {
   registerTwoSequenceBehavior,
   twoSequenceSchema,
 } from "@tests/contracts/engine/write/fresh-produced-field-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * Package F on the live servers, and MySQL is the leg that matters: mysql2 has no

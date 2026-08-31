@@ -1,4 +1,5 @@
 import { UnsupportedOperationError } from "@errors";
+import { sql } from "@sql";
 import {
   crossedReferenceContinuationGuards,
   firstGeneratedOutputDependency,
@@ -6,12 +7,11 @@ import {
   statementStepsById,
 } from "@src/query-engine/write-engine/generated-output-boundary";
 import {
-  ref,
   type GuardStep,
   type OperationFragment,
+  ref,
   type WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
-import { sql } from "@sql";
 import { describe, expect, test } from "vitest";
 
 const continuation: GuardStep = {
@@ -181,11 +181,7 @@ describe("generated provider-output segmentation", () => {
         source: { kind: "reference", reference: ref("left", "id") },
       },
     });
-    const consumer = write(
-      "consumer",
-      {},
-      sql`SELECT ${ref("left", "id")}`
-    );
+    const consumer = write("consumer", {}, sql`SELECT ${ref("left", "id")}`);
     const fragment: OperationFragment = {
       steps: [left, right, consumer],
       outputs: {},

@@ -1,8 +1,8 @@
+import { anyValue, rawRecord } from "@src/validation/primitives/raw-record";
 import { parse } from "@validation";
 import { record } from "@validation/primitives/record";
 import { string } from "@validation/primitives/string";
 import { describe, expect, test } from "vitest";
-import { anyValue, rawRecord } from "@src/validation/primitives/raw-record";
 
 /**
  * E5-U3 — the identity-preserving object leaf. Its one property is that the value comes

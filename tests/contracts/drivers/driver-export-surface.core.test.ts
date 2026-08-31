@@ -1,15 +1,19 @@
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
-import * as driverBase from "@drivers/exports";
+
+import { VibORM } from "@client/client";
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as drivers from "@drivers";
-import { VibORM } from "@client/client";
 import {
   BunSQLiteDriver,
   createClient as createBunSQLiteClient,
 } from "@drivers/bun-sqlite";
 import { createClient as createD1Client, D1Driver } from "@drivers/d1";
 import { Driver } from "@drivers/driver";
-import { createClient as createLibSQLClient, LibSQLDriver } from "@drivers/libsql";
+import * as driverBase from "@drivers/exports";
+import {
+  createClient as createLibSQLClient,
+  LibSQLDriver,
+} from "@drivers/libsql";
 import {
   createClient as createSQLite3Client,
   SQLite3Driver,

@@ -1,6 +1,6 @@
 import {
-  admitArrayQueries,
   type ArrayAdmissionSlot,
+  admitArrayQueries,
   createArrayDeferred,
   readArrayQuery,
 } from "@extensions/array-admission";

@@ -15,7 +15,6 @@ import { sliceDispatch } from "@migrations/sql-blob";
 import type { MigrationOperationV1 } from "@migrations/v1-types";
 import { describe, expect, it } from "vitest";
 import {
-  DECIMAL_TRANSITION_TABLE as TABLE,
   decimalLedger as ledger,
   decimalListLedger as listLedger,
 } from "./_decimal-descriptor-models";

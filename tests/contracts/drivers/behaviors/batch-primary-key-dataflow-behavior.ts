@@ -8,8 +8,8 @@ import type { AnyDriver } from "@drivers";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
 import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type BatchPrimaryKeyDataflowConfig = VibORMConfig<typeof schema>;
 

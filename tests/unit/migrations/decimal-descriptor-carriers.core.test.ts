@@ -201,8 +201,6 @@ describe("the reserved-constraint reader parses clauses, not text", () => {
       )
     ).toEqual(dec(10, 2));
   });
-
-
 });
 
 describe("the MySQL list marker admits only a physical decimal domain", () => {

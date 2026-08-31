@@ -25,8 +25,8 @@ import {
 import type { AnyDriver } from "@drivers";
 
 import { s } from "@schema";
-import { afterEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, expect, test } from "vitest";
 
 // Three sort columns over one row set, so a comparison between them isolates
 // exactly one variable:

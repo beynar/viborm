@@ -2,9 +2,9 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 
 import { s } from "@schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * The read family (PLAN P4 item 1) as single read steps, across the driver

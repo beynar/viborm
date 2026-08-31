@@ -1,9 +1,8 @@
 import { createClient, type VibORMClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-
-import { beforeAll, describe, expect, test } from "vitest";
-import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * Arbitrarily nested `not` (Prisma parity).

@@ -239,15 +239,12 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         },
       },
     ],
-  ] as const)(
-    "runtime: rejects malformed planned to-many %s",
-    (_, envelope) => {
-      const result = parse(schema, {
-        posts: envelope,
-      });
-      expect(result.issues).toBeDefined();
-    }
-  );
+  ] as const)("runtime: rejects malformed planned to-many %s", (_, envelope) => {
+    const result = parse(schema, {
+      posts: envelope,
+    });
+    expect(result.issues).toBeDefined();
+  });
 
   test("runtime: accepts set to replace all", () => {
     const result = parse(schema, {
@@ -325,17 +322,17 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each(["updateMany", "deleteMany"] as const)(
-    "runtime: rejects to-many-only '%s' on to-one",
-    (operation) => {
-      const result = parse(schema, {
-        author: {
-          [operation]: {},
-        },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+  test.each([
+    "updateMany",
+    "deleteMany",
+  ] as const)("runtime: rejects to-many-only '%s' on to-one", (operation) => {
+    const result = parse(schema, {
+      author: {
+        [operation]: {},
+      },
+    });
+    expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+  });
 
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {

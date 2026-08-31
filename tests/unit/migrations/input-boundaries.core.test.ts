@@ -12,10 +12,7 @@ import {
   snapshotPushOptions,
 } from "@src/migrations/push-consent";
 import { pushV1 } from "@src/migrations/push-v1";
-import type {
-  PushConsent,
-  PushTargetIdentity,
-} from "@src/migrations/v1-types";
+import type { PushConsent, PushTargetIdentity } from "@src/migrations/v1-types";
 import { describe, expect, it, vi } from "vitest";
 
 const HASH_A = "a".repeat(64);
@@ -192,9 +189,9 @@ describe("migration hostile-input boundaries", () => {
     expect(normalized.from).toBe(HASH_A);
     expect(normalized.resolve).toBeTypeOf("function");
     expect(normalized.manualMigration?.destinationChecks).toHaveLength(1);
-    expect(normalized.manualMigration?.transitions[0]?.originChecks).toHaveLength(
-      1
-    );
+    expect(
+      normalized.manualMigration?.transitions[0]?.originChecks
+    ).toHaveLength(1);
     expect(normalized.manualMigration?.transitions[0]?.rollback).toMatchObject({
       kind: "manual",
       execution: "transactional",

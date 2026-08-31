@@ -164,12 +164,7 @@ describe("protected observer lifecycle projections", () => {
     await observeStatement([observer], undefined, undefined, child);
     await observeStatement([observer], "$queryRaw", "$raw", child);
     await observeStatement([observer], "create", "post", child);
-    await observeDriverLifecycle(
-      "connection",
-      [observer],
-      undefined,
-      child
-    );
+    await observeDriverLifecycle("connection", [observer], undefined, child);
     await observeDriverLifecycle("transaction", [observer], "commit", child);
 
     expect(units).toEqual([

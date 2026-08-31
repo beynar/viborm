@@ -2,11 +2,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import {
-  Driver,
-  type QueryExecutionContext,
-  type QueryResult,
-} from "@drivers";
+import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
 
 export type PlanningDialect = "mysql" | "postgresql" | "sqlite";
 
@@ -43,8 +39,7 @@ export class PlanningDriver extends Driver<null, null> {
           : new SQLiteAdapter();
     this.supportsTransactions = options.supportsTransactions ?? true;
     this.supportsBatch = options.supportsBatch ?? false;
-    this.maxBindParametersPerStatement =
-      options.maxBindParametersPerStatement;
+    this.maxBindParametersPerStatement = options.maxBindParametersPerStatement;
   }
 
   protected async initClient(): Promise<null> {

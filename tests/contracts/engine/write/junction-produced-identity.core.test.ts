@@ -4,9 +4,7 @@ import type {
   WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import {
-  producedIdentitySchema,
-} from "@tests/contracts/engine/write/junction-produced-identity-behavior";
+import { producedIdentitySchema } from "@tests/contracts/engine/write/junction-produced-identity-behavior";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";

@@ -2,8 +2,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { lookupRelation } from "@query-engine/context";
 import {
-  JunctionStatements,
   type JunctionOperation,
+  JunctionStatements,
 } from "@query-engine/JunctionStatements";
 import { s } from "@schema";
 import { sql } from "@sql";
@@ -201,15 +201,7 @@ describe("junction statement materialization", () => {
     expect(text).toContain("NOT");
     expect(text).toContain('"region" = $5');
     expect(text).toContain('"serial" = $6');
-    expect(statement.values).toEqual([
-      1,
-      1,
-      "tenant-1",
-      "owner-1",
-      "eu",
-      7,
-      1,
-    ]);
+    expect(statement.values).toEqual([1, 1, "tenant-1", "owner-1", "eu", 7, 1]);
   });
 
   test("updates only connected targets and composes an optional target filter", () => {

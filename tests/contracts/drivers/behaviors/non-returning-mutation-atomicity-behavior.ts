@@ -6,9 +6,9 @@ import { NotFoundError } from "@errors";
 
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 interface Deferred {
   readonly promise: Promise<void>;

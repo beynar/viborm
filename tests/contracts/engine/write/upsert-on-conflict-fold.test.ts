@@ -13,13 +13,13 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import type { Database as SQLite3Database } from "better-sqlite3";
 import Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
-import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 7 / Decision 7.1 — the scalar-upsert ON CONFLICT door (query-performance-plan).

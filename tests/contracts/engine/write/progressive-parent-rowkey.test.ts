@@ -6,10 +6,9 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
-
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 /**
  * RESIDUAL PACKAGE H, unit H1 — the complete parent row key at a nested

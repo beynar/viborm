@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
-import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 
 const RESULT_DIR = join(SOURCE_ROOT, "query-engine/result");
 

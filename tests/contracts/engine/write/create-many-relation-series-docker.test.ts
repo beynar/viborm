@@ -6,8 +6,8 @@ import {
   createManySeriesSchema,
   registerCreateManySeriesBehavior,
 } from "@tests/contracts/engine/write/create-many-relation-series-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * Package J on the live servers.

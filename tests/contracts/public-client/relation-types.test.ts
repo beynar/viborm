@@ -9,6 +9,7 @@ import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { DbNull, s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Decimal from "decimal.js";
 import {
   afterAll,
@@ -19,7 +20,6 @@ import {
   test,
 } from "vitest";
 import { z } from "zod/v4";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // =============================================================================
 // MODEL DEFINITIONS - All scalar types

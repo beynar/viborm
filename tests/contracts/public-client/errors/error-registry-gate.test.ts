@@ -63,13 +63,10 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { SchemaValidationError } from "@schema/validation";
-import ts from "typescript";
-import {
-  REPOSITORY_ROOT,
-  SOURCE_ROOT,
-} from "@tests/fixtures/repo-paths";
-import { expectTypeOf } from "vitest";
 import type { DriverFailure } from "@src/drivers/error-mapping";
+import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+import ts from "typescript";
+import { expectTypeOf } from "vitest";
 
 const ERROR_MAPPING = join(SOURCE_ROOT, "drivers/error-mapping.ts");
 const DOCS_ERRORS = join(

@@ -1,16 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
-
-import { expect, test } from "vitest";
 import {
   booleanNoOpSchema,
   runBooleanNoOpArmBehavior,
 } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { expect, test } from "vitest";
+
 // Both substrates on PGlite; the driver matrix legs run the same module.
 runBooleanNoOpArmBehavior({
   name: "PGlite transaction",

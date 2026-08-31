@@ -17,9 +17,9 @@ import { s } from "@schema";
 import { type Sql, sql } from "@sql";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
-import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 

@@ -249,9 +249,7 @@ describe("where semantic boundaries", () => {
     expect(statement({ scores: { equals: [1, 2] } })).toBe(
       '"t0"."scores" = $1'
     );
-    expect(statement({ scores: { not: [2, 3] } })).toBe(
-      '"t0"."scores" <> $1'
-    );
+    expect(statement({ scores: { not: [2, 3] } })).toBe('"t0"."scores" <> $1');
   });
 });
 
@@ -285,9 +283,7 @@ describe("coverage low value", () => {
     expect(() => where({ OR: { score: { equals: 1 } } })).toThrow(
       "Logical OR requires an array value"
     );
-    expect(() => where({ score: 1 })).toThrow(
-      "must be a filter object"
-    );
+    expect(() => where({ score: 1 })).toThrow("must be a filter object");
     expect(() => where({ score: { in: 1 } })).toThrow(
       "requires an array value"
     );

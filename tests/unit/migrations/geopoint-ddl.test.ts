@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
+import type { Schema } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
 import { MigrationError, VibORMErrorCode } from "@errors";
-import type { Schema } from "@client/types";
 import { createMigrationClient } from "@migrations/client";
 import { getMigrationDriver, type MigrationDriver } from "@migrations/drivers";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";

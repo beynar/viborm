@@ -50,8 +50,8 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 /**
  * The declared domain of this file's key pair. SQLite-legal on purpose
@@ -132,9 +132,7 @@ const createPGliteClient = () => {
 };
 
 afterAll(async () => {
-  await Promise.all(
-    [...borrowedPGliteClients].map((client) => client.close())
-  );
+  await Promise.all([...borrowedPGliteClients].map((client) => client.close()));
 });
 
 const createSQLite3Client = () =>

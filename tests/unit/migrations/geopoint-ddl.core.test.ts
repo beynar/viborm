@@ -7,10 +7,7 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import {
-  SQLITE_GEO_POINT_TYPE,
-  sqliteGeoPointCheck,
-} from "@migrations/drivers/sqlite/geo-point";
+import { SQLITE_GEO_POINT_TYPE } from "@migrations/drivers/sqlite/geo-point";
 import { serializeModels } from "@migrations/serializer";
 import type { SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
@@ -255,5 +252,4 @@ describe("PostGIS migration preflight", () => {
     ).rejects.toMatchObject({ code: VibORMErrorCode.DRIVER_NOT_SUPPORTED });
     expect(called).toBe(false);
   });
-
 });

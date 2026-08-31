@@ -41,7 +41,6 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import {
   buildJunctionMembership,
   buildJunctionParentValue,
@@ -50,6 +49,7 @@ import {
   buildJunctionTargetValue,
   buildJunctionTargetValuesMatch,
 } from "@query-engine/builders/many-to-many-utils";
+import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { lookupRelation } from "@query-engine/context";
 import { JunctionStatements } from "@query-engine/JunctionStatements";
 import { s } from "@schema";

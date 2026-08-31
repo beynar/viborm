@@ -646,12 +646,7 @@ describe("client extension foundation", () => {
 describe("coverage low value", () => {
   it("returns no handlers for an absent compiled chain", () => {
     expect(
-      lookupResolvedExtensionHandlers(
-        undefined,
-        "query",
-        "item",
-        "findMany"
-      )
+      lookupResolvedExtensionHandlers(undefined, "query", "item", "findMany")
     ).toBeUndefined();
   });
 

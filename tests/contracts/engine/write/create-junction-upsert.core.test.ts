@@ -5,9 +5,7 @@ import type {
   ReadStep,
   WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
-import {
-  createJunctionUpsertSchema,
-} from "@tests/contracts/engine/write/create-junction-upsert-behavior";
+import { createJunctionUpsertSchema } from "@tests/contracts/engine/write/create-junction-upsert-behavior";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";

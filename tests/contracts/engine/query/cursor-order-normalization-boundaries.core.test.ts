@@ -89,7 +89,9 @@ describe("cursor total-order normalization", () => {
       scope.rootAlias
     );
 
-    expect(order?.map(({ field, isTieBreaker }) => [field, isTieBreaker])).toEqual([
+    expect(
+      order?.map(({ field, isTieBreaker }) => [field, isTieBreaker])
+    ).toEqual([
       ["id", true],
       ["alternate", true],
     ]);

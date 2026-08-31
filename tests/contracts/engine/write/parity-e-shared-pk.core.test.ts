@@ -231,7 +231,9 @@ class RecordingPGliteDriver extends PGliteDriver {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     if (this.recording) this.statements.push(sql);
-    return Promise.reject(new Error("Compiler witness reached provider dispatch."));
+    return Promise.reject(
+      new Error("Compiler witness reached provider dispatch.")
+    );
   }
 
   protected override executeRaw<T>(
@@ -241,7 +243,9 @@ class RecordingPGliteDriver extends PGliteDriver {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     if (this.recording) this.statements.push(sql);
-    return Promise.reject(new Error("Compiler witness reached raw provider dispatch."));
+    return Promise.reject(
+      new Error("Compiler witness reached raw provider dispatch.")
+    );
   }
 }
 
@@ -657,34 +661,31 @@ describe("parity E — the two refusal surfaces, verbatim", () => {
   test.each([
     ["disconnect", { disconnect: true }],
     ["delete", { delete: true }],
-  ])(
-    "UPDATE root — a shared-primary-key edge publishes no '%s' verb at all",
-    async (kind, payload) => {
-      const { client, driver } = clientOn();
-      const thrown = await client.stub
-        .update({
-          where: { accountId: "a1" },
-          data: { account: payload },
-          select: { accountId: true },
-        })
-        .then(
-          () => undefined,
-          (error: unknown) => error as Error
-        );
-      // The COLUMN answers, one boundary earlier than it used to: `slotMayBeEmpty`
-      // reads the stored tuple, a row-key member is never nullable, and
-      // `ToOneUpdateSchema` publishes neither removal verb — so the key is unknown
-      // rather than refused. Same verdict, one owner instead of two.
-      expect({
-        name: thrown?.constructor.name,
-        message: thrown?.message,
-      }).toEqual({
-        name: "ValidationError",
-        message: `Validation failed for update: Unknown key: ${kind}`,
-      });
-      expect(driver.statements).toEqual([]);
-    }
-  );
+  ])("UPDATE root — a shared-primary-key edge publishes no '%s' verb at all", async (kind, payload) => {
+    const { client, driver } = clientOn();
+    const thrown = await client.stub
+      .update({
+        where: { accountId: "a1" },
+        data: { account: payload },
+        select: { accountId: true },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error as Error
+      );
+    // The COLUMN answers, one boundary earlier than it used to: `slotMayBeEmpty`
+    // reads the stored tuple, a row-key member is never nullable, and
+    // `ToOneUpdateSchema` publishes neither removal verb — so the key is unknown
+    // rather than refused. Same verdict, one owner instead of two.
+    expect({
+      name: thrown?.constructor.name,
+      message: thrown?.message,
+    }).toEqual({
+      name: "ValidationError",
+      message: `Validation failed for update: Unknown key: ${kind}`,
+    });
+    expect(driver.statements).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

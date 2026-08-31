@@ -56,10 +56,10 @@ import {
   BatchOnlyPGliteDriver,
   createInMemoryPGliteDriver,
 } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { upsertAtomicitySchema } from "@tests/fixtures/upsert-atomicity-schema";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 function createBatchOnlyPGliteDriver(): PGliteDriver {
   return new BatchOnlyPGliteDriver();

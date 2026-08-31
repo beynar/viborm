@@ -28,11 +28,11 @@ import {
   QueryError,
   TransactionError,
   UniqueConstraintError,
-  unsupportedVector,
   UnsupportedOperationError,
+  unsupportedVector,
   ValidationError,
   ValueTooLongError,
-  VibORMError,
+  type VibORMError,
   VibORMErrorCode,
   wrapError,
 } from "@errors";
@@ -99,13 +99,15 @@ describe("public error helpers", () => {
 
   it("recognizes retryable provider errors without accepting lookalikes", () => {
     for (const code of ["40001", "40P01", "SQLITE_BUSY"]) {
-      expect(isRetryableError(Object.assign(new Error("retry"), { code }))).toBe(
-        true
-      );
+      expect(
+        isRetryableError(Object.assign(new Error("retry"), { code }))
+      ).toBe(true);
     }
 
     expect(
-      isRetryableError(Object.assign(new Error("not retryable"), { code: 40001 }))
+      isRetryableError(
+        Object.assign(new Error("not retryable"), { code: 40_001 })
+      )
     ).toBe(false);
     expect(isRetryableError({ code: "40001" })).toBe(false);
     expect(isRetryableError(new Error("no code"))).toBe(false);
@@ -134,12 +136,12 @@ describe("public error helpers", () => {
 
 describe("concrete error contracts", () => {
   it("keeps cache messages, metadata, and causes", () => {
-    expect(new CacheInvalidTTLError("bad ttl", { meta: { timeout: 4 } }).meta).toEqual(
-      { timeout: 4 }
-    );
-    expect(new CacheInvalidKeyError("bad key", { meta: { operation: "read" } }).meta).toEqual(
-      { operation: "read" }
-    );
+    expect(
+      new CacheInvalidTTLError("bad ttl", { meta: { timeout: 4 } }).meta
+    ).toEqual({ timeout: 4 });
+    expect(
+      new CacheInvalidKeyError("bad key", { meta: { operation: "read" } }).meta
+    ).toEqual({ operation: "read" });
 
     const notCacheable = new CacheOperationNotCacheableError(
       "create",
@@ -217,7 +219,9 @@ describe("concrete error contracts", () => {
         { path: "data.1.id", message: "required" },
       ]
     );
-    expect(operation.message).toBe("Validation failed for createMany: 2 validation errors");
+    expect(operation.message).toBe(
+      "Validation failed for createMany: 2 validation errors"
+    );
     expect(operation.source).toEqual({
       kind: "operation",
       operation: "createMany",
@@ -226,10 +230,9 @@ describe("concrete error contracts", () => {
     expect(operation.toJSON().source).toEqual(operation.source);
 
     expect(
-      new ValidationError(
-        { kind: "registry", property: "user" },
-        [{ path: "user", message: "invalid" }]
-      ).message
+      new ValidationError({ kind: "registry", property: "user" }, [
+        { path: "user", message: "invalid" },
+      ]).message
     ).toBe("Validation failed for schema registry: invalid");
     expect(
       new ValidationError(
@@ -238,10 +241,9 @@ describe("concrete error contracts", () => {
       ).message
     ).toBe("Validation failed for model: invalid");
     expect(
-      new ValidationError(
-        { kind: "json-schema", target: "user" },
-        [{ path: "$", message: "invalid" }]
-      ).message
+      new ValidationError({ kind: "json-schema", target: "user" }, [
+        { path: "$", message: "invalid" },
+      ]).message
     ).toBe("Validation failed for JSON Schema: invalid");
   });
 
@@ -256,9 +258,10 @@ describe("concrete error contracts", () => {
   });
 
   it("keeps optional transaction metadata and migration causes", () => {
-    expect(new InvalidTransactionInputError({ meta: { operation: "$transaction" } }).meta).toEqual(
-      { operation: "$transaction" }
-    );
+    expect(
+      new InvalidTransactionInputError({ meta: { operation: "$transaction" } })
+        .meta
+    ).toEqual({ operation: "$transaction" });
     const migration = new MigrationError(
       "migration failed",
       VibORMErrorCode.MIGRATION_FAILED,

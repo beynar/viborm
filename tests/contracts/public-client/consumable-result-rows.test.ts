@@ -9,8 +9,8 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 
 import { ReadOperation } from "@query-engine/write-engine/ReadOperation";
 import { s } from "@schema";
-import { afterEach, describe, expect, test, vi } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 const schema = {
   entry: s.model({

@@ -71,9 +71,7 @@ const createPGliteClient = () => {
 };
 
 afterAll(async () => {
-  await Promise.all(
-    [...borrowedPGliteClients].map((client) => client.close())
-  );
+  await Promise.all([...borrowedPGliteClients].map((client) => client.close()));
 });
 
 const createSQLiteClient = () =>

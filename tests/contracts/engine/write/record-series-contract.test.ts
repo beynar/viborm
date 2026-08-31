@@ -6,7 +6,7 @@ import type {
   QueryResult,
 } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   attachRecordSeriesProgress,
   hasCommittedRecordSeriesProgress,
@@ -59,6 +59,8 @@ import type { RecordSeriesOperation } from "@src/query-engine/write-engine/recor
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { createSchemaRegistry } from "@validation";
 import {
@@ -69,10 +71,6 @@ import {
   expect,
   test,
 } from "vitest";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 /**
  * PACKAGE I3 — the transactional record series, proven on a FAKE operation.

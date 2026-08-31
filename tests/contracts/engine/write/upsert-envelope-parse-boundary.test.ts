@@ -1,13 +1,10 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 
 import { hydrateSchemaNames, s } from "@schema";
-import { beforeAll, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * E5-U3 — **the upsert ENVELOPE moves to the parse boundary.**

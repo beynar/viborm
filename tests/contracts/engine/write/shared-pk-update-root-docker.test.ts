@@ -6,8 +6,8 @@ import {
   registerSharedPkUpdateRootBehavior,
   sharedPkUpdateRootSchema,
 } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * Package E on the live servers, where the foreign keys are real.

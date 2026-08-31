@@ -118,9 +118,7 @@ describe("query inspection snapshots", () => {
     expect(copied).not.toBe(statement);
     expect(copied.toStatement("$n")).toBe("SELECT $1, $2");
     expect(copied.values[0]).toEqual({ label: "before" });
-    expect(copied.values[1]).toEqual(
-      new Date("2026-08-30T12:00:00.000Z")
-    );
+    expect(copied.values[1]).toEqual(new Date("2026-08-30T12:00:00.000Z"));
     expect(Object.isFrozen(copied)).toBe(true);
   });
 

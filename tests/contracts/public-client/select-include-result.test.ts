@@ -5,7 +5,13 @@
 
 import type { OperationResult } from "@client/types";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
-
+import type { testUser } from "@tests/fixtures/schema.js";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { clientUserPostSchema } from "@tests/fixtures/user-post-schema";
+import {
+  createStandardUserPostPosts,
+  createStandardUserPostUsers,
+} from "@tests/fixtures/user-post-seed";
 import {
   afterAll,
   beforeAll,
@@ -15,13 +21,6 @@ import {
   expectTypeOf,
   test,
 } from "vitest";
-import { clientUserPostSchema } from "@tests/fixtures/user-post-schema";
-import {
-  createStandardUserPostPosts,
-  createStandardUserPostUsers,
-} from "@tests/fixtures/user-post-seed";
-import type { testUser } from "@tests/fixtures/schema.js";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Test types directly using OperationResult
 type UserModel = typeof testUser;

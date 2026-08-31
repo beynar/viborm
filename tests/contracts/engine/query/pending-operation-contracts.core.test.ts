@@ -16,12 +16,12 @@ import {
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 import { prepareMutationCacheWriteOutcome } from "@query-engine/cache-flow";
+import { PendingExecution } from "@query-engine/pending-execution";
 import {
   attachPendingCacheExecution,
   PendingOperation,
   type PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
-import { PendingExecution } from "@query-engine/pending-execution";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   readTransactionOperation,
@@ -30,11 +30,11 @@ import {
 } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames, s } from "@schema";
 import { PendingOperation as RootPendingOperation } from "@src/index";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import {
   readTestTransactionOperation,
   type TestTransactionOperationView,
 } from "@tests/fixtures/transaction-operation";
-import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it, vi } from "vitest";
 
@@ -195,10 +195,7 @@ describe("PendingOperation frozen public contract", () => {
     const schema = { user };
     hydrateSchemaNames(schema);
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    const engine = new QueryEngine(
-      new PlanningDriver("postgresql"),
-      registry
-    );
+    const engine = new QueryEngine(new PlanningDriver("postgresql"), registry);
     const transactionDriver = new PlanningDriver("postgresql");
     const transactionEngine = engine.bind(transactionDriver);
 
@@ -271,9 +268,7 @@ describe("PendingOperation frozen public contract", () => {
     operation.then((value) => value);
     expect(() =>
       capability(operation).executeWith(new PlanningDriver("postgresql"))
-    ).toThrow(
-      PendingOperationError
-    );
+    ).toThrow(PendingOperationError);
   });
 
   it("rejects a second, different driver", () => {
@@ -281,9 +276,7 @@ describe("PendingOperation frozen public contract", () => {
     capability(operation).executeWith(new PlanningDriver("postgresql"));
     expect(() =>
       capability(operation).executeWith(new PlanningDriver("postgresql"))
-    ).toThrow(
-      PendingOperationError
-    );
+    ).toThrow(PendingOperationError);
   });
 
   it("prepares directly and as a bulk batch without executing", async () => {
@@ -576,7 +569,13 @@ describe("pending operation transaction coordination", () => {
       createModelRegistry(schema, createSchemaRegistry(schema))
     );
     const prepareInput = vi.fn(() => ({ where: { id: "user-1" } }));
-    const prepared = engine.prepare(user, "findMany", {}, undefined, prepareInput);
+    const prepared = engine.prepare(
+      user,
+      "findMany",
+      {},
+      undefined,
+      prepareInput
+    );
     const preparedOwner = ownerOf(prepared);
 
     preparedOwner.prepareAdmission(prepared);
@@ -635,8 +634,8 @@ describe("pending operation transaction coordination", () => {
     const queryHandler = vi.fn(
       async (context: { proceed(): Promise<unknown> }) => context.proceed()
     );
-    const observer = vi.fn(
-      (_unit: unknown, proceed: () => Promise<unknown>) => proceed()
+    const observer = vi.fn((_unit: unknown, proceed: () => Promise<unknown>) =>
+      proceed()
     );
     const chain = appendResolvedExtension(
       appendResolvedExtension(
@@ -729,7 +728,11 @@ describe("pending operation transaction coordination", () => {
 
     expect(ownerOf(orThrow).operation(orThrow)).toBe("findFirst");
     expect(() =>
-      Reflect.apply(engine.prepare, engine, [user, "missing", {}]).buildStatement()
+      Reflect.apply(engine.prepare, engine, [
+        user,
+        "missing",
+        {},
+      ]).buildStatement()
     ).toThrow(/Unknown operation 'missing'/);
   });
 });

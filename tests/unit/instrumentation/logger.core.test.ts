@@ -6,7 +6,6 @@
  * captureLogs(), and assert prettyLog console output via spied console methods.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type CacheEventType,
   createCacheLogEvent,
@@ -16,6 +15,7 @@ import {
 } from "@src/instrumentation/logger";
 import type { LogEvent } from "@src/instrumentation/types";
 import { captureLogs } from "@tests/unit/instrumentation/_capture";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const ts = new Date("2026-07-07T00:00:00.000Z");
 

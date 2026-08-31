@@ -13,10 +13,10 @@ import { createQueryScope } from "@src/query-engine/context/query-scope";
 import { CreateManyOperation } from "@src/query-engine/write-engine/CreateManyOperation";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test, vi } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const entry = s
   .model({

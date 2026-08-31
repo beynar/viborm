@@ -1106,9 +1106,7 @@ describe("compiled detached cache result codec", () => {
     const codec = codecFor(pointStop, "findMany", {
       select: { id: true, tripId: true, trip: true },
     });
-    const value = [
-      { id: "stop-1", tripId: "trip-1", trip: { id: "trip-1" } },
-    ];
+    const value = [{ id: "stop-1", tripId: "trip-1", trip: { id: "trip-1" } }];
 
     expect(codec.materialize(codec.snapshot(value))).toEqual(value);
   });

@@ -397,8 +397,7 @@ describe("coverage low value", () => {
     const project = makeTempProject();
     try {
       writeConfigFixture(project, {
-        rawConfigSource:
-          "function client() {}\nexport default { client };\n",
+        rawConfigSource: "function client() {}\nexport default { client };\n",
       });
 
       await expect(loadConfig({ config: project.configPath })).rejects.toThrow(

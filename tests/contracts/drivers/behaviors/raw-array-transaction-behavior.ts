@@ -3,8 +3,8 @@ import type { AnyDriver } from "@drivers";
 
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
-import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 const item = s
   .model({

@@ -4,9 +4,9 @@ import { createQueryScope } from "@query-engine/context/query-scope";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
+import { prepareBulkPolymorphicConnects } from "@src/query-engine/write-engine/bulk-polymorphic-connect";
 import { ManyAndReturnOperation } from "@src/query-engine/write-engine/ManyAndReturnOperation";
 import { planningKey } from "@src/query-engine/write-engine/Part";
-import { prepareBulkPolymorphicConnects } from "@src/query-engine/write-engine/bulk-polymorphic-connect";
 import { StepScope } from "@src/query-engine/write-engine/StepScope";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { prepareSchema } from "@tests/fixtures/query-scope";
@@ -84,7 +84,10 @@ function engineFor(
   );
 }
 
-function operation(driver: AnyDriver, data: readonly Record<string, unknown>[]) {
+function operation(
+  driver: AnyDriver,
+  data: readonly Record<string, unknown>[]
+) {
   return new ManyAndReturnOperation(
     engineFor(driver),
     schema.card,
@@ -101,9 +104,7 @@ function knownRows(
   rows: readonly Record<string, unknown>[]
 ): Record<string, unknown> {
   return Object.fromEntries(
-    current
-      .planning()
-      .steps.map((step) => [planningKey(step.id, "rows"), rows])
+    current.planning().steps.map((step) => [planningKey(step.id, "rows"), rows])
   );
 }
 
@@ -141,9 +142,7 @@ describe("grouped polymorphic createMany connects", () => {
     ).toEqual(expect.arrayContaining(["article-a", 20]));
     expect(
       planning.steps
-        .flatMap((step) =>
-          "statement" in step ? step.statement.values : []
-        )
+        .flatMap((step) => ("statement" in step ? step.statement.values : []))
         .filter((value) => value === "article-a")
     ).toHaveLength(1);
 
@@ -179,10 +178,7 @@ describe("grouped polymorphic createMany connects", () => {
       knownRows(current, [{ id: 10, slug: "article-a" }])
     );
 
-    expect(compiled.steps.map((step) => step.kind)).toEqual([
-      "guard",
-      "write",
-    ]);
+    expect(compiled.steps.map((step) => step.kind)).toEqual(["guard", "write"]);
     const guard = compiled.steps[0];
     if (!guard || guard.kind !== "guard") {
       throw new Error("expected a target-presence guard");

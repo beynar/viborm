@@ -13,12 +13,12 @@ import {
   isFieldRef,
 } from "@schema/field-ref";
 import { sql } from "@sql";
-import { createSchemaRegistry } from "@validation";
-import type { OperandCtx } from "@validation/primitives/operand";
-import { beforeAll, describe, expect, test } from "vitest";
 import { createModelFieldRefs as rootCreateModelFieldRefs } from "@src/index";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
+import { createSchemaRegistry } from "@validation";
+import type { OperandCtx } from "@validation/primitives/operand";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * Per-field operand callbacks (W8-A) and SQL fragments as filter operands.

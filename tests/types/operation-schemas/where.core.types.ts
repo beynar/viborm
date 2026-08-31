@@ -1,5 +1,5 @@
 import type { InferInput } from "@src/validation";
-import { simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
+import type { simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 type WhereInput = InferInput<typeof simpleSchemas.where>;
 

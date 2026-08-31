@@ -6,16 +6,16 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   postTransitionAdoptSchema,
   runPostTransitionAdoptBehavior,
 } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createSchemaRegistry } from "@validation";
+import { expect, test } from "vitest";
+
 /** Records every statement and its parameters, in order. The hook is the PROTECTED
  *  `execute`/`executeRaw` seam, because a transaction runs its statements through a
  *  transaction-bound driver that delegates back to exactly these two methods. */

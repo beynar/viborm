@@ -6,7 +6,9 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { nestedCreateManySchema as schema } from "@tests/contracts/engine/query/nested-create-many-schema";
 
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -15,9 +17,6 @@ import {
   expect,
   test,
 } from "vitest";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { nestedCreateManySchema as schema } from "@tests/contracts/engine/query/nested-create-many-schema";
 
 // =============================================================================
 // TEST SETUP

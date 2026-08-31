@@ -1,21 +1,20 @@
-import {
-  BatchOnlyPGliteDriver,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   createDepthSliceExecutor,
   depthSliceSchema,
   depthUpsertArgs,
 } from "@tests/contracts/engine/write/update-depth-upsert-behavior";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 // ---------------------------------------------------------------------------
 // The depth gate (PLAN P1): `update > upsert > upsert` with actual planning

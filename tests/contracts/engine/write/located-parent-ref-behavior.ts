@@ -4,14 +4,14 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N1 — the located-parent Ref, across the whole driver matrix.
@@ -214,19 +214,21 @@ async function seedVendors(client: RefClient): Promise<void> {
   });
 }
 
-export function runLocatedParentRefBehavior(options: {
-  readonly name: string;
-  /**
-   * Declared by the caller, never sniffed: on a dialect whose `skipDuplicates` is NOT a
-   * SQL leaf (`recoverableUniqueError` — MySQL), the skip is a savepoint-wrapped executor
-   * effect, and a savepoint has no lowering into a single atomic batch. Such a leg must
-   * see the typed refusal with NOTHING written, not a silent success. Requiring the leg
-   * to say so keeps the assertion falsifiable in both directions: a dialect that CAN
-   * express it may not quietly start refusing, and one that cannot may not quietly start
-   * succeeding.
-   */
-  readonly skipDuplicatesInBatchIsInexpressible?: boolean;
-} & BehaviorDatabaseSource): void {
+export function runLocatedParentRefBehavior(
+  options: {
+    readonly name: string;
+    /**
+     * Declared by the caller, never sniffed: on a dialect whose `skipDuplicates` is NOT a
+     * SQL leaf (`recoverableUniqueError` — MySQL), the skip is a savepoint-wrapped executor
+     * effect, and a savepoint has no lowering into a single atomic batch. Such a leg must
+     * see the typed refusal with NOTHING written, not a silent success. Requiring the leg
+     * to say so keeps the assertion falsifiable in both directions: a dialect that CAN
+     * express it may not quietly start refusing, and one that cannot may not quietly start
+     * succeeding.
+     */
+    readonly skipDuplicatesInBatchIsInexpressible?: boolean;
+  } & BehaviorDatabaseSource
+): void {
   describe(`${options.name} located-parent Ref (N1)`, () => {
     const openDatabase = useBehaviorDatabase(locatedParentRefSchema, options);
     const setup = async () => {

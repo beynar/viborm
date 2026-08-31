@@ -1,8 +1,8 @@
 import { trace } from "@opentelemetry/api";
-import { beforeAll, describe, expect, it } from "vitest";
 import { SPAN_OPERATION } from "@src/instrumentation/spans";
 import { createTracerWrapper } from "@src/instrumentation/tracer";
 import { primeTracer } from "@tests/unit/instrumentation/_capture";
+import { beforeAll, describe, expect, it } from "vitest";
 
 // The branch where @opentelemetry/api LOADS but no TracerProvider is
 // registered: `trace.getTracer()` returns OTel's built-in no-op proxy, so

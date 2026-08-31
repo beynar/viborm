@@ -216,10 +216,7 @@ const polymorphicSchema = (() => {
       id: s.int().id(),
       body: s.string(),
       commentable: s
-        .toOne(
-          { post: () => post },
-          { values: { post: "parity.d.v1" } }
-        )
+        .toOne({ post: () => post }, { values: { post: "parity.d.v1" } })
         .name("commentable")
         .optional(),
     })

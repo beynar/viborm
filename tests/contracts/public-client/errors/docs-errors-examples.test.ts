@@ -25,10 +25,7 @@ import {
   UniqueConstraintError,
   VibORMErrorCode,
 } from "@errors";
-import {
-  REPOSITORY_ROOT,
-  SOURCE_ROOT,
-} from "@tests/fixtures/repo-paths";
+import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 
 const PAGE = join(REPOSITORY_ROOT, "docs/content/docs/client/errors.mdx");
 

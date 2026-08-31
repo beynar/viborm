@@ -1,10 +1,13 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { TransactionError } from "@errors";
 
 import { hydrateSchemaNames, s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -13,10 +16,6 @@ import {
   expect,
   test,
 } from "vitest";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 const continuationRaceSchema = (() => {
   const account = s

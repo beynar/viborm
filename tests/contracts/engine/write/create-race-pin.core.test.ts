@@ -86,12 +86,11 @@ describe("create race pins", () => {
     expect(createDataSpellsRacePin({}, race)).toBe(false);
   });
 
-  test.each(foldableKeys)(
-    "a matching %s key is foldable create evidence",
-    (_kind, value) => {
-      expect(createDataSpellsRacePin({ id: value }, raceFor(value))).toBe(true);
-    }
-  );
+  test.each(
+    foldableKeys
+  )("a matching %s key is foldable create evidence", (_kind, value) => {
+    expect(createDataSpellsRacePin({ id: value }, raceFor(value))).toBe(true);
+  });
 
   test("provider-shaped objects are not foldable create-key evidence", () => {
     const value = new Date(0);

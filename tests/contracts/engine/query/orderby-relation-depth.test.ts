@@ -17,12 +17,10 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 import { s } from "@schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const node = s
   .model({

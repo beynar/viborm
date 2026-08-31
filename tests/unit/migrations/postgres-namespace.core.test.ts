@@ -15,7 +15,6 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { MigrationError, VibORMErrorCode } from "@errors";
 import { getMigrationDriver } from "@migrations/drivers";
-import { introspect as introspectClient } from "@migrations/push";
 import { createControlTableSQL } from "@src/migrations/control";
 import { diff } from "@src/migrations/differ";
 import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";

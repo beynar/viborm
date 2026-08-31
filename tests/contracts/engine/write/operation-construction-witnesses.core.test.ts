@@ -12,9 +12,9 @@ import {
   constructRoutedOperation,
   ROUTED_OPERATIONS,
 } from "@src/query-engine/write-engine/routing";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 

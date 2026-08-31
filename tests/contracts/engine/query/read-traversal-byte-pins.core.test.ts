@@ -53,8 +53,8 @@ import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import { validateSchemaOrThrow } from "@schema/validation";
-import { createSchemaRegistry } from "@validation";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
 // =============================================================================

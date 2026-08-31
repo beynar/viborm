@@ -5,9 +5,7 @@ import type {
   StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import {
-  junctionUpsertArmSchema,
-} from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
+import { junctionUpsertArmSchema } from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";

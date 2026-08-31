@@ -5,9 +5,13 @@
  * with where, orderBy, take, skip options for relations.
  */
 
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model (no relations)

@@ -4,8 +4,8 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
-import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 

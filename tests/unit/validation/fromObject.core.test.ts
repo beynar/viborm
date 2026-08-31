@@ -1,5 +1,5 @@
-import v, { parse } from "@validation";
 import { ValidationError, VibORMErrorCode } from "@errors";
+import v, { parse } from "@validation";
 import type { InferOutput, VibSchema } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
 

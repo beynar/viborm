@@ -250,7 +250,6 @@ describe("transaction-bound scope scheduling", () => {
       "ROLLBACK",
     ]);
   });
-
 });
 
 function eventKind(event: string): string {

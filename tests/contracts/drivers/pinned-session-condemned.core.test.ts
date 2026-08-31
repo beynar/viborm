@@ -256,7 +256,6 @@ describe("a hostile reset rejection cannot replace the condemnation", () => {
     // The session still never went back to the pool.
     expect(events).toEqual(["reserve", `reserved:SELECT ${RESET}()`]);
   });
-
 });
 
 describe("a command admitted BEFORE the condemnation", () => {
@@ -302,7 +301,6 @@ describe("a command admitted BEFORE the condemnation", () => {
       secondOutcome instanceof Error ? secondOutcome.message : ""
     ).toContain("will pin no further migration session");
   });
-
 });
 
 describe("a transport whose owned closure FAILED", () => {

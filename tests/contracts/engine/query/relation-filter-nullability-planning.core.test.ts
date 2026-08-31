@@ -57,7 +57,9 @@ describe("relation nullability predicates", () => {
   test("the inverse one-to-one side uses correlated existence for null and presence", () => {
     const nullScope = scopeFor(new PostgresAdapter(), account);
     const presentScope = scopeFor(new PostgresAdapter(), account);
-    const absent = where(nullScope, { profile: { is: null } }).toStatement("$n");
+    const absent = where(nullScope, { profile: { is: null } }).toStatement(
+      "$n"
+    );
     const present = where(presentScope, {
       profile: { isNot: null },
     }).toStatement("$n");

@@ -15,8 +15,8 @@ import {
   runWithTransactionTimeout,
   type TransactionOptionContext,
 } from "@drivers/shared";
-import { describe, expect, test } from "vitest";
 import { createTestClock } from "@tests/fixtures/test-clock";
+import { describe, expect, test } from "vitest";
 
 const context: TransactionOptionContext = {
   driverName: "probe",

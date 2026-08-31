@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -6,11 +5,11 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ForeignKeyError } from "@errors";
-
 import { s } from "@schema";
+import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import z from "zod/v4";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const gadget = s
   .model({

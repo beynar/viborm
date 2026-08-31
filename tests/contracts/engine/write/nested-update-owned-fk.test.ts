@@ -295,112 +295,124 @@ const UNTOUCHED = {
 describe("M12 nested update data may not spell the relation's own foreign key", () => {
   for (const spelling of SPELLINGS) {
     for (const scenario of refusalCases(spelling.value)) {
-      test(`${scenario.name} refuses the owned FK as a ${spelling.label}`, {
-        timeout: 30_000,
-      }, async () => {
-        const { client, driver } = await setup();
-        driver.recording = true;
-        const call = () =>
-          client.user.update({
-            where: { id: "owner" },
-            data: scenario.data as never,
-          });
-        await expect(call()).rejects.toThrow(ValidationError);
-        await expect(call()).rejects.toThrow(`Unknown key: ${scenario.key}`);
-        driver.recording = false;
-        // The decision is made while the payload is PARSED, so neither attempt
-        // reached the database — not "was rolled back", never sent.
-        expect(driver.statements).toEqual([]);
-        // The provenance: `thief` exists and would have accepted the row. The child
-        // is still the parent's, and the parent-held `badge` the delegated spellings
-        // asked to rewrite was not written either.
-        await expect(readState(client)).resolves.toEqual(UNTOUCHED);
-        await expect(
-          client.badge.findUnique({ where: { id: "b1" } })
-        ).resolves.toEqual({ id: "b1", label: "before" });
-      });
+      test(
+        `${scenario.name} refuses the owned FK as a ${spelling.label}`,
+        {
+          timeout: 30_000,
+        },
+        async () => {
+          const { client, driver } = await setup();
+          driver.recording = true;
+          const call = () =>
+            client.user.update({
+              where: { id: "owner" },
+              data: scenario.data as never,
+            });
+          await expect(call()).rejects.toThrow(ValidationError);
+          await expect(call()).rejects.toThrow(`Unknown key: ${scenario.key}`);
+          driver.recording = false;
+          // The decision is made while the payload is PARSED, so neither attempt
+          // reached the database — not "was rolled back", never sent.
+          expect(driver.statements).toEqual([]);
+          // The provenance: `thief` exists and would have accepted the row. The child
+          // is still the parent's, and the parent-held `badge` the delegated spellings
+          // asked to rewrite was not written either.
+          await expect(readState(client)).resolves.toEqual(UNTOUCHED);
+          await expect(
+            client.badge.findUnique({ where: { id: "b1" } })
+          ).resolves.toEqual({ id: "b1", label: "before" });
+        }
+      );
     }
   }
 
-  test("the same positions execute end to end with the foreign key omitted", {
-    timeout: 30_000,
-  }, async () => {
-    const { client } = await setup();
-    // Position 1 — inverse to-one update, and its X1c-delegated form.
-    await client.user.update({
-      where: { id: "owner" },
-      data: {
-        profile: {
-          update: { bio: "one", badge: { update: { label: "after" } } },
-        },
-      },
-    });
-    // Position 2 — the inverse to-one upsert's UPDATE arm (the profile exists).
-    await client.user.update({
-      where: { id: "owner" },
-      data: {
-        profile: {
-          upsert: {
-            create: { id: "p-new", bio: "created" },
-            update: { bio: "two" },
+  test(
+    "the same positions execute end to end with the foreign key omitted",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const { client } = await setup();
+      // Position 1 — inverse to-one update, and its X1c-delegated form.
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            update: { bio: "one", badge: { update: { label: "after" } } },
           },
         },
-      },
-    });
-    // Position 3 — the to-many update, and its X1c-delegated form.
-    await client.user.update({
-      where: { id: "owner" },
-      data: {
-        posts: {
-          update: {
-            where: { id: "po1" },
-            data: { title: "three", badge: { update: { label: "after" } } },
+      });
+      // Position 2 — the inverse to-one upsert's UPDATE arm (the profile exists).
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          profile: {
+            upsert: {
+              create: { id: "p-new", bio: "created" },
+              update: { bio: "two" },
+            },
           },
         },
-      },
-    });
-    // Position 4 — the to-many updateMany.
-    await client.user.update({
-      where: { id: "owner" },
-      data: {
-        posts: {
-          updateMany: { where: { id: "po1" }, data: { title: "four" } },
+      });
+      // Position 3 — the to-many update, and its X1c-delegated form.
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          posts: {
+            update: {
+              where: { id: "po1" },
+              data: { title: "three", badge: { update: { label: "after" } } },
+            },
+          },
         },
-      },
-    });
-    await expect(readState(client)).resolves.toEqual({
-      profile: { id: "p1", bio: "two", userId: "owner", badgeId: "b1" },
-      post: { id: "po1", title: "four", userId: "owner", badgeId: "b1" },
-    });
-  });
+      });
+      // Position 4 — the to-many updateMany.
+      await client.user.update({
+        where: { id: "owner" },
+        data: {
+          posts: {
+            updateMany: { where: { id: "po1" }, data: { title: "four" } },
+          },
+        },
+      });
+      await expect(readState(client)).resolves.toEqual({
+        profile: { id: "p1", bio: "two", userId: "owner", badgeId: "b1" },
+        post: { id: "po1", title: "four", userId: "owner", badgeId: "b1" },
+      });
+    }
+  );
 
-  test("an undefined foreign key is refused too, exactly as nested CREATE data refuses it", {
-    timeout: 30_000,
-  }, async () => {
-    const { client } = await setup();
-    // Prisma treats `undefined` as "the key is not in the payload", and the engine's
-    // guard keyed on what SURVIVED that classification — so this spelling used to
-    // execute. `strict` object parsing keys on the key's PRESENCE instead, which is
-    // why nested CREATE data has always refused the identical spelling. The two
-    // contexts now agree; the pair below is the whole claim.
-    await expect(
-      client.user.update({
-        where: { id: "owner" },
-        data: {
-          profile: { update: { bio: "kept", userId: undefined } },
-        } as never,
-      })
-    ).rejects.toThrow("Unknown key: userId");
-    await expect(
-      client.user.update({
-        where: { id: "owner" },
-        data: {
-          posts: { create: { id: "po-u", title: "t", userId: undefined } },
-        } as never,
-      })
-    ).rejects.toThrow("Unknown key: userId");
-    await expect(readState(client)).resolves.toEqual(UNTOUCHED);
-  });
+  test(
+    "an undefined foreign key is refused too, exactly as nested CREATE data refuses it",
+    {
+      timeout: 30_000,
+    },
+    async () => {
+      const { client } = await setup();
+      // Prisma treats `undefined` as "the key is not in the payload", and the engine's
+      // guard keyed on what SURVIVED that classification — so this spelling used to
+      // execute. `strict` object parsing keys on the key's PRESENCE instead, which is
+      // why nested CREATE data has always refused the identical spelling. The two
+      // contexts now agree; the pair below is the whole claim.
+      await expect(
+        client.user.update({
+          where: { id: "owner" },
+          data: {
+            profile: { update: { bio: "kept", userId: undefined } },
+          } as never,
+        })
+      ).rejects.toThrow("Unknown key: userId");
+      await expect(
+        client.user.update({
+          where: { id: "owner" },
+          data: {
+            posts: { create: { id: "po-u", title: "t", userId: undefined } },
+          } as never,
+        })
+      ).rejects.toThrow("Unknown key: userId");
+      await expect(readState(client)).resolves.toEqual(UNTOUCHED);
+    }
+  );
 });
 
 /**

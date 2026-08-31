@@ -6,8 +6,8 @@ import {
   armDispatchSchema,
   armUpdate,
 } from "@tests/contracts/engine/write/nested-arm-dispatch-behavior";
-import { describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 /**
  * E3 on the live servers. Two things need a real driver rather than PGlite:

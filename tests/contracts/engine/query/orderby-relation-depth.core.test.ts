@@ -25,7 +25,10 @@ const node = s.model({
   label: s.string(),
   depth: s.int(),
   parentId: s.string().nullable(),
-  parent: s.toOne(() => node).fields("parentId").references("id"),
+  parent: s
+    .toOne(() => node)
+    .fields("parentId")
+    .references("id"),
   children: s.toMany(() => node),
 });
 

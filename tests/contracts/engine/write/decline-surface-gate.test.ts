@@ -465,9 +465,7 @@ const t3bMembershipSchema = (() => {
         .fields("partnerId")
         .references("id")
         .name("t3bPartner"),
-      partnerOf: s
-        .toOne(() => node)
-        .name("t3bPartner"),
+      partnerOf: s.toOne(() => node).name("t3bPartner"),
     })
     .map("t3b_gate_nodes");
   return { container, node };

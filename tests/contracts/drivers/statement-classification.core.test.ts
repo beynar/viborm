@@ -30,7 +30,7 @@ describe("driver SQL statement classification", () => {
   });
 
   test("honors MySQL backslash escapes without changing the default grammar", () => {
-    const statement = "SELECT 'can" + "\\" + "'t' AS value";
+    const statement = "SELECT 'can\\'t' AS value";
 
     expect(getTopLevelStatementTokens(statement)).toBeUndefined();
     expect(
@@ -61,7 +61,10 @@ describe("driver SQL statement classification", () => {
     ["EXPLAIN SELECT 1", "rows"],
     ["WITH selected AS (SELECT 1) SELECT * FROM selected", "rows"],
     ["INSERT INTO event VALUES (1) RETURNING id", "rows"],
-    ["WITH changed AS (SELECT 1) UPDATE event SET value = 2 RETURNING id", "rows"],
+    [
+      "WITH changed AS (SELECT 1) UPDATE event SET value = 2 RETURNING id",
+      "rows",
+    ],
     ["INSERT INTO event VALUES (1)", "no-rows"],
     ["REPLACE INTO event VALUES (1)", "no-rows"],
     ["DELETE FROM event", "no-rows"],

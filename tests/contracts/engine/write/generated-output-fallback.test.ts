@@ -4,9 +4,9 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const generatedOutputSchema = (() => {
   const owner = s

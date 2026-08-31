@@ -1214,11 +1214,7 @@ describe("write engine route inventory (P6 accounting)", () => {
         "query-engine/write-engine/CreateOperation.ts",
         "requireRecordReferenced",
       ],
-      [
-        19,
-        "query-engine/write-engine/CreateOperation.ts",
-        "producedReference",
-      ],
+      [19, "query-engine/write-engine/CreateOperation.ts", "producedReference"],
       [
         20,
         "query-engine/write-engine/CreateOperation.ts",
@@ -1249,11 +1245,7 @@ describe("write engine route inventory (P6 accounting)", () => {
         "query-engine/relation-key-legality.ts",
         "assertSingleTargetMembershipMoveAppliesToRecords",
       ],
-      [
-        25,
-        "drivers/shared/transaction-options.ts",
-        "refuseTransactionOption",
-      ],
+      [25, "drivers/shared/transaction-options.ts", "refuseTransactionOption"],
     ];
 
     const cache = new Map<string, string>();
@@ -1286,7 +1278,9 @@ describe("write engine route inventory (P6 accounting)", () => {
           : declaration.index + declaration[0].length + nextOwner
       );
       if (!ownerSource.includes("new UnsupportedOperationError(")) {
-        misses.push(`site ${site}: '${owner}' no longer constructs the refusal`);
+        misses.push(
+          `site ${site}: '${owner}' no longer constructs the refusal`
+        );
       }
     }
     expect(misses).toEqual([]);

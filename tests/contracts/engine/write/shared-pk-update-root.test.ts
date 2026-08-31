@@ -1,18 +1,15 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
 
 import {
   registerSharedPkUpdateRootBehavior,
   sharedPkUpdateRootSchema,
 } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { describe } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe } from "vitest";
 
 /**
  * Package E's live legs on the credential-free substrates. The atomic-batch leg is the

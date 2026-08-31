@@ -11,6 +11,7 @@ import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { s } from "@schema";
 import { sql } from "@sql";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -20,7 +21,6 @@ import {
   test,
 } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================

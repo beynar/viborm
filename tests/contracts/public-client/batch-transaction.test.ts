@@ -22,6 +22,7 @@ import {
 } from "@query-engine/pending-operation";
 import { s } from "@schema";
 import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   overrideTransactionOperation,
   readTestTransactionOperation,
@@ -38,7 +39,6 @@ import {
   vi,
 } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================

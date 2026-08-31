@@ -2,7 +2,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 

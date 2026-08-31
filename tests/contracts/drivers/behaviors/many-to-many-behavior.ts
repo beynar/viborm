@@ -8,8 +8,8 @@ import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
 import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type ManyToManyClientConfig = VibORMConfig<typeof schema>;
 

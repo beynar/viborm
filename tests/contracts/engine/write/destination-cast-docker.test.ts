@@ -1,14 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-
-import { afterAll, describe } from "vitest";
 import {
   destinationCastSchema,
   registerDestinationCastBehavior,
 } from "@tests/contracts/engine/write/destination-cast-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
+
 /**
  * U-E6.0 on the live servers — the two that answered, in their own words, the two
  * halves of the defect:

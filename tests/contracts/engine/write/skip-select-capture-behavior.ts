@@ -2,8 +2,8 @@ import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 
 import { s } from "@schema";
-import { afterAll, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe, expect, test } from "vitest";
 
 /**
  * E6.9 — `createMany` with a `select` AND `skipDuplicates`, on a driver with no

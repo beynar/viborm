@@ -1,8 +1,4 @@
-import {
-  AnyNull,
-  DbNull,
-  JsonNull,
-} from "@schema/json-null";
+import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
 import { json } from "@schema/scalars/json/scalar";
 import { parse, v } from "@validation";
 import { getScalarSchemas } from "@validation/scalars";

@@ -138,7 +138,8 @@ describe("createMigrationClient capability surface", () => {
     const storage = new MemoryStorage();
     const migrations = createMigrationClient(clientFor(driver), { storage });
     const generated = await migrations.generate({ name: "initial" });
-    if (generated.stateId === null) throw new Error("expected an initial state");
+    if (generated.stateId === null)
+      throw new Error("expected an initial state");
 
     const list = await migrations.list();
     const shown = await migrations.show({ id: generated.stateId });

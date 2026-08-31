@@ -6,8 +6,9 @@ describe("compiled bind-budget partitioning", () => {
   test("keeps an individually oversized semantic item intact for final refusal", () => {
     const compile = vi.fn((start: number, end: number) =>
       sql.join(
-        Array.from({ length: (end - start) * 2 }, (_, offset) =>
-          sql`${start + offset}`
+        Array.from(
+          { length: (end - start) * 2 },
+          (_, offset) => sql`${start + offset}`
         ),
         ", "
       )

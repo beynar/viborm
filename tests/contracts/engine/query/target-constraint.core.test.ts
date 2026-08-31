@@ -1,5 +1,4 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { QueryEngineError } from "@query-engine/types";
 import {
   assertCreateRefetchIdentity,
   assertPortablePrimaryKeyUpdateInput,
@@ -23,6 +22,7 @@ import {
   predicateFieldSetsIntersect,
   unionPredicateFields,
 } from "@query-engine/TargetConstraint";
+import { QueryEngineError } from "@query-engine/types";
 import { s } from "@schema";
 import { isSql, sql } from "@sql";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
@@ -318,11 +318,7 @@ describe("target constraint normalization", () => {
   });
 
   test("proves a created selector only from the exact create payload", () => {
-    const created = getCreatedWhereUniqueTarget(
-      target,
-      { id: 7 },
-      { id: 7 }
-    );
+    const created = getCreatedWhereUniqueTarget(target, { id: 7 }, { id: 7 });
 
     expect(created?.certainty).toBe("exact");
     expect(
@@ -346,10 +342,7 @@ describe("target constraint normalization", () => {
   });
 
   test("keeps unknown predicate field sets absorbing", () => {
-    const union = unionPredicateFields(
-      new Set(["id"]),
-      new Set(["enabled"])
-    );
+    const union = unionPredicateFields(new Set(["id"]), new Set(["enabled"]));
 
     expect(union === "unknown" ? union : [...union].sort()).toEqual([
       "enabled",
@@ -424,11 +417,7 @@ describe("mutation row identity", () => {
     expect(
       getCreatedRowWhere(manualScope, { id: "manual-1" }, "manual")
     ).toEqual({ id: "manual-1" });
-    const generatedWhere = getCreatedRowWhere(
-      generatedScope,
-      {},
-      "generated"
-    );
+    const generatedWhere = getCreatedRowWhere(generatedScope, {}, "generated");
     expect(isSql(generatedWhere.id)).toBe(true);
   });
 

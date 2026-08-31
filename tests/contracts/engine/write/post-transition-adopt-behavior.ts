@@ -4,14 +4,14 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * N5-U1 — the ADOPT family under a non-cascade referenced-primary-key transition,
@@ -226,7 +226,10 @@ export function runPostTransitionAdoptBehavior(
   options: { readonly name: string } & BehaviorDatabaseSource
 ): void {
   describe(`${options.name} post-transition adopt (N5-U1)`, () => {
-    const openDatabase = useBehaviorDatabase(postTransitionAdoptSchema, options);
+    const openDatabase = useBehaviorDatabase(
+      postTransitionAdoptSchema,
+      options
+    );
 
     const setup = async (modelName: RunnerModel = "list") => {
       const { driver, client, dispose } = await openDatabase();

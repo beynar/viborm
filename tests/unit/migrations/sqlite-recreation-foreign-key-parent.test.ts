@@ -42,9 +42,7 @@ import { applyV1 as apply } from "@migrations/apply-v1";
 import { generateV1 as generate } from "@migrations/generate-v1";
 import { downV1 as down } from "@migrations/operators";
 import { s } from "@schema";
-import type { AnyDriver } from "@src/drivers/driver";
 import type { SQLite3Driver } from "@src/drivers/sqlite3";
-import { liftForeignKeyPragmas } from "@src/migrations/foreign-keys";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, it } from "vitest";
@@ -326,4 +324,3 @@ describe("LibSQL refuses effectful live sync", () => {
     });
   });
 });
-

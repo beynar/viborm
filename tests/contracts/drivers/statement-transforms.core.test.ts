@@ -372,7 +372,9 @@ describe("coverage low value", () => {
         transformReturning("invalid-render-result", invalidRender),
       ])
     );
-    expect(invalidRenderError.message).toContain("returned an unreadable value");
+    expect(invalidRenderError.message).toContain(
+      "returned an unreadable value"
+    );
 
     const unreadable = Object.defineProperty({}, "then", {
       get() {

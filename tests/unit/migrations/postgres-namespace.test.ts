@@ -334,4 +334,3 @@ describe("a unique-index foreign-key target stays visible", () => {
     expect(second.operations).toEqual([]);
   });
 });
-

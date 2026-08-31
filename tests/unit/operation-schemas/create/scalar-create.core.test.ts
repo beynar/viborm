@@ -5,9 +5,12 @@
  * with their create schemas (required vs optional based on defaults/auto).
  */
 
+import {
+  compoundIdSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { compoundIdSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model

@@ -9,9 +9,9 @@ import type {
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E2-U2 — **relations inside a many-to-many `connectOrCreate` create arm.**

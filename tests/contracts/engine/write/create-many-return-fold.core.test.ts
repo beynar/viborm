@@ -1,11 +1,11 @@
 import type { AnyDriver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
-import { createSchemaRegistry } from "@validation";
-import { PlanningDriver } from "@tests/fixtures/drivers/planning";
-import { beforeAll, describe, expect, test } from "vitest";
 import { ManyAndReturnOperation } from "@src/query-engine/write-engine/ManyAndReturnOperation";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { createSchemaRegistry } from "@validation";
+import { beforeAll, describe, expect, test } from "vitest";
 
 /**
  * PHASE 7.2 — the plan SHAPE of the multi-row `INSERT … RETURNING` fold

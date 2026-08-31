@@ -40,8 +40,8 @@ import { s } from "@schema";
 import { bindPolymorphicCollectionMember } from "@src/query-engine/builders/polymorphic-collection-mutation";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 

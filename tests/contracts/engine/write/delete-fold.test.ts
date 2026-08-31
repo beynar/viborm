@@ -11,9 +11,9 @@ import type { OperationStep } from "@src/query-engine/write-engine/OperationFrag
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 3 — the delete fold (query-performance-plan).

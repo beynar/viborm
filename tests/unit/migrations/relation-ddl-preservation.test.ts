@@ -7,7 +7,10 @@ import { validateSchema, validateSchemaOrThrow } from "@src/schema/validation";
 import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { relationDdlBaseline } from "@tests/fixtures/relation-ddl-baseline";
-import { type RelationDdlCase, relationDdlCorpus } from "@tests/fixtures/relation-ddl-corpus";
+import {
+  type RelationDdlCase,
+  relationDdlCorpus,
+} from "@tests/fixtures/relation-ddl-corpus";
 import { describe, expect, it } from "vitest";
 import { syncLiveSchema } from "../../fixtures/sync-schema";
 
@@ -107,4 +110,3 @@ describe("relation → DDL convergence", () => {
     }
   });
 });
-

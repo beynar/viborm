@@ -5,8 +5,8 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { afterEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, expect, test } from "vitest";
 
 const parent = s
   .model({

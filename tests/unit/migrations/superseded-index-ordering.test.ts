@@ -64,4 +64,3 @@ describe("live push — an index name that moves to another table", () => {
     });
   }
 });
-

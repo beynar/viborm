@@ -12,8 +12,8 @@ import {
   fieldRefPayload,
   type ModelFieldRefs,
 } from "@schema/field-ref";
-import { createSchemaRegistry } from "@validation";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
 /**

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import * as viborm from "@src/index";
+import { describe, expect, it } from "vitest";
 
 const documentedRuntimeExports = [
   "AnyNull",
@@ -54,6 +54,8 @@ const documentedRuntimeExports = [
 
 describe("public runtime surface", () => {
   it("exports the intentional root entry-point vocabulary", () => {
-    expect(Object.keys(viborm).sort()).toEqual([...documentedRuntimeExports].sort());
+    expect(Object.keys(viborm).sort()).toEqual(
+      [...documentedRuntimeExports].sort()
+    );
   });
 });

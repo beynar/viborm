@@ -10,6 +10,7 @@ import { NotFoundError, ValidationError } from "@errors";
 
 import { s } from "@schema";
 import { sql } from "@sql";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { clientUserPostSchema } from "@tests/fixtures/user-post-schema";
 import {
   createStandardUserPostPosts,
@@ -24,7 +25,6 @@ import {
   test,
 } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // =============================================================================
 // TEST SCHEMA
 // =============================================================================

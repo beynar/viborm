@@ -58,8 +58,7 @@ function registerCandidate(
     driver,
     driver._execute,
     () => state.candidate,
-    (_candidateDriver, client) =>
-      state.producer && client === driver.transport
+    (_candidateDriver, client) => state.producer && client === driver.transport
   );
   const candidate = resolveConsumableResultCandidate(driver);
   if (!candidate) throw new Error("Expected an eligible result candidate");
@@ -73,7 +72,10 @@ describe("consumable provider result proof", () => {
     const candidate = registerCandidate(driver, state);
     activateConsumableResultProducer(driver, driver.transport);
     const continuation = vi.fn(
-      (result: QueryResult<unknown>, consumableRows: unknown[] | undefined) => ({
+      (
+        result: QueryResult<unknown>,
+        consumableRows: unknown[] | undefined
+      ) => ({
         result,
         consumableRows,
       })

@@ -12,8 +12,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { Dialect } from "@drivers";
 import { ValidationError } from "@errors";
-import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildDistinctColumns } from "@query-engine/builders/distinct-builder";
+import { buildOrderByParts } from "@query-engine/builders/orderby-builder";
 import { buildRelationOrders } from "@query-engine/builders/relation-orderby-builder";
 import { buildSingleOrder } from "@query-engine/builders/sort-order-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
@@ -301,9 +301,7 @@ describe("Basic CRUD Operations", () => {
         })
         .toStatement("$n");
 
-      expect(statement).toMatch(
-        /ORDER BY .*"nextId" DESC NULLS FIRST/
-      );
+      expect(statement).toMatch(/ORDER BY .*"nextId" DESC NULLS FIRST/);
     });
 
     test("compound unique cursor uses compound whereUnique fields", () => {
@@ -427,10 +425,7 @@ describe("Basic CRUD Operations", () => {
       });
 
       expect(root.values.map((value) => JSON.stringify(value))).toEqual(
-        expect.arrayContaining([
-          '{"status":"active"}',
-          '{"archived":true}',
-        ])
+        expect.arrayContaining(['{"status":"active"}', '{"archived":true}'])
       );
       expect(scoped.values).toEqual(
         expect.arrayContaining([["score"], 10, 11, 1, 2])
@@ -497,11 +492,7 @@ describe("Basic CRUD Operations", () => {
 
       expect(statement).toContain("@>");
       expect(values.map((value) => JSON.stringify(value))).toEqual(
-        expect.arrayContaining([
-          '["orm"]',
-          '"typescript"',
-          '"database"',
-        ])
+        expect.arrayContaining(['["orm"]', '"typescript"', '"database"'])
       );
 
       const arrayCandidate = getSql(Author, "findMany", {
@@ -555,7 +546,7 @@ describe("Basic CRUD Operations", () => {
     });
 
     test("refuses path segments whose escaping is not portable", () => {
-      for (const path of [["quoted\"key"], ["back\\slash"], '$."quoted"']) {
+      for (const path of [['quoted"key'], ["back\\slash"], '$."quoted"']) {
         expect(() =>
           getSql(Author, "findMany", {
             where: { metadata: { path, equals: "active" } },
@@ -1858,7 +1849,6 @@ describe("Aggregates", () => {
         })
       ).toThrow();
     });
-
   });
 
   describe("groupBy", () => {
@@ -2008,10 +1998,7 @@ describe("Aggregates", () => {
             { views: { _sum: { gte: 10, lte: 100 } } },
             { NOT: [{ id: { _count: { equals: 0 } } }] },
           ],
-          OR: [
-            { id: { _count: { gt: 2 } } },
-            { id: { _count: { lt: 8 } } },
-          ],
+          OR: [{ id: { _count: { gt: 2 } } }, { id: { _count: { lt: 8 } } }],
         },
       });
 
@@ -2090,7 +2077,6 @@ describe("Aggregates", () => {
       expect(having?.toStatement("$n")).toContain("IS NULL");
       expect(having?.toStatement("$n")).toContain("IS NOT NULL");
     });
-
   });
 });
 
@@ -2417,27 +2403,22 @@ describe("coverage low value", () => {
       })
     ).toThrow("must be included in 'by'");
     expect(() =>
-      buildHaving(
-        scope,
-        { views: { _sum: { in: "not-an-array" } } },
-        "t0",
-        ["authorId"]
-      )
+      buildHaving(scope, { views: { _sum: { in: "not-an-array" } } }, "t0", [
+        "authorId",
+      ])
     ).toThrow("HAVING operation 'in' requires an array value");
     expect(() =>
-      buildHaving(
-        scope,
-        { views: { _sum: { unknown: 1 } } },
-        "t0",
-        ["authorId"]
-      )
+      buildHaving(scope, { views: { _sum: { unknown: 1 } } }, "t0", [
+        "authorId",
+      ])
     ).toThrow("Invalid operator: unknown");
   });
 
   test("relation order helpers fail closed on shapes excluded by validation", () => {
     const postScope = scopeFor(adapter, nestedRelationOrderBySchema.NestedPost);
     const authorRelation = lookupRelation(postScope, "author");
-    if (authorRelation === undefined) throw new Error("Expected author relation");
+    if (authorRelation === undefined)
+      throw new Error("Expected author relation");
 
     expect(() =>
       buildRelationOrders(
@@ -2522,18 +2503,13 @@ describe("coverage low value", () => {
     const vectorCapableAdapter = new PostgresAdapter();
     vectorCapableAdapter.capabilities.supportsVector = true;
     const vectorScope = scopeFor(vectorCapableAdapter, Author);
-    const geoPointScope = scopeFor(
-      new PostgresAdapter("public", true),
-      Author
-    );
+    const geoPointScope = scopeFor(new PostgresAdapter("public", true), Author);
     const column = sql.raw`"t0"."name"`;
 
     expect(() => buildSingleOrder(scope, column, "sideways")).toThrow(
       /Unsupported sort direction/
     );
-    expect(() => buildSingleOrder(scope, column, {})).toThrow(
-      /requires sort/
-    );
+    expect(() => buildSingleOrder(scope, column, {})).toThrow(/requires sort/);
     expect(() =>
       buildSingleOrder(scope, column, { sort: "asc", nulls: "middle" })
     ).toThrow(/nulls must be 'first' or 'last'/);

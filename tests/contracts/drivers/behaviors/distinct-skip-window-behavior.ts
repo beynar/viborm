@@ -1,15 +1,14 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const schema = windowUserPostSchema;
 

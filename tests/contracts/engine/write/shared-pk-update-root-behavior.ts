@@ -748,26 +748,23 @@ export function registerSharedPkUpdateRootBehavior(
         },
         "a1",
       ],
-    ])(
-      "a %s contributes only the taken arm's exact key",
-      async (_label, payload, expectedKey) => {
-        const client = await connect();
-        await seed(client);
+    ])("a %s contributes only the taken arm's exact key", async (_label, payload, expectedKey) => {
+      const client = await connect();
+      await seed(client);
 
-        expect(
-          await client.card.update({
-            where: { accountId: "a1" },
-            data: { account: payload },
-            select: { accountId: true },
-          })
-        ).toEqual({ accountId: expectedKey });
-        expect(await cards(client)).toContainEqual({
-          accountId: expectedKey,
-          label: "under test",
-        });
-        expect(await client.account.count()).toBe(4);
-      }
-    );
+      expect(
+        await client.card.update({
+          where: { accountId: "a1" },
+          data: { account: payload },
+          select: { accountId: true },
+        })
+      ).toEqual({ accountId: expectedKey });
+      expect(await cards(client)).toContainEqual({
+        accountId: expectedKey,
+        label: "under test",
+      });
+      expect(await client.account.count()).toBe(4);
+    });
 
     test("a selected fold that keeps the key suppresses the occupied transition guard", async () => {
       const client = await connect();
@@ -910,29 +907,26 @@ export function registerSharedPkUpdateRootBehavior(
         { accountId: "a2" },
         "a2",
       ],
-    ])(
-      "an upsert whose update arm moves the row key returns the post-move key: %s",
-      async (_label, update, expected) => {
-        const client = await connect();
-        await seed(client);
+    ])("an upsert whose update arm moves the row key returns the post-move key: %s", async (_label, update, expected) => {
+      const client = await connect();
+      await seed(client);
 
-        expect(
-          await client.card.upsert({
-            where: { accountId: "a1" },
-            update,
-            create: { accountId: "a3", label: "unused" },
-            select: { accountId: true, label: true },
-          })
-        ).toEqual({ accountId: expected, label: "under test" });
+      expect(
+        await client.card.upsert({
+          where: { accountId: "a1" },
+          update,
+          create: { accountId: "a3", label: "unused" },
+          select: { accountId: true, label: true },
+        })
+      ).toEqual({ accountId: expected, label: "under test" });
 
-        expect(await cards(client)).toEqual(
-          [
-            { accountId: expected, label: "under test" },
-            { accountId: "decoy", label: "decoy" },
-          ].sort((left, right) => left.accountId.localeCompare(right.accountId))
-        );
-      }
-    );
+      expect(await cards(client)).toEqual(
+        [
+          { accountId: expected, label: "under test" },
+          { accountId: "decoy", label: "decoy" },
+        ].sort((left, right) => left.accountId.localeCompare(right.accountId))
+      );
+    });
 
     test("a shared edge still cannot be disconnected: a row key is never nullable", async () => {
       const client = await connect();

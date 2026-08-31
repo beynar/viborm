@@ -1,15 +1,12 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 async function setup(driver: PGliteDriver) {
   const client = createClient({ schema: compoundAdoptSchema, driver });

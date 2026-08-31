@@ -3,8 +3,8 @@ import {
   applyForceEnumResolutions,
   applyResolvedEnumMappings,
   detectEnumValueRemovals,
-  resolveEnumValueRemovalMappings,
   type EnumColumnMappings,
+  resolveEnumValueRemovalMappings,
 } from "@src/migrations/push/enum-removals";
 import type {
   DiffOperation,
@@ -228,8 +228,8 @@ describe("enum value removal planning", () => {
 
 describe("coverage low value", () => {
   test.each([
-    [{ tableName: "missing", columnName: "role" }, "Table \"missing\""],
-    [{ tableName: "users", columnName: "missing" }, "Column \"missing\""],
+    [{ tableName: "missing", columnName: "role" }, 'Table "missing"'],
+    [{ tableName: "users", columnName: "missing" }, 'Column "missing"'],
   ])("refuses an impossible dependent-column reference", (dependent, message) => {
     const operation: DiffOperation = {
       type: "alterEnum",

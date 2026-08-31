@@ -3,10 +3,10 @@ import {
   getAdapterInternals,
   installAdapterInternals,
 } from "@adapters/adapter-internals";
+import { installGeoPointSql } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { installGeoPointSql } from "@adapters/database-adapter";
 import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
@@ -140,7 +140,9 @@ describe("adapter SELECT assembly", () => {
 
     expect(mysql.toStatement()).toContain("ROW_NUMBER() OVER");
     expect(mysql.toStatement()).toContain("SELECT `id`, `name` FROM");
-    expect(mysql.toStatement()).toContain("LIMIT 18446744073709551615 OFFSET 2");
+    expect(mysql.toStatement()).toContain(
+      "LIMIT 18446744073709551615 OFFSET 2"
+    );
     expect(mysql.values).toEqual([true, 0]);
     expect(sqlite.toStatement()).toContain("SELECT * FROM");
     expect(sqlite.toStatement()).toContain('WHERE "_rn" = 1 LIMIT ?');
@@ -395,11 +397,11 @@ describe("GeoPoint protocol", () => {
 
   test("full providers bind polygon and distance operands", () => {
     const postgis = new PostgresAdapter("public", true).geoPoint;
-    if (!postgis?.withinPolygon || !postgis.distance) {
+    if (!(postgis?.withinPolygon && postgis.distance)) {
       throw new Error("PostGIS full protocol was not installed");
     }
     const mysql = new MySQLAdapter().geoPoint;
-    if (!mysql.withinPolygon || !mysql.distance) {
+    if (!(mysql.withinPolygon && mysql.distance)) {
       throw new Error("MySQL full protocol was not installed");
     }
     const polygon = {
@@ -411,7 +413,9 @@ describe("GeoPoint protocol", () => {
     };
 
     expectComposable(postgis.withinPolygon(sql.raw`location`, polygon));
-    expectComposable(postgis.distance(sql.raw`left_point`, sql.raw`right_point`));
+    expectComposable(
+      postgis.distance(sql.raw`left_point`, sql.raw`right_point`)
+    );
     expectComposable(mysql.withinPolygon(sql.raw`location`, polygon));
     expectComposable(mysql.distance(sql.raw`left_point`, sql.raw`right_point`));
   });
@@ -449,12 +453,10 @@ describe("adapter result hooks", () => {
     expect(result.parseField("2024-01-02 03:04:05", "datetime", next)).toBe(
       "2024-01-02T03:04:05.000Z"
     );
-    expect(
-      result.parseField("2024-01-02T03:04:05.1", "datetime", next)
-    ).toBe("2024-01-02T03:04:05.100Z");
-    expect(result.parseField("not-a-date", "datetime", next)).toBe(
-      passthrough
+    expect(result.parseField("2024-01-02T03:04:05.1", "datetime", next)).toBe(
+      "2024-01-02T03:04:05.100Z"
     );
+    expect(result.parseField("not-a-date", "datetime", next)).toBe(passthrough);
     expect(result.parseField(5, "datetime", next)).toBe(passthrough);
     expect(result.parseField("value", "string", next)).toBe(passthrough);
   });

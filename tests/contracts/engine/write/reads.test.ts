@@ -1,11 +1,9 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { PGliteDriver } from "@drivers/pglite";
-import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
+import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
 
 // The read family on PGlite, in transaction and forced atomic-batch modes.
 runReadBehavior({

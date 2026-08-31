@@ -1,5 +1,5 @@
-import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { s } from "@schema";
+import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { sql } from "@sql";
 import { parse, v } from "@validation";
 import { runInOperandScope } from "@validation/primitives/operand";

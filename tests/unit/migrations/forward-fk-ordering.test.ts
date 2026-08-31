@@ -66,4 +66,3 @@ describe("generate() migration file — forward-ref ordering", () => {
     ).$disconnect();
   });
 });
-

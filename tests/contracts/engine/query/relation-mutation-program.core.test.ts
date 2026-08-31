@@ -645,9 +645,7 @@ describe("relation mutation program", () => {
     )?.program.entries[0];
 
     expect(
-      createMany?.kind === "createMany"
-        ? createMany.rows[0]?.source
-        : undefined
+      createMany?.kind === "createMany" ? createMany.rows[0]?.source : undefined
     ).toBe(sourceCreateMany);
     expect(
       update?.kind === "update" ? update.items[0]?.data.source : undefined
@@ -659,9 +657,9 @@ describe("relation mutation program", () => {
       expect(() => collectionArm(42)).toThrow(
         "produced an invalid mutation payload"
       );
-      expect(() =>
-        collectionArm({ connect: { where: { id: 1 } } })
-      ).toThrow("every item must carry its 'type' discriminator");
+      expect(() => collectionArm({ connect: { where: { id: 1 } } })).toThrow(
+        "every item must carry its 'type' discriminator"
+      );
       expect(() =>
         collectionArm({
           connect: { type: "unknown", where: { id: 1 } },

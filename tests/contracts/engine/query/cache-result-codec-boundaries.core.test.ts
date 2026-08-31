@@ -45,9 +45,7 @@ function expectSnapshotFailure(run: () => unknown): void {
 describe("cache result codec structural contracts", () => {
   test("round-trips nested records, arrays, nullability, and tagged relations", () => {
     const text = compileScalarCodec(s.string());
-    const target = recordCodec(
-      new Map<string, ValueCodec>([["title", text]])
-    );
+    const target = recordCodec(new Map<string, ValueCodec>([["title", text]]));
     const codec = recordCodec(
       new Map<string, ValueCodec>([
         ["name", text],
@@ -55,9 +53,7 @@ describe("cache result codec structural contracts", () => {
         [
           "subject",
           nullableCodec(
-            taggedRelationCodec(
-              new Map<string, ValueCodec>([["post", target]])
-            )
+            taggedRelationCodec(new Map<string, ValueCodec>([["post", target]]))
           ),
         ],
       ])
@@ -184,7 +180,12 @@ describe("coverage low value", () => {
     active.add(value);
     expectSnapshotFailure(() => withSnapshotObject(active, value, () => true));
 
-    for (const number of [undefined, "1", Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const number of [
+      undefined,
+      "1",
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
       expectSnapshotFailure(() => encodeSnapshotNumber(number));
     }
     for (const encoded of [undefined, 1, "01", "NaN", "Infinity", "-1e0"]) {
@@ -226,7 +227,13 @@ describe("coverage low value", () => {
       ["object", [1]],
       ["object", [["key"]]],
       ["object", [[1, ["null"]]]],
-      ["object", [["key", ["null"]], ["key", ["null"]]]],
+      [
+        "object",
+        [
+          ["key", ["null"]],
+          ["key", ["null"]],
+        ],
+      ],
     ];
     for (const node of malformedNodes) {
       expectSnapshotFailure(() => materializeJsonValue(node, activeObjects()));
@@ -235,9 +242,7 @@ describe("coverage low value", () => {
 
   test("refuses malformed primitive, record, array, and tagged snapshots", () => {
     const text = compileScalarCodec(s.string());
-    const record = recordCodec(
-      new Map<string, ValueCodec>([["name", text]])
-    );
+    const record = recordCodec(new Map<string, ValueCodec>([["name", text]]));
     const array = arrayCodec(text);
     const tagged = taggedRelationCodec(
       new Map<string, ValueCodec>([["post", record]])
@@ -258,7 +263,11 @@ describe("coverage low value", () => {
       () => materialize(record, []),
       () => materialize(record, [["name"]]),
       () => materialize(record, [["other", "Ada"]]),
-      () => materialize(record, [["name", "Ada"], ["name", "Ada"]]),
+      () =>
+        materialize(record, [
+          ["name", "Ada"],
+          ["name", "Ada"],
+        ]),
       () => snapshot(tagged, null),
       () => snapshot(tagged, { type: "post" }),
       () => snapshot(tagged, { other: "post", data: { name: "Ada" } }),

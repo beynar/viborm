@@ -1,18 +1,17 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { describe, expect, test } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   nestedMutationSchema,
   runNestedMutationBehavior,
 } from "@tests/contracts/engine/write/nested-mutation-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 // The whole nested-mutation family on PGlite, both substrates.
 runNestedMutationBehavior({

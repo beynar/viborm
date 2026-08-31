@@ -1,10 +1,7 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-import { describe } from "vitest";
 import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip-select-capture-behavior";
-
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
+import { describe } from "vitest";
 
 /**
  * E6.9's RETURNING control, runnable without Docker.

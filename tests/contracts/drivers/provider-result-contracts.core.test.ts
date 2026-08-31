@@ -380,17 +380,14 @@ describe("provider row-count normalization", () => {
       { result: { insertId: "-1" } },
       "INSERT INTO phase6 VALUES (1)",
     ],
-  ])(
-    "PlanetScale rejects %s before SDK decoding",
-    async (_label, payload, query) => {
-      const error = await captureQueryError(
-        readValidatedPlanetScaleJson(payload, query)
-      );
+  ])("PlanetScale rejects %s before SDK decoding", async (_label, payload, query) => {
+    const error = await captureQueryError(
+      readValidatedPlanetScaleJson(payload, query)
+    );
 
-      expect(error.meta).toEqual({ driver: "planetscale" });
-      expect(error.message).toContain("malformed successful response");
-    }
-  );
+    expect(error.meta).toEqual({ driver: "planetscale" });
+    expect(error.message).toContain("malformed successful response");
+  });
 
   test("PlanetScale rejects sparse field, row, and length arrays", async () => {
     const sparseFields = new Array<unknown>(1);

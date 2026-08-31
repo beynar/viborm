@@ -4,9 +4,9 @@ import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
-import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 

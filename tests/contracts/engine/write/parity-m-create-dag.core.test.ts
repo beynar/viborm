@@ -8,8 +8,8 @@ import {
   type OperationFragment,
   type PlanningFragment,
 } from "@src/query-engine/write-engine/OperationFragment";
-import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { publishedOutputs } from "@tests/fixtures/planning-published";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
