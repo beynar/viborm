@@ -9,6 +9,7 @@ import {
 } from "./bounded-process.mjs";
 import {
   EXTENDED_LOCAL_PGLITE_TESTS,
+  EXTENDED_LOCAL_SHARED_FAMILY_SHARDS,
   EXTENDED_LOCAL_TEST_SHARDS,
   EXTENDED_LOCAL_TESTS,
   LIBSQL_PROVIDER_TESTS,
@@ -153,6 +154,21 @@ const stages = [
       files
     )
   ),
+  // Suites on the shared worker database PACK: they take a private schema, not
+  // an instance, so twelve of them cost about what one used to.
+  ...EXTENDED_LOCAL_SHARED_FAMILY_SHARDS.map((files, index) => ({
+    arguments: [
+      vitestEntry,
+      ...vitestArgumentsWithSingleWorker(
+        vitestArguments("extended-local", files)
+      ),
+    ],
+    command: process.execPath,
+    heapLimitMb: VITEST_STAGE_HEAP_LIMIT_MB,
+    label: `extended-local shared-family shard ${index + 1}/${EXTENDED_LOCAL_SHARED_FAMILY_SHARDS.length} (${files.length} suites)`,
+    rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+    wallLimitMs: PGLITE_STAGE_WALL_LIMIT_MS,
+  })),
   ...EXTENDED_LOCAL_PGLITE_TESTS.map((file) =>
     livePgliteProviderStage(file, "extended-local")
   ),

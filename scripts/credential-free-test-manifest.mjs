@@ -102,8 +102,53 @@ function bootsLivePGlite(file, seen = new Set()) {
   return false;
 }
 
+/**
+ * A suite that uses `usePGliteSchemaFamily` shares the worker's ONE database and
+ * takes only a private schema, so such suites pack: six of them measured
+ * 1554 MiB against 1494 for a single one. They are grouped, not isolated.
+ *
+ * A suite that builds its own `new PGlite()` still costs a full ~1.3 GiB
+ * instance and keeps running alone.
+ */
+const SHARED_FAMILY = /usePGliteSchemaFamily/;
+
+function usesSharedFamily(file) {
+  try {
+    return SHARED_FAMILY.test(readFileSync(resolve(projectRoot, file), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+export const EXTENDED_LOCAL_SHARED_FAMILY_TESTS = Object.freeze(
+  EXTENDED_LOCAL_TESTS.filter(
+    (file) => bootsLivePGlite(file) && usesSharedFamily(file)
+  )
+);
+
+const SHARED_FAMILY_SHARD_SIZE = 12;
+
+export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
+  Array.from(
+    {
+      length: Math.ceil(
+        EXTENDED_LOCAL_SHARED_FAMILY_TESTS.length / SHARED_FAMILY_SHARD_SIZE
+      ),
+    },
+    (_unused, index) =>
+      Object.freeze(
+        EXTENDED_LOCAL_SHARED_FAMILY_TESTS.slice(
+          index * SHARED_FAMILY_SHARD_SIZE,
+          (index + 1) * SHARED_FAMILY_SHARD_SIZE
+        )
+      )
+  )
+);
+
 export const EXTENDED_LOCAL_PGLITE_TESTS = Object.freeze(
-  EXTENDED_LOCAL_TESTS.filter((file) => bootsLivePGlite(file))
+  EXTENDED_LOCAL_TESTS.filter(
+    (file) => bootsLivePGlite(file) && !usesSharedFamily(file)
+  )
 );
 
 const EXTENDED_LOCAL_ORDINARY_TESTS = EXTENDED_LOCAL_TESTS.filter(
