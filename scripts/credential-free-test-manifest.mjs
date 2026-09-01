@@ -126,20 +126,23 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_TESTS = Object.freeze(
   )
 );
 
-const SHARED_FAMILY_SHARD_SIZE = 30;
+const SHARED_FAMILY_SHARD_SIZE = 20;
+
+const shardCount = Math.ceil(
+  EXTENDED_LOCAL_SHARED_FAMILY_TESTS.length / SHARED_FAMILY_SHARD_SIZE
+);
 
 export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
   Array.from(
-    {
-      length: Math.ceil(
-        EXTENDED_LOCAL_SHARED_FAMILY_TESTS.length / SHARED_FAMILY_SHARD_SIZE
-      ),
-    },
+    { length: shardCount },
+    // Round-robin, not contiguous slices. The list is sorted by path, so a
+    // contiguous tail shard collected every cache suite at once and peaked
+    // 2596 MiB against the 2560 ceiling with only 10 suites in it. Dealing the
+    // files out spreads the heavy ones across every shard.
     (_unused, index) =>
       Object.freeze(
-        EXTENDED_LOCAL_SHARED_FAMILY_TESTS.slice(
-          index * SHARED_FAMILY_SHARD_SIZE,
-          (index + 1) * SHARED_FAMILY_SHARD_SIZE
+        EXTENDED_LOCAL_SHARED_FAMILY_TESTS.filter(
+          (_file, position) => position % shardCount === index
         )
       )
   )
@@ -155,13 +158,32 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
 const OWN_INSTANCE =
   /new PGlite\(|open(?:Borrowed|Test)PGlite|new \w*PGliteDriver\(/;
 
-function buildsOwnInstance(file) {
+// The shared fixture builds the worker's ONE instance. Reaching it is what makes
+// a suite cheap, so it must not count as building an instance of one's own.
+const SHARED_FIXTURE = "tests/fixtures/drivers/pglite.ts";
+
+/**
+ * Walks local imports, exactly as `bootsLivePGlite` does. Reading only the test
+ * file is not enough: an oracle or behavior module builds the instances on the
+ * suite's behalf. `located-parent-ref-oracle-create.test.ts` constructs nothing
+ * itself and still costs 2397 MiB through its helper.
+ */
+function buildsOwnInstance(file, seen = new Set()) {
+  if (seen.has(file) || file.endsWith(SHARED_FIXTURE)) return false;
+  seen.add(file);
+  let source;
   try {
-    return OWN_INSTANCE.test(readFileSync(resolve(projectRoot, file), "utf8"));
+    source = readFileSync(resolve(projectRoot, file), "utf8");
   } catch {
     // Unreadable: assume the expensive shape and isolate it.
     return true;
   }
+  if (OWN_INSTANCE.test(source)) return true;
+  for (const match of source.matchAll(LOCAL_IMPORT)) {
+    const dependency = resolveLocalImport(match[1], file);
+    if (dependency && buildsOwnInstance(dependency, seen)) return true;
+  }
+  return false;
 }
 
 export const EXTENDED_LOCAL_PGLITE_TESTS = Object.freeze(
@@ -178,7 +200,7 @@ const EXTENDED_LOCAL_IMPORTED_PGLITE_TESTS = EXTENDED_LOCAL_TESTS.filter(
     bootsLivePGlite(file) && !usesSharedFamily(file) && !buildsOwnInstance(file)
 );
 
-const IMPORTED_PGLITE_SHARD_SIZE = 25;
+const IMPORTED_PGLITE_SHARD_SIZE = 17;
 
 export const EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS = Object.freeze(
   Array.from(
