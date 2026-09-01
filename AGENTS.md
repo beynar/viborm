@@ -657,9 +657,15 @@ pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never k
 # Node heap. Complete TypeScript checking is split into sequential 1280 MB heap
 # shards.
 # Every child process group has a 1536 MiB sampled RSS ceiling, with exactly ONE
-# allowlisted departure: 1792 MiB for an isolated live-PGlite provider stage.
-# Measured basis - a single PGlite instance has a 1294 MiB floor and was observed
-# peaking at 1747 MiB. The allowance is attached to those stages; it is not a knob.
+# allowlisted departure: 2560 MiB for an isolated live-PGlite provider stage.
+# That ceiling is a RUNAWAY DETECTOR, not a budget. PGlite grows into available
+# headroom and never returns its Wasm heap on close, so a bar set just above the
+# largest observed file is circular - an earlier 1792, taken as "just above the
+# 1747 maximum", was sampled under a 1536 cap and three files then broke it.
+# Measured basis - floor 1294 MiB for one instance running a single SELECT; a
+# real single-database test 1420-1460; a file holding several 1600-1910; the leak
+# this exists to catch, 3700+ with 344 live databases. The allowance is attached
+# to those stages; it is not a knob.
 # `--rss-limit-mb` can only lower a ceiling, never raise one, so generic tests,
 # typechecks, coverage, package work, SQLite, LibSQL and non-PGlite benchmarks all
 # stay at 1536.

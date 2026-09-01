@@ -84,6 +84,11 @@
 - Size memory limits by workload and split a type graph instead of raising one
   monolithic heap. Keep Vitest at 768 MB, TypeScript shards at 1280 MB, and
   sample every complete process group against the shared 1536 MiB RSS ceiling.
+  One allowlisted departure: an isolated live-PGlite provider stage may take
+  2560 MiB, selected by importing a frozen named export rather than by any flag.
+  It is a runaway detector, not a budget - PGlite's floor is 1294 MiB and it
+  grows into whatever headroom it is given, so sizing the bar from observed
+  maxima is circular.
   Describe a polling threshold as sampled, not as an OS-enforced hard limit.
 - A green full type-check can hide a layer-specific type-memory regression
   because its heap is larger. Run the owning layer after adding a recursive

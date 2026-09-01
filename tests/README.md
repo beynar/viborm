@@ -219,11 +219,26 @@ ceiling a coverage subsystem may lower but never raise.
 Coverage orchestration and report merging use a separate 768 MB Node heap cap.
 
 There is exactly one allowlisted departure from 1536 MiB: an isolated live-PGlite
-provider stage may take 1792 MiB. The measured basis is a single PGlite instance,
-which has a 1294 MiB floor and was observed peaking at 1747 MiB. That allowance
-belongs to those stages; it is not a knob callers may reach for. Generic tests,
-typechecks, coverage, package work, SQLite, LibSQL and non-PGlite benchmarks all
-stay at 1536.
+provider stage may take 2560 MiB. That ceiling is a runaway detector, not a
+budget. PGlite grows into whatever headroom it is given and never returns its
+Wasm heap on `close()`, so a bar set just above the largest observed file is
+circular and will be exceeded - an earlier 1792 MiB value, taken as "just above
+the 1747 MiB maximum", was itself sampled under a 1536 cap and three separate
+files then broke it.
+
+The one figure that is not elastic is the floor: a single PGlite instance
+running one `SELECT` costs a measured 1294 MiB. Around it, a real
+single-database test measures 1420-1460 MiB, a file holding several 1600-1910,
+and the leak this ceiling exists to catch measured over 3700 with 344 live
+databases. 2560 clears the former and still catches the latter by more than a
+gigabyte.
+
+That allowance belongs to those stages; it is not a knob callers may reach for -
+it is selected by importing a frozen named export, and an equivalent object
+literal is refused. Generic tests, typechecks, coverage, package work, SQLite,
+LibSQL and non-PGlite benchmarks all stay at 1536, which their measured
+footprint supports: the extended estate's twelve ordinary shards run at
+354-640 MiB.
 
 On timeout, interruption, or RSS breach, the launcher terminates the complete
 group, escalates to SIGKILL, and verifies that no group member remains before
