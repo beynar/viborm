@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -61,16 +61,49 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
 const PGLITE_SOURCE = /pglite/i;
 /@electric-sql\/pglite|PGliteDriver|usePGliteSchemaFamily|openTestPGlite|openBorrowedPGlite/;
 
-function bootsLivePGlite(file) {
+const LOCAL_IMPORT = /from\s+"((?:\.\.?\/|@tests\/)[^"]+)"/g;
+
+function resolveLocalImport(specifier, importer) {
+  const base = specifier.startsWith("@tests/")
+    ? resolve(projectRoot, "tests", specifier.slice("@tests/".length))
+    : resolve(projectRoot, dirname(importer), specifier);
+  for (const candidate of [base, `${base}.ts`, resolve(base, "index.ts")]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      return relative(projectRoot, candidate).replaceAll("\\", "/");
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Does this file reach a live PGlite database, DIRECTLY OR THROUGH ITS OWN
+ * LOCAL IMPORTS?
+ *
+ * Following the import graph is the point. Splitting the heavy suites moved
+ * their database setup into sibling `*-fixtures.ts` modules, so a piece like
+ * relation-key-update-legality-occupied-to-many.test.ts contains no mention of
+ * PGlite at all while importing a module that opens one - and it measured
+ * 1582 MiB alone. A content match on the test file alone cannot see that.
+ */
+function bootsLivePGlite(file, seen = new Set()) {
+  if (seen.has(file)) return false;
+  seen.add(file);
+  let source;
   try {
-    return PGLITE_SOURCE.test(readFileSync(resolve(projectRoot, file), "utf8"));
+    source = readFileSync(resolve(projectRoot, file), "utf8");
   } catch {
     return false;
   }
+  if (PGLITE_SOURCE.test(source)) return true;
+  for (const match of source.matchAll(LOCAL_IMPORT)) {
+    const dependency = resolveLocalImport(match[1], file);
+    if (dependency && bootsLivePGlite(dependency, seen)) return true;
+  }
+  return false;
 }
 
 export const EXTENDED_LOCAL_PGLITE_TESTS = Object.freeze(
-  EXTENDED_LOCAL_TESTS.filter(bootsLivePGlite)
+  EXTENDED_LOCAL_TESTS.filter((file) => bootsLivePGlite(file))
 );
 
 const EXTENDED_LOCAL_ORDINARY_TESTS = EXTENDED_LOCAL_TESTS.filter(
