@@ -8,6 +8,7 @@ import {
   vitestArgumentsWithSingleWorker,
 } from "./bounded-process.mjs";
 import {
+  EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS,
   EXTENDED_LOCAL_PGLITE_TESTS,
   EXTENDED_LOCAL_SHARED_FAMILY_SHARDS,
   EXTENDED_LOCAL_TEST_SHARDS,
@@ -166,6 +167,22 @@ const stages = [
     command: process.execPath,
     heapLimitMb: VITEST_STAGE_HEAP_LIMIT_MB,
     label: `extended-local shared-family shard ${index + 1}/${EXTENDED_LOCAL_SHARED_FAMILY_SHARDS.length} (${files.length} suites)`,
+    rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+    wallLimitMs: PGLITE_STAGE_WALL_LIMIT_MS,
+  })),
+  // Reached a PGlite-capable module but builds no instance of its own - the
+  // docker legs gated off locally, and suites whose behavior module opens at
+  // most a couple of databases. All 49 together peak at 2182 MiB.
+  ...EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS.map((files, index) => ({
+    arguments: [
+      vitestEntry,
+      ...vitestArgumentsWithSingleWorker(
+        vitestArguments("extended-local", files)
+      ),
+    ],
+    command: process.execPath,
+    heapLimitMb: VITEST_STAGE_HEAP_LIMIT_MB,
+    label: `extended-local imported-pglite shard ${index + 1}/${EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS.length} (${files.length} suites)`,
     rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
     wallLimitMs: PGLITE_STAGE_WALL_LIMIT_MS,
   })),

@@ -145,9 +145,55 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
   )
 );
 
+/**
+ * Only a file that CONSTRUCTS an instance pays for one. `bootsLivePGlite` walks
+ * imports, so it also flags files that merely reach a module capable of building
+ * one - the docker legs skipped locally, and suites whose behavior module opens
+ * at most a couple of databases between them. Measured: all 49 such files in ONE
+ * process peak at 2182 MiB, against the 1536 an isolated one is given. They pack.
+ */
+const OWN_INSTANCE =
+  /new PGlite\(|open(?:Borrowed|Test)PGlite|new \w*PGliteDriver\(/;
+
+function buildsOwnInstance(file) {
+  try {
+    return OWN_INSTANCE.test(readFileSync(resolve(projectRoot, file), "utf8"));
+  } catch {
+    // Unreadable: assume the expensive shape and isolate it.
+    return true;
+  }
+}
+
 export const EXTENDED_LOCAL_PGLITE_TESTS = Object.freeze(
   EXTENDED_LOCAL_TESTS.filter(
-    (file) => bootsLivePGlite(file) && !usesSharedFamily(file)
+    (file) =>
+      bootsLivePGlite(file) &&
+      !usesSharedFamily(file) &&
+      buildsOwnInstance(file)
+  )
+);
+
+const EXTENDED_LOCAL_IMPORTED_PGLITE_TESTS = EXTENDED_LOCAL_TESTS.filter(
+  (file) =>
+    bootsLivePGlite(file) && !usesSharedFamily(file) && !buildsOwnInstance(file)
+);
+
+const IMPORTED_PGLITE_SHARD_SIZE = 25;
+
+export const EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS = Object.freeze(
+  Array.from(
+    {
+      length: Math.ceil(
+        EXTENDED_LOCAL_IMPORTED_PGLITE_TESTS.length / IMPORTED_PGLITE_SHARD_SIZE
+      ),
+    },
+    (_unused, index) =>
+      Object.freeze(
+        EXTENDED_LOCAL_IMPORTED_PGLITE_TESTS.slice(
+          index * IMPORTED_PGLITE_SHARD_SIZE,
+          (index + 1) * IMPORTED_PGLITE_SHARD_SIZE
+        )
+      )
   )
 );
 
