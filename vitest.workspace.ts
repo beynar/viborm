@@ -173,16 +173,16 @@ export default defineWorkspace([
       include: [...EXTENDED_LOCAL_TESTS],
     },
   },
+  // Every provider project globs its own prefix. Exact paths silently dropped
+  // the pieces when the heavy suites were split for the 1280 MB shard heap.
   providerProject("pglite", ["tests/providers/local/pglite*.test.ts"]),
-  providerProject("sqlite3", ["tests/providers/local/sqlite3.test.ts"]),
-  providerProject("libsql", ["tests/providers/local/libsql.test.ts"]),
-  providerProject("pg", ["tests/providers/docker/pg.test.ts"]),
-  providerProject("postgres", [
-    "tests/providers/docker/postgres.test.ts",
-    "tests/providers/docker/postgres-pipelining.test.ts",
-  ]),
+  providerProject("sqlite3", ["tests/providers/local/sqlite3*.test.ts"]),
+  providerProject("libsql", ["tests/providers/local/libsql*.test.ts"]),
+  // `pg*` cannot catch postgres*: that name starts "po".
+  providerProject("pg", ["tests/providers/docker/pg*.test.ts"]),
+  providerProject("postgres", ["tests/providers/docker/postgres*.test.ts"]),
   providerProject("mysql2", [
-    "tests/providers/docker/mysql2.test.ts",
+    "tests/providers/docker/mysql2*.test.ts",
     "tests/contracts/engine/query/decimal-wide-arithmetic-docker.test.ts",
     "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",

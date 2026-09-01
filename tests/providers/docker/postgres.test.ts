@@ -4,6 +4,16 @@
  * Tests the postgres.js driver implementation.
  * NOTE: These tests require a running PostgreSQL database.
  * Skip in CI unless PostgreSQL is available.
+ *
+ * This file owns the driver surface itself — construction, raw SQL,
+ * transactions, client integration — plus the two PostgreSQL extension
+ * contracts (PostGIS and pgvector). The behavior contracts that depend on the
+ * real driver live beside it in `postgres-serialization.test.ts` and
+ * `postgres-relations.test.ts`: one program carrying every behavior schema
+ * cannot be typechecked inside the fixed 1280 MB shard heap, so the suite is
+ * split by SCHEMA. Every piece keeps the same `describeIf("postgres.js
+ * Driver")` wrapper and the same per-test drop-everything cleanup, so test
+ * names and database lifecycle are unchanged by the split.
  */
 
 import { createClient } from "@client/client";
@@ -13,25 +23,15 @@ import {
 } from "@drivers/postgres";
 
 import { s } from "@schema";
-import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
-import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
-import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
-import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
-import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
 import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { geoPointPostgresIndexContract } from "@tests/contracts/drivers/behaviors/geopoint-postgres-index-behavior";
-import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
-import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
-import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
-import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
-import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
-import {
-  fullScalarRoundtripContract,
-  scalarRoundtripContract,
-} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  describeIf,
+  dropEveryTable,
+  TEST_CONNECTION_STRING,
+} from "@tests/providers/docker/postgres-fixtures";
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -84,11 +84,8 @@ async function setupDatabase(driver: PostgresDriver) {
 // TESTS
 // =============================================================================
 
-// Skip tests if no PostgreSQL connection is available
-const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const PGVECTOR_TEST_CONNECTION_STRING =
   process.env.PGVECTOR_TEST_CONNECTION_STRING;
-const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 function requirePgvectorConnectionString(): string {
   if (!PGVECTOR_TEST_CONNECTION_STRING) {
@@ -101,15 +98,7 @@ describeIf("postgres.js Driver", () => {
   // The tests below assume a fresh database. PostgreSQL persists between
   // tests, so drop everything first: pushing an empty schema diffs to
   // dropTable for every existing table. (Same pattern as mysql2.test.ts.)
-  beforeEach(async () => {
-    const cleanupClient = PostgresCreateClient({
-      schema: {},
-      databaseUrl: TEST_CONNECTION_STRING,
-      postgis: true,
-    });
-    await syncLiveSchema(cleanupClient);
-    await cleanupClient.$disconnect();
-  });
+  beforeEach(dropEveryTable);
 
   geoPointContract.register({
     driverName: "postgres.js",
@@ -436,99 +425,6 @@ describeIf("postgres.js Driver", () => {
       await client.$disconnect();
     });
   });
-  // Real postgres.js param serialization for native array columns
-  listJsonFilterContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  fieldReferenceContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  scalarRoundtripContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  decimalExactnessContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
-    descriptor: { precision: 16, scale: 2 },
-  });
-
-  // Real postgres.js param serialization for a LIST of bytea bind params
-  blobFilterContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  fullScalarRoundtripContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Nested writes over real pooled connections (transactions span checkouts)
-  nestedWriteContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  nestedWriteAdvancedContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Raw-string $queryRaw params and sql`` rendering go through the real
-  // postgres.js wire protocol here ($n placeholders), unlike the PGlite run.
-  clientRawContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Relation _count / relation orderBy / every-none read filters over the
-  // real driver (correlated-subquery results cross real result parsing).
-  relationReadAggregateContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  nestedOrderByContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  omitContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Bulk-write `limit` IS wired here for the reason given in pg.test.ts: its
-  // PostgreSQL form binds a `LIMIT` inside a subquery inside an UPDATE's WHERE,
-  // which is a parameter ORDERING this file's charter covers.
-  bulkWriteLimitContract.register({
-    driverName: "postgres.js",
-    createDriver: () =>
-      new PostgresDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // The remaining behavior suites are not wired here: they are adapter-level
-  // and already run on PGlite, which shares the postgres adapter; this file
-  // covers what depends on the real driver (param serialization, pooling,
-  // transactions).
 });
 
 vectorContract.register({

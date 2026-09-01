@@ -60,7 +60,29 @@ export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze(
   )
 );
 
-export const PGLITE_PROVIDER_TESTS = Object.freeze([
-  "tests/providers/local/pglite-vector.test.ts",
-  "tests/providers/local/pglite.test.ts",
-]);
+/**
+ * Provider suites are enumerated FROM DISK, by filename prefix.
+ *
+ * They used to be hardcoded lists. When the six heaviest suites were split so
+ * each piece could typecheck under the 1280 MB shard heap, every hardcoded list
+ * silently kept naming only the original file, so the new pieces would have run
+ * nowhere - a worse failure than the one the split fixed, because it is quiet.
+ * Deriving them means a new piece is picked up the moment it exists.
+ */
+function providerTestFiles(directory, prefix) {
+  const relative = `tests/providers/${directory}`;
+  return Object.freeze(
+    readdirSync(resolve(projectRoot, relative))
+      .filter(
+        (file) =>
+          file.endsWith(".test.ts") &&
+          (file === `${prefix}.test.ts` || file.startsWith(`${prefix}-`))
+      )
+      .sort()
+      .map((file) => `${relative}/${file}`)
+  );
+}
+
+export const PGLITE_PROVIDER_TESTS = providerTestFiles("local", "pglite");
+export const SQLITE3_PROVIDER_TESTS = providerTestFiles("local", "sqlite3");
+export const LIBSQL_PROVIDER_TESTS = providerTestFiles("local", "libsql");

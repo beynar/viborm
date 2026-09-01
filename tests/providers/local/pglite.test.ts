@@ -1,69 +1,43 @@
+/**
+ * PGlite provider suite — schema structure.
+ *
+ * Index and ordering DDL, the plans those indexes have to produce, polymorphic
+ * links across both PGlite substrates, and upsert atomicity (including the
+ * injected unique-race sentinel that only this provider can express).
+ *
+ * This is one of five `pglite*.test.ts` pieces. The suite is split by SCHEMA:
+ * every behavior contract carries its own model set, and one program holding
+ * all of them cannot be typechecked inside the fixed 1280 MB shard heap. Each
+ * piece keeps the same `describe("PGlite Driver")` wrapper, so every test's
+ * reported name is unchanged by the split.
+ */
+
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 
-import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
-import { batchRefSmokeContract } from "@tests/contracts/drivers/behaviors/batch-ref-smoke-behavior";
-import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
-import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
-import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
-import { compoundKeyContract } from "@tests/contracts/drivers/behaviors/compound-key-behavior";
-import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";
-import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
-import { cursorPaginationContract } from "@tests/contracts/drivers/behaviors/cursor-pagination-behavior";
-import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
-import { distinctSkipWindowContract } from "@tests/contracts/drivers/behaviors/distinct-skip-window-behavior";
-import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
 import {
   fkIndexContract,
   fkIndexPlanContract,
   fkIndexUpgradeContract,
 } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
 import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
-import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
 import {
   mappedIndexContract,
   partialIndexCoverageContract,
   partialIndexPredicateChurnContract,
 } from "@tests/contracts/drivers/behaviors/index-ddl-behavior";
-import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
-import { likeEscapeContract } from "@tests/contracts/drivers/behaviors/like-escape-behavior";
-import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
-import { manyToManyContract } from "@tests/contracts/drivers/behaviors/many-to-many-behavior";
-import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
-import { nestedPaginationContract } from "@tests/contracts/drivers/behaviors/nested-pagination-behavior";
-import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
-import { nestedWriteJsonEnvelopeContract } from "@tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior";
-import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
-import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
-import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
 import { orderingPlanContract } from "@tests/contracts/drivers/behaviors/ordering-plan-behavior";
 import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
 import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
-import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
 import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
-import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
-import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
-import {
-  fullScalarRoundtripContract,
-  scalarRoundtripContract,
-} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
 import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
-import {
-  BatchOnlyPGliteDriver,
-  createInMemoryPGliteDriver,
-} from "@tests/fixtures/drivers/pglite";
+import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { upsertAtomicitySchema } from "@tests/fixtures/upsert-atomicity-schema";
-import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
-import { seedWindowUserPosts } from "@tests/fixtures/user-post-seed";
-
-function createBatchOnlyPGliteDriver(): PGliteDriver {
-  return new BatchOnlyPGliteDriver();
-}
+import { createBatchOnlyPGliteDriver } from "@tests/providers/local/pglite-fixtures";
 
 describe("PGlite Driver", () => {
   fkIndexContract.register({
@@ -104,113 +78,6 @@ describe("PGlite Driver", () => {
     createDriver: createBatchOnlyPGliteDriver,
   });
 
-  countAggregateWindowContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  distinctSkipWindowContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  cursorPaginationContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  nestedPaginationContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  omitContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  nestedWriteContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  compoundKeyContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  nestedWriteAdvancedContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  // Both substrates: the delegated update target must persist the same JSON
-  // document whether the fragment runs as a transaction or as one atomic batch.
-  nestedWriteJsonEnvelopeContract.register({
-    driverName: "PGlite (tx)",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  nestedWriteJsonEnvelopeContract.register({
-    driverName: "PGlite (batch)",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  manyToManyContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  relationFilterMutationContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  orderingArrayCreateContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  implicitReturningContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  createManyReturnFoldContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  bulkWriteLimitContract.register({
-    driverName: "PGlite (tx)",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  // `limit: 0` compiles to no statement at all, which is a different shape on
-  // the batch-only path: the shared batch has nothing to send for it.
-  bulkWriteLimitContract.register({
-    driverName: "PGlite (batch)",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  listJsonFilterContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  jsonNullSentinelContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  likeEscapeContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  blobFilterContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  fieldReferenceContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  prismaParityContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  optionalRelationParityContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
   polymorphicRelationContract.register({
     name: "PGlite",
     pgliteMode: "transaction",
@@ -243,129 +110,6 @@ describe("PGlite Driver", () => {
   readPathRegressionContract.register({
     driverName: "PGlite",
     createDriver: createInMemoryPGliteDriver,
-  });
-  relationReadAggregateContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  nestedOrderByContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  clientRawContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  scalarRoundtripContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-  decimalExactnessContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
-    descriptor: { precision: 16, scale: 2 },
-  });
-  fullScalarRoundtripContract.register({
-    driverName: "PGlite",
-    createDriver: createInMemoryPGliteDriver,
-  });
-
-  nestedWriteContract.register({
-    driverName: "PGlite batch-only",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  nestedWriteAdvancedContract.register({
-    driverName: "PGlite batch-only",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  manyToManyContract.register({
-    driverName: "PGlite batch-only",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  batchPrimaryKeyDataflowContract.register({
-    driverName: "PGlite batch-only",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-  batchRefSmokeContract.register({
-    driverName: "PGlite batch-only",
-    createDriver: createBatchOnlyPGliteDriver,
-  });
-
-  // Executes real Postgres SQL — guards against regressions like the former
-  // `col = ANY(($1, $2))` output, which text-only assertions cannot catch
-  describe("in/notIn filter execution", () => {
-    let client: ReturnType<typeof createTestClient>;
-
-    function createTestClient() {
-      return createClient({
-        schema: windowUserPostSchema,
-        driver: createInMemoryPGliteDriver(),
-      });
-    }
-
-    beforeEach(async () => {
-      client = createTestClient();
-      await syncLiveSchema(client);
-      await seedWindowUserPosts(client);
-    });
-
-    afterEach(async () => {
-      await client.$disconnect();
-    });
-
-    test("in with multiple values", async () => {
-      const users = await client.user.findMany({
-        where: { id: { in: ["u1", "u3"] } },
-        orderBy: { id: "asc" },
-      });
-      expect(users.map((u) => u.id)).toEqual(["u1", "u3"]);
-    });
-
-    test("in with a single value", async () => {
-      const users = await client.user.findMany({
-        where: { id: { in: ["u2"] } },
-      });
-      expect(users.map((u) => u.id)).toEqual(["u2"]);
-    });
-
-    test("in with an empty list matches nothing", async () => {
-      const users = await client.user.findMany({
-        where: { id: { in: [] } },
-      });
-      expect(users).toEqual([]);
-    });
-
-    test("notIn with multiple values", async () => {
-      const users = await client.user.findMany({
-        where: { id: { notIn: ["u1", "u2"] } },
-      });
-      expect(users.map((u) => u.id)).toEqual(["u3"]);
-    });
-
-    test("notIn with a single value", async () => {
-      const users = await client.user.findMany({
-        where: { id: { notIn: ["u2"] } },
-        orderBy: { id: "asc" },
-      });
-      expect(users.map((u) => u.id)).toEqual(["u1", "u3"]);
-    });
-
-    test("notIn with an empty list matches everything", async () => {
-      const users = await client.user.findMany({
-        where: { id: { notIn: [] } },
-      });
-      expect(users).toHaveLength(3);
-    });
-
-    test("groupBy having in", async () => {
-      const groups = await client.post.groupBy({
-        by: ["authorId"],
-        having: { authorId: { in: ["u1", "u2"] } },
-        orderBy: { authorId: "asc" },
-      });
-      expect(groups.map((g) => g.authorId)).toEqual(["u1", "u2"]);
-    });
   });
 
   upsertAtomicityContract.register({

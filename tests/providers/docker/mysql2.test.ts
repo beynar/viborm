@@ -1,6 +1,17 @@
 /**
  * mysql2 Driver Tests
  *
+ * Provider-boundary sentinels: driver construction, result aliases, GeoPoint
+ * geometry and its spatial index, referential-action and composite-key DDL,
+ * the compound-key, junction and polymorphic contracts that share that DDL
+ * shape, the MySQL collation probes, and the namespace-containment estate.
+ *
+ * One program per file has to fit the 1280 MB TypeScript shard heap, and the
+ * type inference a behavior module's schemas force is what that heap holds, so
+ * this suite is split by schema across `mysql2*.test.ts`. Every piece keeps the
+ * `MySQL2 Driver` describe and its drop-everything `beforeEach`, so test names
+ * and per-test lifecycle are unchanged.
+ *
  * NOTE: These tests require a running MySQL database (e.g. docker).
  * Set MYSQL_TEST_CONNECTION_STRING to enable, e.g.:
  *   docker run -d --name viborm-mysql -p 3307:3306 \
@@ -23,100 +34,26 @@ import {
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
 import { sql } from "@sql";
-import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
-import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
-import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
 import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
 import { compoundKeyContract } from "@tests/contracts/drivers/behaviors/compound-key-behavior";
-import { countAggregateWindowContract } from "@tests/contracts/drivers/behaviors/count-aggregate-window-behavior";
-import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
-import { cursorPaginationContract } from "@tests/contracts/drivers/behaviors/cursor-pagination-behavior";
-import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
-import { distinctSkipWindowContract } from "@tests/contracts/drivers/behaviors/distinct-skip-window-behavior";
-import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
-import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
-import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
 import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { geoPointMigrationLifecycleContract } from "@tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior";
-import { implicitReturningContract } from "@tests/contracts/drivers/behaviors/implicit-returning-behavior";
-import {
-  mappedIndexContract,
-  partialIndexRefusalContract,
-} from "@tests/contracts/drivers/behaviors/index-ddl-behavior";
-import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
-import { likeEscapeContract } from "@tests/contracts/drivers/behaviors/like-escape-behavior";
-import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
-import { manyToManyContract } from "@tests/contracts/drivers/behaviors/many-to-many-behavior";
-import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
-import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
-import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
-import { nonReturningMutationAtomicityContract } from "@tests/contracts/drivers/behaviors/non-returning-mutation-atomicity-behavior";
-import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
-import { optionalRelationParityContract } from "@tests/contracts/drivers/behaviors/optional-relation-parity-behavior";
-import { orderingArrayCreateContract } from "@tests/contracts/drivers/behaviors/ordering-array-create-behavior";
 import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
 import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
 import { polymorphicMemberJunctionContract } from "@tests/contracts/drivers/behaviors/polymorphic-member-junction-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
-import { prismaParityContract } from "@tests/contracts/drivers/behaviors/prisma-parity-behavior";
-import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
-import { readPathRegressionContract } from "@tests/contracts/drivers/behaviors/read-path-regression-behavior";
-import { relationFilterMutationContract } from "@tests/contracts/drivers/behaviors/relation-filter-mutation-behavior";
-import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
-import {
-  fullScalarRoundtripContract,
-  scalarRoundtripContract,
-} from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
-import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
-import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
-import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
-import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
-import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
-import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
-import { runOptionalAbsentBindBehavior } from "@tests/contracts/engine/write/optional-absent-bind-behavior";
-import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
-import {
-  runBeforeRootSubtreeBehavior,
-  runNonPkReferenceBehavior,
-  runParentHeldLookupBehavior,
-  runUpsertArmRelationBehavior,
-} from "@tests/contracts/engine/write/parent-held-lookup-behavior";
-import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
-import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
 import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { validateGeoPolygon } from "@validation/primitives/geo-area-codec";
 import type { Pool as MySQLPool } from "mysql2/promise";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
 
-const TEST_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
-
-/**
- * The connection string carries the database, so this driver is namespace-bound
- * from its URL path. The attestation is the SECOND, independent fact effectful
- * live migration work requires (plan §5.3): it asserts that nothing between the
- * client and the server reinterprets a qualified `database.table`. It is true
- * here by construction — a docker `mysql:8` reached directly on 3307 is not
- * behind VTGate or a rewriting proxy — and stating it is what admits `syncLiveSchema()`.
- */
-function createMySQL2Driver(): MySQL2Driver {
-  return new MySQL2Driver({
-    databaseUrl: TEST_CONNECTION_STRING,
-    migrationNamespaceAttestation: "non-redirecting",
-  });
-}
 
 /**
  * An indexed string column on a table `syncLiveSchema()` creates, so the collation is
@@ -148,11 +85,7 @@ describeIf("MySQL2 Driver", () => {
   // The shared behavior suites assume a fresh database (the local drivers are
   // in-memory). MySQL persists between tests, so drop everything first:
   // pushing an empty schema diffs to dropTable for every existing table.
-  beforeEach(async () => {
-    const client = createClient({ schema: {}, driver: createMySQL2Driver() });
-    await syncLiveSchema(client);
-    await client.$disconnect();
-  });
+  beforeEach(dropEveryLiveTable);
 
   geoPointContract.register({
     driverName: "MySQL2",
@@ -161,6 +94,7 @@ describeIf("MySQL2 Driver", () => {
     rawSelectSql:
       "SELECT `location` FROM `geopoint_behavior_places` WHERE `id` = 'raw'",
   });
+
   geoPointMigrationLifecycleContract.register({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
@@ -461,473 +395,36 @@ describeIf("MySQL2 Driver", () => {
     });
   });
 
-  orderingArrayCreateContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  implicitReturningContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  createManyReturnFoldContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  bulkWriteLimitContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  listJsonFilterContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  jsonNullSentinelContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  // MySQL's default collation is case- and accent-INSENSITIVE, so it is the
-  // only leg where the collation wrappers on a referenced operand can be
-  // observed to matter at all.
-  fieldReferenceContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  nestedWriteContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  nestedWriteAdvancedContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
   compoundKeyContract.register({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+
   compoundJunctionContract.register({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+
   polymorphicMemberJunctionContract.register({
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
   });
 
-  readPathRegressionContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  relationReadAggregateContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  nestedOrderByContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  omitContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
   polymorphicRelationContract.register({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+
   polymorphicCollectionReadContract.register({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
   });
+
   // MySQL is the one dialect whose conflict grammar cannot TARGET, so the
   // singular-slot rows here are the only place the per-dialect half of §1.7 is
   // measured against a real server rather than reasoned about.
   polymorphicCollectionWriteContract.register({
     name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  clientRawContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  rawArrayTransactionContract.register({
-    name: "Docker MySQL",
-    createDriver: createMySQL2Driver,
-  });
-
-  fkIndexContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  mappedIndexContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  partialIndexRefusalContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  forwardFkOrderingContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  manyToManyContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  relationFilterMutationContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  // E1 U1/U2 — the to-one lookup fold. MySQL is the leg that decides the
-  // self-relation shape: `SET parentId = (SELECT … FROM the mutated table)` is
-  // ERROR 1093 here unless the lookup hides behind a derived table (rule 11).
-  runParentHeldLookupBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  runBeforeRootSubtreeBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  runUpsertArmRelationBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  runNonPkReferenceBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  countAggregateWindowContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  distinctSkipWindowContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  cursorPaginationContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  scalarRoundtripContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  decimalExactnessContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-    // SQLite-legal intersection: `precision + scale <= 18` (plan 3.1).
-    descriptor: { precision: 16, scale: 2 },
-  });
-
-  fullScalarRoundtripContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  prismaParityContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  optionalRelationParityContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  likeEscapeContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  blobFilterContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  // Non-returning upserts use the locked interpreter branch path so branch
-  // identity and result refetch stay on one transaction connection.
-  upsertAtomicityContract.register({
-    driverName: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-
-  nonReturningMutationAtomicityContract.register(
-    TEST_CONNECTION_STRING ?? "mysql://unconfigured.invalid/viborm"
-  );
-
-  // M8 (§7.4, D7): two real transaction-capable connections race. PlannedMode
-  // real-race coverage stays on PostgreSQL because MySQL's public adapter is
-  // non-returning and cannot roll public parsing back after a batch commits.
-  nestedWriteConcurrencyContract.register({
-    driverName: "mysql2",
-    createTxDriver: createMySQL2Driver,
-  });
-
-  runCreateNestedUpsertBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runCreateNestedUpsertBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-  // T4b CLASS III boundary-stop — MySQL has no RETURNING, so a batch-only MySQL is a
-  // non-returning atomic driver: V1 AND V2 refuse the single-row update/delete/upsert
-  // refetch family before I/O (byte-identical `TransactionError`, routing.ts
-  // `assertRoutedAtomicResolution`), so `batchPrimaryKeyDataflowContract`'s
-  // updated-PK cases are not runnable here (the family is refused, not the CLASS III
-  // dataflow specifically). MySQL certifies these mutations in TRANSACTION mode (the
-  // MySQL2 transaction blocks above and the full estate). The RETURNING-capable
-  // batch-only drivers (SQLite3, LibSQL, PGlite, Postgres) carry the batch dataflow.
-
-  runUpdateNestedUpsertBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runUpdateNestedUpsertBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  // M5 — mysql2's binder REJECTS an undefined parameter ("Bind parameters must
-  // not contain undefined"), where every other leg coerces it to NULL. This is
-  // the leg the engine's absent-optional normalization exists for: without it,
-  // the untaken update arm of an absent-target upsert errors here and nowhere
-  // else.
-  runOptionalAbsentBindBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runOptionalAbsentBindBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runUpdateFamilyBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  runUpdateFamilyBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runLocatedParentRefBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  runLocatedParentRefBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-    // MySQL's skipDuplicates has no portable SQL leaf, so the skip is the
-    // savepoint-wrapped executor effect — which a single atomic batch cannot carry.
-    skipDuplicatesInBatchIsInexpressible: true,
-  });
-
-  runPostTransitionAdoptBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  runPostTransitionAdoptBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runInverseToOneCreateBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  runInverseToOneCreateBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runDepthSeamBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runDepthSeamBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-    // Same reason as the located-parent Ref leg above: the nested `createMany`'s
-    // `skipDuplicates` is the savepoint-wrapped executor effect on this dialect, and
-    // a savepoint has no lowering into a single atomic batch.
-    skipDuplicatesInBatchIsInexpressible: true,
-  });
-
-  runProducedIdentityBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runProducedIdentityBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runOwnWriteLinearizationBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runOwnWriteLinearizationBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runBooleanNoOpArmBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runBooleanNoOpArmBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runJunctionCreateManyBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runJunctionCreateManyBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-    // Same reason as the located-parent Ref leg above: the junction's per-row
-    // `skipDuplicates` INSERT is the savepoint-wrapped executor effect here.
-    skipDuplicatesInBatchIsInexpressible: true,
-  });
-
-  // TRANSACTION mode only. This suite drives the CLIENT, and a batch-only MySQL
-  // is non-returning: `assertRoutedAtomicResolution` refuses update / delete /
-  // upsert before any I/O there (the same boundary noted for CLASS III below).
-  // The batch-substrate leg of extended whereUnique is carried by the
-  // RETURNING-capable batch-only drivers (PGlite, SQLite3, LibSQL, pg).
-  runExtendedWhereUniqueBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  // Same reason: MySQL is non-returning, so the batch-substrate leg of the to-one
-  // `update { where, data }` form is carried by the RETURNING-capable batch-only
-  // drivers (PGlite, SQLite3, LibSQL, pg).
-  runToOneUpdateWhereBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-
-  runUpsertFamilyBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runUpsertFamilyBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  runNestedMutationBehavior({
-    name: "MySQL2 transaction",
-    createDriver: createMySQL2Driver,
-  });
-  runNestedMutationBehavior({
-    name: "MySQL2 atomic batch",
-    createDriver: () =>
-      new MySQL2BatchForcedDriver({
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    createStateDriver: createMySQL2Driver,
-  });
-
-  // createMany on MySQL only in transaction mode: skipDuplicates uses the
-  // savepoint effect (recoverableUniqueError strategy), which has no atomic-batch
-  // lowering (the recorded batch disposition). MySQL always runs transactions in
-  // production; the sql-strategy batch path is proven on PGlite/SQLite/LibSQL.
-  runReadBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  runBulkWriteBehavior({
-    name: "MySQL2",
-    createDriver: createMySQL2Driver,
-  });
-  runCreateManyBehavior({
-    name: "MySQL2 transaction",
     createDriver: createMySQL2Driver,
   });
 

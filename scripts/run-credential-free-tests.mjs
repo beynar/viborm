@@ -7,7 +7,9 @@ import {
 import {
   EXTENDED_LOCAL_TEST_SHARDS,
   EXTENDED_LOCAL_TESTS,
+  LIBSQL_PROVIDER_TESTS,
   PGLITE_PROVIDER_TESTS,
+  SQLITE3_PROVIDER_TESTS,
 } from "./credential-free-test-manifest.mjs";
 import { acquireTestRunLock } from "./test-run-lock.mjs";
 
@@ -86,12 +88,14 @@ const stages = [
       file,
     ])
   ),
-  vitestStage("provider-sqlite3", 300_000, "provider-sqlite3", [
-    "tests/providers/local/sqlite3.test.ts",
-  ]),
-  vitestStage("provider-libsql", 300_000, "provider-libsql", [
-    "tests/providers/local/libsql.test.ts",
-  ]),
+  ...SQLITE3_PROVIDER_TESTS.map((file) =>
+    vitestStage(`provider-sqlite3: ${file}`, 300_000, "provider-sqlite3", [
+      file,
+    ])
+  ),
+  ...LIBSQL_PROVIDER_TESTS.map((file) =>
+    vitestStage(`provider-libsql: ${file}`, 300_000, "provider-libsql", [file])
+  ),
   vitestStage(
     "provider-bun (visible skips when Bun is absent)",
     300_000,
