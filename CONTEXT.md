@@ -107,29 +107,6 @@ The complete stored fact that identifies one relation membership. It can combine
 stored references with fixed qualifiers such as a polymorphic discriminator.
 _Avoid_: Identity, reference key
 
-**Recursive hierarchy**:
-The nested expansion of a self-targeting collection whose membership is stored
-by a foreign key on each child. A returned record has at most one predecessor
-through that relation. Traversal is numerically bounded by default and can be
-made exhaustive with `depth: false`; an encountered cycle is invalid hierarchy
-data.
-_Avoid_: Graph traversal, recursive relation kind
-
-**Graph walk unfolding**:
-The nested expansion of a self-targeting junction collection. Direction is the
-asking relation slot's resolved orientation through the shared junction. A
-database row reached by several directed walk prefixes appears once for each
-prefix. Numeric traversal can explicitly repeat cycles through its cutoff;
-`depth: false` instead exhausts simple paths and requires active-path cycle
-prevention.
-_Avoid_: Tree, flat transitive closure, symmetric traversal
-
-**Traversal occurrence**:
-One public appearance of a database row at one position in a recursive
-hierarchy or graph walk. Several graph occurrences may represent the same row,
-but each is a fresh object and none is a shared or cyclic object reference.
-_Avoid_: Node identity, duplicate row
-
 **Record field publication**:
 Making the exact value of one record field produced by an INSERT or UPDATE
 available to later mutation work. Publication may use an existing statement
