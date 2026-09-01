@@ -187,6 +187,16 @@ const runtimeShards = [
     ],
   },
 ];
+/**
+ * The compile-only type cores, as CONCRETE FILES.
+ *
+ * These used to pass `tests/types/<layer>/tsconfig.json` straight through with
+ * no include array, which made them the last category split-and-retry could not
+ * touch: types-client OOMed and simply failed, even though the same estate is
+ * already split three ways by run-layer-core for exactly this reason. Packing
+ * them by byte weight lets them shard and, if a chunk still does not fit, be
+ * halved like everything else.
+ */
 const typeProbeProjects = [
   "validation",
   "scalars",
@@ -201,10 +211,13 @@ const typeProbeProjects = [
   "cache",
   "instrumentation",
   "migrations",
-].map((name) => ({
-  name: `types-${name}`,
-  project: resolve(projectRoot, `tests/types/${name}/tsconfig.json`),
-}));
+].flatMap((name) =>
+  // The type cores extend the layer tsconfig, not the root one.
+  directoryShards(`types-${name}`, `tests/types/${name}`).map((shard) => ({
+    ...shard,
+    extendsPath: "tests/types/tsconfig.layer.json",
+  }))
+);
 
 const describeError = (error) =>
   error instanceof Error ? error.message : String(error);
@@ -238,20 +251,22 @@ try {
   temporaryDirectory = mkdtempSync(
     join(projectRoot, "node_modules/.viborm-types-")
   );
-  const generatedProjects = runtimeShards.map((shard) => {
-    const project = join(temporaryDirectory, `${shard.name}.json`);
-    writeFileSync(
-      project,
-      JSON.stringify({
-        extends: resolve(projectRoot, "tsconfig.json"),
-        compilerOptions: { noEmit: true },
-        include: [...shard.include, ...AMBIENT_DECLARATIONS].map((pattern) =>
-          resolve(projectRoot, pattern)
-        ),
-      })
-    );
-    return { name: shard.name, project, include: shard.include };
-  });
+  const generatedProjects = [...runtimeShards, ...typeProbeProjects].map(
+    (shard) => {
+      const project = join(temporaryDirectory, `${shard.name}.json`);
+      writeFileSync(
+        project,
+        JSON.stringify({
+          extends: resolve(projectRoot, shard.extendsPath ?? "tsconfig.json"),
+          compilerOptions: { noEmit: true },
+          include: [...shard.include, ...AMBIENT_DECLARATIONS].map((pattern) =>
+            resolve(projectRoot, pattern)
+          ),
+        })
+      );
+      return { name: shard.name, project, include: shard.include };
+    }
+  );
 
   /**
    * Density varies by directory, so no single byte budget fits everywhere: at
@@ -262,7 +277,7 @@ try {
    * converges on whatever the heap actually allows, and a shard that fails
    * down to a single file is a genuine failure.
    */
-  const queue = [...generatedProjects, ...typeProbeProjects];
+  const queue = [...generatedProjects];
   const splitDepth = new Map();
   while (queue.length > 0) {
     const shard = queue.shift();
@@ -314,14 +329,17 @@ try {
             writeFileSync(
               project,
               JSON.stringify({
-                extends: resolve(projectRoot, "tsconfig.json"),
+                extends: resolve(
+                  projectRoot,
+                  shard.extendsPath ?? "tsconfig.json"
+                ),
                 compilerOptions: { noEmit: true },
                 include: [...include, ...AMBIENT_DECLARATIONS].map((pattern) =>
                   resolve(projectRoot, pattern)
                 ),
               })
             );
-            return { name, project, include };
+            return { name, project, include, extendsPath: shard.extendsPath };
           })
         );
         continue;
