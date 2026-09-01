@@ -24,6 +24,8 @@ const ORDINARY_CEILING_REFUSAL_PATTERN =
   /no greater than the ordinary project ceiling of 1536 MiB/;
 const PGLITE_CEILING_REFUSAL_PATTERN =
   /no greater than the isolated live-PGlite provider ceiling of 2560 MiB/;
+const TYPECHECK_CEILING_REFUSAL_PATTERN =
+  /no greater than the whole-estate native typecheck ceiling of 8192 MiB/;
 const UNALLOWLISTED_CEILING_PATTERN = /must be one of the ceilings exported/;
 const ORDINARY_CEILING_LINE_PATTERN =
   /sampled ceiling 1536 MiB, ordinary project/;
@@ -166,7 +168,7 @@ test("the allowlisted typecheck ceiling reaches 8192 MiB and stops there", () =>
         rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
         rssLimitMb: 8193,
       }),
-    /no greater than the whole-estate native typecheck ceiling of 8192 MiB/
+    TYPECHECK_CEILING_REFUSAL_PATTERN
   );
   // A look-alike literal is refused here exactly as for the PGlite ceiling.
   assert.throws(

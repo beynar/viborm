@@ -213,6 +213,24 @@ const stages = [
   packageScriptStage("test:package"),
 ];
 
+// `--only <substring>` runs just the matching stages. The full estate is 54
+// process groups; verifying one lane's memory ceiling should not cost a run of
+// all of them. Parsed BEFORE the lock is taken: its early exits must not leave
+// a stale lock behind, and they did once.
+const onlyIndex = process.argv.indexOf("--only");
+const onlyFilter = onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1];
+if (onlyIndex !== -1 && !onlyFilter) {
+  process.stderr.write("[test:all] --only needs a substring to match\n");
+  process.exit(2);
+}
+const selectedStages = onlyFilter
+  ? stages.filter((stage) => stage.label.includes(onlyFilter))
+  : stages;
+if (onlyFilter && selectedStages.length === 0) {
+  process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
+  process.exit(2);
+}
+
 /**
  * One lock for the whole aggregate. Every nested launcher acquires the same
  * workspace lock, sees this process in its ancestor chain, and inherits the
@@ -242,23 +260,6 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
       interruptionCount === 1 ? "interrupted" : "forced interruption"
     );
   });
-}
-
-// `--only <substring>` runs just the matching stages. The full estate is 54
-// process groups; verifying one lane's memory ceiling should not cost a run of
-// all of them.
-const onlyIndex = process.argv.indexOf("--only");
-const onlyFilter = onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1];
-if (onlyIndex !== -1 && !onlyFilter) {
-  process.stderr.write("[test:all] --only needs a substring to match\n");
-  process.exit(2);
-}
-const selectedStages = onlyFilter
-  ? stages.filter((stage) => stage.label.includes(onlyFilter))
-  : stages;
-if (onlyFilter && selectedStages.length === 0) {
-  process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
-  process.exit(2);
 }
 
 let failureCode = 0;
