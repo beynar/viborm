@@ -1,4 +1,10 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -12,7 +18,10 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const tscEntry = fileURLToPath(
   new URL("../node_modules/typescript/bin/tsc", import.meta.url)
 );
-const wallLimitMs = 600_000;
+// A WALL budget, not a memory one. The 1280 MB shard heap is what forces the
+// estate into dozens of sequential programs - roughly fifty tsc startups at
+// ~8s each - so ten minutes cannot hold it. Memory limits are unchanged.
+const wallLimitMs = 1_800_000;
 const TYPE_SHARD_HEAP_LIMIT_MB = 1280;
 const TYPE_SHARD_RSS_LIMIT_MB = DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB;
 /**
@@ -56,7 +65,18 @@ const benchmarkShards = Array.from(
  * file count, computed from disk so growth re-shards itself instead of silently
  * re-inflating one program.
  */
-const TYPE_SHARD_FILE_LIMIT = 30;
+// Chunk by BYTES, not by file count. A 30-file split still OOMed
+// contracts-drivers-2 at the 1280 MB heap, because cost tracks how much type
+// inference a program carries, not how many files it lists. Any file heavier
+// than LARGE gets its own program; the rest pack to BUDGET. 200 KB is measured,
+// not guessed: against tests/contracts/engine at a 1280 MB heap, 200 KB of
+// sources typechecks in 8.4s and 400 KB OOMs.
+const TYPE_SHARD_LARGE_BYTES = 40_000;
+// Start GENEROUS and let split-and-retry below find the real limit. A small
+// budget over-shards the directories that could take more, and every shard
+// pays a full tsc startup, so the cheapest correct strategy is few large
+// programs plus automatic halving wherever one does not fit.
+const TYPE_SHARD_BUDGET_BYTES = 400_000;
 
 function typescriptFilesUnder(relativeDirectory) {
   const absolute = resolve(projectRoot, relativeDirectory);
@@ -71,14 +91,37 @@ function typescriptFilesUnder(relativeDirectory) {
 
 function directoryShards(name, relativeDirectory) {
   const files = typescriptFilesUnder(relativeDirectory);
-  const count = Math.max(1, Math.ceil(files.length / TYPE_SHARD_FILE_LIMIT));
-  if (count === 1) return [{ name, include: files }];
-  return Array.from({ length: count }, (_unused, index) => ({
+  const weighed = files.map((file) => ({
+    file,
+    bytes: statSync(resolve(projectRoot, file)).size,
+  }));
+  const total = weighed.reduce((sum, entry) => sum + entry.bytes, 0);
+  if (total <= TYPE_SHARD_BUDGET_BYTES) return [{ name, include: files }];
+
+  const groups = [];
+  let current = [];
+  let carried = 0;
+  for (const { file, bytes } of weighed) {
+    if (bytes > TYPE_SHARD_LARGE_BYTES) {
+      if (current.length > 0) groups.push(current);
+      groups.push([file]);
+      current = [];
+      carried = 0;
+      continue;
+    }
+    if (carried + bytes > TYPE_SHARD_BUDGET_BYTES && current.length > 0) {
+      groups.push(current);
+      current = [];
+      carried = 0;
+    }
+    current.push(file);
+    carried += bytes;
+  }
+  if (current.length > 0) groups.push(current);
+
+  return groups.map((include, index) => ({
     name: `${name}-${index + 1}`,
-    include: files.slice(
-      index * TYPE_SHARD_FILE_LIMIT,
-      (index + 1) * TYPE_SHARD_FILE_LIMIT
-    ),
+    include,
   }));
 }
 
@@ -174,10 +217,22 @@ try {
         ),
       })
     );
-    return { name: shard.name, project };
+    return { name: shard.name, project, include: shard.include };
   });
 
-  for (const shard of [...generatedProjects, ...typeProbeProjects]) {
+  /**
+   * Density varies by directory, so no single byte budget fits everywhere: at
+   * 200 KB tests/contracts/engine typechecks in 8.4s while tests/contracts/
+   * drivers still OOMs. Rather than guess a smaller global budget and pay for
+   * over-sharding everywhere, a shard that fails and still has more than one
+   * file is SPLIT IN HALF and retried. The budget is the starting point; this
+   * converges on whatever the heap actually allows, and a shard that fails
+   * down to a single file is a genuine failure.
+   */
+  const queue = [...generatedProjects, ...typeProbeProjects];
+  const splitDepth = new Map();
+  while (queue.length > 0) {
+    const shard = queue.shift();
     if (interrupted) {
       failed = true;
       break;
@@ -210,6 +265,34 @@ try {
     );
     if (outcome.error) process.stderr.write(`${outcome.error.message}\n`);
     if (outcome.error || outcome.code !== 0 || outcome.stopReason) {
+      const files = shard.include;
+      const depth = splitDepth.get(shard.name) ?? 0;
+      if (!(outcome.error || outcome.stopReason) && files && files.length > 1) {
+        const middle = Math.ceil(files.length / 2);
+        process.stderr.write(
+          `TypeScript shard ${shard.name} did not fit; splitting ${files.length} files and retrying.\n`
+        );
+        const halves = [files.slice(0, middle), files.slice(middle)];
+        queue.unshift(
+          ...halves.map((include, index) => {
+            const name = `${shard.name}.${index + 1}`;
+            splitDepth.set(name, depth + 1);
+            const project = join(temporaryDirectory, `${name}.json`);
+            writeFileSync(
+              project,
+              JSON.stringify({
+                extends: resolve(projectRoot, "tsconfig.json"),
+                compilerOptions: { noEmit: true },
+                include: [...include, ...AMBIENT_DECLARATIONS].map((pattern) =>
+                  resolve(projectRoot, pattern)
+                ),
+              })
+            );
+            return { name, project, include };
+          })
+        );
+        continue;
+      }
       failed = true;
       break;
     }
