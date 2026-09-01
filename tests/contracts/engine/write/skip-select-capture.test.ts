@@ -1,6 +1,8 @@
-import { PGliteDriver } from "@drivers/pglite";
-import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip-select-capture-behavior";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+import {
+  runSkipSelectCaptureBehavior,
+  skipSelectCaptureSchema,
+} from "@tests/contracts/engine/write/skip-select-capture-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe } from "vitest";
 
 /**
@@ -12,10 +14,12 @@ import { describe } from "vitest";
  * always could do this still does it the fast way, and still says exactly what MySQL now
  * says. The load-bearing leg is `skip-select-capture-docker.test.ts` (MySQL).
  */
+const getFamily = usePGliteSchemaFamily(skipSelectCaptureSchema);
+
 describe("E6.9 — createMany select + skipDuplicates (PGlite control)", () => {
   runSkipSelectCaptureBehavior({
     name: "PGlite",
-    createDriver: () => new PGliteDriver({ client: openBorrowedPGlite() }),
+    createDriver: () => getFamily().driver,
     supportsReturning: true,
   });
 });

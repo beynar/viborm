@@ -1,15 +1,12 @@
-import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -97,54 +94,60 @@ const bulkSchema = (() => {
 
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
-function makeDirectClient(schema: Schema, db: PGlite) {
-  return createClient({
-    schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
-  });
+type AnyClient = Record<string, any>;
+
+/** The part of a schema family this harness reads. */
+interface SuiteFamily {
+  readonly database: PGlite;
+  readonly driver: PGliteDriver;
+  readonly client: unknown;
+  readonly reset: () => Promise<void>;
 }
-type AnyClient = ReturnType<typeof makeDirectClient>;
+
+const getBlogFamily = usePGliteSchemaFamily(blogSchema);
+const getBulkFamily = usePGliteSchemaFamily(bulkSchema);
 
 async function runDirect(
-  schema: Schema,
+  getFamily: () => SuiteFamily,
   seed: (c: AnyClient) => Promise<void>,
   op: (c: AnyClient) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<unknown> {
-  const db = openBorrowedPGlite();
-  const client = makeDirectClient(schema, db);
-  await syncLiveSchema(client as never);
+  const family = getFamily();
+  // Each arm starts from empty tables, the way a per-arm database used to.
+  await family.reset();
+  const client = family.client as AnyClient;
   await seed(client);
   await op(client);
-  const state = await snap(client);
-  await client.$disconnect();
-  await closeTestPGlite(db);
-  return state;
+  return await snap(client);
 }
 
 async function runObserved(
+  getFamily: () => SuiteFamily,
   schema: Schema,
   substrate: "tx" | "batch",
   seed: (c: AnyClient) => Promise<void>,
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = openBorrowedPGlite();
-  const fallback = makeDirectClient(schema, db);
-  await syncLiveSchema(fallback as never);
+  const family = getFamily();
+  await family.reset();
+  const fallback = family.client as AnyClient;
   await seed(fallback);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the same Postgres schema the family provisioned; otherwise it would
+  // address `public`, where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema: schema as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(fallback);
-  await fallback.$disconnect();
-  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
@@ -182,7 +185,7 @@ describe("CLASS VI key 1 — create under a parent-held (planned) update target"
   };
 
   test("dual-run oracle (direct vs production-tx vs production-batch) + grandchild attaches to the located author", async () => {
-    const direct = await runDirect(blogSchema, seed, op as never, snap);
+    const direct = await runDirect(getBlogFamily, seed, op as never, snap);
     // p2 created under u1; the disjoint u2/p9 untouched.
     expect(direct).toEqual([
       ["p1", "u1"],
@@ -191,6 +194,7 @@ describe("CLASS VI key 1 — create under a parent-held (planned) update target"
     ]);
     for (const substrate of ["tx", "batch"] as const) {
       const { state, engines } = await runObserved(
+        getBlogFamily,
         blogSchema,
         substrate,
         seed,
@@ -241,10 +245,11 @@ describe("CLASS VI key 2 — create on the update arm of a nested upsert", () =>
   };
 
   test("dual-run oracle (direct vs production-tx vs production-batch) + grandchild attaches to the found post", async () => {
-    const direct = await runDirect(blogSchema, seed, op as never, snap);
+    const direct = await runDirect(getBlogFamily, seed, op as never, snap);
     expect(direct).toEqual([["c1", "p1"]]);
     for (const substrate of ["tx", "batch"] as const) {
       const { state, engines } = await runObserved(
+        getBlogFamily,
         blogSchema,
         substrate,
         seed,
@@ -293,7 +298,7 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
 
   test("direct, transaction, and batch preserve the same skip winner", async () => {
     const direct = (await runDirect(
-      bulkSchema,
+      getBulkFamily,
       seed,
       op as never,
       snap
@@ -303,6 +308,7 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     expect(direct).toContainEqual(["unrelated", "generated-first", true]);
     expect(direct).toContainEqual(["winner", "input-first", true]);
     const { state, engines } = await runObserved(
+      getBulkFamily,
       bulkSchema,
       "tx",
       seed,
@@ -312,7 +318,14 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
     expect(engines).toEqual(new Set(["production"]));
     expect(state).toEqual(direct);
 
-    const batch = await runObserved(bulkSchema, "batch", seed, op, snap);
+    const batch = await runObserved(
+      getBulkFamily,
+      bulkSchema,
+      "batch",
+      seed,
+      op,
+      snap
+    );
     expect(batch.engines).toEqual(new Set(["production"]));
     expect(batch.state).toEqual(direct);
   });

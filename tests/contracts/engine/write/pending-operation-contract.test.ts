@@ -5,12 +5,10 @@ import {
   correlatedUpsertArgs,
   updateSliceSchema,
 } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -49,22 +47,22 @@ const args = correlatedUpsertArgs({
   increment: 3,
 });
 
+const getFamily = usePGliteSchemaFamily(updateSliceSchema);
+
 describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   test("execute() runs the composed operation and parses its result", async () => {
-    const db = openBorrowedPGlite();
-    const engine = engineFor(new PGliteDriver({ client: db }));
-    const { createClient } = await import("@client/client");
-    const client = createClient({
-      schema: updateSliceSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(client);
+    const family = getFamily();
+    // A second driver over the same database must name the schema the family
+    // provisioned; otherwise it would address `public`, where there are no tables.
+    const namespace = family.driver.adapter.namespace;
+    const engine = engineFor(
+      new PGliteDriver({ client: family.database, namespace })
+    );
+    const client = family.client;
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
     const result = await pendingFor(engine, args);
     expect(result).toEqual(expected);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("prepare() returns undefined for a multi-step operation", () => {
@@ -75,15 +73,14 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
   });
 
   test("prepareBatch() RETURNS entries the shared batch protocol executes", async () => {
-    const db = openBorrowedPGlite();
-    const client = (await import("@client/client")).createClient({
-      schema: updateSliceSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = family.client;
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
-    const driver = new BatchOnlyPGliteDriver({ client: db });
+    const driver = new BatchOnlyPGliteDriver({
+      client: family.database,
+      namespace: family.driver.adapter.namespace,
+    });
     const engine = engineFor(driver);
     const prepared = await transactionOperation(
       pendingFor(engine, args)
@@ -101,29 +98,24 @@ describe("write engine PendingOperation contract (PLAN P1.5)", () => {
     );
     const parsed = prepared.parseResult([...results]);
     expect(parsed).toEqual(expected);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("executeWith(driver) runs linearly on a caller-provided driver", async () => {
-    const db = openBorrowedPGlite();
-    const client = (await import("@client/client")).createClient({
-      schema: updateSliceSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = family.client;
     await client.user.create({ data: { email: "a@x", count: 10 } });
 
     // A tx-bound driver from a callback: the operation must not open a second
     // envelope. Simulate with a fresh driver on the same database.
-    const bound = new PGliteDriver({ client: db });
+    const bound = new PGliteDriver({
+      client: family.database,
+      namespace: family.driver.adapter.namespace,
+    });
     const engine = engineFor(bound);
     const result = await transactionOperation(
       pendingFor(engine, args)
     ).executeWith(bound);
     expect(result).toEqual(expected);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("parseResult(raw) parses a terminal read row set into the public shape", () => {

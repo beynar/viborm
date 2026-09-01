@@ -1,12 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -68,10 +61,9 @@ const d4DeepSchema = (() => {
   return { company, org, member };
 })();
 
-function makeClient(driver: PGliteDriver) {
-  return createClient({ schema: d4DeepSchema, driver });
-}
-type AnyClient = ReturnType<typeof makeClient>;
+const getTransactionFamily = usePGliteSchemaFamily(d4DeepSchema, "transaction");
+const getBatchFamily = usePGliteSchemaFamily(d4DeepSchema, "atomicBatch");
+type AnyClient = Record<string, any>;
 
 async function seed(client: AnyClient): Promise<void> {
   await (client as any).company.create({ data: { id: 1, name: "acme" } });
@@ -123,13 +115,9 @@ describe("nested update D4-deep non-PK reference (located-parent Ref at depth 2)
       `a deeper edge referencing a non-PK unique reads it from the located target (${substrate})`,
       { timeout: 30_000 },
       async () => {
-        const db = openBorrowedPGlite();
-        const driver =
-          substrate === "tx"
-            ? new PGliteDriver({ client: db })
-            : new BatchOnlyPGliteDriver({ client: db });
-        const client = makeClient(driver);
-        await syncLiveSchema(client as any);
+        const client = (
+          substrate === "tx" ? getTransactionFamily() : getBatchFamily()
+        ).client as AnyClient;
         await seed(client);
 
         await (client as any).company.update(OP);
@@ -144,8 +132,6 @@ describe("nested update D4-deep non-PK reference (located-parent Ref at depth 2)
           ],
           members: [["m1", "OLD"]],
         });
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
   }

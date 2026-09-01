@@ -76,6 +76,13 @@ type SchemaClient<S extends Schema> = ReturnType<
 
 export interface PGliteSchemaFamily<S extends Schema> {
   readonly database: PGlite;
+  /**
+   * The suite's private schema. The database is SHARED with every other suite
+   * in this worker, so a driver built over `database` MUST be given this
+   * namespace - without it the driver addresses `public`, where the suite has
+   * no tables at all.
+   */
+  readonly namespace: string;
   readonly driver: PGliteDriver;
   readonly client: SchemaClient<S>;
   readonly reset: () => Promise<void>;
@@ -140,6 +147,7 @@ export function usePGliteSchemaFamily<const S extends Schema>(
               .join(", ")} RESTART IDENTITY`;
       family = {
         database,
+        namespace,
         driver,
         client,
         reset: async () => {

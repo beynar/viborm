@@ -15,12 +15,9 @@
  * than merely the wrong SQL.
  */
 
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
-import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 const node = s
   .model({
@@ -36,13 +33,11 @@ const node = s
   })
   .map("order_depth_nodes");
 
-const createDepthClient = () =>
-  createClient({
-    schema: { node },
-    driver: new PGliteDriver({ client: openTestPGlite() }),
-  });
+const schema = { node };
 
-let client: ReturnType<typeof createDepthClient>;
+const getFamily = usePGliteSchemaFamily(schema);
+
+let client: ReturnType<typeof getFamily>["client"];
 
 /**
  * Three chains of ten nodes (depth 0 = root .. depth 9 = leaf). The labels at
@@ -78,9 +73,8 @@ const parentChainOrderBy = (hops: number): Record<string, unknown> => {
 const leafIds = (rows: readonly { id: string }[]): string[] =>
   rows.map((row) => row.id);
 
-beforeAll(async () => {
-  client = createDepthClient();
-  await syncLiveSchema(client);
+beforeEach(async () => {
+  client = getFamily().client;
 
   // Parents must exist before children: seed depth 0 upwards.
   for (let depth = 0; depth < CHAIN_LENGTH; depth++) {
@@ -93,10 +87,6 @@ beforeAll(async () => {
       })),
     });
   }
-});
-
-afterAll(async () => {
-  await client.$disconnect();
 });
 
 describe("orderBy relation depth - chains within the cap order rows", () => {

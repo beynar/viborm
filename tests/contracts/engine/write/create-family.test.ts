@@ -125,17 +125,24 @@ interface Scenario {
 }
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
+  // The suite's private schema on the worker-shared database — every driver
+  // built over `db` must be given it or it addresses an empty `public`.
+  const namespace = family.namespace;
   // The seed/dump client is a plain default client on the same DB. State is
   // state; which boundary reads/seeds does not change the persisted rows.
   const base = createClient({
     schema: scenario.schema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await scenario.seed(base);
 
@@ -148,14 +155,14 @@ async function runArm(
       // tx/batch arms wrap the same boundary in the routing proxy).
       const reference = createClient({
         schema: scenario.schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       result = await scenario.act(reference);
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       const observed = observeClientOperations({
         schema: scenario.schema,
         driver,
@@ -657,10 +664,12 @@ describe("write boundary create family extension class (P−1.2 superset; the si
 
 describe("write boundary create family staleness (batch non-elided connect pins)", () => {
   test("parent-held to-one connect: target deleted before batch fails closed", async () => {
-    const db = getOperationFragmentFamily().database;
+    const family = getOperationFragmentFamily();
+    const db = family.database;
+    const namespace = family.namespace;
     const base = createClient({
       schema: opf,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await (base as any).user.create({ data: { name: "owner" } });
 
@@ -670,7 +679,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
         await (base as any).post.deleteMany({});
         await (base as any).user.deleteMany({ where: { id: 1 } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: opf,
@@ -700,10 +709,12 @@ describe("write boundary create family staleness (batch non-elided connect pins)
   }, 45_000);
 
   test("child-held connect: target deleted before batch fails closed", async () => {
-    const db = getOperationFragmentFamily().database;
+    const family = getOperationFragmentFamily();
+    const db = family.database;
+    const namespace = family.namespace;
     const base = createClient({
       schema: opf,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await (base as any).post.create({
       data: { id: 31, title: "orphan", slug: "s31", userId: null },
@@ -713,7 +724,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
       async () => {
         await (base as any).post.deleteMany({ where: { id: 31 } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: opf,

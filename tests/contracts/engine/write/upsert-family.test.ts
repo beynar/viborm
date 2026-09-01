@@ -81,10 +81,10 @@ function runUserUpsert(
   return userModel.upsert(args);
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace: string) {
   return createClient({
     schema: upsertFamilySchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -114,7 +114,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed(client);
 
   let result: unknown;
@@ -128,8 +128,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: upsertFamilySchema,
         driver,
@@ -397,7 +403,7 @@ describe("write boundary depth-2 to-one grandchild, LIFTED", () => {
     async () => {
       const family = getTransactionFamily();
       await family.reset();
-      const client = makeClient(family.database);
+      const client = makeClient(family.database, family.namespace);
       await client.user.create({ data: { id: 1, email: "gp@x", score: 0 } });
       await client.user.create({ data: { id: 2, email: "other@x", score: 0 } });
       await client.post.create({
@@ -508,13 +514,17 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
 
 function buildBatchExecution(
   db: PGlite,
+  namespace: string,
   beforeBatch: () => Promise<void>,
   operation: "update" | "upsert",
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
 ) {
-  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, {
+    client: db,
+    namespace,
+  });
   const schemas = createSchemaRegistry(upsertFamilySchema);
   const boundary = new QueryEngine(
     driver,
@@ -535,6 +545,7 @@ function buildBatchExecution(
 
 function runBatch(
   db: PGlite,
+  namespace: string,
   beforeBatch: () => Promise<void>,
   operation: "update" | "upsert",
   modelName: string,
@@ -543,6 +554,7 @@ function runBatch(
 ): Promise<unknown> {
   const { executor, instance, context } = buildBatchExecution(
     db,
+    namespace,
     beforeBatch,
     operation,
     modelName,
@@ -556,6 +568,7 @@ function runBatch(
  *  `meta.raceable` abort re-plans once instead of surfacing. */
 function runRoutedBatch(
   db: PGlite,
+  namespace: string,
   beforeBatch: () => Promise<void>,
   operation: "update" | "upsert",
   modelName: string,
@@ -564,6 +577,7 @@ function runRoutedBatch(
 ): Promise<unknown> {
   const { executor, instance, context } = buildBatchExecution(
     db,
+    namespace,
     beforeBatch,
     operation,
     modelName,
@@ -575,17 +589,18 @@ function runRoutedBatch(
 
 describe("write boundary upsert-family staleness injection (per premise class)", () => {
   test("connectOrCreate found premise: a concurrent delete aborts the batch typed", async () => {
-    const db = getTransactionFamily().database;
-    const client = makeClient(db);
+    const { database: db, namespace } = getTransactionFamily();
+    const client = makeClient(db, namespace);
     await client.user.create({ data: { email: "own@x", score: 0 } });
     await client.post.create({
       data: { id: 60, title: "orphan", slug: "s60", userId: null },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(db, namespace);
     await expect(
       runBatch(
         db,
+        namespace,
         async () => {
           // The globally-located connectOrCreate target vanishes before the
           // batch pins & connects it — the found exists guard must abort.
@@ -612,8 +627,8 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   });
 
   test("targetWhere skip premise: a concurrent write that makes the row match aborts the batch typed", async () => {
-    const db = getTransactionFamily().database;
-    const client = makeClient(db);
+    const { database: db, namespace } = getTransactionFamily();
+    const client = makeClient(db, namespace);
     await client.user.create({ data: { email: "sk@x", score: 10 } });
 
     // Planning sees the row does NOT match targetWhere{score:999} → skip. The
@@ -623,9 +638,10 @@ describe("write boundary upsert-family staleness injection (per premise class)",
     // silent stale skip instead of the typed abort. The abort carries
     // `meta.raceable` (ATOM §2's retained-pin class) — the mark the observed retry
     // converges on; dropping the propagation in `failureError` fails this.
-    const injector = makeClient(db);
+    const injector = makeClient(db, namespace);
     const rejected = await runBatch(
       db,
+      namespace,
       async () => {
         await injector.user.update({
           where: { email: "sk@x" },
@@ -649,13 +665,14 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   });
 
   test("setWhere skip premise: a concurrent write that makes the row match aborts the batch typed", async () => {
-    const db = getTransactionFamily().database;
-    const client = makeClient(db);
+    const { database: db, namespace } = getTransactionFamily();
+    const client = makeClient(db, namespace);
     await client.user.create({ data: { email: "sk2@x", score: 10 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(db, namespace);
     const rejected = await runBatch(
       db,
+      namespace,
       async () => {
         await injector.user.update({
           where: { email: "sk2@x" },
@@ -679,8 +696,8 @@ describe("write boundary upsert-family staleness injection (per premise class)",
   });
 
   test("targetWhere skip premise: through the observed retry the raceable abort re-plans and converges", async () => {
-    const db = getTransactionFamily().database;
-    const client = makeClient(db);
+    const { database: db, namespace } = getTransactionFamily();
+    const client = makeClient(db, namespace);
     await client.user.create({ data: { email: "sk3@x", score: 10 } });
 
     // The SAME staleness as above, but through `executeRoutedOperation` (the
@@ -689,9 +706,10 @@ describe("write boundary upsert-family staleness injection (per premise class)",
     // — one retry, convergence, no surfaced error. FALSIFY: drop the `raceable`
     // propagation on `failureError`'s query arm and this rejects with the
     // skip-premise TransactionError instead of converging.
-    const injector = makeClient(db);
+    const injector = makeClient(db, namespace);
     await runRoutedBatch(
       db,
+      namespace,
       async () => {
         await injector.user.update({
           where: { email: "sk3@x" },
@@ -727,14 +745,15 @@ describe("write boundary upsert-family staleness injection (per premise class)",
 
 describe("write boundary connectOrCreate create-branch race convergence", () => {
   test("the loser surfaces a pinned unique conflict, never a guard abort", async () => {
-    const db = getTransactionFamily().database;
-    const client = makeClient(db);
+    const { database: db, namespace } = getTransactionFamily();
+    const client = makeClient(db, namespace);
     await client.user.create({ data: { email: "race@x", score: 0 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(db, namespace);
     let caught: unknown;
     await runBatch(
       db,
+      namespace,
       async () => {
         // The winner commits post 70 (the connectOrCreate target) just before
         // the loser's missing-arm INSERT runs.

@@ -1,15 +1,11 @@
-import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -70,13 +66,9 @@ const schema = (() => {
   return { tag, label, node };
 })();
 
-function makeClient(db: PGlite) {
-  return createClient({
-    schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
-  });
-}
-type AnyClient = ReturnType<typeof makeClient>;
+const getFamily = usePGliteSchemaFamily(schema);
+
+type AnyClient = Record<string, any>;
 
 async function runObserved(
   substrate: "tx" | "batch",
@@ -84,22 +76,23 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = openBorrowedPGlite();
-  const base = makeClient(db);
-  await syncLiveSchema(base as never);
+  const family = getFamily();
+  const base = family.client as AnyClient;
   await seed(base);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the schema the family provisioned; otherwise it would address `public`,
+  // where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema: schema as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(base);
-  await base.$disconnect();
-  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),

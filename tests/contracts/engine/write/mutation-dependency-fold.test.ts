@@ -272,8 +272,12 @@ class BatchOnlyRecordingDriver extends RecordingPGliteDriver {
 class BeforeAtomicBatchDriver extends BatchOnlyRecordingDriver {
   private beforeBatch: (() => Promise<void>) | undefined;
 
-  constructor(database: PGlite, beforeBatch: () => Promise<void>) {
-    super({ client: database });
+  constructor(
+    database: PGlite,
+    namespace: string,
+    beforeBatch: () => Promise<void>
+  ) {
+    super({ client: database, namespace });
     // Keep this witness on the probe-first RETURNING arm. The targeted
     // `ON CONFLICT` fold has no planning window and owns a different race contract.
     this.adapter.capabilities.supportsTargetedUpsert = false;
@@ -331,8 +335,14 @@ const foldedInOneStatement = (statements: string[]) =>
 function boot(batch = false) {
   const family = getFamily();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   return { driver, client: createClient({ schema: depSchema, driver }) };
 }
 
@@ -594,7 +604,7 @@ describe("M4 — PostgreSQL statement count, and the answer it must not change",
     // Four statements before: root INSERT, pallet INSERT, label INSERT, terminal.
     expect(statements).toHaveLength(1);
     expect(statements[0]).toContain(
-      '"__viborm_write_0" AS (INSERT INTO "public"."pm_pallets" ("crateId") VALUES (CAST($3 AS TEXT)) RETURNING "pallet_pk" AS "id")'
+      `"__viborm_write_0" AS (INSERT INTO "${getFamily().namespace}"."pm_pallets" ("crateId") VALUES (CAST($3 AS TEXT)) RETURNING "pallet_pk" AS "id")`
     );
     // The FIELD alias, not the column, and not the root's mapping either.
     expect(statements[0]).toContain('(SELECT "id" FROM "__viborm_write_0")');
@@ -958,11 +968,15 @@ describe("M4 — injecting one reason at a time makes the fold decline", () => {
 
   test("an empty relation arm keeps a scalar-fold create race retryable", async () => {
     const family = getFamily();
-    const driver = new BeforeAtomicBatchDriver(family.database, async () => {
-      await family.client.node.create({
-        data: { id: "empty-arm-race", label: "competitor" },
-      });
-    });
+    const driver = new BeforeAtomicBatchDriver(
+      family.database,
+      family.namespace,
+      async () => {
+        await family.client.node.create({
+          data: { id: "empty-arm-race", label: "competitor" },
+        });
+      }
+    );
     const client = createClient({ schema: depSchema, driver });
 
     const adopted = await client.node.upsert({
@@ -990,11 +1004,15 @@ describe("M4 — injecting one reason at a time makes the fold decline", () => {
 
   test("an indivisible array surfaces a lost create race without retrying the array", async () => {
     const family = getFamily();
-    const driver = new BeforeAtomicBatchDriver(family.database, async () => {
-      await family.client.node.create({
-        data: { id: "array-race", label: "competitor" },
-      });
-    });
+    const driver = new BeforeAtomicBatchDriver(
+      family.database,
+      family.namespace,
+      async () => {
+        await family.client.node.create({
+          data: { id: "array-race", label: "competitor" },
+        });
+      }
+    );
     const client = createClient({ schema: depSchema, driver });
 
     await expect(

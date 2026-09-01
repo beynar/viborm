@@ -56,10 +56,10 @@ interface Scenario {
   arm?: "rows" | "count";
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace?: string) {
   return createClient({
     schema: bulkWriteSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -79,7 +79,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed?.(client);
 
   let result: unknown;
@@ -94,8 +94,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: bulkWriteSchema,
         driver,

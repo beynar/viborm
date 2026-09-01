@@ -1,24 +1,20 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import {
   resetVacateThenSupply,
   vacateThenSupplySchema,
 } from "@tests/contracts/engine/write/vacate-then-supply-behavior";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
- * The CHILD-HELD lattice, enumerated. Three witnesses, three fresh databases: the two
+ * The CHILD-HELD lattice, enumerated. Three witnesses, three emptied beds: the two
  * enumerations each sweep a whole payload space against one committed bed, and the
  * composed-modify probe needs its own bed because its assertion is what did NOT get
  * written. The per-substrate registration bed lives in
  * `vacate-then-supply-substrates.test.ts`; the parent-held direction lives in the two
  * `vacate-then-supply-parent-held-*` files.
  */
+const getFamily = usePGliteSchemaFamily(vacateThenSupplySchema);
+
 /** All 21 unordered pairs pin the public child-held to-one update lattice. */
 const PAIR_ARMS: Record<string, unknown> = {
   disconnect: true,
@@ -57,12 +53,7 @@ function disposition(error: unknown): string {
 
 describe("E6.5 the enumeration of every update-root to-one pair", () => {
   test("all 21 pairs and the empty payload land where this unit says they do", async () => {
-    const database = openBorrowedPGlite();
-    const client = createClient({
-      schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: database }),
-    }) as any;
-    await syncLiveSchema(client);
+    const client = getFamily().client as any;
 
     const names = Object.keys(PAIR_ARMS);
     const verdicts: Record<string, string> = {};
@@ -120,8 +111,6 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       "connect+create": "VALIDATION-GUARD",
     });
     expect(disposition(emptyError)).toBe("EXECUTED");
-    await client.$disconnect();
-    await closeTestPGlite(database);
   }, 120_000);
 
   /**
@@ -131,12 +120,7 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
    * the pairs.
    */
   test("the six vacate + supplier + modify triples land where H3 says they do", async () => {
-    const database = openBorrowedPGlite();
-    const client = createClient({
-      schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: database }),
-    }) as any;
-    await syncLiveSchema(client);
+    const client = getFamily().client as any;
 
     const verdicts: Record<string, string> = {};
     for (const vacate of ["disconnect", "delete"]) {
@@ -181,19 +165,12 @@ describe("E6.5 the enumeration of every update-root to-one pair", () => {
       // lattice whether or not a modify rides along.
       "delete+connectOrCreate+update": "VALIDATION-GUARD",
     });
-    await client.$disconnect();
-    await closeTestPGlite(database);
   }, 120_000);
 });
 
 describe("Package H — the composed modify declares every field its probe reads", () => {
   test("a sibling write to the wrapper filter's field is a dependency, not a blind spot", async () => {
-    const database = openBorrowedPGlite();
-    const client = createClient({
-      schema: vacateThenSupplySchema,
-      driver: new PGliteDriver({ client: database }),
-    }) as any;
-    await syncLiveSchema(client);
+    const client = getFamily().client as any;
     await resetVacateThenSupply(client);
 
     // The composed modify locates by the SUPPLIER's selector — but the wrapper's `where`
@@ -230,7 +207,5 @@ describe("Package H — the composed modify declares every field its probe reads
       ["b1", "incumbent"],
       ["b-alt", "alt"],
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(database);
   }, 30_000);
 });

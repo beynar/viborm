@@ -437,8 +437,17 @@ describe("createMany bind-budget provider semantics", () => {
     const family = getFamily();
     const client = createClient({
       schema,
-      driver: new CapacityDriver(6, { client: family.database }),
+      driver: new CapacityDriver(6, {
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
+    // Verbatim SQL is not qualified by the driver's namespace, so these
+    // hand-written statements must name the suite's schema themselves.
+    const fires = `"${family.namespace}"."create_many_bind_set_fires"`;
+    const junction = `"${family.namespace}"."create_many_bind_collection_tags"`;
+    const fireFunction = `"${family.namespace}".viborm_create_many_bind_set_fire`;
+    const failFunction = `"${family.namespace}".viborm_create_many_bind_set_fail`;
     const oldTags = [{ id: "old-0" }, { id: "old-1" }];
     const newTags = Array.from({ length: 5 }, (_, index) => ({
       id: `new-${index}`,
@@ -455,19 +464,19 @@ describe("createMany bind-budget provider semantics", () => {
       data: { id: "set-owner", tags: { connect: oldTags } },
     });
     await family.client.$executeRawUnsafe(
-      'CREATE TABLE "create_many_bind_set_fires" ("id" SERIAL PRIMARY KEY)'
+      `CREATE TABLE ${fires} ("id" SERIAL PRIMARY KEY)`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE OR REPLACE FUNCTION viborm_create_many_bind_set_fire() RETURNS trigger AS $$ BEGIN INSERT INTO "create_many_bind_set_fires" DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql'
+      `CREATE OR REPLACE FUNCTION ${fireFunction}() RETURNS trigger AS $$ BEGIN INSERT INTO ${fires} DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_set_statement" AFTER INSERT ON "create_many_bind_collection_tags" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_set_fire()'
+      `CREATE TRIGGER "create_many_bind_set_statement" AFTER INSERT ON ${junction} FOR EACH STATEMENT EXECUTE FUNCTION ${fireFunction}()`
     );
     await family.client.$executeRawUnsafe(
-      "CREATE OR REPLACE FUNCTION viborm_create_many_bind_set_fail() RETURNS trigger AS $$ BEGIN IF NEW.\"tagId\" = 'new-4' THEN RAISE EXCEPTION 'late set chunk'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql"
+      `CREATE OR REPLACE FUNCTION ${failFunction}() RETURNS trigger AS $$ BEGIN IF NEW."tagId" = 'new-4' THEN RAISE EXCEPTION 'late set chunk'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_set_failure" BEFORE INSERT ON "create_many_bind_collection_tags" FOR EACH ROW EXECUTE FUNCTION viborm_create_many_bind_set_fail()'
+      `CREATE TRIGGER "create_many_bind_set_failure" BEFORE INSERT ON ${junction} FOR EACH ROW EXECUTE FUNCTION ${failFunction}()`
     );
 
     try {
@@ -480,16 +489,14 @@ describe("createMany bind-budget provider semantics", () => {
       await expect(membership()).resolves.toEqual(oldTags);
       await expect(
         family.client.$queryRawUnsafe<{ count: number }>(
-          'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_set_fires"'
+          `SELECT COUNT(*)::int AS "count" FROM ${fires}`
         )
       ).resolves.toEqual([{ count: 0 }]);
 
       await family.client.$executeRawUnsafe(
-        'DROP TRIGGER "create_many_bind_set_failure" ON "create_many_bind_collection_tags"'
+        `DROP TRIGGER "create_many_bind_set_failure" ON ${junction}`
       );
-      await family.client.$executeRawUnsafe(
-        "DROP FUNCTION viborm_create_many_bind_set_fail()"
-      );
+      await family.client.$executeRawUnsafe(`DROP FUNCTION ${failFunction}()`);
 
       await expect(
         client.collection.update({
@@ -500,25 +507,23 @@ describe("createMany bind-budget provider semantics", () => {
       await expect(membership()).resolves.toEqual(newTags);
       await expect(
         family.client.$queryRawUnsafe<{ count: number }>(
-          'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_set_fires"'
+          `SELECT COUNT(*)::int AS "count" FROM ${fires}`
         )
       ).resolves.toEqual([{ count: 2 }]);
     } finally {
       await family.client.$executeRawUnsafe(
-        'DROP TRIGGER IF EXISTS "create_many_bind_set_failure" ON "create_many_bind_collection_tags"'
+        `DROP TRIGGER IF EXISTS "create_many_bind_set_failure" ON ${junction}`
       );
       await family.client.$executeRawUnsafe(
-        'DROP TRIGGER IF EXISTS "create_many_bind_set_statement" ON "create_many_bind_collection_tags"'
+        `DROP TRIGGER IF EXISTS "create_many_bind_set_statement" ON ${junction}`
       );
       await family.client.$executeRawUnsafe(
-        "DROP FUNCTION IF EXISTS viborm_create_many_bind_set_fail()"
+        `DROP FUNCTION IF EXISTS ${failFunction}()`
       );
       await family.client.$executeRawUnsafe(
-        "DROP FUNCTION IF EXISTS viborm_create_many_bind_set_fire()"
+        `DROP FUNCTION IF EXISTS ${fireFunction}()`
       );
-      await family.client.$executeRawUnsafe(
-        'DROP TABLE IF EXISTS "create_many_bind_set_fires"'
-      );
+      await family.client.$executeRawUnsafe(`DROP TABLE IF EXISTS ${fires}`);
     }
   });
 
@@ -526,19 +531,28 @@ describe("createMany bind-budget provider semantics", () => {
     const family = getFamily();
     const client = createClient({
       schema,
-      driver: new CapacityDriver(6, { client: family.database }),
+      driver: new CapacityDriver(6, {
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
+    // Verbatim SQL is not qualified by the driver's namespace, so these
+    // hand-written statements must name the suite's schema themselves.
+    const fires = `"${family.namespace}"."create_many_bind_trigger_fires"`;
+    const entries = `"${family.namespace}"."create_many_bind_entries"`;
+    const junction = `"${family.namespace}"."create_many_bind_collection_tags"`;
+    const triggerFunction = `"${family.namespace}".viborm_create_many_bind_trigger`;
     await family.client.$executeRawUnsafe(
-      'CREATE TABLE "create_many_bind_trigger_fires" ("id" SERIAL PRIMARY KEY)'
+      `CREATE TABLE ${fires} ("id" SERIAL PRIMARY KEY)`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE OR REPLACE FUNCTION viborm_create_many_bind_trigger() RETURNS trigger AS $$ BEGIN INSERT INTO "create_many_bind_trigger_fires" DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql'
+      `CREATE OR REPLACE FUNCTION ${triggerFunction}() RETURNS trigger AS $$ BEGIN INSERT INTO ${fires} DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_statement" AFTER INSERT ON "create_many_bind_entries" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_trigger()'
+      `CREATE TRIGGER "create_many_bind_statement" AFTER INSERT ON ${entries} FOR EACH STATEMENT EXECUTE FUNCTION ${triggerFunction}()`
     );
     await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_junction_statement" AFTER INSERT ON "create_many_bind_collection_tags" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_trigger()'
+      `CREATE TRIGGER "create_many_bind_junction_statement" AFTER INSERT ON ${junction} FOR EACH STATEMENT EXECUTE FUNCTION ${triggerFunction}()`
     );
 
     const chunkedRows = Array.from({ length: 5 }, (_, index) => ({
@@ -551,13 +565,13 @@ describe("createMany bind-budget provider semantics", () => {
     ).resolves.toEqual({ count: 5 });
     await expect(
       family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
+        `SELECT COUNT(*)::int AS "count" FROM ${fires}`
       )
     ).resolves.toEqual([{ count: 3 }]);
 
     await client.entry.deleteMany({});
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     await expect(
       client.entry.createMany({
@@ -569,13 +583,13 @@ describe("createMany bind-budget provider semantics", () => {
     ).resolves.toEqual({ count: 2 });
     await expect(
       family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
+        `SELECT COUNT(*)::int AS "count" FROM ${fires}`
       )
     ).resolves.toEqual([{ count: 1 }]);
 
     await client.entry.deleteMany({});
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     const returnedRows = Array.from({ length: 5 }, (_, index) => ({
       tenantId: "returned",
@@ -590,19 +604,19 @@ describe("createMany bind-budget provider semantics", () => {
     ).resolves.toEqual(returnedRows);
     await expect(
       family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
+        `SELECT COUNT(*)::int AS "count" FROM ${fires}`
       )
     ).resolves.toEqual([{ count: 3 }]);
 
     await client.entry.deleteMany({});
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     await client.entry.create({
       data: { tenantId: "skip", slot: "dup", label: "existing" },
     });
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     await expect(
       client.entry.createMany({
@@ -618,19 +632,19 @@ describe("createMany bind-budget provider semantics", () => {
     ).resolves.toEqual({ count: 4 });
     await expect(
       family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
+        `SELECT COUNT(*)::int AS "count" FROM ${fires}`
       )
     ).resolves.toEqual([{ count: 3 }]);
 
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     await client.tag.createMany({
       data: Array.from({ length: 5 }, (_, index) => ({ id: `tag-${index}` })),
     });
     await client.collection.create({ data: { id: "collection" } });
     await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
+      `TRUNCATE TABLE ${fires} RESTART IDENTITY`
     );
     await client.collection.update({
       where: { id: "collection" },
@@ -644,7 +658,7 @@ describe("createMany bind-budget provider semantics", () => {
     });
     await expect(
       family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
+        `SELECT COUNT(*)::int AS "count" FROM ${fires}`
       )
     ).resolves.toEqual([{ count: 2 }]);
     await expect(

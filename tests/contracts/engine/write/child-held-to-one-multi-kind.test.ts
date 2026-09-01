@@ -4,8 +4,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { beforeAll, expect, test } from "vitest";
 
 /**
@@ -129,11 +128,33 @@ class RecordingPGliteDriver extends PGliteDriver {
   }
 }
 
-const driver = new RecordingPGliteDriver({ client: openBorrowedPGlite() });
-const client = createClient({ schema, driver });
+const getFamily = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  await syncLiveSchema(client);
+/**
+ * The recorder is a SECOND driver over the worker's shared database, so it must
+ * name the Postgres schema the family provisioned; otherwise it would address
+ * `public`, where this suite has no tables. The family pushes the schema and
+ * truncates between tests.
+ */
+function makeRecordingHarness() {
+  const family = getFamily();
+  const recorder = new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.driver.adapter.namespace,
+  });
+  return {
+    driver: recorder,
+    client: createClient({ schema, driver: recorder }),
+  };
+}
+
+let driver: RecordingPGliteDriver;
+let client: ReturnType<typeof makeRecordingHarness>["client"];
+
+beforeAll(() => {
+  const harness = makeRecordingHarness();
+  driver = harness.driver;
+  client = harness.client;
 });
 
 /** Runs `call` with the statement recorder on, and returns what it emitted. */

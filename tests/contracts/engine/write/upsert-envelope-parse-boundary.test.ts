@@ -1,9 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-
 import { hydrateSchemaNames, s } from "@schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { beforeAll, describe, expect, test } from "vitest";
 
 /**
@@ -36,15 +32,13 @@ const envelopeModelSchema = (() => {
 
 hydrateSchemaNames(envelopeModelSchema);
 
+const getFamily = usePGliteSchemaFamily(envelopeModelSchema);
+
 let client: any;
 
-beforeAll(async () => {
-  client = createClient({
-    schema: envelopeModelSchema,
-    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-  }) as any;
-  await syncLiveSchema(client);
-}, 120_000);
+beforeAll(() => {
+  client = getFamily().client;
+});
 
 /** The class change these witnesses record: `UnsupportedOperationError` (V8003, no
  *  prismaCode) → `ValidationError` (P2009), the class every other write op's malformed

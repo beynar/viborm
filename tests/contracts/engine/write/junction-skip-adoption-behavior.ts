@@ -326,6 +326,15 @@ const UNIQUE_VIOLATION = /Unique constraint/;
 const FOREIGN_KEY_VIOLATION = /Foreign key constraint/;
 /** The tables this schema owns, children first — dropped once on a shared live server so a
  *  re-run never asks `syncLiveSchema(force)` to re-shape an index a live foreign key still needs. */
+// A driver built over a shared PGlite addresses a private schema, so raw SQL in
+// these cases must name it. An own-instance driver reports "public", which is
+// exactly where its tables are, so this is correct for every leg.
+function qualifiedTable(driver: AnyDriver, table: string): string {
+  const namespace = (driver as { adapter?: { namespace?: string } }).adapter
+    ?.namespace;
+  return namespace ? `"${namespace}"."${table}"` : `"${table}"`;
+}
+
 export const junctionSkipAdoptTables = [
   "e68_article_label",
   "e68_board_mark",
@@ -399,19 +408,21 @@ export function runJunctionSkipAdoptBehavior(options: {
           if (options.dropTablesFirst) {
             for (const table of junctionSkipAdoptTables) {
               await (client as any).$executeRawUnsafe(
-                `DROP TABLE IF EXISTS ${table}`
+                `DROP TABLE IF EXISTS ${qualifiedTable(driver, table)}`
               );
             }
           }
           await syncLiveSchema(client);
           shared = { client, run: makeRunner(driver), driver };
         }
+        const activeDriver = shared.driver;
         await reset(shared.client);
         // Disposal is the SUITE's, not the test's: one connection per suite, closed by the
         // caller's `afterAll`. A per-test dispose would reconnect on every case.
         return {
           client: shared.client,
           run: shared.run,
+          qualify: (table: string) => qualifiedTable(activeDriver, table),
           // The shared live-server leg owns its own disconnect; a member must not
           // close the connection the next one reuses.
           dispose: async () => {
@@ -436,16 +447,16 @@ export function runJunctionSkipAdoptBehavior(options: {
             timeout: 30_000,
           },
           async () => {
-            const { client, run, dispose } = await setup();
+            const { client, run, dispose, qualify } = await setup();
             try {
               // Raw setup keeps this case focused on update-root adopt-and-link. PostgreSQL
               // spelling is safe: the only batch leg is PGlite (the docker legs are
               // interactive).
               await (client as any).$executeRawUnsafe(
-                `INSERT INTO "e68_labels" ("slug", "note") VALUES ('one', 'ORIGINAL')`
+                `INSERT INTO ${qualify("e68_labels")} ("slug", "note") VALUES ('one', 'ORIGINAL')`
               );
               await (client as any).$executeRawUnsafe(
-                `INSERT INTO "e68_articles" ("title") VALUES ('a')`
+                `INSERT INTO ${qualify("e68_articles")} ("title") VALUES ('a')`
               );
               const [article] = await client.article.findMany({});
               await run.update("article", junctionSkipAdoptSchema.article, {

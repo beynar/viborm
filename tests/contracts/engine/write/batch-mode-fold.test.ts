@@ -1,28 +1,21 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import { NotFoundError, VibORMErrorCode } from "@errors";
 
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
+// One schema per substrate on the worker's shared database: each still starts
+// from its own empty tables, so the two folds are compared from the same state.
+const getBatchFamily = usePGliteSchemaFamily(updateFamilySchema, "atomicBatch");
+const getTxFamily = usePGliteSchemaFamily(updateFamilySchema);
+
 async function boot(batchOnly: boolean) {
-  const db = openBorrowedPGlite();
-  const driver = batchOnly
-    ? new BatchOnlyPGliteDriver({ client: db })
-    : new PGliteDriver({ client: db });
-  const client = createClient({ schema: updateFamilySchema, driver });
-  await syncLiveSchema(client);
+  const client = batchOnly ? getBatchFamily().client : getTxFamily().client;
   await client.user.create({ data: { id: 1, email: "root@x", count: 1 } });
   await client.post.create({
     data: { id: 1, title: "t", slug: "s", userId: 1 },
   });
-  return { client, db };
+  return client;
 }
 
 /** The rejection's identity as one comparable value. */
@@ -44,8 +37,8 @@ async function rejection(act: PromiseLike<unknown>) {
 
 describe("PLAN Phase 6.2 — the batch-mode fold answers what the row is", () => {
   test("the folded batch update returns the mutated row, projection and all", async () => {
-    const { client: batchClient, db: batchDb } = await boot(true);
-    const { client: txClient, db: txDb } = await boot(false);
+    const batchClient = await boot(true);
+    const txClient = await boot(false);
 
     const args = {
       where: { email: "root@x" },
@@ -61,12 +54,10 @@ describe("PLAN Phase 6.2 — the batch-mode fold answers what the row is", () =>
     // payload against the same starting state, which is the property that has to
     // hold whatever each substrate folds.
     expect(folded).toEqual(await txClient.user.update(args));
-    await closeTestPGlite(batchDb);
-    await closeTestPGlite(txDb);
   });
 
   test("a PK the SET rewrote comes back from the fold, not from a stale read", async () => {
-    const { client, db } = await boot(true);
+    const client = await boot(true);
     // The seeded post holds a foreign key to user 1; drop it so the identity is
     // free to move, since what this test is about is the ANSWER, not the cascade.
     await client.post.delete({ where: { id: 1 } });
@@ -77,14 +68,13 @@ describe("PLAN Phase 6.2 — the batch-mode fold answers what the row is", () =>
         select: { id: true, email: true },
       })
     ).toEqual({ id: 42, email: "root@x" });
-    await closeTestPGlite(db);
   });
 });
 
 describe("PLAN Phase 6.2 — the fold's NotFoundError is unchanged", () => {
   test("the batch fold, the transaction fold and the terminal-read path agree", async () => {
-    const { client: batchClient, db: batchDb } = await boot(true);
-    const { client: txClient, db: txDb } = await boot(false);
+    const batchClient = await boot(true);
+    const txClient = await boot(false);
 
     const missing = { where: { email: "absent@x" }, data: { count: 2 } };
 
@@ -108,12 +98,10 @@ describe("PLAN Phase 6.2 — the fold's NotFoundError is unchanged", () => {
     });
     expect(txFold).toEqual(batchFold);
     expect(terminalRead).toEqual(batchFold);
-    await closeTestPGlite(batchDb);
-    await closeTestPGlite(txDb);
   });
 
   test("the guard aborts BEFORE the write, leaving the table untouched", async () => {
-    const { client, db } = await boot(true);
+    const client = await boot(true);
     // A selector whose filter half excludes the row: the guard finds nothing, so
     // the batch aborts and the UPDATE beside it never lands. Without the guard
     // the batch would commit an UPDATE that matched zero rows and report success.
@@ -129,6 +117,5 @@ describe("PLAN Phase 6.2 — the fold's NotFoundError is unchanged", () => {
         select: { count: true },
       })
     ).toEqual({ count: 1 });
-    await closeTestPGlite(db);
   });
 });

@@ -1,13 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -36,12 +28,7 @@ const tree = (() => {
   return { node };
 })();
 
-function makeClient(db: PGlite) {
-  return createClient({
-    schema: tree as never,
-    driver: new PGliteDriver({ client: db }),
-  }) as any;
-}
+const getTreeFamily = usePGliteSchemaFamily(tree);
 
 function nestedCreate(depth: number, level = 1): any {
   const data: any = { id: `c${level}`, name: `n${level}` };
@@ -71,20 +58,14 @@ async function seedChain(client: any, depth: number) {
 describe("X1 depth stress — unbounded nested create / update chains", () => {
   for (const depth of [5, 8, 12]) {
     test(`nested create chain of ${depth} levels executes`, async () => {
-      const db = openBorrowedPGlite();
-      const client = makeClient(db);
-      await syncLiveSchema(client);
+      const client = getTreeFamily().client as any;
       await seedChain(client, depth);
       const count = await client.node.count();
-      await client.$disconnect();
-      await closeTestPGlite(db);
       expect(count).toBe(depth + 1); // c0 + c1..c{depth}
     });
 
     test(`nested update chain of ${depth} levels executes`, async () => {
-      const db = openBorrowedPGlite();
-      const client = makeClient(db);
-      await syncLiveSchema(client);
+      const client = getTreeFamily().client as any;
       await seedChain(client, depth);
       await client.node.update({
         where: { id: "c0" },
@@ -97,16 +78,12 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
       const renamed = await client.node.count({
         where: { name: { startsWith: "u" } },
       });
-      await client.$disconnect();
-      await closeTestPGlite(db);
       expect(renamed).toBe(depth); // c1..c{depth} renamed to u1..u{depth}
     });
   }
 
   test("mixed update→…→create chain of 6 levels grafts a fresh subtree at the bottom (X1)", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const client = getTreeFamily().client as any;
     await seedChain(client, 5); // c0..c5 exist
     // Walk update c1→c4, then create a fresh 3-deep chain under c4.
     function walk(level = 1): any {
@@ -128,8 +105,6 @@ describe("X1 depth stress — unbounded nested create / update chains", () => {
       where: { id: { in: ["f1", "f2", "f3"] } },
       orderBy: { id: "asc" },
     });
-    await client.$disconnect();
-    await closeTestPGlite(db);
     expect(fresh.map((r: any) => [r.id, r.parentId])).toEqual([
       ["f1", "c4"],
       ["f2", "f1"],

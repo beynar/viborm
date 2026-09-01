@@ -19,19 +19,11 @@
  */
 
 import type { OperationResult } from "@client/types";
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import Decimal from "decimal.js";
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  expectTypeOf,
-  test,
-} from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, test } from "vitest";
 
 const ledger = s
   .model({
@@ -148,18 +140,12 @@ describe("groupBy() carries the same aggregate spellings", () => {
 // THE LIVE PROBE — typeof agrees with the static claim
 // =============================================================================
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
-  >
->;
-let pglite: import("@electric-sql/pglite").PGlite;
+const getFamily = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
-  await syncLiveSchema(client);
+let client: ReturnType<typeof getFamily>["client"];
+
+beforeEach(async () => {
+  client = getFamily().client;
   await client.ledger.createMany({
     data: [
       {
@@ -181,14 +167,6 @@ beforeAll(async () => {
       },
     ],
   });
-});
-
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
 });
 
 describe("the runtime agrees with the declaration", () => {

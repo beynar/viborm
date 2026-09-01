@@ -167,7 +167,10 @@ class RecordingPGliteDriver extends PGliteDriver {
 async function setup() {
   const family = getFamily();
   await family.reset();
-  const driver = new RecordingPGliteDriver({ client: family.database });
+  const driver = new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
   const client = createClient({ schema: ownedFkSchema, driver });
   await client.user.create({ data: { id: "owner", name: "owner" } });
   await client.user.create({ data: { id: "thief", name: "thief" } });

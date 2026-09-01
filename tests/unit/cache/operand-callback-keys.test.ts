@@ -1,46 +1,26 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { sql } from "@sql";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { OperandCtx } from "@validation/primitives/operand";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { describe, expect, test } from "vitest";
 
 const schema = fieldRefSchema;
 type PostCtx = OperandCtx<typeof schema.post>;
 
-let pglite: PGlite;
-let driver: PGliteDriver;
+const family = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  pglite = new PGlite();
-  driver = new PGliteDriver({ client: pglite });
-  await syncLiveSchema(createClient({ schema, driver }));
-});
+/** The suite's tables live in its own schema, so raw SQL has to say so. */
+const qualified = (table: string) =>
+  `"${family().driver.adapter.namespace}"."${table}"`;
 
-beforeEach(async () => {
-  await pglite.exec(
-    `DELETE FROM "fieldref_posts"; DELETE FROM "fieldref_users";`
-  );
-});
-
-afterAll(async () => {
-  await pglite.close();
-});
-
-const makeClient = () => createClient({ schema, driver });
+const makeClient = () => createClient({ schema, driver: family().driver });
 const makeCachedClient = (cache: MemoryCache) =>
-  createClient({ schema, driver }).$extends(cacheExtension({ driver: cache }));
+  createClient({ schema, driver: family().driver }).$extends(
+    cacheExtension({ driver: cache })
+  );
 
 const seed = async (client: ReturnType<typeof makeClient>) => {
   await client.user.createMany({
@@ -69,8 +49,8 @@ const seed = async (client: ReturnType<typeof makeClient>) => {
 };
 
 const sneakInsert = (id: string, views: number, likes: number) =>
-  pglite.exec(
-    `INSERT INTO "fieldref_posts" ("id","title","slug_column","views","likes","status","review_status","authorId") VALUES ('${id}','${id}','${id}',${views},${likes},'draft','published','u1')`
+  family().database.exec(
+    `INSERT INTO ${qualified("fieldref_posts")} ("id","title","slug_column","views","likes","status","review_status","authorId") VALUES ('${id}','${id}','${id}',${views},${likes},'draft','published','u1')`
   );
 
 describe("resolved operand callback cache identity", () => {

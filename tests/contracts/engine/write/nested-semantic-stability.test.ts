@@ -1,13 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -37,20 +29,10 @@ const tree = (() => {
   return { node };
 })();
 
-function makeClient(schema: any, db: PGlite) {
-  return createClient({
-    schema,
-    driver: new PGliteDriver({ client: db }),
-  }) as any;
-}
+const getTreeFamily = usePGliteSchemaFamily(tree);
 
-async function withClient(schema: any, fn: (c: any) => Promise<void>) {
-  const db = openBorrowedPGlite();
-  const client = makeClient(schema, db);
-  await syncLiveSchema(client);
-  await fn(client);
-  await client.$disconnect();
-  await closeTestPGlite(db);
+async function withClient(fn: (c: any) => Promise<void>) {
+  await fn(getTreeFamily().client);
 }
 
 async function messageOf(fn: () => Promise<unknown>): Promise<string> {
@@ -87,7 +69,7 @@ describe("X1 semantic stability — own-write 'split these operations' at depth"
   };
 
   test("depth-1 root create rejects with the own-write message", async () => {
-    await withClient(tree, async (c) => {
+    await withClient(async (c) => {
       const msg = await messageOf(() =>
         c.node.create({ data: { id: "r", name: "r", children: ownWriteLeaf } })
       );
@@ -97,7 +79,7 @@ describe("X1 semantic stability — own-write 'split these operations' at depth"
   });
 
   test("depth-4 lifted create-context chain rejects with the SAME own-write message", async () => {
-    await withClient(tree, async (c) => {
+    await withClient(async (c) => {
       await c.node.create({ data: { id: "c0", name: "c0" } });
       await c.node.create({ data: { id: "c1", name: "c1", parentId: "c0" } });
       const msg = await messageOf(() =>
@@ -125,7 +107,7 @@ describe("X1 semantic stability — own-write 'split these operations' at depth"
 
 describe("X1 semantic stability — validation error at depth", () => {
   test("an unknown nested key rejects at depth-1 and depth-4 alike", async () => {
-    await withClient(tree, async (c) => {
+    await withClient(async (c) => {
       const d1 = await messageOf(() =>
         c.node.create({
           data: {

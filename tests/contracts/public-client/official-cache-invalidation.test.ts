@@ -25,40 +25,54 @@ const video = s
 const schema = { user, video };
 
 /**
+ * Fixed-width hex per UTF-16 code unit: the one spelling a namespace component
+ * may take.
+ *
+ * Spelled out here rather than imported from the implementation, so a change to
+ * that encoding moves ONE side of every comparison below and shows up as a
+ * changed byte, exactly as a wrong literal would.
+ */
+function encodeNamespaceComponent(schemaName: string): string {
+  let encoded = "";
+  for (let index = 0; index < schemaName.length; index += 1) {
+    encoded += schemaName.charCodeAt(index).toString(16).padStart(4, "0");
+  }
+  return encoded;
+}
+
+/**
  * The exact backend namespace for each version form, spelled out.
  *
  * Every client below is PGlite, so the dialect component is `postgresql` and
- * the namespace component is the defaulted schema `public` — both encoded the
- * same fixed-width way as the version, which is what keeps the joined string
- * injective. Literals, not derivation: a non-injective join (one component
- * absorbing the next, an absent namespace colliding with a real one) shows up
- * here as a changed byte and nowhere else.
+ * the namespace component is the private PostgreSQL schema the fixture hands
+ * this suite — both encoded the same fixed-width way as the version, which is
+ * what keeps the joined string injective. Literals, not derivation: a
+ * non-injective join (one component absorbing the next, an absent namespace
+ * colliding with a real one) shows up here as a changed byte and nowhere else.
+ * The schema is the single component that cannot be written as a literal — it
+ * differs per suite and per run — so it alone is encoded, by the local encoder
+ * above, and every other byte of the join stays spelled out.
  *
  * The revision reads `r3`: the dialect and SQL namespace entered the derivation
  * at `r2`, and a stored decimal changed meaning at `r3`. No entry of an older
  * revision may be served to a reader holding the newer contract.
  */
-const NAMESPACE = Object.freeze({
-  one: "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:006f006e0065",
-  tx: "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:00740078",
-  fallback:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:00660061006c006c006200610063006b",
-  native:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:006e00610074006900760065",
-  A: "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0041",
-  colon:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0061003a0062",
-  stringOne:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0031",
-  numberOne:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:n:3ff0000000000000",
-  loneSurrogate:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:d800",
-  unversioned:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u",
-  ambiguous:
-    "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:s:0061006d0062006900670075006f00750073",
-});
+function officialNamespaces(schemaName: string) {
+  const scope = `viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:${encodeNamespaceComponent(schemaName)}`;
+  return Object.freeze({
+    one: `${scope}:s:006f006e0065`,
+    tx: `${scope}:s:00740078`,
+    fallback: `${scope}:s:00660061006c006c006200610063006b`,
+    native: `${scope}:s:006e00610074006900760065`,
+    A: `${scope}:s:0041`,
+    colon: `${scope}:s:0061003a0062`,
+    stringOne: `${scope}:s:0031`,
+    numberOne: `${scope}:n:3ff0000000000000`,
+    loneSurrogate: `${scope}:s:d800`,
+    unversioned: `${scope}:u`,
+    ambiguous: `${scope}:s:0061006d0062006900670075006f00750073`,
+  });
+}
 
 const fallbackFamily = usePGliteSchemaFamily(schema);
 const nativeFamily = usePGliteSchemaFamily(schema, "atomicBatch");
@@ -105,7 +119,8 @@ function officialClient(
 
 describe("official cache mutation ownership", () => {
   test("keeps extraction lazy, runs it after request, and publishes before public listeners", async () => {
-    const { driver } = fallbackFamily();
+    const { driver, namespace } = fallbackFamily();
+    const NAMESPACE = officialNamespaces(namespace);
     const timeline: string[] = [];
     const cacheDriver = new RecordingCache(timeline);
     const base = createClient({ schema, driver }).$extends({
@@ -332,7 +347,8 @@ describe("official cache mutation ownership", () => {
   });
 
   test("stages callback and savepoint invalidation until the outer commit", async () => {
-    const { driver } = fallbackFamily();
+    const { driver, namespace } = fallbackFamily();
+    const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const client = officialClient(driver, cacheDriver, "tx");
 
@@ -376,7 +392,8 @@ describe("official cache mutation ownership", () => {
   ];
   for (const [mode, family] of arrayModes) {
     test(`${mode} mixed arrays publish every mutation through the outcome rail`, async () => {
-      const { driver } = family();
+      const { driver, namespace } = family();
+      const NAMESPACE = officialNamespaces(namespace);
       const cacheDriver = new RecordingCache();
       const client = officialClient(driver, cacheDriver, mode);
 
@@ -399,7 +416,8 @@ describe("official cache mutation ownership", () => {
   }
 
   test("isolates official namespaces and refuses full keys without effects", async () => {
-    const { driver } = fallbackFamily();
+    const { driver, namespace } = fallbackFamily();
+    const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const first = officialClient(driver, cacheDriver, "A");
     const second = officialClient(driver, cacheDriver, "a:b");
@@ -480,7 +498,8 @@ describe("official cache mutation ownership", () => {
   });
 
   test("publishes a dispatched native refusal as may-have-committed", async () => {
-    const { driver } = nativeFamily();
+    const { driver, namespace } = nativeFamily();
+    const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const certainties: string[] = [];
     const client = officialClient(driver, cacheDriver, "ambiguous").$extends({
@@ -539,7 +558,8 @@ describe("official cache mutation ownership", () => {
   });
 
   test("normalizes a hostile invalidation-driver Error after commit", async () => {
-    const { driver } = fallbackFamily();
+    const { driver, namespace } = fallbackFamily();
+    const NAMESPACE = officialNamespaces(namespace);
     const cacheDriver = new RecordingCache();
     const client = officialClient(driver, cacheDriver, "one");
     const hostileFailure = new Proxy(

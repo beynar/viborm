@@ -145,8 +145,14 @@ async function boot(batch = false) {
   const family = getFamily();
   await family.reset();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   const client = createClient({ schema, driver });
   await client.author.create({ data: { id: 1, name: "A" } });
   await client.author.create({ data: { id: 2, name: "B" } });

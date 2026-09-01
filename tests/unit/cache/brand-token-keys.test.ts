@@ -1,18 +1,9 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { DbNull, s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 const entry = s
   .model({
@@ -24,12 +15,13 @@ const entry = s
 
 const schema = { entry };
 
-let pglite: PGlite;
-let driver: PGliteDriver;
+const family = usePGliteSchemaFamily(schema);
 
-const makeClient = () => createClient({ schema, driver });
+const makeClient = () => createClient({ schema, driver: family().driver });
 const makeCachedClient = (cache: MemoryCache) =>
-  createClient({ schema, driver }).$extends(cacheExtension({ driver: cache }));
+  createClient({ schema, driver: family().driver }).$extends(
+    cacheExtension({ driver: cache })
+  );
 
 const seed = async () => {
   // Written by a cacheless client: seeding must not populate anything.
@@ -40,20 +32,6 @@ const seed = async () => {
     ],
   });
 };
-
-beforeAll(async () => {
-  pglite = new PGlite();
-  driver = new PGliteDriver({ client: pglite });
-  await syncLiveSchema(createClient({ schema, driver }));
-});
-
-beforeEach(async () => {
-  await pglite.exec(`DELETE FROM "cache_brand_token_entries"`);
-});
-
-afterAll(async () => {
-  await pglite.close();
-});
 
 describe("a cached client answers each question with its own rows", () => {
   test("the sentinel query does not serve the document query's entry", async () => {

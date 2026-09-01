@@ -1,13 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
-
 import { sharedPkUpdateRootSchema } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -48,32 +40,18 @@ import { describe, expect, test } from "vitest";
  * agreement between them is the claim: the modify rides along without changing what the
  * supplier means.
  */
+const getFamily = usePGliteSchemaFamily(sharedPkUpdateRootSchema);
+
 describe("Package H — shared-primary-key supplier + modify", () => {
-  /** Every database a seed opened, released as soon as its test is done. */
-  const opened: PGlite[] = [];
-  const client = () => {
-    const database = openBorrowedPGlite();
-    opened.push(database);
-    return createClient({
-      schema: sharedPkUpdateRootSchema,
-      driver: new PGliteDriver({ client: database }),
-    }) as any;
-  };
-
-  /** A test seeds twice where it needs two beds, so this releases whatever it opened. */
-  const releaseSeeded = async () => {
-    for (const database of opened.splice(0)) {
-      await closeTestPGlite(database);
-    }
-  };
-
+  /** A test seeds twice where it needs two beds, so each seed empties the tables. */
   async function seeded({
     note = true,
   }: {
     note?: boolean;
   } = {}): Promise<any> {
-    const db = client();
-    await syncLiveSchema(db);
+    const family = getFamily();
+    await family.reset();
+    const db = family.client as any;
     await db.account.createMany({
       data: [
         { id: "a1", email: "a1@x", name: "one" },
@@ -141,8 +119,6 @@ describe("Package H — shared-primary-key supplier + modify", () => {
         names: ["one", "moved"],
       },
     });
-    await db.$disconnect();
-    await releaseSeeded();
   }, 60_000);
 
   test("a dependent row blocks the shared-key move — exactly as a lone `connect` does", async () => {
@@ -178,8 +154,6 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       supplierAlone: "Foreign key constraint violation",
       state: UNTOUCHED,
     });
-    await db.$disconnect();
-    await releaseSeeded();
   }, 60_000);
 
   test("disconnect + connect on the shared key is not a spellable pair", async () => {
@@ -214,7 +188,5 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       // A refusal that fires after a write is not a refusal: the row never moved.
       stubs: [{ accountId: "a1", memo: "m" }],
     });
-    await db.$disconnect();
-    await releaseSeeded();
   }, 60_000);
 });

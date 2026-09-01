@@ -205,7 +205,7 @@ function orgUpdate(relations: Record<string, unknown>) {
 
 function runSuite(
   name: string,
-  createDriver: (database: PGlite) => RecordingPGliteDriver
+  createDriver: (database: PGlite, namespace: string) => RecordingPGliteDriver
 ): void {
   describe(`M11 upsert update-arm referenced edge (${name})`, () => {
     const getFamily = usePGliteSchemaFamily(armEdgeSchema);
@@ -213,7 +213,8 @@ function runSuite(
     let client: any;
 
     beforeEach(async () => {
-      driver = createDriver(getFamily().database);
+      const family = getFamily();
+      driver = createDriver(family.database, family.namespace);
       client = createClient({ schema: armEdgeSchema, driver }) as any;
       await client.org.create({ data: { id: "o1", name: "Org" } });
       // THE DECOY: its (region, code) is the cross-match of the middle upsert's own
@@ -450,9 +451,11 @@ function runSuite(
 
 runSuite(
   "PGlite transaction",
-  (database) => new RecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new RecordingPGliteDriver({ client: database, namespace })
 );
 runSuite(
   "PGlite atomic batch",
-  (database) => new BatchOnlyRecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new BatchOnlyRecordingPGliteDriver({ client: database, namespace })
 );

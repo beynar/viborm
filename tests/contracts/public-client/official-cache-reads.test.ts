@@ -1,4 +1,5 @@
 // Provider-backed cache read integration.
+import { raw } from "@sql";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import type { CacheEntry } from "@src/cache/exports";
 import { cache } from "@src/cache/exports";
@@ -383,7 +384,10 @@ describe("official cache reads", () => {
 
   test("bypasses cache work for arrays, statement transforms, transactions, and raw", async () => {
     await seed();
-    const { client: base } = family();
+    const { client: base, namespace } = family();
+    // Raw statements are the caller's own text: nothing qualifies them, so they
+    // name the suite's own schema the way the driver's generated SQL does.
+    const authorTable = `"${namespace}"."official_cache_read_author"`;
 
     const arrayCache = new RecordingCache();
     const arrayState = officialCache(arrayCache, "array");
@@ -456,12 +460,12 @@ describe("official cache reads", () => {
     await arrayClient.$queryRaw`SELECT 1 AS value`;
     await arrayClient.$queryRawUnsafe("SELECT 2 AS value");
     await arrayClient.$executeRaw`
-      UPDATE "official_cache_read_author"
+      UPDATE ${raw(authorTable)}
       SET "name" = "name"
       WHERE 1 = 0
     `;
     await arrayClient.$executeRawUnsafe(
-      'UPDATE "official_cache_read_author" SET "name" = "name" WHERE 1 = 0'
+      `UPDATE ${authorTable} SET "name" = "name" WHERE 1 = 0`
     );
     expect({
       clears: arrayCache.clears,

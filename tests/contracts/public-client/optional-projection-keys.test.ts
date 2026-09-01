@@ -20,18 +20,10 @@
  */
 
 import type { OperationResult } from "@client/types";
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  expectTypeOf,
-  test,
-} from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, expectTypeOf, test } from "vitest";
 
 const post = s
   .model({
@@ -169,30 +161,16 @@ describe("the arms that must NOT move", () => {
 // THE RUNTIME HALF — the real spread idiom, at a real call site
 // =============================================================================
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
-  >
->;
-let pglite: import("@electric-sql/pglite").PGlite;
+const getFamily = usePGliteSchemaFamily(schema);
+
+let client: ReturnType<typeof getFamily>["client"];
 
 /** Opaque to the checker on purpose: this is the case the union exists for. */
 const runtimeFlag = (value: boolean): boolean => value;
 
-beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
-  await syncLiveSchema(client);
+beforeEach(async () => {
+  client = getFamily().client;
   await client.post.create({ data: { id: "p1", title: "t", views: 1 } });
-});
-
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
 });
 
 describe("the spread idiom, live", () => {

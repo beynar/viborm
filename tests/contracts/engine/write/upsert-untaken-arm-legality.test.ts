@@ -1,9 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-
 import { hydrateSchemaNames, s } from "@schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { beforeAll, describe, expect, test } from "vitest";
 
 /**
@@ -86,15 +82,13 @@ const NESTED_SERIES_UPDATE = {
   },
 };
 
+const getFamily = usePGliteSchemaFamily(untakenArmSchema);
+
 let client: any;
 
-beforeAll(async () => {
-  client = createClient({
-    schema: untakenArmSchema,
-    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-  }) as any;
-  await syncLiveSchema(client);
-}, 120_000);
+beforeAll(() => {
+  client = getFamily().client;
+});
 
 describe("E5-U4 the untaken arm's legality stays deferred", () => {
   test("the UPDATE arm's deferred analysis does not run when the CREATE arm is taken", async () => {

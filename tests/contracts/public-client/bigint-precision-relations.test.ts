@@ -13,11 +13,9 @@
  * then convert back to BigInt during result parsing.
  */
 
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
-
 import { s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 // =============================================================================
 // TEST CONSTANTS
@@ -65,34 +63,18 @@ const schema = { author, post };
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
-  >
->;
-let pglite: import("@electric-sql/pglite").PGlite;
+const getFamily = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
-  await syncLiveSchema(client);
-});
-
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
-});
+let client: ReturnType<typeof getFamily>["client"];
 
 // =============================================================================
 // BIGINT PRECISION TESTS
 // =============================================================================
 
 describe("BigInt Precision in Relations", () => {
-  beforeAll(async () => {
+  beforeEach(async () => {
+    client = getFamily().client;
+
     // Create author with large BigInt values
     await client.author.create({
       data: {

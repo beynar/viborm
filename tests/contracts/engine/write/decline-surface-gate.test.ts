@@ -49,7 +49,10 @@ async function freshClient(schema: Record<string, Model<any>>) {
   await family.reset();
   const client = createClient({
     schema,
-    driver: new PGliteDriver({ client: family.database }),
+    driver: new PGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    }),
   });
   return client as any;
 }
@@ -978,7 +981,10 @@ describe("decline-surface gate: the surviving progressive boundary declines type
     await family.reset();
     const client = createClient({
       schema: opf,
-      driver: new BatchOnlyPGliteDriver({ client: family.database }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
 
     let caught: unknown;

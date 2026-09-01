@@ -243,8 +243,14 @@ async function boot(batch = false) {
   const family = getAccountFamily();
   await family.reset();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   const client = createClient({ schema, driver });
   for (const id of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
     await client.account.create({
@@ -667,7 +673,10 @@ describe("Phase 8.1 — the two legality guards", () => {
 
   test("a rewrite of a UNIQUE INDEX column declines too, and carries its cascaded children", async () => {
     const family = getHostFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: hostSchema, driver });
     await client.host.create({ data: { id: 1, code: "OLD", label: "h" } });
     await client.pet.create({ data: { id: 10, name: "p1", hostCode: "OLD" } });
@@ -699,7 +708,10 @@ describe("Phase 8.1 — the two legality guards", () => {
 
   test("on that same model, an ordinary column still folds", async () => {
     const family = getHostFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: hostSchema, driver });
     await client.host.create({ data: { id: 2, code: "K2", label: "h2" } });
     await client.pet.create({ data: { id: 20, name: "q1", hostCode: "K2" } });
@@ -830,7 +842,10 @@ describe("Phase 8.1 — what the fold must not change", () => {
 
   test("a model nothing references folds a key rewrite that the cascading model declines", async () => {
     const family = getSoloFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: soloSchema, driver });
     await client.tag.create({ data: { id: 1, name: "red", color: "#f00" } });
     await client.palette.create({ data: { id: 1, title: "warm" } });
@@ -994,7 +1009,10 @@ describe("Phase 8.2 — the nested-create tree", () => {
 
   test("TWO database-generated keys decline: their sequence order is the planner's", async () => {
     const family = getSequenceFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: seqSchema, driver });
 
     driver.recording = true;
@@ -1024,7 +1042,10 @@ describe("Phase 8.2 — the nested-create tree", () => {
     // arms is a value another arm reads, so every other conjunct passes: this
     // one is the whole of what keeps the order the caller wrote.
     const family = getCrateFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: crateSchema, driver });
 
     driver.recording = true;
@@ -1053,7 +1074,10 @@ describe("Phase 8.2 — the nested-create tree", () => {
 
   test("ONE arm taking a generated key still folds: its row order is the statement's own", async () => {
     const family = getCrateFamily();
-    const driver = new RecordingPGliteDriver({ client: family.database });
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: crateSchema, driver });
 
     driver.recording = true;

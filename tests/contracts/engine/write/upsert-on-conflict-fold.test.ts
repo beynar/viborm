@@ -143,8 +143,14 @@ async function boot(batch = false) {
   const family = getFamily();
   await family.reset();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   const client = createClient({ schema, driver });
   await client.account.create({
     data: { id: 1, email: "a1@x", handle: "h1", label: "L1", score: 10 },
@@ -584,7 +590,10 @@ describe("the ON CONFLICT fold — the accepted divergences", () => {
     const burn = async (folded: boolean) => {
       const family = getFamily();
       await family.reset();
-      const driver = new RecordingPGliteDriver({ client: family.database });
+      const driver = new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
       if (!folded) closeTheDoor(driver);
       // A seed with NO literal primary keys, so the sequence and the rows agree.
       const client = createClient({ schema, driver });

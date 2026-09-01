@@ -105,15 +105,20 @@ interface Scenario {
 }
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
+  const namespace = family.namespace;
   const base = createClient({
     schema: scenario.schema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await scenario.seed(base);
 
@@ -124,14 +129,14 @@ async function runArm(
     if (kind === "direct") {
       const direct = createClient({
         schema: scenario.schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       result = await scenario.act(direct);
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       const observed = observeClientOperations({
         schema: scenario.schema,
         driver,

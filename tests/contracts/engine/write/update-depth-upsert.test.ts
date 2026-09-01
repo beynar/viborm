@@ -288,10 +288,10 @@ interface Scenario {
   expectReject?: boolean;
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace: string) {
   return createClient({
     schema: depthSliceSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -317,13 +317,18 @@ async function dump(client: ReturnType<typeof makeClient>): Promise<State> {
 type ArmKind = "v1" | "v2-tx" | "v2-batch";
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
-  const client = makeClient(db);
+  const namespace = family.namespace;
+  const client = makeClient(db, namespace);
   await scenario.seed(client);
 
   let result: unknown;
@@ -334,8 +339,8 @@ async function runArm(
     } else {
       const driver =
         kind === "v2-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       result = await createDepthSliceExecutor(driver).executeUpdate(
         depthSliceSchema.user,
         scenario.args
@@ -509,7 +514,8 @@ describe("write engine depth gate: no partial mutation on the uncorrelated arm",
       const family = getFamily();
       await family.reset();
       const db = family.database;
-      const client = makeClient(db);
+      const namespace = family.namespace;
+      const client = makeClient(db, namespace);
       await client.user.create({
         data: {
           email: "z@x",
@@ -530,8 +536,8 @@ describe("write engine depth gate: no partial mutation on the uncorrelated arm",
       const before = await dump(client);
       const driver =
         kind === "v2-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       await expect(
         createDepthSliceExecutor(driver).executeUpdate(
           depthSliceSchema.user,

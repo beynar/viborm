@@ -999,7 +999,8 @@ describe("D — polymorphic writes inside nested updateMany", () => {
   const polyFamily = usePGliteSchemaFamily(polySchema);
 
   test("a targetless disconnect clears every matched member's storage pair", async () => {
-    const client = polyFamily().client as any;
+    const family = polyFamily();
+    const client = family.client as any;
     await client.image.create({ data: { id: 1, url: "one" } });
     await client.board.create({ data: { id: 1, name: "board" } });
     await client.slot.create({
@@ -1023,8 +1024,11 @@ describe("D — polymorphic writes inside nested updateMany", () => {
       },
     });
 
+    // Verbatim SQL is not qualified by the driver's namespace, so this
+    // hand-written statement must name the suite's schema itself.
+    const slots = `"${family.namespace}"."kpoly_slots"`;
     const stored = await client.$queryRawUnsafe(
-      "SELECT caption, media_type, media_id FROM kpoly_slots WHERE id = 1"
+      `SELECT caption, media_type, media_id FROM ${slots} WHERE id = 1`
     );
     expect(stored).toEqual([
       { caption: "after", media_type: null, media_id: null },

@@ -88,8 +88,11 @@ interface StoredSlot {
 async function storedSlots(
   family: PolymorphicCompoundFamily
 ): Promise<Record<string, string>> {
+  // Verbatim SQL is never rewritten by the driver, so the suite's own schema on
+  // the worker-shared database has to be named here.
+  const slots = `"${family.namespace}"."polyc_slots"`;
   const rows = await family.client.$queryRawUnsafe<StoredSlot>(
-    'SELECT "tenantId", "code", "note", "holder_type", "holder_id" FROM "polyc_slots" ORDER BY "tenantId", "code"'
+    `SELECT "tenantId", "code", "note", "holder_type", "holder_id" FROM ${slots} ORDER BY "tenantId", "code"`
   );
   return Object.fromEntries(
     rows.map((row) => [

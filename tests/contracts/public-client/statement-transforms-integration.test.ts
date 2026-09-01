@@ -32,11 +32,24 @@ interface StatementCall {
   readonly statement: Sql;
 }
 
-function labelComposedCreateStatement(statement: Sql): string {
+/**
+ * The suite owns a private schema, so every emitted table name is qualified
+ * with it. The full qualified name stays pinned — only which schema qualifies
+ * it comes from the fixture.
+ */
+function labelComposedCreateStatement(
+  statement: Sql,
+  namespace: string
+): string {
   const text = statement.toStatement("$n");
-  if (text.startsWith('INSERT INTO "public"."author"')) return "write:author";
-  if (text.startsWith('INSERT INTO "public"."post"')) return "write:post";
-  if (text.startsWith("SELECT") && text.includes('FROM "public"."author"')) {
+  if (text.startsWith(`INSERT INTO "${namespace}"."author"`)) {
+    return "write:author";
+  }
+  if (text.startsWith(`INSERT INTO "${namespace}"."post"`)) return "write:post";
+  if (
+    text.startsWith("SELECT") &&
+    text.includes(`FROM "${namespace}"."author"`)
+  ) {
     return "result:author";
   }
   return `unexpected:${text}`;
@@ -90,7 +103,7 @@ describe("integrated statement transforms", () => {
   });
 
   test("covers the exact physical statement sequence in one composed write", async () => {
-    const { client } = transactionFamily();
+    const { client, namespace } = transactionFamily();
     const calls: StatementCall[] = [];
     const derived = client.$extends(
       recordingExtension("composed", raw("/* composed */ "), calls)
@@ -110,7 +123,9 @@ describe("integrated statement transforms", () => {
       posts: [{ id: "p1", authorId: "a1" }],
     });
     expect(
-      calls.map(({ statement }) => labelComposedCreateStatement(statement))
+      calls.map(({ statement }) =>
+        labelComposedCreateStatement(statement, namespace)
+      )
     ).toEqual(["write:author", "write:post", "result:author"]);
     // Each physical statement carries the model whose rows IT addresses, so the
     // child INSERT identifies itself as `post` — the same attribution the driver
@@ -175,23 +190,25 @@ describe("integrated statement transforms", () => {
   });
 
   test("transforms native prepared entries but leaves marked verbatim raw exact", async () => {
-    const { client, driver } = nativeBatchFamily();
+    const { client, driver, namespace } = nativeBatchFamily();
     await client.author.create({ data: { id: "a1", name: "Ada" } });
     const calls: StatementCall[] = [];
     const derived = client.$extends(
       recordingExtension("native", raw("/* native */ "), calls)
     );
     const executeBatch = vi.spyOn(driver, "_executeBatch");
+    // Raw statements are the caller's own text: nothing qualifies them, so they
+    // name the suite's own schema the way the driver's generated SQL does.
+    const authorTable = `"${namespace}"."author"`;
     const unsafeSql = "SELECT 'verbatim-native' AS value";
-    const unsafeExecuteSql =
-      'UPDATE "author" SET "name" = \'unsafe-native\' WHERE "id" = \'a1\'';
+    const unsafeExecuteSql = `UPDATE ${authorTable} SET "name" = 'unsafe-native' WHERE "id" = 'a1'`;
 
     const [rows, safeRaw, unsafeRaw, safeCount, unsafeCount] =
       await derived.$transaction([
         derived.author.findMany({ where: { id: "a1" } }),
         derived.$queryRaw<{ value: number }>`SELECT ${1}::int AS value`,
         derived.$queryRawUnsafe<{ value: string }>(unsafeSql),
-        derived.$executeRaw`UPDATE "author" SET "name" = ${"safe-native"} WHERE "id" = ${"a1"}`,
+        derived.$executeRaw`UPDATE ${raw(authorTable)} SET "name" = ${"safe-native"} WHERE "id" = ${"a1"}`,
         derived.$executeRawUnsafe(unsafeExecuteSql),
       ]);
 
@@ -215,7 +232,7 @@ describe("integrated statement transforms", () => {
   });
 
   test("transforms tagged raw and preserves unsafe strings byte-for-byte", async () => {
-    const { client, database, driver } = transactionFamily();
+    const { client, database, driver, namespace } = transactionFamily();
     await client.author.create({ data: { id: "a1", name: "Ada" } });
     const calls: StatementCall[] = [];
     const derived = client.$extends(
@@ -223,9 +240,11 @@ describe("integrated statement transforms", () => {
     );
     const providerQuery = vi.spyOn(database, "query");
     const executeRaw = vi.spyOn(driver, "_executeRaw");
+    // Raw statements are the caller's own text: nothing qualifies them, so they
+    // name the suite's own schema the way the driver's generated SQL does.
+    const authorTable = `"${namespace}"."author"`;
     const unsafeSql = "SELECT 'unsafe-direct' AS value";
-    const unsafeExecuteSql =
-      'UPDATE "author" SET "name" = \'unsafe-direct\' WHERE "id" = \'a1\'';
+    const unsafeExecuteSql = `UPDATE ${authorTable} SET "name" = 'unsafe-direct' WHERE "id" = 'a1'`;
 
     await expect(
       derived.$queryRaw<{ value: number }>`SELECT ${1}::int AS value`
@@ -235,7 +254,7 @@ describe("integrated statement transforms", () => {
     ).resolves.toEqual([{ value: "unsafe-direct" }]);
     const safeExecuteProviderIndex = providerQuery.mock.calls.length;
     await expect(
-      derived.$executeRaw`UPDATE "author" SET "name" = ${"safe-direct"} WHERE "id" = ${"a1"}`
+      derived.$executeRaw`UPDATE ${raw(authorTable)} SET "name" = ${"safe-direct"} WHERE "id" = ${"a1"}`
     ).resolves.toBe(1);
     await expect(derived.$executeRawUnsafe(unsafeExecuteSql)).resolves.toBe(1);
 

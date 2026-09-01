@@ -141,7 +141,10 @@ async function seeded(postIds: number[] = []): Promise<{
   const family = getFamily();
   await family.reset();
   const db = family.database;
-  const driver = new TransportCensusPGliteDriver({ client: db });
+  const driver = new TransportCensusPGliteDriver({
+    client: db,
+    namespace: family.namespace,
+  });
   const client = createClient({ schema: updateFamilySchema, driver });
   await client.user.create({ data: { id: 1, email: "root@x", count: 1 } });
   for (const id of postIds) {
@@ -363,15 +366,18 @@ describe("relation bulk transport census on an embedded batch stand-in", () => {
 
   test("a failed emulated batch records rollback and no committed segment", async () => {
     const { driver, client } = await seeded();
+    // Verbatim batch SQL is not qualified by the driver's namespace, so this
+    // hand-written statement must name the suite's schema itself.
+    const users = `"${getFamily().namespace}"."update_family_users"`;
 
     await expect(
       driver._executeBatch([
         {
-          sql: 'INSERT INTO "update_family_users" ("id", "email", "count") VALUES ($1, $2, $3)',
+          sql: `INSERT INTO ${users} ("id", "email", "count") VALUES ($1, $2, $3)`,
           params: [2, "rolled-back@x", 2],
         },
         {
-          sql: 'INSERT INTO "update_family_users" ("id", "email", "count") VALUES ($1, $2, $3)',
+          sql: `INSERT INTO ${users} ("id", "email", "count") VALUES ($1, $2, $3)`,
           params: [3, "root@x", 3],
         },
       ])

@@ -1,15 +1,13 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache as cacheExtension } from "@cache/extension";
 import { VibORM } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
 
 import { s } from "@schema";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createTestClock } from "@tests/fixtures/test-clock";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // Test schema
 const user = s.model({
@@ -28,33 +26,20 @@ const userProfile = s
 const schema = { user, userProfile };
 
 // Test helpers
-let pglite: PGlite;
-let driver: PGliteDriver;
+const family = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  pglite = new PGlite();
-  driver = new PGliteDriver({ client: pglite });
+/** The suite's tables live in its own schema, so raw SQL has to say so. */
+const qualified = (table: string) =>
+  `"${family().driver.adapter.namespace}"."${table}"`;
 
-  // Use syncLiveSchema() to create tables via the migration engine
-  const tempClient = VibORM.create({ schema, driver });
-  await syncLiveSchema(tempClient);
-});
-
-afterAll(async () => {
-  await pglite.close();
-});
-
-beforeEach(async () => {
-  // Clean up data between tests
-  await pglite.exec(`DELETE FROM "cache_user_profile"`);
-  await pglite.exec(`DELETE FROM "user"`);
-});
+/** Write straight to the database, behind both the ORM and the cache. */
+const behindTheOrm = (statement: string) => family().database.exec(statement);
 
 function createCachedClient(
   cacheDriver: MemoryCache | ClockedMemoryCache,
   waitUntil?: (promise: Promise<unknown>) => void
 ) {
-  return VibORM.create({ schema, driver }).$extends(
+  return VibORM.create({ schema, driver: family().driver }).$extends(
     cacheExtension({ driver: cacheDriver, waitUntil })
   );
 }
@@ -141,8 +126,8 @@ describe("Cache", () => {
       expect(result1).toHaveLength(1);
 
       // Add more data directly to DB (bypass ORM)
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Second call - cache hit (should still return 1 user)
@@ -170,7 +155,9 @@ describe("Cache", () => {
       expect(result1?.name).toBe("Alice");
 
       // Update directly in DB
-      await pglite.exec(`UPDATE "user" SET name = 'Updated' WHERE id = '1'`);
+      await behindTheOrm(
+        `UPDATE ${qualified("user")} SET name = 'Updated' WHERE id = '1'`
+      );
 
       // Cache hit - should still return "Alice"
       const result2 = await client
@@ -193,7 +180,9 @@ describe("Cache", () => {
       expect(result1?.name).toBe("Alice");
 
       // Update directly in DB
-      await pglite.exec(`UPDATE "user" SET name = 'Updated' WHERE id = '1'`);
+      await behindTheOrm(
+        `UPDATE ${qualified("user")} SET name = 'Updated' WHERE id = '1'`
+      );
 
       // Cache hit
       const result2 = await client
@@ -216,8 +205,8 @@ describe("Cache", () => {
       expect(count1).toBe(1);
 
       // Add more data directly
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Cache hit - should still return 1
@@ -241,7 +230,7 @@ describe("Cache", () => {
       expect(exists1).toBe(true);
 
       // Delete directly
-      await pglite.exec(`DELETE FROM "user" WHERE id = '1'`);
+      await behindTheOrm(`DELETE FROM ${qualified("user")} WHERE id = '1'`);
 
       // Cache hit - should still return true
       const exists2 = await client
@@ -267,8 +256,8 @@ describe("Cache", () => {
       await settle();
 
       // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Let the TTL expire
@@ -296,8 +285,8 @@ describe("Cache", () => {
       expect(result).toHaveLength(1);
 
       // Should be cached
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
       const result2 = await client
         .$withCache({ key: "string-ttl", ttl: "1 hour" })
@@ -324,8 +313,8 @@ describe("Cache", () => {
       clock.advance(40);
 
       // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('swr-default-1', 'DefaultBob', 'defaultbob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('swr-default-1', 'DefaultBob', 'defaultbob@test.com')`
       );
 
       // Should return stale data (SWR serves from storage)
@@ -338,7 +327,9 @@ describe("Cache", () => {
       // Cleanup — after the revalidation this read kicked off has read the row
       // it is about to delete.
       await revalidated;
-      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-default-1'`);
+      await behindTheOrm(
+        `DELETE FROM ${qualified("user")} WHERE id = 'swr-default-1'`
+      );
     });
 
     it("swr: false disables stale-while-revalidate", async () => {
@@ -358,8 +349,8 @@ describe("Cache", () => {
       clock.advance(50);
 
       // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('swr-disabled-1', 'DisabledBob', 'disabledbob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('swr-disabled-1', 'DisabledBob', 'disabledbob@test.com')`
       );
 
       // With SWR disabled, stale data should NOT be returned - fresh fetch happens
@@ -369,7 +360,9 @@ describe("Cache", () => {
       expect(result).toHaveLength(2); // Gets fresh data, not stale
 
       // Cleanup
-      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-disabled-1'`);
+      await behindTheOrm(
+        `DELETE FROM ${qualified("user")} WHERE id = 'swr-disabled-1'`
+      );
     });
 
     it("accepts custom SWR TTL as number", async () => {
@@ -389,8 +382,8 @@ describe("Cache", () => {
       clock.advance(50);
 
       // Add more data AFTER cache is stale
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('swr-custom-1', 'Bob', 'bob-custom@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('swr-custom-1', 'Bob', 'bob-custom@test.com')`
       );
 
       // Should return stale data immediately (SWR pattern)
@@ -410,7 +403,9 @@ describe("Cache", () => {
       expect(freshResult).toHaveLength(2);
 
       // Cleanup
-      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-custom-1'`);
+      await behindTheOrm(
+        `DELETE FROM ${qualified("user")} WHERE id = 'swr-custom-1'`
+      );
     });
 
     it("accepts custom SWR TTL as string", async () => {
@@ -430,8 +425,8 @@ describe("Cache", () => {
       clock.advance(50);
 
       // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('swr-string-1', 'Charlie', 'charlie@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('swr-string-1', 'Charlie', 'charlie@test.com')`
       );
 
       // Should return stale data
@@ -450,7 +445,9 @@ describe("Cache", () => {
       expect(freshResult).toHaveLength(2);
 
       // Cleanup
-      await pglite.exec(`DELETE FROM "user" WHERE id = 'swr-string-1'`);
+      await behindTheOrm(
+        `DELETE FROM ${qualified("user")} WHERE id = 'swr-string-1'`
+      );
     });
 
     it("returns stale data and revalidates in background", async () => {
@@ -470,8 +467,8 @@ describe("Cache", () => {
       clock.advance(50);
 
       // Add more data AFTER cache is stale
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Should return stale data immediately (SWR pattern)
@@ -505,8 +502,8 @@ describe("Cache", () => {
       await client.$withCache({ key: "bypass-test" }).user.findMany();
 
       // Add more data
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Bypass should get fresh data
@@ -576,8 +573,8 @@ describe("Cache", () => {
       expect(await readProfiles()).toHaveLength(1);
       await settle();
 
-      await pglite.exec(
-        `INSERT INTO "cache_user_profile" ("id", "displayName") VALUES ('profile-2', 'Bob')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("cache_user_profile")} ("id", "displayName") VALUES ('profile-2', 'Bob')`
       );
       expect(await client.userProfile.findMany()).toHaveLength(2);
 
@@ -611,8 +608,8 @@ describe("Cache", () => {
       expect(await readCount()).toBe(1);
       await settle();
 
-      await pglite.exec(
-        `INSERT INTO "user" VALUES ('2', 'Bob', 'bob@test.com')`
+      await behindTheOrm(
+        `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
 
       // Both exact warmed reads are stale before invalidation.
@@ -675,7 +672,9 @@ describe("Cache", () => {
       expect(result1.name).toBe("Alice");
 
       // Update directly
-      await pglite.exec(`UPDATE "user" SET name = 'Updated' WHERE id = '1'`);
+      await behindTheOrm(
+        `UPDATE ${qualified("user")} SET name = 'Updated' WHERE id = '1'`
+      );
 
       // Cache hit
       const result2 = await client

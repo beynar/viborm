@@ -1,50 +1,50 @@
-import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
-function makeClient(schema: Schema, db: PGlite) {
-  return createClient({
-    schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
-  });
+type AnyClient = Record<string, any>;
+
+/** The part of a schema family this harness reads. */
+interface SuiteFamily {
+  readonly database: PGlite;
+  readonly driver: PGliteDriver;
+  readonly client: unknown;
 }
-type AnyClient = ReturnType<typeof makeClient>;
 
 async function runObserved(
+  getFamily: () => SuiteFamily,
   schema: Schema,
   substrate: "tx" | "batch",
   seed: (c: AnyClient) => Promise<void>,
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = openBorrowedPGlite();
-  const base = makeClient(schema, db);
-  await syncLiveSchema(base as never);
+  const family = getFamily();
+  const base = family.client as AnyClient;
   await seed(base);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the schema the family provisioned; otherwise it would address `public`,
+  // where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema: schema as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(base);
-  await base.$disconnect();
-  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
@@ -69,6 +69,8 @@ const genTree = (() => {
     .map("x1b_gen_node");
   return { node };
 })();
+
+const getGenTreeFamily = usePGliteSchemaFamily(genTree);
 
 describe("X1b mechanism 2 — generated-PK fresh child carries its own grandchildren", () => {
   const seed = async (c: AnyClient) => {
@@ -116,13 +118,21 @@ describe("X1b mechanism 2 — generated-PK fresh child carries its own grandchil
   ];
 
   test("tx: the produced id threads to the grandchild (backward Ref), native Observed", async () => {
-    const { state, engines } = await runObserved(genTree, "tx", seed, op, snap);
+    const { state, engines } = await runObserved(
+      getGenTreeFamily,
+      genTree,
+      "tx",
+      seed,
+      op,
+      snap
+    );
     expect(engines).toEqual(new Set(["production"]));
     expect(state).toEqual(expected);
   });
 
   test("batch: the produced id threads to the grandchild", async () => {
     const { state, engines } = await runObserved(
+      getGenTreeFamily,
       genTree,
       "batch",
       seed,
@@ -172,6 +182,8 @@ const blogSchema = (() => {
     .map("x1b_posts");
   return { blog, author, post };
 })();
+
+const getBlogFamily = usePGliteSchemaFamily(blogSchema);
 
 describe("X1b mechanism 1 (fresh) — a parent-held to-one grandchild of a fresh create", () => {
   const seed = async (c: AnyClient) => {
@@ -228,6 +240,7 @@ describe("X1b mechanism 1 (fresh) — a parent-held to-one grandchild of a fresh
 
   test("tx: the before-parent author id folds into the fresh post's FK, native Observed", async () => {
     const { state, engines } = await runObserved(
+      getBlogFamily,
       blogSchema,
       "tx",
       seed,
@@ -240,6 +253,7 @@ describe("X1b mechanism 1 (fresh) — a parent-held to-one grandchild of a fresh
 
   test("batch: the generated author identity folds into the fresh post", async () => {
     const { state, engines } = await runObserved(
+      getBlogFamily,
       blogSchema,
       "batch",
       seed,

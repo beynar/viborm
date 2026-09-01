@@ -173,8 +173,18 @@ interface StoredRequiredComment {
 class BeforePolymorphicBatchDriver extends BatchOnlyPGliteDriver {
   private beforeBatch: (() => Promise<void>) | undefined;
 
-  constructor(database: PGlite, beforeBatch: () => Promise<void>) {
-    super({ client: database });
+  /**
+   * The database is SHARED with every other suite in this worker, so the
+   * suite's private schema has to be handed over with it — without it this
+   * driver addresses `public`, where the suite owns no tables at all and the
+   * staleness window it exists to open is never reached.
+   */
+  constructor(
+    database: PGlite,
+    namespace: string,
+    beforeBatch: () => Promise<void>
+  ) {
+    super({ client: database, namespace });
     this.beforeBatch = beforeBatch;
   }
 
@@ -194,16 +204,20 @@ class BeforePolymorphicBatchDriver extends BatchOnlyPGliteDriver {
 async function storedComments(
   family: PolymorphicWriteFamily
 ): Promise<StoredComment[]> {
+  // Verbatim SQL is never rewritten by the driver, so the suite's own schema on
+  // the worker-shared database has to be named here.
+  const comments = `"${family.namespace}"."poly_write_comments"`;
   return family.client.$queryRawUnsafe<StoredComment>(
-    'SELECT "id", "commentable_type", "commentable_id" FROM "poly_write_comments" ORDER BY "id"'
+    `SELECT "id", "commentable_type", "commentable_id" FROM ${comments} ORDER BY "id"`
   );
 }
 
 async function storedRequiredComments(
   family: PolymorphicWriteFamily
 ): Promise<StoredRequiredComment[]> {
+  const requiredComments = `"${family.namespace}"."poly_write_required_comments"`;
   return family.client.$queryRawUnsafe<StoredRequiredComment>(
-    'SELECT "id", "subject_type", "subject_id" FROM "poly_write_required_comments" ORDER BY "id"'
+    `SELECT "id", "subject_type", "subject_id" FROM ${requiredComments} ORDER BY "id"`
   );
 }
 
@@ -249,7 +263,11 @@ function executeCommentCreateAfterPlanning(
 ): Promise<unknown> {
   const schemas = createSchemaRegistry(polymorphicWriteSchema);
   const engine = new QueryEngine(
-    new BeforePolymorphicBatchDriver(family.database, beforeBatch),
+    new BeforePolymorphicBatchDriver(
+      family.database,
+      family.namespace,
+      beforeBatch
+    ),
     createModelRegistry(polymorphicWriteSchema, schemas)
   );
   return new OperationExecutor(engine).execute(
@@ -265,7 +283,11 @@ function executeCommentUpdateAfterPlanning(
 ): Promise<unknown> {
   const schemas = createSchemaRegistry(polymorphicWriteSchema);
   const engine = new QueryEngine(
-    new BeforePolymorphicBatchDriver(family.database, beforeBatch),
+    new BeforePolymorphicBatchDriver(
+      family.database,
+      family.namespace,
+      beforeBatch
+    ),
     createModelRegistry(polymorphicWriteSchema, schemas)
   );
   return new OperationExecutor(engine).execute(
@@ -281,7 +303,11 @@ function executeRequiredCommentCreateManyAfterPlanning(
 ): Promise<unknown> {
   const schemas = createSchemaRegistry(polymorphicWriteSchema);
   const engine = new QueryEngine(
-    new BeforePolymorphicBatchDriver(family.database, beforeBatch),
+    new BeforePolymorphicBatchDriver(
+      family.database,
+      family.namespace,
+      beforeBatch
+    ),
     createModelRegistry(polymorphicWriteSchema, schemas)
   );
   return new OperationExecutor(engine).execute(
@@ -305,7 +331,11 @@ function executePostUpdateAfterPlanning(
 ): Promise<unknown> {
   const schemas = createSchemaRegistry(polymorphicWriteSchema);
   const engine = new QueryEngine(
-    new BeforePolymorphicBatchDriver(family.database, beforeBatch),
+    new BeforePolymorphicBatchDriver(
+      family.database,
+      family.namespace,
+      beforeBatch
+    ),
     createModelRegistry(polymorphicWriteSchema, schemas)
   );
   return executeRoutedOperation(
@@ -669,7 +699,7 @@ function registerPolymorphicWriteBehavior(
     });
 
     test("singular inverse writes the transitioned parent identity", async () => {
-      const { client } = getFamily();
+      const { client, namespace } = getFamily();
       const post = await client.post.create({
         data: { id: 1, slug: "transition-owner", title: "Transition" },
       });
@@ -691,11 +721,12 @@ function registerPolymorphicWriteBehavior(
           include: { featuredComment: true },
         })
       ).toMatchObject({ featuredComment: { body: "after" } });
+      const featuredComments = `"${namespace}"."poly_write_featured_comments"`;
       const stored = await client.$queryRawUnsafe<{
         commentable_type: string;
         commentable_id: number;
       }>(
-        'SELECT "commentable_type", "commentable_id" FROM "poly_write_featured_comments" WHERE "code" = $1',
+        `SELECT "commentable_type", "commentable_id" FROM ${featuredComments} WHERE "code" = $1`,
         "transition-child"
       );
       expect(stored).toEqual([
@@ -3184,7 +3215,7 @@ function registerPolymorphicWriteBehavior(
     });
 
     test("database orphans fail regardless of direct optionality", async () => {
-      const { client } = getFamily();
+      const { client, namespace } = getFamily();
       const optionalTarget = await client.post.create({
         data: { id: 1, slug: "optional-orphan", title: "Optional orphan" },
       });
@@ -3211,11 +3242,11 @@ function registerPolymorphicWriteBehavior(
       });
 
       await client.$executeRawUnsafe(
-        'DELETE FROM "poly_write_posts" WHERE "id" = $1',
+        `DELETE FROM "${namespace}"."poly_write_posts" WHERE "id" = $1`,
         optionalTarget.id
       );
       await client.$executeRawUnsafe(
-        'DELETE FROM "poly_write_videos" WHERE "id" = $1',
+        `DELETE FROM "${namespace}"."poly_write_videos" WHERE "id" = $1`,
         requiredTarget.id
       );
 
