@@ -81,30 +81,62 @@ export interface PGliteSchemaFamily<S extends Schema> {
   readonly reset: () => Promise<void>;
 }
 
-/** One database, one schema push, and one owner disconnect for a PGlite suite. */
+/**
+ * ONE PGlite per worker process, shared by every suite that uses this fixture,
+ * with a private Postgres schema per suite.
+ *
+ * A PGlite instance is a whole Postgres compiled to Wasm and costs a measured
+ * ~1.3 GiB. Creating one PER SUITE meant a process could hold only one suite,
+ * which is why the credential-free estate ran as ~209 single-file processes and
+ * took ~40 minutes. The database is the expensive thing; a schema is nearly
+ * free, and the driver already qualifies every table with its `namespace`, so
+ * suites isolate perfectly well inside one instance.
+ *
+ * A suite that must NOT share - one that condemns its session, manipulates
+ * schemas directly, or asserts cluster-global state - should keep building its
+ * own `new PGlite()` instead of using this fixture.
+ */
+let workerDatabase: PGlite | undefined;
+let suiteCounter = 0;
+
+function sharedWorkerDatabase(): PGlite {
+  workerDatabase ??= new PGlite();
+  return workerDatabase;
+}
+
+/** One shared database, one private schema, one reset per test. */
 export function usePGliteSchemaFamily<const S extends Schema>(
   schema: S,
   mode: "transaction" | "atomicBatch" = "transaction"
 ): () => PGliteSchemaFamily<S> {
   let family: PGliteSchemaFamily<S> | undefined;
 
+  let namespace: string;
+
   beforeAll(async () => {
-    const database = new PGlite();
+    const database = sharedWorkerDatabase();
+    suiteCounter += 1;
+    namespace = `suite_${suiteCounter}`;
+    await database.query(`CREATE SCHEMA ${quoteIdentifier(namespace)}`);
     const driver =
       mode === "transaction"
-        ? new PGliteDriver({ client: database })
-        : new BatchOnlyPGliteDriver({ client: database });
+        ? new PGliteDriver({ client: database, namespace })
+        : new BatchOnlyPGliteDriver({ client: database, namespace });
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
       const tables = await client.$queryRawUnsafe<PublicTable>(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+        "SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY tablename",
+        namespace
       );
       const truncateStatement =
         tables.length === 0
           ? undefined
           : `TRUNCATE TABLE ${tables
-              .map(({ tablename }) => quoteIdentifier(tablename))
+              .map(
+                ({ tablename }) =>
+                  `${quoteIdentifier(namespace)}.${quoteIdentifier(tablename)}`
+              )
               .join(", ")} RESTART IDENTITY`;
       family = {
         database,
@@ -124,7 +156,9 @@ export function usePGliteSchemaFamily<const S extends Schema>(
         failures.push(disconnectError);
       }
       try {
-        await database.close();
+        await database.query(
+          `DROP SCHEMA IF EXISTS ${quoteIdentifier(namespace)} CASCADE`
+        );
       } catch (closeError) {
         failures.push(closeError);
       }
@@ -154,10 +188,13 @@ export function usePGliteSchemaFamily<const S extends Schema>(
     } catch (disconnectError) {
       failures.push(disconnectError);
     }
-    // The fixture supplied this database, so the driver correctly declines
-    // to close it — the owner does, or every suite leaks one WASM instance.
+    // Drop the SCHEMA, not the database. The instance belongs to the worker and
+    // serves every later suite in this process; closing it here would put the
+    // cost straight back.
     try {
-      await current.database.close();
+      await current.database.query(
+        `DROP SCHEMA IF EXISTS ${quoteIdentifier(namespace)} CASCADE`
+      );
     } catch (closeError) {
       failures.push(closeError);
     }
