@@ -394,13 +394,23 @@ test("driver coverage isolates provider resources and admits only audited local 
   const pgliteCoverageExclusions = [
     "tests/contracts/drivers/consumable-result-rows-pglite.provider.test.ts",
     "tests/contracts/drivers/error-mapping.provider.test.ts",
-    "tests/contracts/drivers/pinned-session-condemned.provider.test.ts",
     "tests/contracts/drivers/transaction-options-behavior.provider.test.ts",
     "tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts",
     "tests/providers/local/pglite-vector.test.ts",
     "tests/providers/local/pglite.test.ts",
   ];
-  for (const file of pgliteCoverageExclusions) {
+  // The condemned-pinned-session suite is one file per test now, so it is
+  // matched by prefix rather than named: naming a split file is exactly how
+  // this list went stale before.
+  const pgliteExclusionsOnDisk = [
+    ...pgliteCoverageExclusions,
+    ...readdirSync(resolve(COVERAGE_PROJECT_ROOT, "tests/contracts/drivers"))
+      .filter((file) => file.startsWith("pinned-session-condemned-"))
+      .filter((file) => file.endsWith(".provider.test.ts"))
+      .sort()
+      .map((file) => `tests/contracts/drivers/${file}`),
+  ];
+  for (const file of pgliteExclusionsOnDisk) {
     assert.ok(!DRIVER_COVERAGE_TESTS.includes(file));
     assert.match(readFileSync(file, "utf8"), PGLITE_RESOURCE_PATTERN);
   }

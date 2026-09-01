@@ -44,7 +44,7 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
  *
  * A single live PGlite instance costs a measured 1294 MiB floor and the
  * heaviest file measured 1747 MiB, so 62% of these files exceed the ordinary
- * 1536 MiB ceiling on their own. The allowlisted 1792 MiB exception exists for
+ * 1536 MiB ceiling on their own. The allowlisted 2560 MiB exception exists for
  * exactly that, but it is conditioned on ISOLATION: one process must not be
  * able to accumulate several databases. Packing three PGlite files into one
  * process is precisely the accumulation the condition forbids.

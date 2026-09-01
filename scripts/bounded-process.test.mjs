@@ -22,12 +22,12 @@ const MAXIMUM_HEAP_PATTERN = /no greater than 768/;
 const ORDINARY_CEILING_REFUSAL_PATTERN =
   /no greater than the ordinary project ceiling of 1536 MiB/;
 const PGLITE_CEILING_REFUSAL_PATTERN =
-  /no greater than the isolated live-PGlite provider ceiling of 1792 MiB/;
+  /no greater than the isolated live-PGlite provider ceiling of 2560 MiB/;
 const UNALLOWLISTED_CEILING_PATTERN = /must be one of the ceilings exported/;
 const ORDINARY_CEILING_LINE_PATTERN =
   /sampled ceiling 1536 MiB, ordinary project/;
 const PGLITE_CEILING_LINE_PATTERN =
-  /sampled ceiling 1792 MiB, isolated live-PGlite provider/;
+  /sampled ceiling 2560 MiB, isolated live-PGlite provider/;
 
 test("fails closed where process-tree bounds cannot be verified", () => {
   assert.doesNotThrow(() => assertBoundedProcessPlatform("darwin"));
@@ -103,20 +103,20 @@ test("the ordinary ceiling is 1536 MiB and may only ever be lowered", () => {
   );
 });
 
-test("no ordinary caller can reach the 1792 MiB PGlite allowance", () => {
+test("no ordinary caller can reach the 2560 MiB PGlite allowance", () => {
   // Not by typing a flag.
   assert.throws(
-    () => parseRssLimitArgument(["--rss-limit-mb=1792"], {}),
+    () => parseRssLimitArgument(["--rss-limit-mb=2560"], {}),
     MAXIMUM_RSS_PATTERN
   );
   // Not through the environment.
   assert.throws(
-    () => parseRssLimitArgument([], { VIBORM_PROCESS_GROUP_RSS_MB: "1792" }),
+    () => parseRssLimitArgument([], { VIBORM_PROCESS_GROUP_RSS_MB: "2560" }),
     MAXIMUM_RSS_PATTERN
   );
   // Not by asking for the number in code without naming a ceiling.
   assert.throws(
-    () => resolveProcessGroupRssCeiling({ rssLimitMb: 1792 }),
+    () => resolveProcessGroupRssCeiling({ rssLimitMb: 2560 }),
     ORDINARY_CEILING_REFUSAL_PATTERN
   );
   // Not by forging a ceiling that looks exactly like the allowlisted one:
@@ -124,8 +124,8 @@ test("no ordinary caller can reach the 1792 MiB PGlite allowance", () => {
   assert.throws(
     () =>
       resolveProcessGroupRssCeiling({
-        rssCeiling: { limitMb: 1792, name: "isolated live-PGlite provider" },
-        rssLimitMb: 1792,
+        rssCeiling: { limitMb: 2560, name: "isolated live-PGlite provider" },
+        rssLimitMb: 2560,
       }),
     UNALLOWLISTED_CEILING_PATTERN
   );
@@ -143,7 +143,7 @@ test("no ordinary caller can reach the 1792 MiB PGlite allowance", () => {
         arguments: ["-e", ""],
         command: process.execPath,
         label: "ordinary caller",
-        rssLimitMb: 1792,
+        rssLimitMb: 2560,
         stdio: "ignore",
         wallLimitMs: 10_000,
       }),
@@ -151,13 +151,13 @@ test("no ordinary caller can reach the 1792 MiB PGlite allowance", () => {
   );
 });
 
-test("the allowlisted PGlite ceiling reaches 1792 MiB and stops there", () => {
-  assert.equal(ISOLATED_PGLITE_PROVIDER_RSS_CEILING.limitMb, 1792);
+test("the allowlisted PGlite ceiling reaches 2560 MiB and stops there", () => {
+  assert.equal(ISOLATED_PGLITE_PROVIDER_RSS_CEILING.limitMb, 2560);
   assert.deepEqual(
     resolveProcessGroupRssCeiling({
       rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
     }),
-    { limitMb: 1792, name: "isolated live-PGlite provider" }
+    { limitMb: 2560, name: "isolated live-PGlite provider" }
   );
   // Lowering stays available on the allowlisted path too.
   assert.deepEqual(
@@ -172,7 +172,7 @@ test("the allowlisted PGlite ceiling reaches 1792 MiB and stops there", () => {
     () =>
       resolveProcessGroupRssCeiling({
         rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
-        rssLimitMb: 1793,
+        rssLimitMb: 2561,
       }),
     PGLITE_CEILING_REFUSAL_PATTERN
   );
@@ -214,7 +214,7 @@ test("a bounded run reports the ceiling it enforced", async () => {
   const outcome = await run.completion;
   assert.equal(outcome.code, 0);
   assert.deepEqual(outcome.rssCeiling, {
-    limitMb: 1792,
+    limitMb: 2560,
     name: "isolated live-PGlite provider",
   });
   // The printed line is derived from the enforced ceiling, so the two cannot

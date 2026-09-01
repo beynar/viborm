@@ -140,7 +140,7 @@ const stages = [
   packageScriptStage("test:types"),
   packageScriptStage("test:core"),
   // The extended estate is split by what it boots. The files that open a live
-  // PGlite database run ALONE under the allowlisted 1792 MiB ceiling, because
+  // PGlite database run ALONE under the allowlisted 2560 MiB ceiling, because
   // that allowance is conditioned on isolation and packing three of them into
   // one process is the accumulation the condition forbids. Everything else
   // keeps the ordinary 1536 MiB and the three-file packing its footprint
