@@ -1,17 +1,24 @@
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { locatedParentRefSchema } from "@tests/contracts/engine/write/located-parent-ref-behavior";
 import {
   makeClient,
   seed,
 } from "@tests/contracts/engine/write/located-parent-ref-fixtures";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. Both recording drivers are
+ * built over that database, so both carry the family's namespace — and the SQL they
+ * record is therefore qualified with it, which is why every pinned statement below
+ * is assembled from `family.namespace` rather than from a literal `"public"`.
+ */
+const getFamily = usePGliteSchemaFamily(locatedParentRefSchema);
 
 /**
  * The two STATEMENT-SHAPE pins of the located-parent Ref: what the transaction plan
@@ -56,10 +63,12 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
       `${kind}: the where:{email} spelling issues the same statement count and the same write SQL as where:{id}`,
       { timeout: 30_000 },
       async () => {
-        const db = openBorrowedPGlite();
-        const driver = new RecordingPGliteDriver({ client: db });
+        const family = getFamily();
+        const driver = new RecordingPGliteDriver({
+          client: family.database,
+          namespace: family.namespace,
+        });
         const client = makeClient(driver);
-        await syncLiveSchema(client);
         await seed(client);
 
         const payload = (noteId: number) =>
@@ -112,8 +121,6 @@ describe("located-parent Ref compiles the same plan as the pinned spelling", () 
               accountId: 2,
             }))
         );
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
   }
@@ -180,81 +187,85 @@ describe("the batch root address, statement by statement", () => {
 
   // `ACCOUNTS` is the CORRELATION name and stays bare beside a qualified target;
   // `ACCOUNTS_TABLE` is the persistent identifier, which PostgreSQL always
-  // qualifies. One constant cannot serve both positions.
+  // qualifies — with THIS suite's schema, not `public`. One constant cannot serve
+  // both positions.
   const ACCOUNTS = '"n1_ref_accounts"';
-  const ACCOUNTS_TABLE = `"public".${ACCOUNTS}`;
-  const PK_LOCATE = `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
-  const TERMINAL = `SELECT "t0"."id" AS "id", "t0"."email" AS "email", "t0"."code" AS "code", "t0"."label" AS "label" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`;
-  const NOTE_INSERT = `INSERT INTO "public"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`;
+  const shapes = (namespace: string) => {
+    const ACCOUNTS_TABLE = `"${namespace}".${ACCOUNTS}`;
+    return {
+      ACCOUNTS_TABLE,
+      PK_LOCATE: `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`,
+      TERMINAL: `SELECT "t0"."id" AS "id", "t0"."email" AS "email", "t0"."code" AS "code", "t0"."label" AS "label" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."id" = $1 LIMIT 1`,
+      NOTE_INSERT: `INSERT INTO "${namespace}"."n1_ref_notes" ("id", "body", "accountId") VALUES ($1, $2, CAST($3 AS INTEGER))`,
+    };
+  };
 
   test("where:{id} issues the pre-change batch, statement for statement", async () => {
-    const db = openBorrowedPGlite();
-    const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
+    const family = getFamily();
+    const { ACCOUNTS_TABLE, PK_LOCATE, TERMINAL, NOTE_INSERT } = shapes(
+      family.namespace
+    );
+    const driver = new RecordingBatchOnlyPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = makeClient(driver);
-    try {
-      await syncLiveSchema(client);
-      await seed(client);
+    await seed(client);
 
-      driver.recording = true;
-      await client.account.update({
-        where: { id: 2 },
-        data: { label: "pinned", notes: { create: { id: 300, body: "b" } } },
-      });
-      driver.recording = false;
+    driver.recording = true;
+    await client.account.update({
+      where: { id: 2 },
+      data: { label: "pinned", notes: { create: { id: 300, body: "b" } } },
+    });
+    driver.recording = false;
 
-      expect(driver.statements).toEqual([
-        // The locate, unchanged.
-        PK_LOCATE,
-        // The presence guard: still `findUnique(where)`. The captured PK would be the
-        // same column with the same literal, and a duplicated conjunct is a second
-        // guard on one invariant.
-        `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-        // The root UPDATE addresses the captured PK, as it always does. The statement is
-        // unchanged because here the captured PK and the `where` are the same conjunct
-        // with the same literal — which is also why the write site carries no branch for
-        // this shape: there would be nothing to tell the two arms apart.
-        `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
-        NOTE_INSERT,
-        TERMINAL,
-      ]);
-    } finally {
-      await client.$disconnect();
-      await closeTestPGlite(db);
-    }
+    expect(driver.statements).toEqual([
+      // The locate, unchanged.
+      PK_LOCATE,
+      // The presence guard: still `findUnique(where)`. The captured PK would be the
+      // same column with the same literal, and a duplicated conjunct is a second
+      // guard on one invariant.
+      `SELECT 1 / CASE WHEN EXISTS (${PK_LOCATE}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+      // The root UPDATE addresses the captured PK, as it always does. The statement is
+      // unchanged because here the captured PK and the `where` are the same conjunct
+      // with the same literal — which is also why the write site carries no branch for
+      // this shape: there would be nothing to tell the two arms apart.
+      `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+      NOTE_INSERT,
+      TERMINAL,
+    ]);
   });
 
   test("where:{email} moves exactly the guard and the root UPDATE onto the captured PK", async () => {
-    const db = openBorrowedPGlite();
-    const driver = new RecordingBatchOnlyPGliteDriver({ client: db });
+    const family = getFamily();
+    const { ACCOUNTS_TABLE, TERMINAL, NOTE_INSERT } = shapes(family.namespace);
+    const driver = new RecordingBatchOnlyPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = makeClient(driver);
-    try {
-      await syncLiveSchema(client);
-      await seed(client);
+    await seed(client);
 
-      driver.recording = true;
-      await client.account.update({
-        where: { email: "target@x" },
-        data: { label: "reffed", notes: { create: { id: 400, body: "b" } } },
-      });
-      driver.recording = false;
+    driver.recording = true;
+    await client.account.update({
+      where: { email: "target@x" },
+      data: { label: "reffed", notes: { create: { id: 400, body: "b" } } },
+    });
+    driver.recording = false;
 
-      expect(driver.statements).toEqual([
-        // The locate still asks the question the caller asked.
-        `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
-        // The guard is now the split-witness: the selector AND the row it located.
-        // The tie-breaker carries no null placement (query-performance plan
-        // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
-        // the index. The guard's meaning is unchanged.
-        `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
-        // The root UPDATE addresses the captured PK — the same row the note INSERT
-        // below and the terminal read already address.
-        `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
-        NOTE_INSERT,
-        TERMINAL,
-      ]);
-    } finally {
-      await client.$disconnect();
-      await closeTestPGlite(db);
-    }
+    expect(driver.statements).toEqual([
+      // The locate still asks the question the caller asked.
+      `SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE "t0"."email" = $1 LIMIT 1`,
+      // The guard is now the split-witness: the selector AND the row it located.
+      // The tie-breaker carries no null placement (query-performance plan
+      // Unit 5.1): `id` is NOT NULL, so `NULLS LAST` named nothing and cost
+      // the index. The guard's meaning is unchanged.
+      `SELECT 1 / CASE WHEN EXISTS (SELECT "t0"."id" AS "id" FROM ${ACCOUNTS_TABLE} AS "t0" WHERE ("t0"."email" = $1 AND "t0"."id" = $2) ORDER BY "t0"."id" ASC LIMIT $3) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+      // The root UPDATE addresses the captured PK — the same row the note INSERT
+      // below and the terminal read already address.
+      `UPDATE ${ACCOUNTS_TABLE} SET "label" = $1 WHERE ${ACCOUNTS}."id" = $2 RETURNING "id" AS "id"`,
+      NOTE_INSERT,
+      TERMINAL,
+    ]);
   });
 });

@@ -6,12 +6,10 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 // A concurrent writer fires once, just before the atomic batch commits.
@@ -44,37 +42,45 @@ const NOT_FOUND_FOR_PARENT = /target record was not found for this parent/;
 
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
-function makeClient(schema: Schema, db: PGlite) {
+/**
+ * The three schemas below share ONE PGlite, each in its own Postgres schema. Every
+ * driver here is built over that database, so every one of them carries the family's
+ * namespace — without it a driver addresses `public`, which holds no tables.
+ */
+type SchemaFamily = { readonly database: PGlite; readonly namespace: string };
+
+function makeClient(schema: Schema, family: SchemaFamily) {
   return createClient({
     schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    }),
   });
 }
 type AnyClient = ReturnType<typeof makeClient>;
 
 async function runObserved(
+  family: SchemaFamily,
   schema: Schema,
   substrate: "tx" | "batch",
   seed: (c: AnyClient) => Promise<void>,
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = openBorrowedPGlite();
-  const base = makeClient(schema, db);
-  await syncLiveSchema(base as never);
+  const base = makeClient(schema, family);
   await seed(base);
+  const options = { client: family.database, namespace: family.namespace };
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver(options)
+      : new BatchOnlyPGliteDriver(options);
   const observed = observeClientOperations({
     schema: schema as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(base);
-  await base.$disconnect();
-  await closeTestPGlite(db);
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
@@ -132,6 +138,8 @@ const chainSchema = (() => {
     .map("x1c_member");
   return { org, team, badge, member };
 })();
+
+const getChainFamily = usePGliteSchemaFamily(chainSchema);
 
 describe("X1c — parent-held to-one under a located update target at level 3 (generated PK)", () => {
   // Two disjoint chains (o1/t1/m1 touched, o2/t2/m2 disjoint) plus a sibling member m1s
@@ -209,6 +217,7 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: the generated badge id folds into the level-3 member SET, native Observed`, async () => {
       const { state, engines } = await runObserved(
+        getChainFamily(),
         chainSchema,
         substrate,
         seed,
@@ -225,13 +234,15 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   // locate finds no row and the whole tree rejects with Direct's verbatim not-found; no
   // partial write, no badge created.
   test("cross-parent selector at depth rejects with the located-target not-found", async () => {
-    const db = openBorrowedPGlite();
-    const base = makeClient(chainSchema, db);
-    await syncLiveSchema(base as never);
+    const family = getChainFamily();
+    const base = makeClient(chainSchema, family);
     await seed(base);
     const observed = observeClientOperations({
       schema: chainSchema as never,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
     // m1s is a member of t1, not t2 — so `o2.teams.update(t2).members.update(m1s)` is
     // cross-parent (t2 has no member m1s).
@@ -259,8 +270,6 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
     const m1s = await (base as any).member.findUnique({ where: { id: "m1s" } });
     expect([m1s.name, m1s.badgeId]).toEqual(["m1s", null]);
     expect(await (base as any).badge.findMany()).toHaveLength(1);
-    await base.$disconnect();
-    await closeTestPGlite(db);
   });
 
   // STALENESS pin: a concurrent writer deletes the located target (m1) between the
@@ -268,15 +277,14 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
   // presence guard fails the batch closed — never a silent no-op, never a dangling
   // badge whose member vanished.
   test("batch: a concurrent delete of the located target fails the batch closed", async () => {
-    const db = openBorrowedPGlite();
-    const base = makeClient(chainSchema, db);
-    await syncLiveSchema(base as never);
+    const family = getChainFamily();
+    const base = makeClient(chainSchema, family);
     await seed(base);
     const driver = new BeforeBatchDriver(
       async () => {
         await (base as any).member.deleteMany({ where: { id: "m1" } });
       },
-      { client: db }
+      { client: family.database, namespace: family.namespace }
     );
     const observed = observeClientOperations({
       schema: chainSchema as never,
@@ -289,8 +297,6 @@ describe("X1c — parent-held to-one under a located update target at level 3 (g
       await (base as any).member.findMany({ where: { id: "m1" } })
     ).toHaveLength(0);
     expect(await (base as any).badge.findMany()).toHaveLength(1);
-    await base.$disconnect();
-    await closeTestPGlite(db);
   }, 45_000);
 });
 
@@ -330,6 +336,8 @@ const d4Tree = (() => {
     .map("x1c_d4_member");
   return { company, org, member };
 })();
+
+const getD4Family = usePGliteSchemaFamily(d4Tree);
 
 describe("X1c — D4 at depth: a located target's non-PK-referenced child UPDATE edge", () => {
   const seed = async (c: AnyClient) => {
@@ -396,6 +404,7 @@ describe("X1c — D4 at depth: a located target's non-PK-referenced child UPDATE
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: the non-PK referenced member update correlates through the located row`, async () => {
       const { state, engines } = await runObserved(
+        getD4Family(),
         d4Tree,
         substrate,
         seed,
@@ -514,6 +523,8 @@ const deepSchema = (() => {
   return { org, team, member, task, note, badge, tag };
 })();
 
+const getDeepFamily = usePGliteSchemaFamily(deepSchema);
+
 describe("X1c — combined ≥6-level tree (fresh + located targets mixed)", () => {
   const seed = async (c: AnyClient) => {
     const client = c as any;
@@ -606,6 +617,7 @@ describe("X1c — combined ≥6-level tree (fresh + located targets mixed)", () 
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: six levels, fresh + located mixed, one boundary`, async () => {
       const { state, engines } = await runObserved(
+        getDeepFamily(),
         deepSchema,
         substrate,
         seed,

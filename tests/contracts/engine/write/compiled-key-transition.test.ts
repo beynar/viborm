@@ -8,13 +8,10 @@ import {
   resetCompileTransition,
 } from "@tests/contracts/engine/write/compiled-key-transition-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /** Rewrites the located counter's `id` after the database answered the locate. */
@@ -107,38 +104,50 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
   }
 }
 
-async function setup(driver: PGliteDriver) {
-  const client = createClient({
+/**
+ * The suite's private schema on the worker-shared PGlite. Both substrates and
+ * both local tests run against it; every driver built over `family.database`
+ * must carry `family.namespace`, or it addresses an empty `public`. The behavior
+ * module resets the tables at the head of each of its tests, so the two legs
+ * share one schema without seeing each other's rows.
+ */
+const getFamily = usePGliteSchemaFamily(compileTransitionSchema);
+
+function connect(driver: PGliteDriver) {
+  return createClient({
     schema: compileTransitionSchema,
     driver,
   }) as any;
-  await syncLiveSchema(client);
-  return client;
 }
 
 const substrates = [
   {
     name: "transaction",
-    make: (db: PGlite) => new PGliteDriver({ client: db }),
+    make: (db: PGlite, namespace: string) =>
+      new PGliteDriver({ client: db, namespace }),
   },
   {
     name: "atomic batch",
-    make: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
+    make: (db: PGlite, namespace: string) =>
+      new BatchOnlyPGliteDriver({ client: db, namespace }),
   },
 ] as const;
 
 for (const substrate of substrates) {
   let shared: any;
-  registerCompileTransitionBehavior(substrate.name, async () => {
-    shared ??= await setup(substrate.make(openBorrowedPGlite()));
-    return shared;
+  registerCompileTransitionBehavior(substrate.name, () => {
+    const family = getFamily();
+    shared ??= connect(substrate.make(family.database, family.namespace));
+    return Promise.resolve(shared);
   });
 }
 
 describe("E6.7 the pre-value's provenance and the window it lives in", () => {
   test("corrupt-locate: the derivation runs over the LOCATED value, not the `where`", async () => {
-    const db = openBorrowedPGlite();
-    const stateClient = await setup(new PGliteDriver({ client: db }));
+    const family = getFamily();
+    const db = family.database;
+    const namespace = family.namespace;
+    const stateClient = connect(new PGliteDriver({ client: db, namespace }));
     await resetCompileTransition(stateClient);
     await stateClient.counter.create({ data: { id: 10, tag: "t" } });
 
@@ -148,7 +157,7 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
     // re-derivation from the payload could never reach.
     const client = createClient({
       schema: compileTransitionSchema,
-      driver: new CorruptLocateDriver({ client: db }, 100),
+      driver: new CorruptLocateDriver({ client: db, namespace }, 100),
     }) as any;
 
     // The root UPDATE addresses the corrupted key, so it matches no row; the child
@@ -172,13 +181,13 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
       expect(ticks).toEqual([]);
       expect(counters.map((row: any) => row.id)).toEqual([10]);
     }
-    await stateClient.$disconnect();
-    await closeTestPGlite(db);
   }, 30_000);
 
   test("concurrency: a key moved between planning and the batch ABORTS the unit", async () => {
-    const db = openBorrowedPGlite();
-    const stateClient = await setup(new PGliteDriver({ client: db }));
+    const family = getFamily();
+    const db = family.database;
+    const namespace = family.namespace;
+    const stateClient = connect(new PGliteDriver({ client: db, namespace }));
     await resetCompileTransition(stateClient);
     await stateClient.counter.create({ data: { id: 10, tag: "t" } });
 
@@ -196,7 +205,7 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
             data: { id: 77 },
           });
         },
-        { client: db }
+        { client: db, namespace }
       ),
     }) as any;
 
@@ -213,7 +222,5 @@ describe("E6.7 the pre-value's provenance and the window it lives in", () => {
     expect(
       (await stateClient.counter.findMany()).map((row: any) => row.id)
     ).toEqual([77]);
-    await stateClient.$disconnect();
-    await closeTestPGlite(db);
   }, 30_000);
 });

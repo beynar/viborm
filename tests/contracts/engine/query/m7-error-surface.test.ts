@@ -3,12 +3,8 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError, UniqueConstraintError } from "@errors";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -56,15 +52,12 @@ class BatchOnlyDriver extends PGliteDriver {
   }
 }
 
-async function setupDb(): Promise<PGlite> {
-  const db = openTestPGlite();
-  const setupClient = createClient({
-    schema: nestedWriteBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
-  });
-  await syncLiveSchema(setupClient);
-  return db;
-}
+/**
+ * The suite's private schema on the worker-shared PGlite. Each arm below starts
+ * from the same empty committed state via `reset()`, so both substrates still
+ * run head-to-head against identical state.
+ */
+const getFamily = usePGliteSchemaFamily(nestedWriteBehaviorSchema);
 
 function boot<TDriver extends PGliteDriver>(
   driver: TDriver
@@ -84,13 +77,21 @@ async function bothModes<S>(scenario: {
 }> {
   const results: { error: unknown; state: S }[] = [];
   for (const makeDriver of [
-    (db: PGlite) => new PGliteDriver({ client: db }),
-    (db: PGlite) => new BatchOnlyDriver({ client: db }),
+    (db: PGlite, namespace: string) =>
+      new PGliteDriver({ client: db, namespace }),
+    (db: PGlite, namespace: string) =>
+      new BatchOnlyDriver({ client: db, namespace }),
   ]) {
-    const db = await setupDb();
-    const seedClient = boot(new PGliteDriver({ client: db }));
+    const family = getFamily();
+    await family.reset();
+    const db = family.database;
+    // Every driver built over the shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const seedClient = boot(
+      new PGliteDriver({ client: db, namespace: family.namespace })
+    );
     await scenario.seed(seedClient);
-    const client = boot(makeDriver(db));
+    const client = boot(makeDriver(db, family.namespace));
     let error: unknown;
     try {
       await scenario.run(client);
@@ -98,8 +99,6 @@ async function bothModes<S>(scenario: {
       error = caught;
     }
     const state = await scenario.snapshot(client);
-    await client.$disconnect();
-    await closeTestPGlite(db);
     results.push({ error, state });
   }
   return { live: results[0]!, planned: results[1]! };
@@ -245,10 +244,15 @@ describe("M7 one error surface", () => {
       // atomic unit. The ladder must let the UniqueConstraintError through
       // unchanged (§7.3 step 1) so the retry wrapper can classify it — it must
       // NOT be rewrapped into a NestedWriteError/assertion error.
-      const db = await setupDb();
-      const seed = boot(new PGliteDriver({ client: db }));
+      const family = getFamily();
+      const db = family.database;
+      const seed = boot(
+        new PGliteDriver({ client: db, namespace: family.namespace })
+      );
       await seed.tag.create({ data: { id: "t-existing", name: "dup" } });
-      const client = boot(new BatchOnlyDriver({ client: db }));
+      const client = boot(
+        new BatchOnlyDriver({ client: db, namespace: family.namespace })
+      );
 
       let error: unknown;
       try {
@@ -272,8 +276,6 @@ describe("M7 one error surface", () => {
       }
 
       expect(error).toBeInstanceOf(UniqueConstraintError);
-      await client.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });

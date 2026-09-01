@@ -14,6 +14,7 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   clientUserPostSchema,
@@ -26,6 +27,23 @@ const SELECT_SQL = /select/i;
 const ANY_LEVEL_SQL =
   /READ UNCOMMITTED|READ COMMITTED|REPEATABLE READ|SERIALIZABLE/;
 const SAVEPOINT_REASON = /SAVEPOINT/;
+
+/**
+ * One PGlite for the whole worker, one private schema for this file, emptied
+ * before each test. Every PGlite driver below is built over that shared
+ * database and MUST carry the suite's namespace: without it the driver
+ * addresses `public`, where this suite has no tables at all. The SQLite legs
+ * keep their own in-memory databases, which cost nothing.
+ */
+const getFamily = usePGliteSchemaFamily(clientUserPostSchema);
+
+function pgliteDriver(): PGliteDriver {
+  const family = getFamily();
+  return new PGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+}
 
 /** Record every statement a driver sends, in order, for placement assertions. */
 function recordStatements(driver: object): string[] {
@@ -48,9 +66,8 @@ function recordStatements(driver: object): string[] {
 
 describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
   test("PGlite emits the level as the first statement inside the transaction", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(
@@ -73,7 +90,6 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
       SELECT_SQL.test(sql)
     );
     expect(firstUserStatement).toBeGreaterThan(isolationIndex);
-    await client.$disconnect();
   });
 
   test.each([
@@ -82,9 +98,8 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
     "RepeatableRead",
     "Serializable",
   ] as const)("PGlite accepts %s and spells it in SQL", async (level) => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(async () => undefined, { isolationLevel: level });
@@ -95,13 +110,11 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
     // ReadCommitted itself, which is the server's documented behavior and not
     // something VibORM should paper over.
     expect(emitted[0]).toMatch(ANY_LEVEL_SQL);
-    await client.$disconnect();
   });
 
   test("PGlite emits no isolation statement when no level is asked for", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction(async (tx) => {
@@ -109,7 +122,6 @@ describe("isolationLevel: post-begin placement (PostgreSQL family)", () => {
     });
 
     expect(statements.filter((sql) => ISOLATION_SQL.test(sql))).toHaveLength(0);
-    await client.$disconnect();
   });
 });
 
@@ -160,9 +172,8 @@ describe("isolationLevel: serializable-only (SQLite family)", () => {
 
 describe("timeout: expiry rolls back and leaves the connection usable", () => {
   test("an over-running callback is rolled back with V5002 and writes nothing", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     // The body blocks until this test releases it, so "the callback outran its
     // timeout" is a fact rather than a race between two durations.
@@ -205,13 +216,11 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
       where: { email: "after@example.com" },
     });
     expect(after).toHaveLength(1);
-    await client.$disconnect();
   });
 
   test("a callback that finishes inside its timeout commits normally", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     await client.$transaction(
       async (tx) => {
@@ -225,7 +234,6 @@ describe("timeout: expiry rolls back and leaves the connection usable", () => {
     expect(
       await client.user.findMany({ where: { email: "fast@example.com" } })
     ).toHaveLength(1);
-    await client.$disconnect();
   });
 });
 
@@ -300,9 +308,8 @@ describe("nested $transaction: the savepoint option contract", () => {
   const nestedOf = (tx: unknown) => tx as unknown as NestedTransactionClient;
 
   test("a nested isolationLevel is refused, naming the savepoint reason", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     await client.$transaction(async (tx) => {
       const nested = vi.fn(async () => undefined);
@@ -317,26 +324,22 @@ describe("nested $transaction: the savepoint option contract", () => {
       ).rejects.toThrow(SAVEPOINT_REASON);
       expect(nested).not.toHaveBeenCalled();
     });
-    await client.$disconnect();
   });
 
   test("a nested maxWait is refused: there is no slot to wait for", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     await client.$transaction(async (tx) => {
       await expect(
         nestedOf(tx).$transaction(async () => undefined, { maxWait: 50 })
       ).rejects.toMatchObject({ code: "V8003" });
     });
-    await client.$disconnect();
   });
 
   test("a nested timeout is honored and rolls back to the savepoint", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     let releaseNested: (() => void) | undefined;
     const nestedHeld = new Promise<void>((resolve) => {
@@ -376,15 +379,13 @@ describe("nested $transaction: the savepoint option contract", () => {
     expect(
       await client.user.findMany({ where: { email: "outer@example.com" } })
     ).toHaveLength(1);
-    await client.$disconnect();
   });
 });
 
 describe("the array form carries isolationLevel into its transaction", () => {
   test("PGlite applies the level to the transaction the batch runs inside", async () => {
-    const driver = new PGliteDriver();
+    const driver = pgliteDriver();
     const client = createClient({ schema: clientUserPostSchema, driver });
-    await syncLiveSchema(client);
 
     const statements = recordStatements(driver);
     await client.$transaction([client.user.findMany(), client.user.count()], {
@@ -394,7 +395,6 @@ describe("the array form carries isolationLevel into its transaction", () => {
     expect(statements.filter((sql) => ISOLATION_SQL.test(sql))).toEqual([
       "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
     ]);
-    await client.$disconnect();
   });
 
   test("an empty array still refuses an option the driver could not honor", async () => {

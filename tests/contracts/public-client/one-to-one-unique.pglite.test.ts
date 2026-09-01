@@ -7,11 +7,9 @@
  * arbitrary row.
  */
 
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
-
 import { s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 const User = s
   .model({
@@ -40,28 +38,12 @@ const schema = { user: User, profile: Profile };
 
 const UNIQUE_VIOLATION = /unique|duplicate/i;
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
-  >
->;
-let pglite: import("@electric-sql/pglite").PGlite;
+const getFamily = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
-  // skipValidation: FK008 flags the deliberately-missing .unique() above;
-  // this suite exists to prove the serializer emits the constraint anyway.
-  await syncLiveSchema(client, { skipValidation: true });
-});
+let client: ReturnType<typeof getFamily>["client"];
 
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
+beforeEach(() => {
+  client = getFamily().client;
 });
 
 describe("one-to-one uniqueness", () => {

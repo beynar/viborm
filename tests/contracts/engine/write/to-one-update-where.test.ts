@@ -14,12 +14,10 @@ import {
   toOneUpdateWhereSchema,
 } from "@tests/contracts/engine/write/to-one-update-where-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
 
@@ -198,14 +196,18 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
   }
 }
 
+// A private schema on the worker's shared database for the injection arm; the
+// behavior legs above take their own through `useBehaviorDatabase`.
+const getStalenessFamily = usePGliteSchemaFamily(toOneUpdateWhereSchema);
+
 for (const { relation } of DIRECTIONS) {
   test(`${relation}: a concurrent write that voids the wrapper filter aborts the batch typed`, async () => {
-    const db = openBorrowedPGlite();
-    const seed = createClient({
-      schema: toOneUpdateWhereSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(seed);
+    const family = getStalenessFamily();
+    const db = family.database;
+    // Every EXTRA driver over that database must name the schema the family
+    // provisioned, or it addresses `public`, where this suite has no tables.
+    const namespace = family.namespace;
+    const seed = family.client;
     await seed.profile.create({
       data: { id: 1, bio: "bio-0", active: true },
     });
@@ -217,7 +219,7 @@ for (const { relation } of DIRECTIONS) {
     // Planning sees `active = true`; the hook flips it before the batch commits.
     const injector = createClient({
       schema: toOneUpdateWhereSchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     const stale = createClient({
       schema: toOneUpdateWhereSchema,
@@ -233,7 +235,7 @@ for (const { relation } of DIRECTIONS) {
                 data: { active: false },
               }));
         },
-        { client: db }
+        { client: db, namespace }
       ),
     });
 
@@ -267,7 +269,5 @@ for (const { relation } of DIRECTIONS) {
     expect(await seed.badge.findUnique({ where: { id: 2 } })).toMatchObject({
       label: "label-0",
     });
-    await seed.$disconnect();
-    await closeTestPGlite(db);
   }, 30_000);
 }

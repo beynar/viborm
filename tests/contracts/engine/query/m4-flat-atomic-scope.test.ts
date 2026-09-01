@@ -4,13 +4,11 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test, vi } from "vitest";
 
 /**
@@ -71,14 +69,17 @@ class AtomicUnitCountingPGliteDriver extends BatchOnlyPGliteDriver {
   }
 }
 
-async function setupDb(): Promise<PGlite> {
-  const db = openTestPGlite();
-  const setupClient = createClient({
-    schema: nestedWriteBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
-  });
-  await syncLiveSchema(setupClient);
-  return db;
+/**
+ * One PGlite for the whole worker, one private schema for this suite. Every
+ * driver below is built over that shared database and MUST carry the suite's
+ * namespace: without it the driver addresses `public`, where this suite has no
+ * tables at all.
+ */
+const getFamily = usePGliteSchemaFamily(nestedWriteBehaviorSchema);
+
+function sharedDatabase(): { client: PGlite; namespace: string } {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
 }
 
 function boot<TDriver extends PGliteDriver>(
@@ -129,8 +130,7 @@ describe("M4 one flat atomic scope", () => {
       "live mode opens withTransaction exactly once for a deep nested create",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new PGliteDriver({ client: db });
+        const driver = new PGliteDriver(sharedDatabase());
         const client = boot(driver);
         await seedTags(client);
 
@@ -146,8 +146,6 @@ describe("M4 one flat atomic scope", () => {
 
         expect(txSpy).toHaveBeenCalledTimes(1);
         txSpy.mockRestore();
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -155,8 +153,7 @@ describe("M4 one flat atomic scope", () => {
       "planned mode runs the whole deep tree as exactly one batch",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new AtomicUnitCountingPGliteDriver({ client: db });
+        const driver = new AtomicUnitCountingPGliteDriver(sharedDatabase());
         const client = boot(driver);
         // Seed the connect targets with the same client, then zero the counter so
         // only the deep create's batch is counted.
@@ -168,8 +165,6 @@ describe("M4 one flat atomic scope", () => {
         // The entire depth-four tree is one atomic batch: one _executeBatch call
         // reaching executeBatch exactly once.
         expect(driver.batchCount).toBe(1);
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -177,8 +172,7 @@ describe("M4 one flat atomic scope", () => {
       "live mode never opens a nested (savepoint) transaction on the tx driver",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new PGliteDriver({ client: db });
+        const driver = new PGliteDriver(sharedDatabase());
         const client = boot(driver);
         await seedTags(client);
 
@@ -204,8 +198,6 @@ describe("M4 one flat atomic scope", () => {
         );
         expect(savepointCalls).toEqual([]);
         rawSpy.mockRestore();
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
   });
@@ -249,13 +241,15 @@ describe("M4 one flat atomic scope", () => {
     // counts left at every level. The assertions live in the test bodies
     // (noMisplacedAssertion); the helper only exercises the operation.
     async function runRollback(
-      createDriver: (db: PGlite) => PGliteDriver
+      createDriver: (db: { client: PGlite; namespace: string }) => PGliteDriver
     ): Promise<{
       threw: boolean;
       counts: { users: number; posts: number; postTags: number };
     }> {
-      const db = await setupDb();
-      const client = boot(createDriver(db));
+      // Both arms of the comparison below run inside ONE test, so the arm's
+      // starting state is reset here rather than relying on the per-test hook.
+      await getFamily().reset();
+      const client = boot(createDriver(sharedDatabase()));
       // Seed the connect targets with the same client so the shared PGlite
       // instance is never closed between seeding and the create under test.
       await seedTags(client);
@@ -269,8 +263,6 @@ describe("M4 one flat atomic scope", () => {
       const users = await client.user.findMany({});
       const posts = await client.post.findMany({});
       const postTags = await client.postTag.findMany({});
-      await client.$disconnect();
-      await closeTestPGlite(db);
       return {
         threw,
         counts: {
@@ -285,9 +277,7 @@ describe("M4 one flat atomic scope", () => {
       "live mode rolls back every level of a deep nested create on a deep failure",
       { timeout: 30_000 },
       async () => {
-        const outcome = await runRollback(
-          (db) => new PGliteDriver({ client: db })
-        );
+        const outcome = await runRollback((db) => new PGliteDriver(db));
         expect(outcome.threw).toBe(true);
         expect(outcome.counts).toEqual({ users: 0, posts: 0, postTags: 0 });
       }
@@ -298,7 +288,7 @@ describe("M4 one flat atomic scope", () => {
       { timeout: 30_000 },
       async () => {
         const outcome = await runRollback(
-          (db) => new AtomicUnitCountingPGliteDriver({ client: db })
+          (db) => new AtomicUnitCountingPGliteDriver(db)
         );
         expect(outcome.threw).toBe(true);
         expect(outcome.counts).toEqual({ users: 0, posts: 0, postTags: 0 });
@@ -311,11 +301,9 @@ describe("M4 one flat atomic scope", () => {
       "both modes leave identical persisted state after a rolled-back deep create",
       { timeout: 30_000 },
       async () => {
-        const live = await runRollback(
-          (db) => new PGliteDriver({ client: db })
-        );
+        const live = await runRollback((db) => new PGliteDriver(db));
         const planned = await runRollback(
-          (db) => new AtomicUnitCountingPGliteDriver({ client: db })
+          (db) => new AtomicUnitCountingPGliteDriver(db)
         );
         expect(planned).toEqual(live);
       }

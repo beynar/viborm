@@ -16,14 +16,20 @@ import {
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+
+/**
+ * The convergence witness at the end of this file needs a live database; the
+ * compile-only matrix above it never connects its drivers. One shared PGlite in this
+ * file's own Postgres schema serves it, and the injecting driver built over that
+ * database carries the same namespace.
+ */
+const getFamily = usePGliteSchemaFamily(producedIdentitySchema);
 
 /** Runs one mutation on the same database just before the atomic batch commits — the
  *  concurrent-writer injection every other pin falsification in this estate uses. */
@@ -194,27 +200,24 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
   }
 
   test("a concurrent create between the probe and the arm's INSERT converges by retry-and-adopt", async () => {
-    const db = openBorrowedPGlite();
+    const family = getFamily();
+    const options = { client: family.database, namespace: family.namespace };
     const base = createClient({
       schema: producedIdentitySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver(options),
     });
-    await syncLiveSchema(base);
     await base.org.create({ data: { id: 2, slug: "target-org" } });
 
-    const driver = new BeforeBatchPGliteDriver(
-      async () => {
-        // The concurrent winner creates the very row the CREATE arm was about to — same
-        // `code`, a DIFFERENT primary key, so the violation the loser hits can only be
-        // the pinned `code` unique and not the primary key. (Colliding on the primary
-        // key too would leave which constraint the provider reports up to the provider,
-        // and the pin is attributed per constraint.)
-        await base.team.create({
-          data: { id: 21, code: "T-FRESH", title: "winner", orgId: 2 },
-        });
-      },
-      { client: db }
-    );
+    const driver = new BeforeBatchPGliteDriver(async () => {
+      // The concurrent winner creates the very row the CREATE arm was about to — same
+      // `code`, a DIFFERENT primary key, so the violation the loser hits can only be
+      // the pinned `code` unique and not the primary key. (Colliding on the primary
+      // key too would leave which constraint the provider reports up to the provider,
+      // and the pin is attributed per constraint.)
+      await base.team.create({
+        data: { id: 21, code: "T-FRESH", title: "winner", orgId: 2 },
+      });
+    }, options);
     const engine = engineFor(driver);
     const executor = new OperationExecutor(engine);
     const operation = constructRoutedOperation(
@@ -245,9 +248,5 @@ describe("N4-U2 — the adopt arm's missing-premise pin after the move", () => {
     // it ran on either attempt.
     await expect(base.task.findMany({})).resolves.toEqual([]);
     await expect(base.lead.findMany({})).resolves.toEqual([]);
-    // One PGlite instance backs both the state client and the injecting driver, so the
-    // client's disconnect closes it once.
-    await base.$disconnect();
-    await closeTestPGlite(db);
   }, 45_000);
 });

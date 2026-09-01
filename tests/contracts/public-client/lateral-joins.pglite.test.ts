@@ -7,19 +7,10 @@
  * - findUnique attaches required joins (same as findMany/findFirst)
  */
 
-import { createClient as PGliteCreateClient } from "@drivers/pglite";
-
 import { s } from "@schema";
 import { sql } from "@sql";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 // =============================================================================
 // TEST SCHEMA
@@ -84,39 +75,20 @@ const schema = {
 // TEST SETUP
 // =============================================================================
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
-  >
->;
-let pglite: import("@electric-sql/pglite").PGlite;
+// Migration still creates the junction table for many-to-many relations; the
+// shared family syncs the schema and empties every table between tests.
+const getFamily = usePGliteSchemaFamily(schema);
 
-beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
-  // Migration now automatically creates junction tables for many-to-many relations
-  await syncLiveSchema(client);
-});
+let client: ReturnType<typeof getFamily>["client"];
 
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
-});
-
-beforeEach(async () => {
-  // Clean up data between tests (junction table first)
-  await client.$executeRaw(sql`DELETE FROM "lj_post_tag"`);
-  await client.comment.deleteMany();
-  await client.post.deleteMany();
-  await client.tag.deleteMany();
-  await client.author.deleteMany();
+beforeEach(() => {
+  client = getFamily().client;
 });
 
 async function seedBasicGraph() {
+  // Verbatim SQL is not qualified by the driver's namespace, so this statement
+  // must name the suite's schema itself.
+  const junction = sql.raw(`"${getFamily().namespace}"."lj_post_tag"`);
   const author = await client.author.create({
     data: { id: "a1", name: "Alice" },
   });
@@ -140,10 +112,10 @@ async function seedBasicGraph() {
 
   // Attach tags to post1 via junction table
   await client.$executeRaw(
-    sql`INSERT INTO "lj_post_tag" ("postId", "tagId") VALUES (${post1.id}, ${tag1.id})`
+    sql`INSERT INTO ${junction} ("postId", "tagId") VALUES (${post1.id}, ${tag1.id})`
   );
   await client.$executeRaw(
-    sql`INSERT INTO "lj_post_tag" ("postId", "tagId") VALUES (${post1.id}, ${tag2.id})`
+    sql`INSERT INTO ${junction} ("postId", "tagId") VALUES (${post1.id}, ${tag2.id})`
   );
 
   return { author, post1, post2, tag1, tag2 };

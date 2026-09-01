@@ -3,12 +3,8 @@ import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -81,15 +77,21 @@ function bootShared<TDriver extends PGliteDriver>(
   return createClient({ schema: nestedWriteBehaviorSchema, driver });
 }
 
-async function setupDb(): Promise<PGlite> {
-  const db = openTestPGlite();
-  const setupClient = createClient({
-    schema: nestedWriteBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
-  });
-  await syncLiveSchema(setupClient);
-  return db;
+/**
+ * One PGlite for the whole worker, one private schema for this suite. Every
+ * driver below is built over that shared database and MUST carry the suite's
+ * namespace: without it the driver addresses `public`, where this suite has no
+ * tables at all.
+ */
+const getFamily = usePGliteSchemaFamily(nestedWriteBehaviorSchema);
+
+function sharedDatabase(): { client: PGlite; namespace: string } {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
 }
+
+const txSpyDriver = () => new TxSpyDriver(sharedDatabase());
+const batchSpyDriver = () => new BatchSpyDriver(sharedDatabase());
 
 async function dumpCounts(client: BehaviorClient): Promise<{
   users: number;
@@ -106,11 +108,8 @@ describe("M2 legality gate", () => {
   describe("unsupported nested create keys reject before parent mutation", () => {
     for (const mode of ["transaction", "batch"] as const) {
       test(`${mode} mode persists no rows`, { timeout: 30_000 }, async () => {
-        const db = await setupDb();
         const driver =
-          mode === "transaction"
-            ? new TxSpyDriver({ client: db })
-            : new BatchSpyDriver({ client: db });
+          mode === "transaction" ? txSpyDriver() : batchSpyDriver();
         const client = bootShared(driver);
 
         await expect(
@@ -129,8 +128,6 @@ describe("M2 legality gate", () => {
         const counts = await dumpCounts(client);
         expect(counts.users).toBe(0);
         expect(counts.posts).toBe(0);
-        await client.$disconnect();
-        await closeTestPGlite(db);
       });
     }
   });
@@ -148,8 +145,7 @@ describe("M2 legality gate", () => {
       "transaction mode: missing target with invalid update branch succeeds",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new TxSpyDriver({ client: db });
+        const driver = txSpyDriver();
         const client = bootShared(driver);
         const txBefore = driver.txOpened;
 
@@ -172,8 +168,6 @@ describe("M2 legality gate", () => {
         expect(driver.txOpened - txBefore).toBeGreaterThan(0);
         const counts = await dumpCounts(client);
         expect(counts.users).toBe(1);
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -181,8 +175,7 @@ describe("M2 legality gate", () => {
       "batch mode: missing target with invalid update branch succeeds",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new BatchSpyDriver({ client: db });
+        const driver = batchSpyDriver();
         const client = bootShared(driver);
 
         const created = await client.user.upsert({
@@ -202,8 +195,6 @@ describe("M2 legality gate", () => {
         expect(created.name).toBe("Created");
         const counts = await dumpCounts(client);
         expect(counts.users).toBe(1);
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -214,8 +205,7 @@ describe("M2 legality gate", () => {
       "transaction mode: existing target executes the taken update branch",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new TxSpyDriver({ client: db });
+        const driver = txSpyDriver();
         const client = bootShared(driver);
         await client.user.create({ data: { id: "u1", name: "A" } });
         await client.post.create({
@@ -243,8 +233,6 @@ describe("M2 legality gate", () => {
         await expect(
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u1" });
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -262,8 +250,7 @@ describe("M2 legality gate", () => {
       "batch-only mode executes the nested series after the root write",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new BatchSpyDriver({ client: db });
+        const driver = batchSpyDriver();
         const client = bootShared(driver);
         await client.user.create({ data: { id: "u1", name: "A" } });
         await client.post.create({
@@ -289,8 +276,6 @@ describe("M2 legality gate", () => {
         await expect(
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u1" });
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
 
@@ -304,8 +289,7 @@ describe("M2 legality gate", () => {
       "batch-only mode lands a DISAGREEING nested relation write",
       { timeout: 30_000 },
       async () => {
-        const db = await setupDb();
-        const driver = new BatchSpyDriver({ client: db });
+        const driver = batchSpyDriver();
         const client = bootShared(driver);
         await client.user.create({ data: { id: "u1", name: "A" } });
         await client.user.create({ data: { id: "u2", name: "B" } });
@@ -332,8 +316,6 @@ describe("M2 legality gate", () => {
         await expect(
           client.post.findUnique({ where: { id: "p1" } })
         ).resolves.toMatchObject({ title: "X", userId: "u2" });
-        await client.$disconnect();
-        await closeTestPGlite(db);
       }
     );
   });

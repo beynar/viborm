@@ -1,6 +1,3 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
 import { NotFoundError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -13,16 +10,18 @@ import {
   makeClient,
   type RawRunner,
   runUpdate,
+  type StalenessTarget,
   startsWithUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+
+// A private schema on the worker's shared database per schema this slice binds.
+// The family syncs its tables and empties them — identities restarted — between
+// tests, which is what a fresh database per test did.
+const getFamily = usePGliteSchemaFamily(updateFamilySchema);
 
 // ---------------------------------------------------------------------------
 // N1 residue — the BATCH root address. Every child edge of a located-parent
@@ -85,14 +84,17 @@ const compoundRootSchema = (() => {
 
 hydrateSchemaNames(compoundRootSchema);
 
+const getCompoundFamily = usePGliteSchemaFamily(compoundRootSchema);
+
 /** {@link runUpdateMidBatch} against {@link compoundRootSchema}. */
 function runCompoundUpdateMidBatch(
-  db: PGlite,
+  target: StalenessTarget,
   hook: (run: RawRunner) => Promise<void>,
   args: Record<string, unknown>
 ): Promise<unknown> {
   const driver = new MidBatchPGliteDriver(hook, startsWithUpdate, {
-    client: db,
+    client: target.database,
+    namespace: target.namespace,
   });
   const schemas = createSchemaRegistry(compoundRootSchema);
   const engine = new QueryEngine(
@@ -111,14 +113,17 @@ function runCompoundUpdateMidBatch(
 
 /** Run a V2 update in forced-batch mode with a hook wedged inside the batch. */
 function runUpdateMidBatch(
-  db: PGlite,
+  target: StalenessTarget,
   hook: (run: RawRunner) => Promise<void>,
   runBefore: (sql: string) => boolean,
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const driver = new MidBatchPGliteDriver(hook, runBefore, { client: db });
+  const driver = new MidBatchPGliteDriver(hook, runBefore, {
+    client: target.database,
+    namespace: target.namespace,
+  });
   const schemas = createSchemaRegistry(updateFamilySchema);
   const engine = new QueryEngine(
     driver,
@@ -136,19 +141,18 @@ function runUpdateMidBatch(
 
 describe("write engine staleness injection (batch root address)", () => {
   test("guard half: a reassigned discriminator aborts the batch, writing neither row", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "split@x", count: 0 } });
 
     // Planning locates user 1 by its email and captures its id for the child FK.
     // The hook then RENAMES user 1 and re-plants `split@x` on a brand-new user 2:
     // the selector still matches a row, so a selector-only presence guard sees
     // nothing wrong — but it is no longer the row the children were built for.
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           await injector.user.update({
             where: { email: "split@x" },
@@ -180,14 +184,11 @@ describe("write engine staleness injection (batch root address)", () => {
       { id: 2, email: "split@x", count: 100 },
     ]);
     await expect(client.post.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("write half: the root UPDATE addresses the captured row, not the one that took the discriminator", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "mid@x", count: 0 } });
 
     // The reassignment lands AFTER the presence guard has passed and BEFORE the
@@ -195,13 +196,15 @@ describe("write engine staleness injection (batch root address)", () => {
     // own address can. It must stay on the captured id — the row the child INSERT
     // and the terminal read both name — never follow the selector onto user 2.
     const result = await runUpdateMidBatch(
-      db,
+      family,
       async (run) => {
+        // Verbatim SQL is not qualified by the driver's namespace, so these
+        // planted statements must name the suite's schema themselves.
         await run(
-          `UPDATE "update_family_users" SET "email" = 'gone@x' WHERE "id" = 1`
+          `UPDATE "${family.namespace}"."update_family_users" SET "email" = 'gone@x' WHERE "id" = 1`
         );
         await run(
-          `INSERT INTO "update_family_users" ("email", "count") VALUES ('mid@x', 100)`
+          `INSERT INTO "${family.namespace}"."update_family_users" ("email", "count") VALUES ('mid@x', 100)`
         );
       },
       startsWithUpdate,
@@ -229,18 +232,15 @@ describe("write engine staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 71, title: "mid", slug: "s71", userId: 1 },
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("control: with no interference the located-parent batch is unchanged", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "calm@x", count: 0 } });
 
     const result = await runUpdate(
-      db,
+      family,
       // The staleness hook is the harness's, not the scenario's: nothing moves.
       () => Promise.resolve(),
       "user",
@@ -259,8 +259,6 @@ describe("write engine staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 72, title: "calm", slug: "s72", userId: 1 },
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   // A `where` whose DISCRIMINATOR names the PK is still not, on its own, an
@@ -271,19 +269,19 @@ describe("write engine staleness injection (batch root address)", () => {
   // lowers no `affectedRows` postcondition. That is the silent zero-row root the
   // address rule exists to forbid, reached through the PK-named door.
   test("write half: an extended selector's filter does not ride into the root UPDATE", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "ext@x", count: 0 } });
 
     // The guard has already asserted `id = 1 AND count = 0` inside the unit. The
     // hook then moves `count` off 0 in the guard→UPDATE window. The UPDATE must
     // still address the row the locate acted on.
     const result = await runUpdateMidBatch(
-      db,
+      family,
       async (run) => {
+        // Verbatim SQL is not qualified by the driver's namespace.
         await run(
-          `UPDATE "update_family_users" SET "count" = 5 WHERE "id" = 1`
+          `UPDATE "${family.namespace}"."update_family_users" SET "count" = 5 WHERE "id" = 1`
         );
       },
       startsWithUpdate,
@@ -306,43 +304,43 @@ describe("write engine staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 73, title: "ext", slug: "s73", userId: 1 },
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("control: an extended selector whose filter excludes the row fails closed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "excl@x", count: 9 } });
 
     await expect(
-      runUpdate(db, () => Promise.resolve(), "user", updateFamilySchema.user, {
-        where: { id: 1, count: 0 },
-        data: {
-          count: { increment: 1 },
-          posts: { create: { id: 74, title: "excl", slug: "s74" } },
-        },
-        select: { email: true, count: true },
-      })
+      runUpdate(
+        family,
+        () => Promise.resolve(),
+        "user",
+        updateFamilySchema.user,
+        {
+          where: { id: 1, count: 0 },
+          data: {
+            count: { increment: 1 },
+            posts: { create: { id: 74, title: "excl", slug: "s74" } },
+          },
+          select: { email: true, count: true },
+        }
+      )
     ).rejects.toBeInstanceOf(NotFoundError);
 
     await expect(client.user.findMany()).resolves.toEqual([
       { id: 1, email: "excl@x", count: 9 },
     ]);
     await expect(client.post.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("control: an extended selector with no interference runs once", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "ok@x", count: 0 } });
 
     const result = await runUpdate(
-      db,
+      family,
       () => Promise.resolve(),
       "user",
       updateFamilySchema.user,
@@ -360,8 +358,6 @@ describe("write engine staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 75, title: "ok", slug: "s75", userId: 1 },
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   // The SECOND spelling of the same hazard, and the one that stays hidden if you look
@@ -372,18 +368,17 @@ describe("write engine staleness injection (batch root address)", () => {
   // Both spellings are why the address rule has no arms: the root UPDATE addresses the
   // captured PK whatever the selector named, so neither spelling has a door to enter by.
   test("write half: a compound unique's non-PK member does not ride into the root UPDATE", async () => {
-    const db = openBorrowedPGlite();
-    const client = createClient({
-      schema: compoundRootSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(client);
+    const family = getCompoundFamily();
+    const client = family.client;
     await client.user.create({ data: { id: 1, email: "cmp@x", count: 0 } });
 
     const result = await runCompoundUpdateMidBatch(
-      db,
+      family,
       async (run) => {
-        await run(`UPDATE "cmp_root_users" SET "count" = 5 WHERE "id" = 1`);
+        // Verbatim SQL is not qualified by the driver's namespace.
+        await run(
+          `UPDATE "${family.namespace}"."cmp_root_users" SET "count" = 5 WHERE "id" = 1`
+        );
       },
       {
         where: { id_count: { id: 1, count: 0 } },
@@ -399,25 +394,19 @@ describe("write engine staleness injection (batch root address)", () => {
     await expect(client.post.findMany()).resolves.toEqual([
       { id: 76, title: "cmp", userId: 1 },
     ]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   // The compound arm's no-interference control. Its `where` names `id` AND `count`, so
   // it is the same selector as the arm above with the mid-batch move removed: the
   // premise holds, the guard passes, and the unit runs exactly once.
   test("control: a compound-unique selector with no interference runs once", async () => {
-    const db = openBorrowedPGlite();
-    const client = createClient({
-      schema: compoundRootSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(client);
+    const family = getCompoundFamily();
+    const client = family.client;
     await client.user.create({ data: { id: 1, email: "pk@x", count: 0 } });
 
     // No interference: the compound selector's premise holds and the unit runs once.
     const result = await runCompoundUpdateMidBatch(
-      db,
+      family,
       () => Promise.resolve(),
       {
         where: { id_count: { id: 1, count: 0 } },
@@ -430,7 +419,5 @@ describe("write engine staleness injection (batch root address)", () => {
     );
 
     expect(result).toEqual({ email: "pk@x", count: 1 });
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });

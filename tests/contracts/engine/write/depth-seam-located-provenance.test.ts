@@ -11,11 +11,7 @@ import {
   nonPkLocatedDeepCreate,
   TARGET_NOT_FOUND,
 } from "@tests/contracts/engine/write/depth-seam-fixtures";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -130,23 +126,32 @@ type CorruptConfig = ConstructorParameters<
 function corruptDriver(
   substrate: "transaction" | "atomic batch",
   db: PGlite,
+  namespace: string,
   config: CorruptConfig
 ): CorruptDepthLocatePGliteDriver {
   return substrate === "transaction"
-    ? new CorruptDepthLocatePGliteDriver({ client: db }, config)
-    : new CorruptDepthLocateBatchDriver({ client: db }, config);
+    ? new CorruptDepthLocatePGliteDriver({ client: db, namespace }, config)
+    : new CorruptDepthLocateBatchDriver({ client: db, namespace }, config);
 }
+
+/**
+ * The suite's private schema on the worker-shared PGlite. Every driver built
+ * over `family.database` must carry `family.namespace`, or it addresses an empty
+ * `public`.
+ */
+const getFamily = usePGliteSchemaFamily(depthSeamSchema);
 
 /** The executor's typed refusal when a declared `firstRowField` output is absent. */
 const UNRESOLVED_LOCATED_PK = /did not produce row field 'id'/;
 
 describe("N4-U1 located-target provenance (staleness injection at depth)", () => {
   const setupDb = async () => {
-    const db = openBorrowedPGlite();
-    const stateClient = makeSeamClient(new PGliteDriver({ client: db }));
-    await syncLiveSchema(stateClient);
+    const { database: db, namespace } = getFamily();
+    const stateClient = makeSeamClient(
+      new PGliteDriver({ client: db, namespace })
+    );
     await seedProjects(stateClient);
-    return { db, stateClient };
+    return { db, namespace, stateClient };
   };
 
   test(
@@ -155,14 +160,14 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       timeout: 30_000,
     },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { db, namespace, stateClient } = await setupDb();
       // The probe hands back the DECOY's primary key — a value that EXISTS, so no
       // constraint can catch it, and one the `where` never mentions. If the grandchild
       // still landed on 20 the value would be re-derived from the selector rather than
       // consumed from the row the probe locked, and the wrong-row doctrine would be
       // unenforced at depth exactly as it was in the upsert create-arm bug W4 fixed.
       const update = makeSeamRunner(
-        corruptDriver("transaction", db, {
+        corruptDriver("transaction", db, namespace, {
           table: "n4_seam_projects",
           column: "id",
           mode: "wrong",
@@ -185,8 +190,6 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       await expect(
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -196,7 +199,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       timeout: 30_000,
     },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { db, namespace, stateClient } = await setupDb();
       // The N1/N4-U1 provenance instrument aimed at an EXTENDED nested selector.
       //
       // The state assertions in the behavior suite cannot separate the two
@@ -212,7 +215,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       // the `where` a second time, which is the wrong-row doctrine's exact prohibition
       // and the bug class W4 fixed at the root.
       const update = makeSeamRunner(
-        corruptDriver("transaction", db, {
+        corruptDriver("transaction", db, namespace, {
           table: "n4_seam_projects",
           column: "id",
           mode: "wrong",
@@ -243,8 +246,6 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       await expect(
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -254,14 +255,14 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       timeout: 30_000,
     },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { db, namespace, stateClient } = await setupDb();
       // The same instrument on the seam whose write did not address its own probe's row.
       // Its grandchildren take `plannedParentId(probe, id)` and its update used to take
       // the `where`, so a probe returning the DECOY's key split the payload in half with
       // no concurrency at all: the title on the row the selector names, the task on the
       // row the probe returned. Both must follow the probe — the row this part acted on.
       const update = makeSeamRunner(
-        corruptDriver("transaction", db, {
+        corruptDriver("transaction", db, namespace, {
           table: "n4_seam_projects",
           column: "id",
           mode: "wrong",
@@ -292,8 +293,6 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       await expect(
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -303,7 +302,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       timeout: 30_000,
     },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { db, namespace, stateClient } = await setupDb();
       // Same corruption, other substrate. The batch's split-witness presence guard
       // re-asserts `selector AND fk = parent AND pk = <located>` on one row, so a
       // located key that does not belong to the named target can never reach a write:
@@ -311,7 +310,7 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       // leg, and for that reason blind to provenance — which is why the claim above is
       // measured on the substrate that lets the value through.
       const update = makeSeamRunner(
-        corruptDriver("atomic batch", db, {
+        corruptDriver("atomic batch", db, namespace, {
           table: "n4_seam_projects",
           column: "id",
           mode: "wrong",
@@ -325,8 +324,6 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
       await expect(
         stateClient.project.findUnique({ where: { id: 20 } })
       ).resolves.toMatchObject({ title: "same" });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -337,12 +334,12 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         timeout: 30_000,
       },
       async () => {
-        const { db, stateClient } = await setupDb();
+        const { db, namespace, stateClient } = await setupDb();
         // The deeper edges Ref a DECLARED `firstRowField` output of the probe, not a raw
         // row read — which is what makes an absent value a typed planning failure before
         // any write instead of an `undefined` reaching the INSERT as a NULL foreign key.
         const update = makeSeamRunner(
-          corruptDriver(substrate, db, {
+          corruptDriver(substrate, db, namespace, {
             table: "n4_seam_projects",
             column: "id",
             mode: "drop",
@@ -355,8 +352,6 @@ describe("N4-U1 located-target provenance (staleness injection at depth)", () =>
         await expect(
           stateClient.project.findUnique({ where: { id: 20 } })
         ).resolves.toMatchObject({ title: "same" });
-        await stateClient.$disconnect();
-        await closeTestPGlite(db);
       }
     );
   }

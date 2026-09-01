@@ -5,6 +5,7 @@ import { NestedWriteError } from "@errors";
 
 import {
   makeLookupClient,
+  parentHeldLookupSchema,
   runBeforeRootSubtreeBehavior,
   runNonPkReferenceBehavior,
   runParentHeldLookupBehavior,
@@ -13,13 +14,24 @@ import {
   seedProducedIdentityDecoy,
 } from "@tests/contracts/engine/write/parent-held-lookup-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * The file-local witnesses below share ONE PGlite in their own Postgres schema (the
+ * behavior legs above own their own families). Every driver built over that database
+ * carries the family's namespace — without it a driver addresses `public`, which
+ * holds none of this suite's tables.
+ */
+const getFamily = usePGliteSchemaFamily(parentHeldLookupSchema);
+
+const driverOptions = () => {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
+};
 
 runParentHeldLookupBehavior({
   name: "PGlite transaction",
@@ -145,18 +157,18 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     "the written key comes from the LOOKUP, not from the probe row",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
 
       // Author 1 is a real, live row, so a wrong provenance is a silent WRONG ROW
       // rather than a foreign-key error: both values are insertable.
       const client = makeLookupClient(
-        new CorruptConnectProbeDriver(
-          { client: db },
-          { table: "e1_authors", column: "id", wrongValue: 1 }
-        )
+        new CorruptConnectProbeDriver(options, {
+          table: "e1_authors",
+          column: "id",
+          wrongValue: 1,
+        })
       );
       await expect(
         client.book.update({
@@ -167,10 +179,6 @@ describe("E1 U1 — the lookup fold's provenance", () => {
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
       ).resolves.toEqual({ id: 2, title: "book-2", authorId: 2 });
-      // Only the state client disposes: both clients drive the SAME PGlite
-      // instance, and closing it twice is the disconnect error, not a finding.
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -178,19 +186,19 @@ describe("E1 U1 — the lookup fold's provenance", () => {
     "a probe row whose required referenced column reads NULL fails typed parsing",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
 
       // The probe row now crosses the complete typed result boundary before the
       // relation compiler consumes it. Corrupting a required int to null must stop
       // there; the later relation-specific null diagnostic is unreachable by design.
       const client = makeLookupClient(
-        new CorruptConnectProbeDriver(
-          { client: db },
-          { table: "e1_authors", column: "id", wrongValue: null }
-        )
+        new CorruptConnectProbeDriver(options, {
+          table: "e1_authors",
+          column: "id",
+          wrongValue: null,
+        })
       );
       await expect(
         client.book.update({
@@ -203,10 +211,6 @@ describe("E1 U1 — the lookup fold's provenance", () => {
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
       ).resolves.toEqual({ id: 2, title: "book-2", authorId: null });
-      // Only the state client disposes: both clients drive the SAME PGlite
-      // instance, and closing it twice is the disconnect error, not a finding.
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });
@@ -259,27 +263,23 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
     "a target deleted between planning and the batch aborts typed, writing nothing",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
 
-      const injector = makeLookupClient(new PGliteDriver({ client: db }));
+      const injector = makeLookupClient(new PGliteDriver(options));
       const client = makeLookupClient(
-        new BeforeBatchLookupDriver(
-          async () => {
-            // The row the probe found, gone before the UPDATE runs. Without the
-            // arm's presence guard the lookup subquery would return no row and the
-            // SET would silently write NULL — the very outcome carve-out (a)
-            // refuses when the value is NULL for a different reason.
-            await injector.book.update({
-              where: { id: 1 },
-              data: { author: { disconnect: true } },
-            });
-            await injector.author.delete({ where: { email: "target@x" } });
-          },
-          { client: db }
-        )
+        new BeforeBatchLookupDriver(async () => {
+          // The row the probe found, gone before the UPDATE runs. Without the
+          // arm's presence guard the lookup subquery would return no row and the
+          // SET would silently write NULL — the very outcome carve-out (a)
+          // refuses when the value is NULL for a different reason.
+          await injector.book.update({
+            where: { id: 1 },
+            data: { author: { disconnect: true } },
+          });
+          await injector.author.delete({ where: { email: "target@x" } });
+        }, options)
       );
 
       // MEASURED ATTRIBUTION: the connect arm's own presence guard fails first,
@@ -294,8 +294,6 @@ describe("E1 U1 — the guard→UPDATE vanish window", () => {
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
       ).resolves.toEqual({ id: 2, title: "book-2", authorId: null });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });
@@ -375,9 +373,8 @@ describe("E1 U3 — the subtree root's produced identity", () => {
     "the enclosing UPDATE's SET follows the key the SUBTREE's INSERT returned",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
       await seedProducedIdentityDecoy(stateClient);
       const decoy = await stateClient.magazine.findFirst({
@@ -385,10 +382,11 @@ describe("E1 U3 — the subtree root's produced identity", () => {
       });
 
       const client = makeLookupClient(
-        new CorruptSubtreeInsertDriver(
-          { client: db },
-          { table: "e1_magazines", column: "id", wrongValue: decoy?.id }
-        )
+        new CorruptSubtreeInsertDriver(options, {
+          table: "e1_magazines",
+          column: "id",
+          wrongValue: decoy?.id,
+        })
       );
       // THE CLAIM. The issue's foreign key follows the CORRUPTED returned key —
       // the decoy magazine — because that is what the subtree's own INSERT
@@ -411,8 +409,6 @@ describe("E1 U3 — the subtree root's produced identity", () => {
         stateClient.issue.findUnique({ where: { id: 1 } })
       ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: decoy?.id });
       expect(decoy?.id).not.toBe(magazines[1]?.id);
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });
@@ -430,25 +426,21 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
     "a target that vanishes before the batch aborts with the upsert family's wording",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
 
-      const injector = makeLookupClient(new PGliteDriver({ client: db }));
+      const injector = makeLookupClient(new PGliteDriver(options));
       const client = makeLookupClient(
-        new BeforeBatchLookupDriver(
-          async () => {
-            // Both reads saw author 1. Release the foreign key and delete it, so the
-            // premise the arm chose its branch on is false by the time the batch runs.
-            await injector.book.update({
-              where: { id: 1 },
-              data: { author: { disconnect: true } },
-            });
-            await injector.author.delete({ where: { id: 1 } });
-          },
-          { client: db }
-        )
+        new BeforeBatchLookupDriver(async () => {
+          // Both reads saw author 1. Release the foreign key and delete it, so the
+          // premise the arm chose its branch on is false by the time the batch runs.
+          await injector.book.update({
+            where: { id: 1 },
+            data: { author: { disconnect: true } },
+          });
+          await injector.author.delete({ where: { id: 1 } });
+        }, options)
       );
 
       // MEASURED OUTCOME (i): a typed abort carrying the UPSERT family's premise
@@ -475,8 +467,6 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
       await expect(
         stateClient.author.findMany({ orderBy: { id: "asc" } })
       ).resolves.toEqual([{ id: 2, email: "target@x", name: "target" }]);
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });
@@ -492,9 +482,8 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
     "the arm's UPDATE addresses the primary key the PROBE returned",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
       await stateClient.holder.update({
         where: { id: 1 },
@@ -505,10 +494,11 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
       // provenance is a silent WRONG ROW and not a constraint error. The probe is
       // the FIRST read of `e1_badges` this operation makes.
       const client = makeLookupClient(
-        new CorruptConnectProbeDriver(
-          { client: db },
-          { table: "e1_badges", column: "id", wrongValue: 1 }
-        )
+        new CorruptConnectProbeDriver(options, {
+          table: "e1_badges",
+          column: "id",
+          wrongValue: 1,
+        })
       );
       await client.holder.update({
         where: { id: 1 },
@@ -524,8 +514,6 @@ describe("E1 U6 — the non-PK edge's captured identity", () => {
         { id: 1, slug: "codeless", code: null, tier: "platinum" },
         { id: 2, slug: "gold-slug", code: "GOLD", tier: "gold" },
       ]);
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });
@@ -543,9 +531,8 @@ describe("E1 U3 — the produced identity by substrate", () => {
     "the transaction path spends the key the subtree's INSERT produced",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const client = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(client);
+      const options = driverOptions();
+      const client = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(client);
       await seedProducedIdentityDecoy(client);
 
@@ -563,8 +550,6 @@ describe("E1 U3 — the produced identity by substrate", () => {
         { id: 1, title: "decoy-magazine" },
         { id: 2, title: "fresh-magazine" },
       ]);
-      await client.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -572,13 +557,12 @@ describe("E1 U3 — the produced identity by substrate", () => {
     "the PostgreSQL atomic batch spends the producer's exact RETURNING key",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeLookupClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = driverOptions();
+      const stateClient = makeLookupClient(new PGliteDriver(options));
       await seedLookupBed(stateClient);
       await seedProducedIdentityDecoy(stateClient);
 
-      const driver = new BatchOnlyPGliteDriver({ client: db });
+      const driver = new BatchOnlyPGliteDriver(options);
       const client = makeLookupClient(driver);
       await expect(
         client.issue.update({
@@ -595,8 +579,6 @@ describe("E1 U3 — the produced identity by substrate", () => {
       await expect(
         stateClient.issue.findUnique({ where: { id: 1 } })
       ).resolves.toEqual({ id: 1, name: "issue-1", magazineId: 2 });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });

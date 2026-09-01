@@ -1,11 +1,14 @@
-import { createClient as createPGliteClient } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { TransactionError } from "@errors";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 const record = s.model({ id: s.string().id() });
 const schema = { record };
+
+const ORIGINATING_CLIENT = /cannot use the originating client/;
+
+const getFamily = usePGliteSchemaFamily(schema);
 
 describe("single-connection root client during a callback transaction", () => {
   /**
@@ -13,34 +16,22 @@ describe("single-connection root client during a callback transaction", () => {
    * refused, not silently join a transaction it was never handed.
    */
   test("refuses a root-client operation while the connection is transaction-bound", async () => {
-    const pglite = new PGlite();
-    const client = await createPGliteClient({
-      schema,
-      client: pglite,
-    });
-    try {
-      const failure = await client
-        .$transaction(async (_tx) => {
-          await client.record.create({ data: { id: "escapee" } });
-        })
-        .then(
-          () => undefined,
-          (error: unknown) => error
-        );
+    const { client } = getFamily();
+    const failure = await client
+      .$transaction(async (_tx) => {
+        await client.record.create({ data: { id: "escapee" } });
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
 
-      expect(failure).toBeInstanceOf(TransactionError);
-      if (!(failure instanceof TransactionError)) throw failure;
-      expect(failure.message).toMatch(/cannot use the originating client/);
-      expect(failure.meta).toMatchObject({
-        driver: "pglite",
-        method: "$transaction(callback)",
-      });
-    } finally {
-      try {
-        await client.$disconnect();
-      } finally {
-        await pglite.close();
-      }
-    }
+    expect(failure).toBeInstanceOf(TransactionError);
+    if (!(failure instanceof TransactionError)) throw failure;
+    expect(failure.message).toMatch(ORIGINATING_CLIENT);
+    expect(failure.meta).toMatchObject({
+      driver: "pglite",
+      method: "$transaction(callback)",
+    });
   });
 });

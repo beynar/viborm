@@ -11,17 +11,23 @@ import type { CommittedBatchNotification } from "@src/drivers/types";
 import { CreateManyRecordSeries } from "@src/query-engine/write-engine/CreateManyRecordSeries";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { junctionSkipAdoptSchema } from "@tests/contracts/engine/write/junction-skip-adoption-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 
 hydrateSchemaNames(junctionSkipAdoptSchema);
+
+/**
+ * Every PGlite suite in this file rides ONE shared database, each in its own
+ * Postgres schema. A driver built over `family.database` therefore has to carry
+ * `family.namespace` too, or it addresses `public` and finds no tables.
+ */
+const getSkipAdoptFamily = usePGliteSchemaFamily(junctionSkipAdoptSchema);
 
 /** The ONE sentence both root-conflict readers construct (`strandedRootConflictPrefix`). */
 const STRANDED_PREFIX_REFUSAL =
@@ -137,30 +143,34 @@ describe("root-first junction suppression on batch-only substrates", () => {
 
   const substrates: readonly [
     string,
-    (database: PGlite) => CountingBatchOnlyPGlite,
+    (family: ReturnType<typeof getSkipAdoptFamily>) => CountingBatchOnlyPGlite,
   ][] = [
     [
       "a capability-false batch driver",
-      (database) => new CountingBatchOnlyPGlite({ client: database }),
+      (family) =>
+        new CountingBatchOnlyPGlite({
+          client: family.database,
+          namespace: family.namespace,
+        }),
     ],
     [
       "an ordered committed-segment driver",
-      (database) => new CountingProgressivePGlite({ client: database }),
+      (family) =>
+        new CountingProgressivePGlite({
+          client: family.database,
+          namespace: family.namespace,
+        }),
     ],
   ];
 
   for (const [substrate, createDriver] of substrates) {
     test(`${substrate} suppresses only the duplicate root and lands its sibling`, async () => {
-      const database = openBorrowedPGlite();
-      const state = createClient({
-        schema: junctionSkipAdoptSchema,
-        driver: new PGliteDriver({ client: database }),
-      });
-      await syncLiveSchema(state);
+      const family = getSkipAdoptFamily();
+      const state = family.client;
       await state.gem.create({ data: { tag: "taken", text: "ORIGINAL" } });
       await state.vault.create({ data: { id: "v1" } });
 
-      const driver = createDriver(database);
+      const driver = createDriver(family);
       const client = createClient({ schema: junctionSkipAdoptSchema, driver });
       expect(construct(driver, rootFirstSuppression())).not.toThrow();
       await client.vault.update(rootFirstSuppression());
@@ -186,8 +196,6 @@ describe("root-first junction suppression on batch-only substrates", () => {
         select: { tag: true },
       });
       expect(linked.map((row) => row.tag)).toEqual(["kept"]);
-      await state.$disconnect();
-      await closeTestPGlite(database);
     }, 60_000);
   }
 });
@@ -233,21 +241,22 @@ const progressiveSkipSchema = (() => {
   return { board, bucket, gem, owner };
 })();
 
+const getProgressiveSkipFamily = usePGliteSchemaFamily(progressiveSkipSchema);
+
 describe("nested root-first suppression keeps each progressive guard exact", () => {
   test("an outer scalar prefix and nested updateMany both land", async () => {
-    const database = openBorrowedPGlite();
-    const state = createClient({
-      schema: progressiveSkipSchema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getProgressiveSkipFamily();
+    const state = family.client;
     await state.owner.create({ data: { id: "o1", marker: "before" } });
     await state.bucket.create({
       data: { id: "b1", label: "before", ownerId: "o1" },
     });
     await state.gem.create({ data: { tag: "taken" } });
 
-    const driver = new CountingProgressivePGlite({ client: database });
+    const driver = new CountingProgressivePGlite({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({
       schema: progressiveSkipSchema,
       driver,
@@ -293,17 +302,11 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
       })
     ).resolves.toEqual([]);
     expect(driver.statements).toBeGreaterThan(0);
-    await state.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 
   test("junction updateMany lands its prefix without linking the skipped root", async () => {
-    const database = openBorrowedPGlite();
-    const state = createClient({
-      schema: progressiveSkipSchema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getProgressiveSkipFamily();
+    const state = family.client;
     await state.bucket.create({ data: { id: "b1", label: "before" } });
     await state.board.create({
       data: {
@@ -314,7 +317,10 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
     });
     await state.gem.create({ data: { tag: "taken" } });
 
-    const driver = new CountingProgressivePGlite({ client: database });
+    const driver = new CountingProgressivePGlite({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({
       schema: progressiveSkipSchema,
       driver,
@@ -356,8 +362,6 @@ describe("nested root-first suppression keeps each progressive guard exact", () 
       })
     ).resolves.toEqual([]);
     expect(driver.statements).toBeGreaterThan(0);
-    await state.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -396,23 +400,26 @@ function alternatingDefaultSkipSchema(replay: { complete: boolean }) {
   return { bucket, gem, owner };
 }
 
+/** The flag the replayable default reads, and the schema that closes over it. Both
+ *  live for the whole file now that the database does. */
+const alternatingReplay = { complete: false };
+const alternatingSchema = alternatingDefaultSkipSchema(alternatingReplay);
+const getAlternatingFamily = usePGliteSchemaFamily(alternatingSchema);
+
 describe("replayable defaults are evaluated for each selected member", () => {
   test("a default is reparsed after the committed prefix", async () => {
-    const replay = { complete: false };
-    const schema = alternatingDefaultSkipSchema(replay);
-    const database = openBorrowedPGlite();
-    const state = createClient({
-      schema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getAlternatingFamily();
+    const state = family.client;
     await state.owner.create({ data: { id: "o1", marker: "before" } });
     await state.bucket.create({ data: { id: "b1", ownerId: "o1" } });
 
-    const driver = new CountingProgressivePGlite({ client: database });
-    const client = createClient({ schema, driver });
+    const driver = new CountingProgressivePGlite({
+      client: family.database,
+      namespace: family.namespace,
+    });
+    const client = createClient({ schema: alternatingSchema, driver });
     driver.afterCommittedBatch = async () => {
-      replay.complete = true;
+      alternatingReplay.complete = true;
     };
     await client.owner.update({
       where: { id: "o1" },
@@ -437,7 +444,7 @@ describe("replayable defaults are evaluated for each selected member", () => {
     await expect(
       state.owner.findUnique({ where: { id: "o1" } })
     ).resolves.toMatchObject({ marker: "after" });
-    expect(replay.complete).toBe(true);
+    expect(alternatingReplay.complete).toBe(true);
     await expect(
       state.gem.findMany({ select: { stable: true, slug: true } })
     ).resolves.toEqual([{ stable: "S", slug: "dynamic" }]);
@@ -447,8 +454,6 @@ describe("replayable defaults are evaluated for each selected member", () => {
         select: { stable: true },
       })
     ).resolves.toEqual([{ stable: "S" }]);
-    await state.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -599,6 +604,8 @@ hydrateSchemaNames(collectionBulkSchema);
 // here in a way that file did not have to say: without it these numbers are wrong
 // rather than merely absent.
 validateClientSchemaOrThrow(collectionBulkSchema);
+
+const getCollectionBulkFamily = usePGliteSchemaFamily(collectionBulkSchema);
 
 describe("§9.6 — a collection-bearing createMany row", () => {
   const engineFor = () => {
@@ -755,18 +762,17 @@ describe("§9.6 — a collection-bearing createMany row", () => {
    * would be observable.
    */
   test("PREFLIGHT: a planning member that promises a pre-root write refuses before member zero commits", async () => {
-    const database = openBorrowedPGlite();
-    const state = createClient({
-      schema: collectionBulkSchema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getCollectionBulkFamily();
+    const state = family.client;
     await state.holder.create({ data: { id: "h1", name: "Holder" } });
     await state.note.create({ data: { id: "n1", body: "Note one" } });
 
     const client = createClient({
       schema: collectionBulkSchema,
-      driver: new BatchOnlyPGliteDriver({ client: database }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
     await expect(
       client.box.createMany({
@@ -790,8 +796,6 @@ describe("§9.6 — a collection-bearing createMany row", () => {
     await expect(
       state.holder.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "h1" }]);
-    await state.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 
   /**
@@ -843,18 +847,17 @@ describe("§9.6 — a collection-bearing createMany row", () => {
    * is still there afterwards, unreplayed and unrolled-back.
    */
   test("§10.2 — a failing successor reports exact progress and leaves the collection prefix committed", async () => {
-    const database = openBorrowedPGlite();
-    const state = createClient({
-      schema: collectionBulkSchema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getCollectionBulkFamily();
+    const state = family.client;
     await state.holder.create({ data: { id: "h1", name: "Holder" } });
     await state.note.create({ data: { id: "n1", body: "Note one" } });
 
     const client = createClient({
       schema: collectionBulkSchema,
-      driver: new BatchOnlyPGliteDriver({ client: database }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
     const failure = await client.box
       .createMany({
@@ -890,21 +893,20 @@ describe("§9.6 — a collection-bearing createMany row", () => {
     await expect(
       state.box.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "b1" }]);
+    // VERBATIM SQL is not rewritten by the driver, so the member table carries the
+    // suite's schema itself.
     const members = await state.$queryRawUnsafe<Record<string, unknown>>(
-      'SELECT * FROM "e6_boxes_items_note"'
+      `SELECT * FROM "${family.namespace}"."e6_boxes_items_note"`
     );
     expect(members).toHaveLength(1);
     expect(Object.values(members[0] ?? {})).toEqual(
       expect.arrayContaining(["b1", "n1"])
     );
-    await state.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 
   test("a skipped collection-bearing root emits no member effect, and a fresh sibling lands", async () => {
-    const driver = new PGliteDriver();
-    const client = createClient({ schema: collectionBulkSchema, driver });
-    await syncLiveSchema(client);
+    const family = getCollectionBulkFamily();
+    const client = family.client;
     await client.holder.create({ data: { id: "h1", name: "Holder" } });
     await client.note.create({ data: { id: "n1", body: "Note one" } });
     await client.note.create({ data: { id: "n2", body: "Note two" } });
@@ -936,14 +938,15 @@ describe("§9.6 — a collection-bearing createMany row", () => {
     await expect(
       client.box.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "b0" }, { id: "b2" }]);
+    // VERBATIM SQL is not rewritten by the driver, so the member table carries the
+    // suite's schema itself.
     const members = await client.$queryRawUnsafe<Record<string, unknown>>(
-      'SELECT * FROM "e6_boxes_items_note"'
+      `SELECT * FROM "${family.namespace}"."e6_boxes_items_note"`
     );
     expect(members).toHaveLength(1);
     expect(Object.values(members[0] ?? {})).toEqual(
       expect.arrayContaining(["b2", "n2"])
     );
-    await client.$disconnect();
   }, 60_000);
 
   /**
@@ -962,9 +965,7 @@ describe("§9.6 — a collection-bearing createMany row", () => {
    * silently — the difference is the premise, never the duplicate.
    */
   test("a duplicate root still raises for a MISSING collection target: the skip rule covers effects, not premises", async () => {
-    const driver = new PGliteDriver();
-    const client = createClient({ schema: collectionBulkSchema, driver });
-    await syncLiveSchema(client);
+    const client = getCollectionBulkFamily().client;
     await client.holder.create({ data: { id: "h1", name: "Holder" } });
     await client.box.create({
       data: { id: "b0", title: "taken", holderId: "h1" },
@@ -986,6 +987,5 @@ describe("§9.6 — a collection-bearing createMany row", () => {
     await expect(
       client.box.findMany({ orderBy: { id: "asc" }, select: { id: true } })
     ).resolves.toEqual([{ id: "b0" }]);
-    await client.$disconnect();
   }, 60_000);
 });

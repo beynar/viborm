@@ -1,16 +1,26 @@
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { locatedParentRefSchema } from "@tests/contracts/engine/write/located-parent-ref-behavior";
 import {
   makeClient,
   seed,
 } from "@tests/contracts/engine/write/located-parent-ref-fixtures";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. Every driver below is built
+ * over that database, so each one carries the family's namespace — without it a
+ * driver addresses `public`, where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(locatedParentRefSchema);
+
+/** The driver options that bind a driver to this suite's schema. */
+const familyOptions = () => {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
+};
 
 /**
  * Rewrites the value of one column in the rows the LOCATE read returns, after the
@@ -80,33 +90,29 @@ const UNRESOLVED_REFERENCED_COLUMN = /did not produce row field 'code'/;
  */
 describe("located-parent Ref staleness injection", () => {
   const setupDb = async () => {
-    const db = openBorrowedPGlite();
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await syncLiveSchema(stateClient);
+    const options = familyOptions();
+    const stateClient = makeClient(new PGliteDriver(options));
     await seed(stateClient);
-    return { db, stateClient };
+    return { options, stateClient };
   };
 
   test(
     "the created foreign key follows the LOCATE's returned value, not the where",
     { timeout: 30_000 },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { options, stateClient } = await setupDb();
       // The corrupted locate hands back the DECOY's id — a value that EXISTS, so no
       // constraint can catch it. This is the PROVENANCE probe: if the create still
       // wrote `accountId: 2` it would be re-deriving the value from the `where` instead
       // of consuming the row the locate acted on, and the wrong-row doctrine would be
       // unenforced (that is precisely how the upsert create-arm bug W4 fixed arose).
       const client = makeClient(
-        new CorruptLocatePGliteDriver(
-          { client: db },
-          {
-            table: "n1_ref_accounts",
-            column: "id",
-            mode: "wrong",
-            wrongValue: 1,
-          }
-        )
+        new CorruptLocatePGliteDriver(options, {
+          table: "n1_ref_accounts",
+          column: "id",
+          mode: "wrong",
+          wrongValue: 1,
+        })
       );
       await client.account.update({
         where: { email: "target@x" },
@@ -115,8 +121,6 @@ describe("located-parent Ref staleness injection", () => {
       await expect(
         stateClient.note.findUnique({ where: { id: 300 } })
       ).resolves.toEqual({ id: 300, body: "stale", accountId: 1 });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -124,17 +128,14 @@ describe("located-parent Ref staleness injection", () => {
     "a locate value corrupted to a non-existent key fails closed with nothing persisted",
     { timeout: 30_000 },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { options, stateClient } = await setupDb();
       const client = makeClient(
-        new CorruptLocatePGliteDriver(
-          { client: db },
-          {
-            table: "n1_ref_accounts",
-            column: "id",
-            mode: "wrong",
-            wrongValue: 999,
-          }
-        )
+        new CorruptLocatePGliteDriver(options, {
+          table: "n1_ref_accounts",
+          column: "id",
+          mode: "wrong",
+          wrongValue: 999,
+        })
       );
       await expect(
         client.account.update({
@@ -144,8 +145,6 @@ describe("located-parent Ref staleness injection", () => {
       ).rejects.toThrow();
       // The stale foreign key never landed: the whole atomic unit rolled back.
       await expect(stateClient.note.findMany()).resolves.toEqual([]);
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -153,9 +152,8 @@ describe("located-parent Ref staleness injection", () => {
     "one corrupted member of a COMPOUND reference moves the whole tuple",
     { timeout: 30_000 },
     async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = makeClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(stateClient);
+      const options = familyOptions();
+      const stateClient = makeClient(new PGliteDriver(options));
       await stateClient.owner.create({
         data: { tenantId: "t1", slot: "a", handle: "h-t1-a" },
       });
@@ -167,15 +165,12 @@ describe("located-parent Ref staleness injection", () => {
       // still land on `t1/b`. Landing on `t1/a` is the proof that EVERY member
       // travels from the same located row.
       const client = makeClient(
-        new CorruptLocatePGliteDriver(
-          { client: db },
-          {
-            table: "n1_ref_owners",
-            column: "slot",
-            mode: "wrong",
-            wrongValue: "a",
-          }
-        )
+        new CorruptLocatePGliteDriver(options, {
+          table: "n1_ref_owners",
+          column: "slot",
+          mode: "wrong",
+          wrongValue: "a",
+        })
       );
       await client.owner.update({
         where: { handle: "h-t1-b" },
@@ -189,8 +184,6 @@ describe("located-parent Ref staleness injection", () => {
         ownerTenant: "t1",
         ownerSlot: "a",
       });
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 
@@ -198,12 +191,13 @@ describe("located-parent Ref staleness injection", () => {
     "a locate row that does not carry the referenced column fails closed at planning",
     { timeout: 30_000 },
     async () => {
-      const { db, stateClient } = await setupDb();
+      const { options, stateClient } = await setupDb();
       const client = makeClient(
-        new CorruptLocatePGliteDriver(
-          { client: db },
-          { table: "n1_ref_accounts", column: "code", mode: "drop" }
-        )
+        new CorruptLocatePGliteDriver(options, {
+          table: "n1_ref_accounts",
+          column: "code",
+          mode: "drop",
+        })
       );
       // Registering the referenced column in `locateFields` makes it a DECLARED
       // `firstRowField` output of the locate — which is what makes an absent value a
@@ -217,8 +211,6 @@ describe("located-parent Ref staleness injection", () => {
         })
       ).rejects.toThrow(UNRESOLVED_REFERENCED_COLUMN);
       await expect(stateClient.ticket.findMany()).resolves.toEqual([]);
-      await stateClient.$disconnect();
-      await closeTestPGlite(db);
     }
   );
 });

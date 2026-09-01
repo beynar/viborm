@@ -22,14 +22,20 @@
  */
 
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import Decimal from "decimal.js";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 const MONEY = { precision: 16, scale: 2 } as const;
 
@@ -60,19 +66,15 @@ const basket = s
 
 const schema = { vault, basket };
 
-type ListClient = ReturnType<typeof createPGliteClient>;
+/**
+ * The exact side answers from ONE PGlite per worker, through this suite's own
+ * private schema. The fixture owns the database, the push and the disconnect;
+ * the raw statements at the bottom of this file are the only ones that must
+ * name the schema themselves, because raw SQL is sent verbatim.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
 
-const borrowedPGliteClients = new Set<PGlite>();
-
-const createPGliteClient = () => {
-  const client = new PGlite();
-  borrowedPGliteClients.add(client);
-  return createClient({ schema, driver: new PGliteDriver({ client }) });
-};
-
-afterAll(async () => {
-  await Promise.all([...borrowedPGliteClients].map((client) => client.close()));
-});
+type ListClient = ReturnType<typeof getFamily>["client"];
 
 const createSQLiteClient = () =>
   createClient({ schema, driver: new SQLite3Driver({ dataDir: ":memory:" }) });
@@ -617,16 +619,21 @@ describe("decimal lists have one answer on both physical representations", () =>
   let coefficients: ListClient;
 
   beforeAll(async () => {
-    exact = createPGliteClient();
     coefficients = createSQLiteClient();
-    for (const client of [exact, coefficients]) {
-      await push(client, { force: true });
-      await seed(client);
-    }
+    await push(coefficients, { force: true });
+    await seed(coefficients);
   }, 120_000);
 
+  // The shared PGlite schema is emptied before every test, so the exact side is
+  // seeded per test instead of once. Both sides still start every test from the
+  // same rows: no spelling below mutates a seeded row — each one creates, reads
+  // and deletes its own — so the SQLite database keeps its single seed.
+  beforeEach(async () => {
+    exact = getFamily().client;
+    await seed(exact);
+  });
+
   afterAll(async () => {
-    await exact?.$disconnect();
     await coefficients?.$disconnect();
   });
 
@@ -669,7 +676,10 @@ describe("decimal lists have one answer on both physical representations", () =>
     const type = await exact.$queryRawUnsafe<{ format_type: string }>(
       `SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
          JOIN pg_class c ON c.oid = a.attrelid
-        WHERE c.relname = 'decimal_list_baskets' AND a.attname = 'amounts'`
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1
+          AND c.relname = 'decimal_list_baskets' AND a.attname = 'amounts'`,
+      getFamily().namespace
     );
     expect(type[0]?.format_type).toBe("numeric(16,2)[]");
 
@@ -677,7 +687,8 @@ describe("decimal lists have one answer on both physical representations", () =>
     // 2^53 is the one that proves it.
     const carrier = await exact.$queryRawUnsafe<{ j: unknown }>(
       `SELECT json_build_object('amounts', CAST("amounts" AS TEXT[])) AS j
-         FROM "decimal_list_baskets" WHERE "id" = 'b1'`
+         FROM "${getFamily().namespace}"."decimal_list_baskets"
+        WHERE "id" = 'b1'`
     );
     expect(JSON.stringify(carrier[0]?.j)).toContain('"90071992547409.93"');
   });

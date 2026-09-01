@@ -13,12 +13,10 @@ import type {
   PlanningFragment,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -73,19 +71,31 @@ const schema = (() => {
 })();
 
 /**
+ * The suite's private schema on the worker-shared PGlite. Every driver built
+ * over `family.database` must carry `family.namespace`, and the hand-written
+ * statements below must name the schema themselves — the driver rewrites
+ * neither.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
+
+/**
  * The hand-built prototype E6.4's rule demands: a locate PLANNING READ that
  * declares TWO `firstRowField` outputs, and a final-fragment UPDATE addressed by
  * BOTH members, resolved per member out of the planning row at compile.
  */
 function compoundLocateOperation(
   mode: "transaction" | "batch",
+  namespace: string,
   corrupt?: (row: Record<string, unknown>) => Record<string, unknown>
 ): ExecutableOperation {
+  // Spliced raw, not bound: this is the table identifier, and a hand-written
+  // statement is not qualified by the driver's namespace.
+  const memberships = sql.raw(`"${namespace}"."e64p_memberships"`);
   const locateId = "membership.locate";
   const locateStep = {
     id: locateId,
     kind: "read",
-    statement: sql`SELECT "tenantId", "slot" FROM "e64p_memberships" WHERE "role" = ${"target"}`,
+    statement: sql`SELECT "tenantId", "slot" FROM ${memberships} WHERE "role" = ${"target"}`,
     outputs: {
       rows: { kind: "rows" },
       tenantId: { kind: "firstRowField", field: "tenantId" },
@@ -112,7 +122,7 @@ function compoundLocateOperation(
           {
             id: "membership.update",
             kind: "write",
-            statement: sql`UPDATE "e64p_memberships" SET "role" = ${"admin"} WHERE "tenantId" = ${row.tenantId} AND "slot" = ${row.slot}`,
+            statement: sql`UPDATE ${memberships} SET "role" = ${"admin"} WHERE "tenantId" = ${row.tenantId} AND "slot" = ${row.slot}`,
             outputs: { count: { kind: "rowCount" } },
           },
         ],
@@ -126,7 +136,6 @@ function compoundLocateOperation(
 }
 
 async function seed(client: any) {
-  await syncLiveSchema(client);
   await client.account.create({ data: { id: "a1", label: "L" } });
   // The target row.
   await client.membership.create({
@@ -150,26 +159,30 @@ const substrates = [
   {
     name: "transaction" as const,
     mode: "transaction" as const,
-    make: (db: PGlite) => new PGliteDriver({ client: db }),
+    make: (db: PGlite, namespace: string) =>
+      new PGliteDriver({ client: db, namespace }),
   },
   {
     name: "atomic batch" as const,
     mode: "batch" as const,
-    make: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
+    make: (db: PGlite, namespace: string) =>
+      new BatchOnlyPGliteDriver({ client: db, namespace }),
   },
 ];
 
 for (const substrate of substrates) {
   describe(`E6.4 prototype (${substrate.name})`, () => {
     test("a two-member locate addresses the compound row and misses on a corrupt member", async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      const namespace = family.namespace;
       const client: any = createClient({
         schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       await seed(client);
 
-      const driver = substrate.make(db);
+      const driver = substrate.make(db, namespace);
       const schemas = createSchemaRegistry(schema);
       const engine = new QueryEngine(
         driver,
@@ -177,7 +190,7 @@ for (const substrate of substrates) {
       );
 
       await new OperationExecutor(engine).execute(
-        compoundLocateOperation(substrate.mode),
+        compoundLocateOperation(substrate.mode, namespace),
         createOperationExecutionContext(
           "membership",
           "update",
@@ -197,25 +210,25 @@ for (const substrate of substrates) {
       expect(
         after.find((r: any) => r.tenantId === "OTHER" && r.slot === "S")?.role
       ).toBe("decoy-slot");
-      await client.$disconnect();
-      await closeTestPGlite(db);
     }, 30_000);
 
     test("corrupting ONE member makes the write miss", async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      const namespace = family.namespace;
       const client: any = createClient({
         schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       await seed(client);
-      const driver = substrate.make(db);
+      const driver = substrate.make(db, namespace);
       const schemas = createSchemaRegistry(schema);
       const engine = new QueryEngine(
         driver,
         createModelRegistry(schema, schemas)
       );
       await new OperationExecutor(engine).execute(
-        compoundLocateOperation(substrate.mode, (row) => ({
+        compoundLocateOperation(substrate.mode, namespace, (row) => ({
           ...row,
           slot: "NOPE",
         })),
@@ -228,8 +241,6 @@ for (const substrate of substrates) {
       const after = await client.membership.findMany();
       // NOTHING moved: the corrupted tuple names no row.
       expect(after.every((r: any) => r.role !== "admin")).toBe(true);
-      await client.$disconnect();
-      await closeTestPGlite(db);
     }, 30_000);
   });
 }

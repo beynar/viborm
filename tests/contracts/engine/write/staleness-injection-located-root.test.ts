@@ -5,12 +5,13 @@ import {
   runUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+// One private schema on the worker's shared database for the whole slice. The
+// family syncs it and empties every table between tests, which is what a fresh
+// database per test did.
+const getFamily = usePGliteSchemaFamily(updateFamilySchema);
 
 // ---------------------------------------------------------------------------
 // The two premise families that belong to the root LOCATE rather than to a
@@ -46,18 +47,17 @@ import { describe, expect, test } from "vitest";
 
 describe("write engine staleness injection (extended whereUnique)", () => {
   test("filter premise (update): a stale extra filter aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "f@x", count: 5 } });
 
     // Planning matches `email = 'f@x' AND count > 0`; the hook drives count to 0
     // before the batch. The row still EXISTS on the discriminator — only the
     // filter went stale — so this is precisely the case a discriminator-only
     // guard would miss.
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const rejected = await runUpdate(
-      db,
+      family,
       async () => {
         await injector.user.update({
           where: { email: "f@x" },
@@ -81,19 +81,16 @@ describe("write engine staleness injection (extended whereUnique)", () => {
         select: { count: true },
       })
     ).resolves.toEqual({ count: 0 });
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("filter premise (delete): a stale extra filter aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "fd@x", count: 5 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const rejected = await runDelete(
-      db,
+      family,
       async () => {
         await injector.user.update({
           where: { email: "fd@x" },
@@ -114,19 +111,16 @@ describe("write engine staleness injection (extended whereUnique)", () => {
         select: { count: true },
       })
     ).resolves.toEqual({ count: 0 });
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("discriminator premise still fires under an extended where", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "fk@x", count: 5 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const rejected = await runUpdate(
-      db,
+      family,
       async () => {
         await injector.user.delete({ where: { email: "fk@x" } });
       },
@@ -141,8 +135,6 @@ describe("write engine staleness injection (extended whereUnique)", () => {
     expect(rejected).toBeInstanceOf(NotFoundError);
 
     await expect(client.user.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });
 
@@ -159,15 +151,14 @@ describe("write engine staleness injection (extended whereUnique)", () => {
 
 describe("write engine staleness injection (located-parent Ref)", () => {
   test("nested create by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "ref@x", count: 0 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           await injector.user.delete({ where: { email: "ref@x" } });
         },
@@ -183,20 +174,17 @@ describe("write engine staleness injection (located-parent Ref)", () => {
 
     // No child rode a foreign key to a parent that no longer exists.
     await expect(client.post.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("nested createMany by a non-PK unique: a concurrent parent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "refm@x", count: 0 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           await injector.user.delete({ where: { email: "refm@x" } });
         },
@@ -220,7 +208,5 @@ describe("write engine staleness injection (located-parent Ref)", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
 
     await expect(client.post.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });

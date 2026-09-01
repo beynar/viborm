@@ -5,16 +5,21 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   parentHeldCompoundEdgeSchema,
   registerParentHeldCompoundEdgeBehavior,
-  resetParentHeldCompoundEdge,
 } from "@tests/contracts/engine/write/parent-held-compound-edge-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * Both substrate legs and the provenance witness share ONE PGlite in one private
+ * schema — every test here reseeds, and the fixture empties the tables between
+ * them. Each driver built over that database therefore carries its namespace.
+ */
+const getFamily = usePGliteSchemaFamily(parentHeldCompoundEdgeSchema);
+
+type SchemaFamily = ReturnType<typeof getFamily>;
 
 /**
  * Rewrites ONE column of the rows the station LOCATE read returns, after the database
@@ -78,23 +83,27 @@ class CorruptStationLocateDriver extends PGliteDriver {
   }
 }
 
-async function setup(driver: PGliteDriver) {
-  const client = createClient({
+function setup(driver: PGliteDriver) {
+  return createClient({
     schema: parentHeldCompoundEdgeSchema,
     driver,
   }) as any;
-  await syncLiveSchema(client);
-  return client;
 }
+
+const driverOptions = (family: SchemaFamily) => ({
+  client: family.database,
+  namespace: family.namespace,
+});
 
 const substrates = [
   {
     name: "transaction",
-    make: (db: PGlite) => new PGliteDriver({ client: db }),
+    make: (family: SchemaFamily) => new PGliteDriver(driverOptions(family)),
   },
   {
     name: "atomic batch",
-    make: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
+    make: (family: SchemaFamily) =>
+      new BatchOnlyPGliteDriver(driverOptions(family)),
   },
 ] as const;
 
@@ -102,7 +111,7 @@ for (const substrate of substrates) {
   // One client per leg: the schema is migrated once and each test reseeds.
   let shared: any;
   registerParentHeldCompoundEdgeBehavior(substrate.name, async () => {
-    shared ??= await setup(substrate.make(openBorrowedPGlite()));
+    shared ??= setup(substrate.make(getFamily()));
     return shared;
   });
 }
@@ -110,9 +119,8 @@ for (const substrate of substrates) {
 describe("E6.4 the correlation's provenance is the LOCATED row, per member", () => {
   for (const substrate of substrates) {
     test(`corrupting ONE member moves the write to the twin that member names (${substrate.name})`, async () => {
-      const db = openBorrowedPGlite();
-      const stateClient = await setup(new PGliteDriver({ client: db }));
-      await resetParentHeldCompoundEdge(stateClient);
+      const family = getFamily();
+      const stateClient = setup(new PGliteDriver(driverOptions(family)));
       await stateClient.depot.create({
         data: { id: "d-target", region: "eu", code: "west", note: "before" },
       });
@@ -128,13 +136,13 @@ describe("E6.4 the correlation's provenance is the LOCATED row, per member", () 
 
       const client = createClient({
         schema: parentHeldCompoundEdgeSchema,
-        driver: substrate.make(db),
+        driver: substrate.make(family),
       }) as any;
       // Re-wrap: the corrupting driver must be the one that runs the operation.
-      const corrupting = new CorruptStationLocateDriver(
-        { client: db },
-        { column: "depotRegion", wrongValue: "us" }
-      );
+      const corrupting = new CorruptStationLocateDriver(driverOptions(family), {
+        column: "depotRegion",
+        wrongValue: "us",
+      });
       const corruptingClient = createClient({
         schema: parentHeldCompoundEdgeSchema,
         driver:
@@ -158,7 +166,6 @@ describe("E6.4 the correlation's provenance is the LOCATED row, per member", () 
       // THE CLAIM: the arm followed the CORRUPTED located value, per member.
       expect(notes["d-code-twin"]).toBe("followed-the-located-row");
       expect(notes["d-target"]).toBe("before");
-      await closeTestPGlite(db);
     });
   }
 });

@@ -10,8 +10,8 @@ import { hydrateSchemaNames, s } from "@schema";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { planningKey } from "@src/query-engine/write-engine/Part";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -111,9 +111,34 @@ class BatchOnlyRecordingDriver extends RecordingPGliteDriver {
   }
 }
 
+/**
+ * The suite's private schema on the worker-shared PGlite. Every recording
+ * driver runs on it, so each `boot` empties the tables first — that is what a
+ * fresh database per driver used to buy — and every driver built over
+ * `family.database` carries `family.namespace` or it addresses an empty
+ * `public`.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
+
+function recordingDriver(): RecordingPGliteDriver {
+  const family = getFamily();
+  return new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+}
+
+function batchOnlyRecordingDriver(): BatchOnlyRecordingDriver {
+  const family = getFamily();
+  return new BatchOnlyRecordingDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+}
+
 async function boot(driver: RecordingPGliteDriver) {
+  await getFamily().reset();
   const client = createClient({ schema, driver });
-  await syncLiveSchema(client);
   for (const id of [1, 2, 3, 4, 5]) {
     await client.account.create({
       data: { id, email: `a${id}@x`, label: `L${id}` },
@@ -132,7 +157,7 @@ function drain(driver: RecordingPGliteDriver): string[] {
 
 describe("the delete fold — statement traffic", () => {
   test("a scalar delete is ONE statement, and it is the DELETE", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
 
     driver.recording = true;
@@ -155,7 +180,7 @@ describe("the delete fold — statement traffic", () => {
   });
 
   test("an ALTERNATE unique folds too, and addresses the row by that unique", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
 
     driver.recording = true;
@@ -185,7 +210,7 @@ describe("the delete fold — statement traffic", () => {
   });
 
   test("a delete with `include` still reads the relation BEFORE it deletes", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
 
     driver.recording = true;
@@ -229,7 +254,7 @@ describe("the delete fold — statement traffic", () => {
   // same failure, same attribution — so the locate and the read are what go
   // away, not the presence pin: two statements, one round trip.
   test("batch mode folds behind its in-unit presence guard", async () => {
-    const driver = new BatchOnlyRecordingDriver();
+    const driver = batchOnlyRecordingDriver();
     const client = await boot(driver);
 
     driver.recording = true;
@@ -276,7 +301,7 @@ describe("the delete fold — a projection answers what the read answers", () =>
 
   for (const projection of projections) {
     test(`a delete projecting ${projection.name} answers the read's count, on both substrates`, async () => {
-      const truthDriver = new RecordingPGliteDriver();
+      const truthDriver = recordingDriver();
       const truthClient = await boot(truthDriver);
       // Three notes, so a wrong answer cannot coincide with the right one and the
       // seeded single note of `boot` cannot be mistaken for a correct count.
@@ -295,10 +320,7 @@ describe("the delete fold — a projection answers what the read answers", () =>
       });
       expect(truth).toEqual({ id: 3, _count: { notes: 3 } });
 
-      for (const driver of [
-        new RecordingPGliteDriver(),
-        new BatchOnlyRecordingDriver(),
-      ]) {
+      for (const driver of [recordingDriver(), batchOnlyRecordingDriver()]) {
         const client = await boot(driver);
         for (const id of [31, 32]) {
           await client.note.create({
@@ -344,7 +366,7 @@ describe("every RETURNING fold — the same projection gate, the same oracle", (
    * could be mistaken for a cascade or a read-after-write.
    */
   test("create / update / upsert answer the read's `_count`, not the captured one", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
     for (const id of [31, 32]) {
       await client.note.create({ data: { id, body: `n${id}`, accountId: 3 } });
@@ -417,9 +439,9 @@ describe("the delete fold — the NotFoundError is unchanged", () => {
   }
 
   test("the folded path and the multi-statement paths raise the SAME error", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
-    const batchDriver = new BatchOnlyRecordingDriver();
+    const batchDriver = batchOnlyRecordingDriver();
     const batchClient = await boot(batchDriver);
 
     // The folded path: the DELETE affects no row, and the `affectedRows(1,
@@ -454,7 +476,7 @@ describe("the delete fold — the NotFoundError is unchanged", () => {
   });
 
   test("an EXCLUDING extended selector folds and is still a NOT-FOUND", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = recordingDriver();
     const client = await boot(driver);
 
     driver.recording = true;

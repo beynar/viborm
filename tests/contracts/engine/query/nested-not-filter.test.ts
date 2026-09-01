@@ -1,8 +1,8 @@
 import { createClient, type VibORMClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 /**
  * Arbitrarily nested `not` (Prisma parity).
@@ -25,6 +25,13 @@ import { beforeAll, describe, expect, test } from "vitest";
 
 const schema = windowUserPostSchema;
 
+/**
+ * The suite's private schema on the worker-shared PGlite. The family truncates
+ * its tables before every test, so these read-only fixture rows are seeded per
+ * test rather than once for the file.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
+
 type NotFilterClient = VibORMClient<{
   schema: typeof schema;
   driver: PGliteDriver;
@@ -40,9 +47,17 @@ type UserWhere = NonNullable<
 describe("nested not filters", () => {
   let client: NotFilterClient;
 
-  beforeAll(async () => {
-    client = createClient({ schema, driver: new PGliteDriver() });
-    await syncLiveSchema(client);
+  beforeEach(async () => {
+    const family = getFamily();
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    client = createClient({
+      schema,
+      driver: new PGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
+    });
     await client.user.createMany({
       data: [
         { id: "alpha", name: "alpha one", email: "a@example.com", age: 20 },

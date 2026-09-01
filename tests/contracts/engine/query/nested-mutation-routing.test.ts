@@ -1,24 +1,13 @@
 import { createClient } from "@client/client";
-import {
-  createClient as PGliteCreateClient,
-  PGliteDriver,
-} from "@drivers/pglite";
+import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
 import { runBatchPrimaryKeyDataflowBehavior } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { batchPrimaryKeyDataflowSchema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
 import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { beforeAll, describe, expect, test } from "vitest";
 
 const user = s.model({
   id: s.string().id(),
@@ -78,34 +67,38 @@ class NoAtomicPGliteDriver extends PGliteDriver {
   override readonly supportsBatch = false;
 }
 
+/**
+ * Two private schemas on the worker-shared PGlite: this file's own safety
+ * schema, and the one the batch primary-key dataflow behavior owns. Each family
+ * truncates its own tables before every test, which is what the per-test
+ * `deleteMany` sweep and the behavior's fresh database used to buy.
+ */
+const getSafetyFamily = usePGliteSchemaFamily(safetySchema);
+const getDataflowFamily = usePGliteSchemaFamily(batchPrimaryKeyDataflowSchema);
+
 function createBatchOnlyPGliteDriver(): BatchOnlyPGliteDriver {
-  return new BatchOnlyPGliteDriver();
+  const family = getDataflowFamily();
+  return new BatchOnlyPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
 }
 
-let client: Awaited<
-  ReturnType<
-    typeof PGliteCreateClient<
-      typeof safetySchema,
-      { schema: typeof safetySchema }
-    >
-  >
->;
+function createSafetyClient() {
+  const family = getSafetyFamily();
+  return createClient({
+    schema: safetySchema,
+    driver: new PGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    }),
+  });
+}
 
-beforeAll(async () => {
-  client = PGliteCreateClient({ schema: safetySchema });
-  await syncLiveSchema(client);
-});
+let client: ReturnType<typeof createSafetyClient>;
 
-afterAll(async () => {
-  await client.$disconnect();
-});
-
-beforeEach(async () => {
-  await client.requiredPost.deleteMany();
-  await client.requiredUser.deleteMany();
-  await client.comment.deleteMany();
-  await client.post.deleteMany();
-  await client.user.deleteMany();
+beforeAll(() => {
+  client = createSafetyClient();
 });
 
 describe("Nested Mutation Routing", () => {
@@ -1757,211 +1750,196 @@ describe("Nested Mutation Routing", () => {
   });
 
   test("batch-only driver executes planned nested writes atomically", async () => {
-    const db = openTestPGlite();
+    const family = getSafetyFamily();
+    const db = family.database;
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const namespace = family.namespace;
     const setupClient = createClient({
       schema: safetySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    const driver = new BatchOnlyPGliteDriver({ client: db });
+    const driver = new BatchOnlyPGliteDriver({ client: db, namespace });
     const batchOnlyClient = createClient({
       schema: safetySchema,
       driver,
     });
 
-    try {
-      await syncLiveSchema(setupClient);
-      await setupClient.user.create({
-        data: { id: "user-1", name: "Alice" },
-      });
+    await setupClient.user.create({
+      data: { id: "user-1", name: "Alice" },
+    });
 
-      const updated = await batchOnlyClient.user.update({
+    const updated = await batchOnlyClient.user.update({
+      where: { id: "user-1" },
+      data: {
+        name: "Changed",
+        posts: {
+          create: { id: "post-1", title: "Created through batch" },
+        },
+      },
+    });
+
+    const [user, posts] = await Promise.all([
+      batchOnlyClient.user.findUnique({ where: { id: "user-1" } }),
+      batchOnlyClient.post.findMany(),
+    ]);
+    expect(updated.name).toBe("Changed");
+    expect(user?.name).toBe("Changed");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.userId).toBe("user-1");
+  });
+
+  test("batch-only driver aborts missing nested connect before parent mutation", async () => {
+    const family = getSafetyFamily();
+    const db = family.database;
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const namespace = family.namespace;
+    const setupClient = createClient({
+      schema: safetySchema,
+      driver: new PGliteDriver({ client: db, namespace }),
+    });
+    const batchOnlyClient = createClient({
+      schema: safetySchema,
+      driver: new BatchOnlyPGliteDriver({ client: db, namespace }),
+    });
+
+    await setupClient.user.create({
+      data: { id: "user-1", name: "Alice" },
+    });
+
+    await expect(
+      batchOnlyClient.user.update({
         where: { id: "user-1" },
         data: {
           name: "Changed",
           posts: {
-            create: { id: "post-1", title: "Created through batch" },
+            connect: { id: "missing-post" },
           },
         },
-      });
+      })
+    ).rejects.toThrow();
 
-      const [user, posts] = await Promise.all([
-        batchOnlyClient.user.findUnique({ where: { id: "user-1" } }),
-        batchOnlyClient.post.findMany(),
-      ]);
-      expect(updated.name).toBe("Changed");
-      expect(user?.name).toBe("Changed");
-      expect(posts).toHaveLength(1);
-      expect(posts[0]?.userId).toBe("user-1");
-    } finally {
-      await batchOnlyClient.$disconnect();
-      await closeTestPGlite(db);
-    }
-  });
-
-  test("batch-only driver aborts missing nested connect before parent mutation", async () => {
-    const db = openTestPGlite();
-    const setupClient = createClient({
-      schema: safetySchema,
-      driver: new PGliteDriver({ client: db }),
+    const user = await batchOnlyClient.user.findUnique({
+      where: { id: "user-1" },
     });
-    const batchOnlyClient = createClient({
-      schema: safetySchema,
-      driver: new BatchOnlyPGliteDriver({ client: db }),
-    });
-
-    try {
-      await syncLiveSchema(setupClient);
-      await setupClient.user.create({
-        data: { id: "user-1", name: "Alice" },
-      });
-
-      await expect(
-        batchOnlyClient.user.update({
-          where: { id: "user-1" },
-          data: {
-            name: "Changed",
-            posts: {
-              connect: { id: "missing-post" },
-            },
-          },
-        })
-      ).rejects.toThrow();
-
-      const user = await batchOnlyClient.user.findUnique({
-        where: { id: "user-1" },
-      });
-      expect(user?.name).toBe("Alice");
-    } finally {
-      await batchOnlyClient.$disconnect();
-      await closeTestPGlite(db);
-    }
+    expect(user?.name).toBe("Alice");
   });
 
   test("batch-only driver executes top-level upsert create branch nested writes", async () => {
-    const db = openTestPGlite();
-    const setupClient = createClient({
-      schema: safetySchema,
-      driver: new PGliteDriver({ client: db }),
-    });
+    const family = getSafetyFamily();
+    const db = family.database;
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const namespace = family.namespace;
     const batchOnlyClient = createClient({
       schema: safetySchema,
-      driver: new BatchOnlyPGliteDriver({ client: db }),
+      driver: new BatchOnlyPGliteDriver({ client: db, namespace }),
     });
 
-    try {
-      await syncLiveSchema(setupClient);
-
-      await batchOnlyClient.user.upsert({
-        where: { id: "user-1" },
-        create: {
-          id: "user-1",
-          name: "Alice",
-          posts: {
-            create: { id: "post-1", title: "Created" },
-          },
+    await batchOnlyClient.user.upsert({
+      where: { id: "user-1" },
+      create: {
+        id: "user-1",
+        name: "Alice",
+        posts: {
+          create: { id: "post-1", title: "Created" },
         },
-        update: { name: "Unused" },
-      });
+      },
+      update: { name: "Unused" },
+    });
 
-      const posts = await batchOnlyClient.post.findMany();
-      expect(posts).toHaveLength(1);
-      expect(posts[0]?.userId).toBe("user-1");
-    } finally {
-      await batchOnlyClient.$disconnect();
-      await closeTestPGlite(db);
-    }
+    const posts = await batchOnlyClient.post.findMany();
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.userId).toBe("user-1");
   });
 
   test("batch-only driver executes top-level upsert update branch nested writes", async () => {
-    const db = openTestPGlite();
+    const family = getSafetyFamily();
+    const db = family.database;
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const namespace = family.namespace;
     const setupClient = createClient({
       schema: safetySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     const batchOnlyClient = createClient({
       schema: safetySchema,
-      driver: new BatchOnlyPGliteDriver({ client: db }),
+      driver: new BatchOnlyPGliteDriver({ client: db, namespace }),
     });
 
-    try {
-      await syncLiveSchema(setupClient);
-      await setupClient.user.create({
-        data: {
-          id: "user-1",
-          name: "Alice",
-          posts: {
-            create: { id: "post-1", title: "Draft" },
+    await setupClient.user.create({
+      data: {
+        id: "user-1",
+        name: "Alice",
+        posts: {
+          create: { id: "post-1", title: "Draft" },
+        },
+      },
+    });
+
+    await batchOnlyClient.user.upsert({
+      where: { id: "user-1" },
+      create: { id: "user-unused", name: "Unused" },
+      update: {
+        name: "Updated",
+        posts: {
+          update: {
+            where: { id: "post-1" },
+            data: { title: "Published" },
           },
         },
-      });
+      },
+    });
 
-      await batchOnlyClient.user.upsert({
-        where: { id: "user-1" },
-        create: { id: "user-unused", name: "Unused" },
-        update: {
-          name: "Updated",
-          posts: {
-            update: {
-              where: { id: "post-1" },
-              data: { title: "Published" },
-            },
-          },
-        },
-      });
-
-      const [user, post] = await Promise.all([
-        batchOnlyClient.user.findUnique({ where: { id: "user-1" } }),
-        batchOnlyClient.post.findUnique({ where: { id: "post-1" } }),
-      ]);
-      expect(user?.name).toBe("Updated");
-      expect(post?.title).toBe("Published");
-    } finally {
-      await batchOnlyClient.$disconnect();
-      await closeTestPGlite(db);
-    }
+    const [user, post] = await Promise.all([
+      batchOnlyClient.user.findUnique({ where: { id: "user-1" } }),
+      batchOnlyClient.post.findUnique({ where: { id: "post-1" } }),
+    ]);
+    expect(user?.name).toBe("Updated");
+    expect(post?.title).toBe("Published");
   });
 
   test("driver lacking every atomic strategy rejects nested writes before parent mutation", async () => {
-    const db = openTestPGlite();
+    const family = getSafetyFamily();
+    const db = family.database;
+    // A driver over the worker-shared database must carry the suite's
+    // namespace, or it addresses an empty `public`.
+    const namespace = family.namespace;
     const setupClient = createClient({
       schema: safetySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    const driver = new NoAtomicPGliteDriver({ client: db });
+    const driver = new NoAtomicPGliteDriver({ client: db, namespace });
     const noAtomicClient = createClient({
       schema: safetySchema,
       driver,
     });
 
-    try {
-      await syncLiveSchema(setupClient);
-      await setupClient.user.create({
-        data: { id: "user-1", name: "Alice" },
-      });
+    await setupClient.user.create({
+      data: { id: "user-1", name: "Alice" },
+    });
 
-      await expect(
-        noAtomicClient.user.update({
-          where: { id: "user-1" },
-          data: {
-            name: "Changed",
-            posts: {
-              create: { id: "post-1", title: "Should not write" },
-            },
+    await expect(
+      noAtomicClient.user.update({
+        where: { id: "user-1" },
+        data: {
+          name: "Changed",
+          posts: {
+            create: { id: "post-1", title: "Should not write" },
           },
-        })
-      ).rejects.toThrow(
-        "supports neither transactions nor atomic batch execution"
-      );
+        },
+      })
+    ).rejects.toThrow(
+      "supports neither transactions nor atomic batch execution"
+    );
 
-      const [user, posts] = await Promise.all([
-        noAtomicClient.user.findUnique({ where: { id: "user-1" } }),
-        noAtomicClient.post.findMany(),
-      ]);
-      expect(user?.name).toBe("Alice");
-      expect(posts).toHaveLength(0);
-    } finally {
-      await noAtomicClient.$disconnect();
-      await closeTestPGlite(db);
-    }
+    const [user, posts] = await Promise.all([
+      noAtomicClient.user.findUnique({ where: { id: "user-1" } }),
+      noAtomicClient.post.findMany(),
+    ]);
+    expect(user?.name).toBe("Alice");
+    expect(posts).toHaveLength(0);
   });
 });

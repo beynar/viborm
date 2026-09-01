@@ -126,7 +126,7 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_TESTS = Object.freeze(
   )
 );
 
-const SHARED_FAMILY_SHARD_SIZE = 12;
+const SHARED_FAMILY_SHARD_SIZE = 30;
 
 export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
   Array.from(

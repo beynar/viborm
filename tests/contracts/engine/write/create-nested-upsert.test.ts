@@ -29,13 +29,11 @@ import {
   runCreateNestedUpsertBehavior,
 } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
 import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { publishedOutputs } from "@tests/fixtures/planning-published";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -221,6 +219,14 @@ runCreateNestedUpsertBehavior({
   name: "PGlite atomic batch",
   pgliteMode: "atomicBatch",
 });
+
+/**
+ * The private schema the database-backed tests below run on. The behavior legs
+ * above already take their own from `useBehaviorDatabase`; this one is for the
+ * hand-built drivers here, each of which must carry `family.namespace` or it
+ * addresses an empty `public`.
+ */
+const getFamily = usePGliteSchemaFamily(operationFragmentSchema);
 
 function explicitRootCreateNestedUpsertArgs(title = "post") {
   const args = createNestedUpsertArgs(title);
@@ -568,27 +574,24 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      // A driver over the worker-shared database must carry the suite's
+      // namespace, or it addresses an empty `public`.
+      const namespace = family.namespace;
       const setup = createClient({
         schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
-      const driver = new FailingResultPGliteDriver({ client: db });
-      try {
-        await syncLiveSchema(setup);
-
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            explicitRootCreateNestedUpsertArgs()
-          )
-        ).rejects.toBe(driver.failure);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([]);
-      } finally {
-        await setup.$disconnect();
-        await closeTestPGlite(db);
-      }
+      const driver = new FailingResultPGliteDriver({ client: db, namespace });
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          explicitRootCreateNestedUpsertArgs()
+        )
+      ).rejects.toBe(driver.failure);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([]);
     }
   );
 
@@ -598,43 +601,41 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      // A driver over the worker-shared database must carry the suite's
+      // namespace, or it addresses an empty `public`.
+      const namespace = family.namespace;
       const setup = createClient({
         schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
-      const driver = new BatchCountingPGliteDriver({ client: db });
-      try {
-        await syncLiveSchema(setup);
-        await setup.post.create({
-          data: {
-            id: 2,
-            title: "existing",
-            slug: "post-key",
-            userId: null,
-          },
-        });
+      const driver = new BatchCountingPGliteDriver({ client: db, namespace });
+      await setup.post.create({
+        data: {
+          id: 2,
+          title: "existing",
+          slug: "post-key",
+          userId: null,
+        },
+      });
 
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            explicitRootCreateNestedUpsertArgs()
-          )
-        ).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([
-          {
-            id: 2,
-            title: "existing",
-            slug: "post-key",
-            userId: null,
-          },
-        ]);
-      } finally {
-        await setup.$disconnect();
-        await closeTestPGlite(db);
-      }
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          explicitRootCreateNestedUpsertArgs()
+        )
+      ).rejects.toBeInstanceOf(UniqueConstraintError);
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([
+        {
+          id: 2,
+          title: "existing",
+          slug: "post-key",
+          userId: null,
+        },
+      ]);
     }
   );
 
@@ -644,41 +645,39 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      // A driver over the worker-shared database must carry the suite's
+      // namespace, or it addresses an empty `public`.
+      const namespace = family.namespace;
       const setup = createClient({
         schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
-      try {
-        await syncLiveSchema(setup);
-        await setup.post.create({
-          data: {
-            id: 1,
-            title: "draft",
-            slug: "post-key",
-            userId: null,
-          },
-        });
-        const driver = new BeforeBatchPGliteDriver(
-          async () => {
-            await setup.post.delete({ where: { id: 1 } });
-          },
-          { client: db }
-        );
+      await setup.post.create({
+        data: {
+          id: 1,
+          title: "draft",
+          slug: "post-key",
+          userId: null,
+        },
+      });
+      const driver = new BeforeBatchPGliteDriver(
+        async () => {
+          await setup.post.delete({ where: { id: 1 } });
+        },
+        { client: db, namespace }
+      );
 
-        await expect(
-          createOperationExecutor(driver).executeCreate(
-            operationFragmentSchema.user,
-            explicitRootCreateNestedUpsertArgs("published")
-          )
-        ).rejects.toBeInstanceOf(NestedWriteError);
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([]);
-      } finally {
-        await setup.$disconnect();
-        await closeTestPGlite(db);
-      }
+      await expect(
+        createOperationExecutor(driver).executeCreate(
+          operationFragmentSchema.user,
+          explicitRootCreateNestedUpsertArgs("published")
+        )
+      ).rejects.toBeInstanceOf(NestedWriteError);
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([]);
     }
   );
 
@@ -725,65 +724,62 @@ describe("write engine linear operation fragments", () => {
       timeout: 30_000,
     },
     async () => {
-      const db = openBorrowedPGlite();
+      const family = getFamily();
+      const db = family.database;
+      // A driver over the worker-shared database must carry the suite's
+      // namespace, or it addresses an empty `public`.
+      const namespace = family.namespace;
       const setup = createClient({
         schema: operationFragmentSchema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
-      try {
-        await syncLiveSchema(setup);
+      // The racePin the missing-branch create carries (the child primary key).
+      const missing = createOperation(new BatchProbeDriver()).compile({
+        "post.find.rows": [],
+      });
+      const createStep = missing.steps[1];
+      const racePin =
+        createStep?.kind === "write" ? createStep.racePin : undefined;
+      expect(racePin?.fields).toEqual(["id"]);
+      if (!racePin) return;
 
-        // The racePin the missing-branch create carries (the child primary key).
-        const missing = createOperation(new BatchProbeDriver()).compile({
-          "post.find.rows": [],
-        });
-        const createStep = missing.steps[1];
-        const racePin =
-          createStep?.kind === "write" ? createStep.racePin : undefined;
-        expect(racePin?.fields).toEqual(["id"]);
-        if (!racePin) return;
-
-        // A concurrent winner commits the same child primary key just before the
-        // loser's batch runs; the loser's INSERT then violates that key.
-        const driver = new BeforeBatchPGliteDriver(
-          async () => {
-            await setup.post.create({
-              data: {
-                id: 1,
-                title: "winner",
-                slug: "winner-key",
-                userId: null,
-              },
-            });
-          },
-          { client: db }
-        );
-
-        let caught: unknown;
-        await createOperationExecutor(driver)
-          .executeCreate(
-            operationFragmentSchema.user,
-            explicitRootCreateNestedUpsertArgs()
-          )
-          .catch((error) => {
-            caught = error;
+      // A concurrent winner commits the same child primary key just before the
+      // loser's batch runs; the loser's INSERT then violates that key.
+      const driver = new BeforeBatchPGliteDriver(
+        async () => {
+          await setup.post.create({
+            data: {
+              id: 1,
+              title: "winner",
+              slug: "winner-key",
+              userId: null,
+            },
           });
+        },
+        { client: db, namespace }
+      );
 
-        // The loser surfaces the pinned unique conflict, not a guard abort.
-        expect(caught).toBeInstanceOf(UniqueConstraintError);
-        expect(caught).not.toBeInstanceOf(NestedWriteError);
-        expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
-          true
-        );
-        expect(driver.batchCalls).toBe(1);
-        await expect(setup.user.findMany()).resolves.toEqual([]);
-        await expect(setup.post.findMany()).resolves.toEqual([
-          { id: 1, title: "winner", slug: "winner-key", userId: null },
-        ]);
-      } finally {
-        await setup.$disconnect();
-        await closeTestPGlite(db);
-      }
+      let caught: unknown;
+      await createOperationExecutor(driver)
+        .executeCreate(
+          operationFragmentSchema.user,
+          explicitRootCreateNestedUpsertArgs()
+        )
+        .catch((error) => {
+          caught = error;
+        });
+
+      // The loser surfaces the pinned unique conflict, not a guard abort.
+      expect(caught).toBeInstanceOf(UniqueConstraintError);
+      expect(caught).not.toBeInstanceOf(NestedWriteError);
+      expect(matchesRacePin(caught as UniqueConstraintError, racePin)).toBe(
+        true
+      );
+      expect(driver.batchCalls).toBe(1);
+      await expect(setup.user.findMany()).resolves.toEqual([]);
+      await expect(setup.post.findMany()).resolves.toEqual([
+        { id: 1, title: "winner", slug: "winner-key", userId: null },
+      ]);
     }
   );
 });

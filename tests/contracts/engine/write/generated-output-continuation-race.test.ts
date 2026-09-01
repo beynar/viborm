@@ -1,21 +1,16 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
+import type { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { TransactionError } from "@errors";
 
 import { hydrateSchemaNames, s } from "@schema";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+
+import { describe, expect, test } from "vitest";
 
 const continuationRaceSchema = (() => {
   const account = s
@@ -40,9 +35,22 @@ const continuationRaceSchema = (() => {
 
 hydrateSchemaNames(continuationRaceSchema);
 
+const getFamily = usePGliteSchemaFamily(continuationRaceSchema);
+
 class MoveGeneratedCodeAfterProducerDriver extends BatchOnlyPGliteDriver {
   private armed = false;
   private operationBatches = 0;
+  /** The accounts table, schema-qualified: the two statements below are VERBATIM,
+   *  so nothing rewrites them onto this driver's namespace. */
+  private readonly accounts: string;
+
+  constructor(
+    options: ConstructorParameters<typeof PGliteDriver>[0],
+    accounts: string
+  ) {
+    super(options);
+    this.accounts = accounts;
+  }
 
   arm(): void {
     this.armed = true;
@@ -61,12 +69,12 @@ class MoveGeneratedCodeAfterProducerDriver extends BatchOnlyPGliteDriver {
     await this.transaction(client, async (transaction) => {
       await this.executeRaw(
         transaction,
-        'UPDATE "generated_continuation_accounts" SET "code" = $1 WHERE "id" = $2',
+        `UPDATE ${this.accounts} SET "code" = $1 WHERE "id" = $2`,
         [2, "owner"]
       );
       await this.executeRaw(
         transaction,
-        'INSERT INTO "generated_continuation_accounts" ("id", "code") VALUES ($1, $2)',
+        `INSERT INTO ${this.accounts} ("id", "code") VALUES ($1, $2)`,
         ["replacement", 1]
       );
     });
@@ -74,33 +82,25 @@ class MoveGeneratedCodeAfterProducerDriver extends BatchOnlyPGliteDriver {
   }
 }
 
+/** The interfering driver rides the family's shared database, so it carries the
+ *  family's namespace — without it every statement would address `public`. */
+function makeRaceDriver(family: ReturnType<typeof getFamily>) {
+  const driver = new MoveGeneratedCodeAfterProducerDriver(
+    { client: family.database, namespace: family.namespace },
+    `"${family.namespace}"."generated_continuation_accounts"`
+  );
+  driver.adapter.capabilities.supportsCteWithMutations = false;
+  return driver;
+}
+
 function clientFor(driver: MoveGeneratedCodeAfterProducerDriver) {
   return createClient({ schema: continuationRaceSchema, driver });
 }
 
 describe("generated-output continuation premise", () => {
-  const database = openBorrowedPGlite();
-  const driver = new MoveGeneratedCodeAfterProducerDriver({ client: database });
-  const client = clientFor(driver);
-
-  beforeAll(async () => {
-    await syncLiveSchema(client);
-    driver.adapter.capabilities.supportsCteWithMutations = false;
-  });
-
-  beforeEach(async () => {
-    await client.token.deleteMany({});
-    await client.account.deleteMany({});
-    await client.$executeRawUnsafe(
-      'ALTER SEQUENCE "generated_continuation_accounts_code_seq" RESTART WITH 1'
-    );
-  });
-
-  afterAll(async () => {
-    await client.$disconnect();
-  });
-
   test("a stable non-key generated value reaches its child", async () => {
+    const client = clientFor(makeRaceDriver(getFamily()));
+
     await expect(
       client.account.create({
         data: { id: "owner", tokens: { create: { id: "token" } } },
@@ -113,6 +113,8 @@ describe("generated-output continuation premise", () => {
   });
 
   test("a moved and reused non-key value cannot link the child to the replacement owner", async () => {
+    const driver = makeRaceDriver(getFamily());
+    const client = clientFor(driver);
     driver.arm();
 
     const failure = await client.account

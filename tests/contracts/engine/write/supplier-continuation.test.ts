@@ -12,12 +12,10 @@ import {
   resetSupplierContinuation,
   supplierContinuationSchema,
 } from "@tests/contracts/engine/write/supplier-continuation-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 const SEGMENT_REFUSAL =
@@ -27,43 +25,24 @@ const BADGE_UPDATE = /^UPDATE (?:"[^"]+"\.)?"e7_badges"/;
 const ANY_SELECT = /^SELECT/;
 const PARENT_MOVED = /parent record changed across a committed segment/;
 
-/** PACKAGE E — the composed continuation on interactive and batch substrates. */
-let transactionClient: any;
-registerSupplierContinuationBehavior("PGlite transaction", async () => {
-  if (!transactionClient) {
-    transactionClient = createClient({
-      schema: supplierContinuationSchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-    }) as any;
-    await syncLiveSchema(transactionClient);
-  }
-  return transactionClient;
-});
+/** PACKAGE E — the composed continuation on interactive and batch substrates.
+ *  Each substrate takes a private schema on the worker's shared database; every
+ *  test re-seeds through `resetSupplierContinuation`, as it always did. */
+const getTransactionFamily = usePGliteSchemaFamily(
+  supplierContinuationSchema,
+  "transaction"
+);
+const getBatchFamily = usePGliteSchemaFamily(
+  supplierContinuationSchema,
+  "atomicBatch"
+);
 
-registerSupplierContinuationRefusals("PGlite transaction", async () => {
-  if (!transactionClient) {
-    transactionClient = createClient({
-      schema: supplierContinuationSchema,
-      driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-    }) as any;
-    await syncLiveSchema(transactionClient);
-  }
-  return transactionClient;
-});
+const openTransaction = async () => getTransactionFamily().client as any;
+registerSupplierContinuationBehavior("PGlite transaction", openTransaction);
 
-let batchClient: any;
-let batchDriver: BatchOnlyPGliteDriver | undefined;
-const openBatch = async () => {
-  if (!batchClient) {
-    batchDriver = new BatchOnlyPGliteDriver({ client: openBorrowedPGlite() });
-    batchClient = createClient({
-      schema: supplierContinuationSchema,
-      driver: batchDriver,
-    }) as any;
-    await syncLiveSchema(batchClient);
-  }
-  return batchClient;
-};
+registerSupplierContinuationRefusals("PGlite transaction", openTransaction);
+
+const openBatch = async () => getBatchFamily().client as any;
 
 // The refusals below are OWNED by the schema and the own-write ledger, both of which
 // answer before any substrate question, so the batch leg proves they are substrate-
@@ -74,8 +53,9 @@ describe("E — the composed continuation on a capability-false batch", () => {
   test("runs the same supplier and continuation state as the acknowledged route", async () => {
     const client = await openBatch();
     await resetSupplierContinuation(client);
-    if (!batchDriver) throw new Error("batch driver was not provisioned");
-    expect(batchDriver.supportsOrderedCommittedSegments).toBe(false);
+    expect(getBatchFamily().driver.supportsOrderedCommittedSegments).toBe(
+      false
+    );
 
     await client.station.update({
       where: { id: "s2" },
@@ -141,18 +121,25 @@ class ProgressiveBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
 }
 
 describe("E4 — the composed continuation on ordered committed segments", () => {
+  const getProgressiveFamily = usePGliteSchemaFamily(
+    supplierContinuationSchema
+  );
   let progressive: ProgressiveBatchOnlyPGliteDriver | undefined;
   let progressiveClient: any;
   const openProgressive = async () => {
     if (!progressiveClient) {
+      const family = getProgressiveFamily();
+      // An EXTRA driver over the family's database must name the schema the
+      // family provisioned, or it addresses `public`, where this suite has no
+      // tables.
       progressive = new ProgressiveBatchOnlyPGliteDriver({
-        client: openBorrowedPGlite(),
+        client: family.database,
+        namespace: family.namespace,
       });
       progressiveClient = createClient({
         schema: supplierContinuationSchema,
         driver: progressive,
       }) as any;
-      await syncLiveSchema(progressiveClient);
     }
     return progressiveClient;
   };
@@ -226,15 +213,15 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
    * is the same function here, not a second copy.
    */
   test("routes the composition's placement through the pre-effect capacity refusal", async () => {
-    const db = openBorrowedPGlite();
+    const family = getProgressiveFamily();
     const cramped = new ProgressiveBatchOnlyPGliteDriver({
-      client: db,
+      client: family.database,
+      namespace: family.namespace,
     });
     const client = createClient({
       schema: supplierContinuationSchema,
       driver: cramped,
     }) as any;
-    await syncLiveSchema(client);
     await resetSupplierContinuation(client);
     cramped.batches = [];
     // One bound value is below what the composition's own statements need. Apply
@@ -265,7 +252,6 @@ describe("E4 — the composed continuation on ordered committed segments", () =>
     expect(cramped.batches).toEqual([]);
     expect(await client.badge.findMany({ where: { id: "b-new" } })).toEqual([]);
     await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });
 
@@ -293,10 +279,17 @@ const nonPkSupplierSchema = (() => {
 })();
 
 describe("E4 — supplier continuation keeps the write-side membership premise", () => {
+  const getNonPkFamily = usePGliteSchemaFamily(nonPkSupplierSchema);
+
   test("a reused non-PK reference cannot redirect the continuation", async () => {
-    const database = openBorrowedPGlite();
+    const family = getNonPkFamily();
+    const database = family.database;
+    // Both drivers below are EXTRA drivers over the family's database, so both
+    // must name the schema it provisioned.
+    const namespace = family.namespace;
     const progressive = new ProgressiveBatchOnlyPGliteDriver({
       client: database,
+      namespace,
     });
     const client = createClient({
       schema: nonPkSupplierSchema,
@@ -304,9 +297,8 @@ describe("E4 — supplier continuation keeps the write-side membership premise",
     }) as any;
     const concurrent = createClient({
       schema: nonPkSupplierSchema,
-      driver: new PGliteDriver({ client: database }),
+      driver: new PGliteDriver({ client: database, namespace }),
     }) as any;
-    await syncLiveSchema(client);
     await concurrent.station.create({ data: { id: "p1", code: "A" } });
     await concurrent.station.create({ data: { id: "p2", code: "B" } });
     await concurrent.badge.create({
@@ -354,6 +346,5 @@ describe("E4 — supplier continuation keeps the write-side membership premise",
       { id: "b2", tag: "other", stationCode: "A" },
     ]);
     await client.$disconnect();
-    await closeTestPGlite(database);
   }, 60_000);
 });

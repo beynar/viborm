@@ -1,6 +1,5 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
 import { NestedWriteError, NotFoundError } from "@errors";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -12,17 +11,21 @@ import {
   makeClient,
   runDelete,
   runUpdate,
+  type StalenessTarget,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+
+// A private schema on the worker's shared database per schema this slice binds.
+// The family syncs its tables and empties them between tests, which is what a
+// fresh database per test did.
+const getFamily = usePGliteSchemaFamily(updateFamilySchema);
+const getNestedFamily = usePGliteSchemaFamily(nestedWriteBehaviorSchema);
+const getM2mFamily = usePGliteSchemaFamily(manyToManySchema);
 
 // ---------------------------------------------------------------------------
 // The PREMISE CLASSES themselves: one before-batch injection per class of
@@ -36,9 +39,8 @@ import { describe, expect, test } from "vitest";
 
 describe("write engine staleness injection (per premise class)", () => {
   test("root-presence premise (update): a concurrent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "s@x", count: 1 } });
 
     // The hook deletes the row before the batch runs; the batch-mode
@@ -49,10 +51,10 @@ describe("write engine staleness injection (per premise class)", () => {
     // so this is also the witness that the fold did not drop the premise. The
     // fold has no JS postcondition to fall back on, so the guard is the only
     // thing between this concurrent delete and a silent zero-row success.
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           await injector.user.delete({ where: { email: "s@x" } });
         },
@@ -68,22 +70,19 @@ describe("write engine staleness injection (per premise class)", () => {
 
     // No partial mutation survived.
     await expect(client.user.findMany()).resolves.toEqual([]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("root-presence premise (delete): a concurrent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "d@x", count: 1 } });
 
     // The delete projection of the same PLAN Phase 6.2 fold:
     // `[presence guard, DELETE … RETURNING]`, and the guard is what answers.
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runDelete(
-        db,
+        family,
         async () => {
           await injector.user.delete({ where: { email: "d@x" } });
         },
@@ -92,14 +91,11 @@ describe("write engine staleness injection (per premise class)", () => {
         { where: { email: "d@x" }, select: { email: true } }
       )
     ).rejects.toBeInstanceOf(NotFoundError);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("disconnect-correlation premise: a concurrent reparent aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: {
         email: "owner@x",
@@ -109,10 +105,10 @@ describe("write engine staleness injection (per premise class)", () => {
     });
     await client.user.create({ data: { email: "thief@x", count: 0 } });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           // Reparent post 5 away before the disconnect batch runs.
           await injector.post.update({
@@ -134,23 +130,20 @@ describe("write engine staleness injection (per premise class)", () => {
     await expect(
       client.post.findUnique({ where: { id: 5 } })
     ).resolves.toMatchObject({ userId: 2 });
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("connect-target premise: a concurrent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "c@x", count: 0 } });
     await client.post.create({
       data: { id: 6, title: "orphan", slug: "s6", userId: null },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           await injector.post.delete({ where: { id: 6 } });
         },
@@ -163,14 +156,11 @@ describe("write engine staleness injection (per premise class)", () => {
         }
       )
     ).rejects.toBeInstanceOf(NestedWriteError);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("upsert found premise: a concurrent delete aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: {
         email: "up@x",
@@ -179,10 +169,10 @@ describe("write engine staleness injection (per premise class)", () => {
       },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     await expect(
       runUpdate(
-        db,
+        family,
         async () => {
           // Delete the found child before the batch pins & updates it.
           await injector.post.delete({ where: { id: 4 } });
@@ -204,8 +194,6 @@ describe("write engine staleness injection (per premise class)", () => {
         }
       )
     ).rejects.toBeInstanceOf(NestedWriteError);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });
 
@@ -218,21 +206,27 @@ describe("write engine staleness injection (per premise class)", () => {
 // is enforced inside the atomic unit, not merely observed at planning.
 // ---------------------------------------------------------------------------
 
-function makeNestedClient(db: PGlite) {
+function makeNestedClient(target: StalenessTarget) {
   return createClient({
     schema: nestedWriteBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({
+      client: target.database,
+      namespace: target.namespace,
+    }),
   });
 }
 
 function runNestedUpdate(
-  db: PGlite,
+  target: StalenessTarget,
   beforeBatch: () => Promise<void>,
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, {
+    client: target.database,
+    namespace: target.namespace,
+  });
   const schemas = createSchemaRegistry(nestedWriteBehaviorSchema);
   const engine = new QueryEngine(
     driver,
@@ -250,9 +244,8 @@ function runNestedUpdate(
 
 describe("write engine staleness injection (set orphan pin)", () => {
   test("set departing-rows orphan pin: a concurrently added required-FK child aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeNestedClient(db);
-    await syncLiveSchema(client);
+    const family = getNestedFamily();
+    const client = makeNestedClient(family);
     await client.tag.create({ data: { id: "t1", name: "one" } });
     await client.tag.create({ data: { id: "t2", name: "two" } });
     await client.post.create({
@@ -267,10 +260,10 @@ describe("write engine staleness injection (set orphan pin)", () => {
     // Planning sees po1's only child is j1 (in the target set) → the departing
     // set is empty and the retained notExists guard is pinned. The hook connects
     // a NEW child (j2) to po1 before the batch, making it a departing row.
-    const injector = makeNestedClient(db);
+    const injector = makeNestedClient(family);
     await expect(
       runNestedUpdate(
-        db,
+        family,
         async () => {
           await injector.postTag.create({
             data: { id: "j2", postId: "po1", tagId: "t2" },
@@ -287,8 +280,6 @@ describe("write engine staleness injection (set orphan pin)", () => {
 
     // Both children survive; the set never fired.
     await expect(client.postTag.findMany()).resolves.toHaveLength(2);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });
 
@@ -302,27 +293,31 @@ describe("write engine staleness injection (set orphan pin)", () => {
 // the guards removed the stale batch would silently under-delete.
 // ---------------------------------------------------------------------------
 
-function makeM2mClient(db: PGlite) {
+function makeM2mClient(target: StalenessTarget) {
   return createClient({
     schema: manyToManySchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({
+      client: target.database,
+      namespace: target.namespace,
+    }),
   });
 }
 
 function runM2mUpdate(
-  db: PGlite,
+  target: StalenessTarget,
   beforeBatch: (() => Promise<void>) | undefined,
   model: Model<any>,
   args: Record<string, unknown>
 ): Promise<unknown> {
+  const options = {
+    client: target.database,
+    namespace: target.namespace,
+  };
   const driver = beforeBatch
-    ? new BeforeBatchPGliteDriver(beforeBatch, { client: db })
-    : new BeforeBatchPGliteDriver(
-        async () => {
-          /* no-op hook: forced-batch rerun */
-        },
-        { client: db }
-      );
+    ? new BeforeBatchPGliteDriver(beforeBatch, options)
+    : new BeforeBatchPGliteDriver(async () => {
+        /* no-op hook: forced-batch rerun */
+      }, options);
   const schemas = createSchemaRegistry(manyToManySchema);
   const engine = new QueryEngine(
     driver,
@@ -340,9 +335,8 @@ function runM2mUpdate(
 
 describe("write engine staleness injection (M2M deleteMany materialized-set pin)", () => {
   test("a concurrently added member aborts the batch typed and raceable, then a rerun converges", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeM2mClient(db);
-    await syncLiveSchema(client);
+    const family = getM2mFamily();
+    const client = makeM2mClient(family);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
     await client.tag.create({
       data: { id: "t1", name: "tag-1", featuredPostId: null },
@@ -357,9 +351,9 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
 
     // Planning captures the connected∧filter set = {t1}. The hook connects t2
     // (also matching the empty filter) before the batch → an "added" difference.
-    const injector = makeM2mClient(db);
+    const injector = makeM2mClient(family);
     const rejected = await runM2mUpdate(
-      db,
+      family,
       async () => {
         await injector.post.update({
           where: { id: "p1" },
@@ -382,7 +376,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
     ).toEqual(["t1", "t2"]);
 
     // Rerun with no concurrent change: it re-reads the enlarged set and converges.
-    await runM2mUpdate(db, undefined, manyToManySchema.post, {
+    await runM2mUpdate(family, undefined, manyToManySchema.post, {
       where: { id: "p1" },
       data: { tags: { deleteMany: {} } },
     });
@@ -392,14 +386,11 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
     });
     expect((afterRerun as { tags: unknown[] }).tags).toHaveLength(0);
     expect(await client.tag.findMany()).toHaveLength(0);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("a concurrently removed member aborts the batch typed and raceable, then a rerun converges", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeM2mClient(db);
-    await syncLiveSchema(client);
+    const family = getM2mFamily();
+    const client = makeM2mClient(family);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
     await client.tag.create({
       data: { id: "t1", name: "tag-1", featuredPostId: null },
@@ -415,9 +406,9 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
     // Planning captures the connected∧filter set = {t1, t2}. The hook
     // disconnects t2 before the batch → a "removed" difference: deleting the
     // materialized set would now over-delete a child no longer connected.
-    const injector = makeM2mClient(db);
+    const injector = makeM2mClient(family);
     const rejected = await runM2mUpdate(
-      db,
+      family,
       async () => {
         await injector.post.update({
           where: { id: "p1" },
@@ -442,7 +433,7 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
 
     // Rerun with no concurrent change: it re-reads the shrunken set {t1} and
     // converges — t1 deleted, the disconnected t2 untouched.
-    await runM2mUpdate(db, undefined, manyToManySchema.post, {
+    await runM2mUpdate(family, undefined, manyToManySchema.post, {
       where: { id: "p1" },
       data: { tags: { deleteMany: {} } },
     });
@@ -454,8 +445,6 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
     expect(
       (await client.tag.findMany()).map((t: { id: string }) => t.id)
     ).toEqual(["t2"]);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });
 
@@ -471,9 +460,8 @@ describe("write engine staleness injection (M2M deleteMany materialized-set pin)
 
 describe("write engine staleness injection (M2M adopt premises)", () => {
   test("connectOrCreate found premise: a concurrent delete of the adopted target aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeM2mClient(db);
-    await syncLiveSchema(client);
+    const family = getM2mFamily();
+    const client = makeM2mClient(family);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
     await client.tag.create({
       data: { id: "t1", name: "tag-1", featuredPostId: null },
@@ -481,9 +469,9 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
 
     // Planning's global probe finds t1 → the found (adopt) arm, pinned by the
     // exists guard. The hook deletes t1 before the batch pins & joins it.
-    const injector = makeM2mClient(db);
+    const injector = makeM2mClient(family);
     const rejected = await runM2mUpdate(
-      db,
+      family,
       async () => {
         await injector.tag.delete({ where: { id: "t1" } });
       },
@@ -508,14 +496,11 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
       include: { tags: true },
     });
     expect((after as { tags: unknown[] }).tags).toHaveLength(0);
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 
   test("upsert member premise: a concurrent disconnect of the member aborts the batch typed", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeM2mClient(db);
-    await syncLiveSchema(client);
+    const family = getM2mFamily();
+    const client = makeM2mClient(family);
     await client.post.create({ data: { id: "p1", title: "Post 1" } });
     await client.tag.create({
       data: { id: "t1", name: "tag-1", featuredPostId: null },
@@ -527,9 +512,9 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
 
     // Planning's membership probe finds t1 is a member of p1 → the update arm,
     // pinned by the member exists guard. The hook disconnects t1 before the batch.
-    const injector = makeM2mClient(db);
+    const injector = makeM2mClient(family);
     const rejected = await runM2mUpdate(
-      db,
+      family,
       async () => {
         await injector.post.update({
           where: { id: "p1" },
@@ -555,7 +540,5 @@ describe("write engine staleness injection (M2M adopt premises)", () => {
     // The batch aborted whole: t1's name is unchanged (the update never fired).
     const after = await client.tag.findUnique({ where: { id: "t1" } });
     expect((after as { name: string }).name).toBe("tag-1");
-    await client.$disconnect();
-    await closeTestPGlite(db);
   });
 });

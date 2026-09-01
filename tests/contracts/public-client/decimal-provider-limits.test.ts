@@ -26,12 +26,12 @@ import { LibSQLDriver } from "@drivers/libsql";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
 import { ClientInitializationError } from "@errors";
 import { s } from "@schema";
 import type { Schema } from "@schema/hydration";
 import { SchemaValidationError } from "@schema/validation/error";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test, vi } from "vitest";
 
 type Domain = { precision: number; scale: number };
 
@@ -61,19 +61,21 @@ const SQLITE_PRECISION = /maximum precision of 18/;
 const SQLITE_SUM = /precision \+ scale <= 18/;
 const SQLITE_REASON = /multiply and divide/;
 
-const borrowedPGliteClients = new Set<PGlite>();
-
-afterEach(async () => {
-  const clients = [...borrowedPGliteClients];
-  borrowedPGliteClients.clear();
-  await Promise.all(clients.map((client) => client.close()));
-});
+// The PostgreSQL driver below is CONSTRUCTED and never connected, so the
+// database it holds is only ever the one the driver would have used. Borrowing
+// the worker's shared database keeps that ownership shape - a caller-supplied
+// client - without paying for an instance per binding.
+const getFamily = usePGliteSchemaFamily(
+  schemaWith({ precision: 10, scale: 2 })
+);
 
 const drivers = {
   postgresql: () => {
-    const client = new PGlite();
-    borrowedPGliteClients.add(client);
-    return new PGliteDriver({ client });
+    const family = getFamily();
+    return new PGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
   },
   mysql: () =>
     new MySQL2Driver({

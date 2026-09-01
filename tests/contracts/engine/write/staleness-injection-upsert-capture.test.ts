@@ -1,5 +1,4 @@
 import { createClient } from "@client/client";
-import type { PGlite } from "@electric-sql/pglite";
 import {
   NotFoundError,
   TransactionError,
@@ -15,16 +14,18 @@ import {
   MidBatchPGliteDriver,
   makeClient,
   type RawRunner,
+  type StalenessTarget,
   startsWithUpdate,
 } from "@tests/contracts/engine/write/staleness-injection-fixtures";
 import { updateFamilySchema } from "@tests/contracts/engine/write/update-family-behavior";
-import {
-  closeTestPGlite,
-  openTestPGlite as openBorrowedPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
+
+// One private schema on the worker's shared database for the whole slice. The
+// family syncs it and empties every table — identities restarted — between
+// tests, which is what a fresh database per test did.
+const getFamily = usePGliteSchemaFamily(updateFamilySchema);
 
 // ---------------------------------------------------------------------------
 // The TOP-LEVEL upsert's own captured-row story, and the only slice that needs
@@ -35,11 +36,14 @@ import { describe, expect, test } from "vitest";
 
 /** Run a probe-first V2 upsert through the production once-only retry seam. */
 function runRoutedUpsert(
-  db: PGlite,
+  target: StalenessTarget,
   beforeBatch: () => Promise<void>,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, {
+    client: target.database,
+    namespace: target.namespace,
+  });
   const schemas = createSchemaRegistry(updateFamilySchema);
   const engine = new QueryEngine(
     driver,
@@ -57,12 +61,13 @@ function runRoutedUpsert(
 
 /** Run a probe-first V2 upsert with a hook inside its final atomic batch. */
 function runUpsertMidBatch(
-  db: PGlite,
+  target: StalenessTarget,
   hook: (run: RawRunner) => Promise<void>,
   args: Record<string, unknown>
 ): Promise<unknown> {
   const driver = new MidBatchPGliteDriver(hook, startsWithUpdate, {
-    client: db,
+    client: target.database,
+    namespace: target.namespace,
   });
   const schemas = createSchemaRegistry(updateFamilySchema);
   const engine = new QueryEngine(
@@ -88,14 +93,13 @@ function runUpsertMidBatch(
 
 describe("write engine upsert captured-row staleness", () => {
   test("targetWhere skip rejects a matching replacement without retry", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: { email: "up-skip-replaced@x", count: 10 },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const stale = createClient({
       schema: updateFamilySchema,
       driver: new BeforeBatchPGliteDriver(
@@ -108,7 +112,7 @@ describe("write engine upsert captured-row staleness", () => {
             data: { email: "up-skip-replaced@x", count: 999 },
           });
         },
-        { client: db }
+        { client: family.database, namespace: family.namespace }
       ),
     });
 
@@ -122,8 +126,6 @@ describe("write engine upsert captured-row staleness", () => {
       })
       .catch((error) => error);
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     // Planning selected A and chose the skip arm. B satisfies the same public
     // selector and condition, but it is not the row whose skip was compiled.
@@ -139,14 +141,13 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("targetWhere skip reports deletion as non-raceable not found", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: { email: "up-skip-deleted@x", count: 10 },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const stale = createClient({
       schema: updateFamilySchema,
       driver: new BeforeBatchPGliteDriver(
@@ -155,7 +156,7 @@ describe("write engine upsert captured-row staleness", () => {
             where: { email: "up-skip-deleted@x" },
           });
         },
-        { client: db }
+        { client: family.database, namespace: family.namespace }
       ),
     });
 
@@ -169,8 +170,6 @@ describe("write engine upsert captured-row staleness", () => {
       })
       .catch((error) => error);
     const users = await client.user.findMany();
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(NotFoundError);
     expect((outcome as NotFoundError).message).toBe(
@@ -181,9 +180,8 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("targetWhere skip preserves SQL UNKNOWN as a stable no-match", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.post.create({
       data: {
         id: 400,
@@ -196,7 +194,8 @@ describe("write engine upsert captured-row staleness", () => {
     const stale = createClient({
       schema: updateFamilySchema,
       driver: new BeforeBatchPGliteDriver(() => Promise.resolve(), {
-        client: db,
+        client: family.database,
+        namespace: family.namespace,
       }),
     });
     const result = await stale.post.upsert({
@@ -211,23 +210,20 @@ describe("write engine upsert captured-row staleness", () => {
       update: { title: "updated" },
       select: { id: true, title: true, userId: true },
     });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(result).toEqual({ id: 400, title: "unchanged", userId: null });
   });
 
   test("no-condition found guard rejects a replacement row without retry", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: { email: "up-guard@x", count: 0 },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const outcome = await runRoutedUpsert(
-      db,
+      family,
       async () => {
         await injector.user.update({
           where: { email: "up-guard@x" },
@@ -249,8 +245,6 @@ describe("write engine upsert captured-row staleness", () => {
     const raceable =
       outcome instanceof NotFoundError ? outcome.meta.raceable : undefined;
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     // The routed seam is intentional: if this existing-row guard were marked
     // raceable, its one retry would locate user 2 and this call would resolve.
@@ -269,9 +263,8 @@ describe("write engine upsert captured-row staleness", () => {
     "targetWhere",
     "setWhere",
   ] as const)("%s matched guard rejects a matching replacement row without retry", async (conditionalField) => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     const stem = conditionalField === "targetWhere" ? "target" : "set";
     const selectedEmail = `up-${stem}@x`;
     const movedEmail = `up-${stem}-moved@x`;
@@ -279,9 +272,9 @@ describe("write engine upsert captured-row staleness", () => {
       data: { email: selectedEmail, count: 10 },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const outcome = await runRoutedUpsert(
-      db,
+      family,
       async () => {
         await injector.user.update({
           where: { email: selectedEmail },
@@ -302,8 +295,6 @@ describe("write engine upsert captured-row staleness", () => {
     const raceable =
       outcome instanceof TransactionError ? outcome.meta.raceable : undefined;
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(TransactionError);
     expect((outcome as TransactionError).message).toBe(
@@ -317,16 +308,15 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("compiler-backed found guard rejects a replacement before relation writes", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({
       data: { email: "up-compiler@x", count: 0 },
     });
 
-    const injector = makeClient(db);
+    const injector = makeClient(family);
     const outcome = await runRoutedUpsert(
-      db,
+      family,
       async () => {
         await injector.user.update({
           where: { email: "up-compiler@x" },
@@ -355,8 +345,6 @@ describe("write engine upsert captured-row staleness", () => {
       outcome instanceof NotFoundError ? outcome.meta.raceable : undefined;
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
     const posts = await client.post.findMany();
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(NotFoundError);
     expect((outcome as NotFoundError).message).toBe(
@@ -371,19 +359,20 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("folded UPDATE RETURNING addresses captured A after the guard", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "up-fold@x", count: 0 } });
 
     const result = await runUpsertMidBatch(
-      db,
+      family,
       async (run) => {
+        // Verbatim SQL is not qualified by the driver's namespace, so these
+        // planted statements must name the suite's schema themselves.
         await run(
-          `UPDATE "update_family_users" SET "email" = 'up-fold-moved@x' WHERE "id" = 1`
+          `UPDATE "${family.namespace}"."update_family_users" SET "email" = 'up-fold-moved@x' WHERE "id" = 1`
         );
         await run(
-          `INSERT INTO "update_family_users" ("email", "count") VALUES ('up-fold@x', 0)`
+          `INSERT INTO "${family.namespace}"."update_family_users" ("email", "count") VALUES ('up-fold@x', 0)`
         );
       },
       {
@@ -394,8 +383,6 @@ describe("write engine upsert captured-row staleness", () => {
       }
     );
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(result).toEqual({ email: "up-fold-moved@x", count: 1 });
     expect(users).toEqual([
@@ -405,19 +392,19 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("ordinary UPDATE plus terminal read addresses captured A after the guard", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "up-plain@x", count: 0 } });
 
     const result = await runUpsertMidBatch(
-      db,
+      family,
       async (run) => {
+        // Verbatim SQL is not qualified by the driver's namespace.
         await run(
-          `UPDATE "update_family_users" SET "email" = 'up-plain-moved@x' WHERE "id" = 1`
+          `UPDATE "${family.namespace}"."update_family_users" SET "email" = 'up-plain-moved@x' WHERE "id" = 1`
         );
         await run(
-          `INSERT INTO "update_family_users" ("email", "count") VALUES ('up-plain@x', 0)`
+          `INSERT INTO "${family.namespace}"."update_family_users" ("email", "count") VALUES ('up-plain@x', 0)`
         );
       },
       {
@@ -434,8 +421,6 @@ describe("write engine upsert captured-row staleness", () => {
       }
     );
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(result).toEqual({
       email: "up-plain-moved@x",
@@ -449,21 +434,18 @@ describe("write engine upsert captured-row staleness", () => {
   });
 
   test("found-arm unique conflicts stay unpinned and do not retry", async () => {
-    const db = openBorrowedPGlite();
-    const client = makeClient(db);
-    await syncLiveSchema(client);
+    const family = getFamily();
+    const client = makeClient(family);
     await client.user.create({ data: { email: "up-conflict-a@x", count: 0 } });
     await client.user.create({ data: { email: "up-conflict-b@x", count: 0 } });
 
-    const outcome = await runRoutedUpsert(db, () => Promise.resolve(), {
+    const outcome = await runRoutedUpsert(family, () => Promise.resolve(), {
       where: { id: 1, count: 0 },
       create: { email: "up-conflict-new@x", count: 0 },
       update: { email: "up-conflict-b@x" },
       select: { email: true, count: true },
     }).catch((error) => error);
     const users = await client.user.findMany({ orderBy: { id: "asc" } });
-    await client.$disconnect();
-    await closeTestPGlite(db);
 
     expect(outcome).toBeInstanceOf(UniqueConstraintError);
     expect((outcome as UniqueConstraintError).meta.raceable).not.toBe(true);

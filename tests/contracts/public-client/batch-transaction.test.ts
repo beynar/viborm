@@ -1,4 +1,7 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 /**
  * Batch Transaction Tests
  *
@@ -10,10 +13,9 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { Driver } from "@drivers/driver";
-import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { TransactionError, VibORMErrorCode } from "@errors";
 
 import {
@@ -28,16 +30,7 @@ import {
   readTestTransactionOperation,
 } from "@tests/fixtures/transaction-operation";
 import type Database from "better-sqlite3";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 
 // =============================================================================
 // TEST SCHEMA
@@ -152,48 +145,16 @@ const withTransactions = <TClient>(
 // TEST SETUP
 // =============================================================================
 
-let db: PGlite;
-const caseDatabases = new Set<PGlite>();
+// A private schema on the worker's shared database per schema this file binds.
+// The family syncs the tables and empties them between tests, which is what the
+// per-case databases and the manual DELETEs did.
+const getFamily = usePGliteSchemaFamily(schema);
+const getDataflowFamily = usePGliteSchemaFamily(batchPrimaryKeyDataflowSchema);
 
-const createCaseDatabase = (): PGlite => {
-  const database = new PGlite();
-  caseDatabases.add(database);
-  return database;
-};
-let client: ReturnType<
-  typeof createClient<
-    typeof schema,
-    { schema: typeof schema; driver: PGliteDriver }
-  >
->;
+let client: ReturnType<typeof getFamily>["client"];
 
-beforeAll(async () => {
-  db = new PGlite();
-  const driver = new PGliteDriver({ client: db });
-  client = createClient({ schema, driver });
-
-  // Use syncLiveSchema() to create tables via the migration engine
-  await syncLiveSchema(client);
-});
-
-afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await db.close();
-  }
-});
-
-afterEach(async () => {
-  const databases = [...caseDatabases];
-  caseDatabases.clear();
-  await Promise.all(databases.map((database) => database.close()));
-});
-
-beforeEach(async () => {
-  // Clean up data between tests
-  await client.$executeRawUnsafe(`DELETE FROM "post"`);
-  await client.$executeRawUnsafe(`DELETE FROM "user"`);
+beforeEach(() => {
+  client = getFamily().client;
 });
 
 // =============================================================================
@@ -535,18 +496,20 @@ describe("$transaction with array (batch mode)", () => {
   });
 
   test("batch-only driver batches nested write operations atomically", async () => {
-    const batchDb = createCaseDatabase();
-    const setupClient = createClient({
-      schema,
-      driver: new PGliteDriver({ client: batchDb }),
-    });
+    const family = getFamily();
+    const setupClient = family.client;
+    // A SECOND driver over the family's database must name the schema the
+    // family provisioned, or it addresses `public`, where this suite has no
+    // tables.
     const batchOnlyClient = createClient({
       schema,
-      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
 
     try {
-      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "1", name: "Nested", email: "nested@test.com" },
       });
@@ -578,18 +541,17 @@ describe("$transaction with array (batch mode)", () => {
   });
 
   test("batch-only shared parsing keeps exact partitions with insert ids", async () => {
-    const batchDb = createCaseDatabase();
-    const setupClient = createClient({
-      schema,
-      driver: new PGliteDriver({ client: batchDb }),
-    });
+    const family = getFamily();
+    const setupClient = family.client;
     const batchOnlyClient = createClient({
       schema,
-      driver: new InsertIdBatchOnlyPGliteDriver({ client: batchDb }),
+      driver: new InsertIdBatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
 
     try {
-      await syncLiveSchema(setupClient);
       await setupClient.user.create({
         data: { id: "1", name: "Before", email: "partition@test.com" },
       });
@@ -662,19 +624,16 @@ describe("$transaction with array (batch mode)", () => {
     "batch-only transaction rolls back earlier generated refs when a later nested plan fails",
     { timeout: 30_000 },
     async () => {
-      const batchDb = createCaseDatabase();
-      const setupClient = createClient({
-        schema: batchPrimaryKeyDataflowSchema,
-        driver: new PGliteDriver({ client: batchDb }),
-      });
+      const family = getDataflowFamily();
       const batchOnlyClient = createClient({
         schema: batchPrimaryKeyDataflowSchema,
-        driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+        driver: new BatchOnlyPGliteDriver({
+          client: family.database,
+          namespace: family.namespace,
+        }),
       });
 
       try {
-        await syncLiveSchema(setupClient);
-
         await expect(
           withTransactions(batchOnlyClient).$transaction([
             batchOnlyClient.generatedUser.create({
@@ -800,15 +759,13 @@ describe("$transaction with array (batch mode)", () => {
  */
 describe("$transaction([...]) with statement-free operations", () => {
   const bootBatchOnly = async () => {
-    const batchDb = createCaseDatabase();
-    const setupClient = createClient({
-      schema,
-      driver: new PGliteDriver({ client: batchDb }),
-    });
-    await syncLiveSchema(setupClient);
+    const family = getFamily();
     return createClient({
       schema,
-      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
   };
 
@@ -980,18 +937,16 @@ describe("$transaction([...]) with statement-free operations", () => {
  */
 describe("$transaction([...]) guard attribution after rollback", () => {
   const bootBatchOnly = async () => {
-    const batchDb = createCaseDatabase();
-    const setupClient = createClient({
-      schema,
-      driver: new PGliteDriver({ client: batchDb }),
-    });
-    await syncLiveSchema(setupClient);
-    await setupClient.user.create({
+    const family = getFamily();
+    await family.client.user.create({
       data: { id: "b", name: "Bea", email: "bea@test.com" },
     });
     return createClient({
       schema,
-      driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
     });
   };
 
@@ -1161,20 +1116,20 @@ describe("$transaction([...]) attribution of a failure no guard caused", () => {
     .model({ id: s.string().id(), n: s.int(), label: s.string() })
     .map("batch_attribution_counter");
   const counterSchema = { counter };
+  const getCounterFamily = usePGliteSchemaFamily(counterSchema);
 
   const bootCounters = async () => {
-    const batchDb = createCaseDatabase();
-    const setupClient = createClient({
-      schema: counterSchema,
-      driver: new PGliteDriver({ client: batchDb }),
-    });
-    await syncLiveSchema(setupClient);
+    const family = getCounterFamily();
+    const setupClient = family.client;
     await setupClient.counter.create({ data: { id: "a", n: 10, label: "A" } });
     await setupClient.counter.create({ data: { id: "b", n: 20, label: "B" } });
     return {
       batchOnly: createClient({
         schema: counterSchema,
-        driver: new BatchOnlyPGliteDriver({ client: batchDb }),
+        driver: new BatchOnlyPGliteDriver({
+          client: family.database,
+          namespace: family.namespace,
+        }),
       }),
       transactional: setupClient,
     };

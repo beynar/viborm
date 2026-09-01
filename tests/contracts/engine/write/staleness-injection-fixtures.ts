@@ -23,8 +23,21 @@ import { createSchemaRegistry } from "@validation";
 // ---------------------------------------------------------------------------
 
 // The four `staleness-injection-*.test.ts` slices beside this module share these
-// two drivers and the `updateFamilySchema` runners built on them. Each slice opens
-// its own fresh database per test, so nothing here holds state between them.
+// two drivers and the `updateFamilySchema` runners built on them. Each slice takes
+// a private SCHEMA on the worker's shared database and is emptied between tests,
+// so nothing here holds state between them.
+
+/**
+ * The database a slice runs on, and the schema its tables live in. Every driver
+ * built here is an EXTRA driver over a database the slice does not own, so it
+ * must carry the namespace: without it the driver addresses `public`, where the
+ * slice has no tables at all. A `PGliteSchemaFamily` is one of these, so a slice
+ * passes its family straight through.
+ */
+export interface StalenessTarget {
+  readonly database: PGlite;
+  readonly namespace: string;
+}
 
 /**
  * A batch-only PGlite driver that runs `beforeBatch` between planning and the
@@ -67,22 +80,28 @@ export class BeforeBatchPGliteDriver extends PGliteDriver {
   }
 }
 
-export function makeClient(db: PGlite) {
+export function makeClient(target: StalenessTarget) {
   return createClient({
     schema: updateFamilySchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({
+      client: target.database,
+      namespace: target.namespace,
+    }),
   });
 }
 
 /** Run a V2 update in forced-batch mode with a before-batch staleness hook. */
 export function runUpdate(
-  db: PGlite,
+  target: StalenessTarget,
   beforeBatch: () => Promise<void>,
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, {
+    client: target.database,
+    namespace: target.namespace,
+  });
   const schemas = createSchemaRegistry(updateFamilySchema);
   const engine = new QueryEngine(
     driver,
@@ -99,13 +118,16 @@ export function runUpdate(
 }
 
 export function runDelete(
-  db: PGlite,
+  target: StalenessTarget,
   beforeBatch: () => Promise<void>,
   modelName: string,
   model: Model<any>,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const driver = new BeforeBatchPGliteDriver(beforeBatch, { client: db });
+  const driver = new BeforeBatchPGliteDriver(beforeBatch, {
+    client: target.database,
+    namespace: target.namespace,
+  });
   const schemas = createSchemaRegistry(updateFamilySchema);
   const engine = new QueryEngine(
     driver,

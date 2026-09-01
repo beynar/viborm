@@ -1,4 +1,3 @@
-import { createClient } from "@client/client";
 import type {
   AnyDriver,
   BatchQuery,
@@ -58,19 +57,13 @@ import { ref } from "@src/query-engine/write-engine/OperationFragment";
 import type { RecordSeriesOperation } from "@src/query-engine/write-engine/record-series";
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { executeRoutedOperation } from "@src/query-engine/write-engine/routing";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { createSchemaRegistry } from "@validation";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 
 /**
  * PACKAGE I3 — the transactional record series, proven on a FAKE operation.
@@ -187,7 +180,7 @@ class TracingProgressivePGliteDriver extends TracingBatchOnlyPGliteDriver {
   override readonly maxBindParametersPerStatement: number;
 
   constructor(events: string[], maxBindParametersPerStatement = 65_535) {
-    super(events, { client: database });
+    super(events, { client: database, namespace });
     this.maxBindParametersPerStatement = maxBindParametersPerStatement;
   }
 
@@ -281,7 +274,7 @@ function memberOperation(
   const probe: ReadStep = {
     id: `${spec.id}.probe`,
     kind: "read",
-    statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+    statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
     outputs: { rows: { kind: "rows" } },
   };
   return {
@@ -306,8 +299,8 @@ function memberOperation(
         id: `${spec.id}.write`,
         kind: "write",
         statement: spec.skippable
-          ? sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${spec.rowId}, ${spec.label}) ON CONFLICT DO NOTHING RETURNING "id"`
-          : sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${spec.rowId}, ${spec.label}) RETURNING "id"`,
+          ? sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${spec.rowId}, ${spec.label}) ON CONFLICT DO NOTHING RETURNING "id"`
+          : sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${spec.rowId}, ${spec.label}) RETURNING "id"`,
         outputs: { rows: { kind: "rows" } },
         ...(spec.pinned ? { racePin: LABEL_PIN } : {}),
       };
@@ -329,7 +322,7 @@ function resultReadOperation(events: string[]): ExecutableOperation {
       const read: ReadStep = {
         id: "series.read",
         kind: "read",
-        statement: sql`SELECT "id", "label" FROM "rs_ledger" ORDER BY "id" ASC`,
+        statement: sql`SELECT "id", "label" FROM ${ledger()} ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
       return { steps: [read], outputs: { result: ref(read.id, "rows") } };
@@ -354,7 +347,7 @@ function seriesOperation(
       const step: ReadStep = {
         id: "series.capture",
         kind: "read",
-        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
       return { steps: [step] };
@@ -428,7 +421,7 @@ function nestedProgressiveSeries(
     kind: "guard",
     premise: {
       kind: "exists",
-      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref("outer.prefix", "id")}`,
+      statement: sql`SELECT 1 FROM ${ledger()} WHERE "id" = ${ref("outer.prefix", "id")}`,
     },
     failure: {
       kind: "query",
@@ -439,7 +432,7 @@ function nestedProgressiveSeries(
   const prefix: WriteStep = {
     id: "outer.prefix",
     kind: "write",
-    statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"prefix"}) RETURNING "id"`,
+    statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"prefix"}) RETURNING "id"`,
     outputs: {
       id: { kind: "firstRowField", field: "id" },
     },
@@ -448,7 +441,7 @@ function nestedProgressiveSeries(
   const nestedWrite: WriteStep = {
     id: "nested.write",
     kind: "write",
-    statement: sql`UPDATE "rs_ledger" SET "label" = ${nestedLabel} WHERE "id" = ${ref(prefix.id, "id")} RETURNING "id"`,
+    statement: sql`UPDATE ${ledger()} SET "label" = ${nestedLabel} WHERE "id" = ${ref(prefix.id, "id")} RETURNING "id"`,
     outputs: { rows: { kind: "rows" } },
   };
   const nested = staticSeries([
@@ -462,7 +455,7 @@ function nestedProgressiveSeries(
     kind: "guard",
     premise: {
       kind: "exists",
-      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref(prefix.id, "id")}`,
+      statement: sql`SELECT 1 FROM ${ledger()} WHERE "id" = ${ref(prefix.id, "id")}`,
     },
     failure: {
       kind: "query",
@@ -475,7 +468,7 @@ function nestedProgressiveSeries(
     kind: "guard",
     premise: {
       kind: "exists",
-      statement: sql`SELECT 1 FROM "rs_ledger" WHERE "id" = ${ref(prefix.id, "id")} AND "label" = ${nestedLabel}`,
+      statement: sql`SELECT 1 FROM ${ledger()} WHERE "id" = ${ref(prefix.id, "id")} AND "label" = ${nestedLabel}`,
     },
     failure: {
       kind: "query",
@@ -486,7 +479,7 @@ function nestedProgressiveSeries(
   const suffix: WriteStep = {
     id: "outer.suffix",
     kind: "write",
-    statement: sql`INSERT INTO "rs_ledger" ("id", "label") SELECT ${2}, ${"suffix"} WHERE ${ref(prefix.id, "id")} = ${1} RETURNING "id"`,
+    statement: sql`INSERT INTO ${ledger()} ("id", "label") SELECT ${2}, ${"suffix"} WHERE ${ref(prefix.id, "id")} = ${1} RETURNING "id"`,
     outputs: { rows: { kind: "rows" } },
   };
   return staticSeries([
@@ -525,36 +518,37 @@ function twoMemberShape(
 // Fixtures.
 // ---------------------------------------------------------------------------
 
+// A private schema on the worker's shared database. The family syncs the table
+// and empties it between tests, which is what the TRUNCATE below it did.
+const getFamily = usePGliteSchemaFamily(recordSeriesSchema);
+
 let database: PGlite;
+/**
+ * The suite's schema. Every driver this file builds is an EXTRA driver over a
+ * database it does not own, so each one carries this: without it the driver
+ * addresses `public`, where this suite has no table at all. Verbatim SQL is not
+ * rewritten by the driver either, so {@link ledger} names the schema too.
+ */
+let namespace: string;
+let stateClient: ReturnType<typeof getFamily>["client"];
 
-function makeStateClient() {
-  return createClient({
-    schema: recordSeriesSchema,
-    driver: new PGliteDriver({ client: database }),
-  });
+/** `rs_ledger`, qualified, for the statements this file hand-builds. */
+function ledger() {
+  return sql.raw(`"${namespace}"."rs_ledger"`);
 }
-
-let stateClient: ReturnType<typeof makeStateClient>;
 
 /** A row another writer committed before the series began. */
 function seedRow(id: number, label: string): Promise<unknown> {
   return stateClient.$executeRawUnsafe(
-    `INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, '${label}')`
+    `INSERT INTO "${namespace}"."rs_ledger" ("id", "label") VALUES (${id}, '${label}')`
   );
 }
 
-beforeAll(async () => {
-  database = openBorrowedPGlite();
-  stateClient = makeStateClient();
-  await syncLiveSchema(stateClient);
-}, 60_000);
-
-afterAll(async () => {
-  await stateClient.$disconnect();
-});
-
-beforeEach(async () => {
-  await stateClient.$executeRawUnsafe('TRUNCATE TABLE "rs_ledger"');
+beforeEach(() => {
+  const family = getFamily();
+  database = family.database;
+  namespace = family.namespace;
+  stateClient = family.client;
 });
 
 function executorFor(
@@ -665,14 +659,17 @@ async function settleOfficialSegmentSpans(): Promise<void> {
 
 function ledgerRows(): Promise<Array<{ id: number; label: string }>> {
   return stateClient.$queryRawUnsafe<{ id: number; label: string }>(
-    'SELECT "id", "label" FROM "rs_ledger" ORDER BY "id" ASC'
+    `SELECT "id", "label" FROM "${namespace}"."rs_ledger" ORDER BY "id" ASC`
   );
 }
 
 describe("I3 — the transactional record series through the real executor", () => {
   test("captures once, builds every member before member zero writes, then runs them in order", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     const series = seriesOperation(
       events,
       twoMemberShape(() => ({ id: "m1", rowId: 2, label: "one" }), true)
@@ -722,7 +719,10 @@ describe("I3 — the transactional record series through the real executor", () 
 
   test("a member failure rolls member zero back with it", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     // Row 9 is committed before the series runs; member one collides with it on
     // the PRIMARY KEY, which carries no pin — so this is a plain failure, not a
     // race, and nothing retries.
@@ -746,7 +746,10 @@ describe("I3 — the transactional record series through the real executor", () 
 
   test("a RACEABLE member failure retries the capture and every member exactly once", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     // The row the first attempt's member one collides with, on the pinned label
     // unique — committed by another writer before this series began.
     await seedRow(9, "clash");
@@ -806,7 +809,10 @@ describe("I3 — the transactional record series through the real executor", () 
 
   test("inside a caller's OPEN scope it still rolls back and retries whole", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     await seedRow(9, "clash");
 
     const series = seriesOperation(
@@ -858,6 +864,7 @@ describe("I3 — the transactional record series through the real executor", () 
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
     const series = seriesOperation(
       events,
@@ -892,7 +899,10 @@ describe("I3 — the transactional record series through the real executor", () 
 
   test("every prepared-statement and prepared-batch seam declines, touching no phase", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     const executor = executorFor(driver);
     const series = seriesOperation(
       events,
@@ -937,6 +947,7 @@ describe("I13 — progressive nested record series", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
 
     await expect(
@@ -959,12 +970,13 @@ describe("I13 — progressive nested record series", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
     let secondCompiles = 0;
     const secondProbe: ReadStep = {
       id: "retry.probe",
       kind: "read",
-      statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+      statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
       outputs: { rows: { kind: "rows" } },
     };
     const second: ExecutableOperation = {
@@ -975,7 +987,7 @@ describe("I13 — progressive nested record series", () => {
         const write: WriteStep = {
           id: "retry.write",
           kind: "write",
-          statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
+          statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
           outputs: { rows: { kind: "rows" } },
           racePin: LABEL_PIN,
         };
@@ -1017,12 +1029,13 @@ describe("I13 — progressive nested record series", () => {
       const events: string[] = [];
       const driver = new TracingBatchOnlyPGliteDriver(events, {
         client: database,
+        namespace,
       });
       let secondCompiles = 0;
       const secondProbe: ReadStep = {
         id: "official-retry.probe",
         kind: "read",
-        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
       const second: ExecutableOperation = {
@@ -1033,7 +1046,7 @@ describe("I13 — progressive nested record series", () => {
           const write: WriteStep = {
             id: "official-retry.write",
             kind: "write",
-            statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
+            statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${2}, ${secondCompiles === 1 ? "clash" : "free"}) RETURNING "id"`,
             outputs: { rows: { kind: "rows" } },
             racePin: LABEL_PIN,
           };
@@ -1083,12 +1096,13 @@ describe("I13 — progressive nested record series", () => {
     const events: string[] = [];
     const driver = new MalformedSecondBatchPGliteDriver(events, {
       client: database,
+      namespace,
     });
     const writeMember = (id: number): ExecutableOperation => {
       const write: WriteStep = {
         id: `malformed.${id}`,
         kind: "write",
-        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`row-${id}`})`,
+        statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${id}, ${`row-${id}`})`,
         outputs: { count: { kind: "rowCount" } },
       };
       return staticMember({
@@ -1182,6 +1196,7 @@ describe("I13 — progressive nested record series", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
     const direct = nestedProgressiveSeries().compileMembers({})[0];
     if (!direct) throw new Error("expected one direct progressive member");
@@ -1394,7 +1409,7 @@ describe("I13 — progressive nested record series", () => {
       const read: ReadStep = {
         id: "official-isolation.read",
         kind: "read",
-        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
       const series = () =>
@@ -1597,12 +1612,13 @@ describe("I13 — progressive nested record series", () => {
     const events: string[] = [];
     const driver = new MalformedSecondBatchPGliteDriver(events, {
       client: database,
+      namespace,
     });
     const writeMember = (id: number): ExecutableOperation => {
       const write: WriteStep = {
         id: `observed-malformed.${id}`,
         kind: "write",
-        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`observed-${id}`})`,
+        statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${id}, ${`observed-${id}`})`,
         outputs: { count: { kind: "rowCount" } },
       };
       return staticMember({
@@ -1634,13 +1650,13 @@ describe("I13 — progressive nested record series", () => {
     const read: ReadStep = {
       id: "observed.read",
       kind: "read",
-      statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+      statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
       outputs: { rows: { kind: "rows" } },
     };
     const duplicate: WriteStep = {
       id: "observed.duplicate",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"duplicate"})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"duplicate"})`,
       outputs: { count: { kind: "rowCount" } },
     };
     const { chain, observations } = observedSegmentChain();
@@ -1687,7 +1703,7 @@ describe("I13 — progressive nested record series", () => {
       const read: ReadStep = {
         id: "official-outcome.read",
         kind: "read",
-        statement: sql`SELECT "id" FROM "rs_ledger" ORDER BY "id" ASC`,
+        statement: sql`SELECT "id" FROM ${ledger()} ORDER BY "id" ASC`,
         outputs: { rows: { kind: "rows" } },
       };
       await executorFor(acknowledgedDriver, official.chain).execute(
@@ -1704,7 +1720,7 @@ describe("I13 — progressive nested record series", () => {
       const duplicate: WriteStep = {
         id: "official-outcome.duplicate",
         kind: "write",
-        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"duplicate"})`,
+        statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"duplicate"})`,
         outputs: { count: { kind: "rowCount" } },
       };
       await executorFor(acknowledgedDriver, official.chain)
@@ -1722,7 +1738,7 @@ describe("I13 — progressive nested record series", () => {
       const committedFailure: WriteStep = {
         id: "official-outcome.committed-failure",
         kind: "write",
-        statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${20}, ${"committed-failure"})`,
+        statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${20}, ${"committed-failure"})`,
         outputs: { count: { kind: "rowCount" } },
       };
       await executorFor(acknowledgedDriver, official.chain)
@@ -1745,12 +1761,13 @@ describe("I13 — progressive nested record series", () => {
 
       const weakDriver = new MalformedSecondBatchPGliteDriver(events, {
         client: database,
+        namespace,
       });
       const weakMember = (id: number): ExecutableOperation => {
         const write: WriteStep = {
           id: `official-outcome.weak.${id}`,
           kind: "write",
-          statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${id}, ${`weak-${id}`})`,
+          statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${id}, ${`weak-${id}`})`,
           outputs: { count: { kind: "rowCount" } },
         };
         return staticMember({
@@ -1905,13 +1922,13 @@ describe("I13 — progressive nested record series", () => {
     const first: WriteStep = {
       id: "capacity.first",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"first"})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"first"})`,
       outputs: { count: { kind: "rowCount" } },
     };
     const oversized: WriteStep = {
       id: "capacity.oversized",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") SELECT ${2}, ${"oversized"} WHERE ${true}`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") SELECT ${2}, ${"oversized"} WHERE ${true}`,
       outputs: { count: { kind: "rowCount" } },
     };
     const series = staticSeries([
@@ -1940,7 +1957,7 @@ describe("I13 — progressive nested record series", () => {
     const prefix: WriteStep = {
       id: "unguarded.prefix",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"unsafe"})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"unsafe"})`,
       outputs: { count: { kind: "rowCount" } },
     };
     const unsafe = staticSeries([
@@ -1979,13 +1996,13 @@ describe("batch-only root-conflict attribution", () => {
     const root: WriteStep = {
       id: `skip.${rootId}.root`,
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${rootId}, ${rootLabel}) ON CONFLICT DO NOTHING`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${rootId}, ${rootLabel}) ON CONFLICT DO NOTHING`,
       outputs: { count: { kind: "rowCount" } },
     };
     const child: WriteStep = {
       id: `skip.${rootId}.child`,
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${childId}, ${childLabel})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${childId}, ${childLabel})`,
       outputs: { count: { kind: "rowCount" } },
     };
     return staticMember(
@@ -2002,6 +2019,7 @@ describe("batch-only root-conflict attribution", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
 
     await expect(
@@ -2055,11 +2073,12 @@ describe("batch-only root-conflict attribution", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
     const failingWrite: WriteStep = {
       id: "skip.later-failure",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${9}, ${"conflict"})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${9}, ${"conflict"})`,
       outputs: { count: { kind: "rowCount" } },
     };
 
@@ -2096,6 +2115,7 @@ describe("batch-only root-conflict attribution", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
 
     await expect(
@@ -2117,6 +2137,7 @@ describe("batch-only root-conflict attribution", () => {
     const events: string[] = [];
     const driver = new TracingBatchOnlyPGliteDriver(events, {
       client: database,
+      namespace,
     });
 
     const failure = await executorFor(driver)
@@ -2149,20 +2170,23 @@ describe("batch-only root-conflict attribution", () => {
     const before: WriteStep = {
       id: "skip.before",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${9}, ${"orphan"})`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${9}, ${"orphan"})`,
       outputs: { count: { kind: "rowCount" } },
     };
     const root: WriteStep = {
       id: "skip.root",
       kind: "write",
-      statement: sql`INSERT INTO "rs_ledger" ("id", "label") VALUES (${1}, ${"root"}) ON CONFLICT DO NOTHING`,
+      statement: sql`INSERT INTO ${ledger()} ("id", "label") VALUES (${1}, ${"root"}) ON CONFLICT DO NOTHING`,
       outputs: { count: { kind: "rowCount" } },
     };
     const member = staticMember(
       { steps: [before, root], outputs: {} },
       root.id
     );
-    const driver = new TracingBatchOnlyPGliteDriver([], { client: database });
+    const driver = new TracingBatchOnlyPGliteDriver([], {
+      client: database,
+      namespace,
+    });
 
     const refusal = await executorFor(driver)
       .execute(staticSeries([member]), seriesContext())
@@ -2181,7 +2205,10 @@ describe("batch-only root-conflict attribution", () => {
 describe("residual F — a suppressed member does not poison its enclosing scope", () => {
   test("a later member still writes, and a later race still retries the WHOLE series", async () => {
     const events: string[] = [];
-    const driver = new TracingPGliteDriver(events, { client: database });
+    const driver = new TracingPGliteDriver(events, {
+      client: database,
+      namespace,
+    });
     // Two committed rows: `blocked` is what the skippable member's root INSERT
     // conflicts on (so that member is SUPPRESSED, savepoint and all), and `clash`
     // is what the pinned member loses to on attempt one (a genuine retryable race).
@@ -2259,6 +2286,7 @@ describe("I3 — pre-existing hazard: the retry mark does not survive error wrap
     const events: string[] = [];
     const driver = new DivergentScopeFailurePGliteDriver(events, {
       client: database,
+      namespace,
     });
     await seedRow(9, "clash");
 
