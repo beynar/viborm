@@ -45,9 +45,28 @@ export const ISOLATED_PGLITE_PROVIDER_RSS_CEILING = Object.freeze({
   name: "isolated live-PGlite provider",
 });
 
+/**
+ * The ceiling for the whole-estate native typecheck. Also a runaway detector.
+ *
+ * `run-typecheck.mjs` checks every file the root tsconfig intends - 1589 of
+ * them - as ONE program under the native (Go) TypeScript 7 compiler, which is
+ * multithreaded and holds the entire type graph at once: a measured 5342 MiB
+ * peak for a 5.7 s run. That is the price of not sharding at all; the old
+ * two-hundred-odd sequential 5.9 shards existed only because one JS program
+ * over this estate blew a 1280 MB heap, and they took 37 minutes.
+ *
+ * 8192 clears the measured peak by half again. A value set just above 5342
+ * would detect normal usage, not a runaway.
+ */
+export const WHOLE_ESTATE_TYPECHECK_RSS_CEILING = Object.freeze({
+  limitMb: 8192,
+  name: "whole-estate native typecheck",
+});
+
 const ALLOWLISTED_RSS_CEILINGS = new Set([
   ORDINARY_PROCESS_GROUP_RSS_CEILING,
   ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+  WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
 ]);
 
 /**

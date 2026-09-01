@@ -8,7 +8,6 @@
 export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/architecture/contract-matrix.core.test.ts",
   "tests/contracts/architecture/core-taxonomy-census.core.test.ts",
-  "tests/contracts/architecture/typecheck-partition-census.core.test.ts",
   "tests/contracts/architecture/extension-system-census.core.test.ts",
   "tests/contracts/architecture/geopoint-language-census.core.test.ts",
   "tests/contracts/architecture/system-clock.core.test.ts",

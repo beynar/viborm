@@ -58,6 +58,8 @@ function getWorkspaceState() {
 const WORKSPACE_VERIFICATION_MARKERS = [
   "/node_modules/vitest/vitest.mjs",
   "/node_modules/typescript/bin/tsc",
+  "/node_modules/typescript-native/bin/tsc",
+  "/node_modules/@typescript/typescript-",
   "/node_modules/tsdown/dist/run.mjs",
   "/node_modules/tinypool/dist/entry/process.js",
 ];

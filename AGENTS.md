@@ -581,11 +581,10 @@ issues, and `SchemaRegistry` translates thrown external-validator failures.
 
 ```bash
 # Development
-pnpm build               # Complete safe TypeScript shards; compiles nothing
+pnpm build               # Complete typecheck, one native program; compiles nothing
 pnpm package:build       # tsdown - actual package build (dist output)
-pnpm test:types          # COMPLETE sequential TypeScript shards, including every .core.types.ts project
-pnpm test:types:fast     # Representative lane: 10 of the plan's shards; never a substitute for test:types
-pnpm test                # test:types:fast then test:core - the trusted gate, budgeted under five minutes
+pnpm test:types          # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program, ~6s
+pnpm test                # test:types then test:core - the trusted gate, budgeted under five minutes
 pnpm test:core           # All core runtime projects
 pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
 pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
@@ -654,10 +653,11 @@ pnpm bench:operation-pipeline:diagnostic # Fast directional tuning only; never k
 
 # Large selections must use the package scripts. Vitest runs one file at a time
 # with a 768 MB heap. Coverage orchestration and report merging also use a 768 MB
-# Node heap. Complete TypeScript checking is split into sequential 1280 MB heap
-# shards.
-# Every child process group has a 1536 MiB sampled RSS ceiling, with exactly ONE
-# allowlisted departure: 2560 MiB for an isolated live-PGlite provider stage.
+# Node heap. Complete TypeScript checking is ONE program over the root tsconfig
+# under the native TypeScript 7 compiler (scripts/run-typecheck.mjs), not shards.
+# Every child process group has a 1536 MiB sampled RSS ceiling, with exactly TWO
+# allowlisted departures: 2560 MiB for an isolated live-PGlite provider stage,
+# and 8192 MiB for that whole-estate native typecheck (measured 5342 MiB).
 # That ceiling is a RUNAWAY DETECTOR, not a budget. PGlite grows into available
 # headroom and never returns its Wasm heap on close, so a bar set just above the
 # largest observed file is circular - an earlier 1792, taken as "just above the

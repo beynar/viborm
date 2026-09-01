@@ -14,6 +14,7 @@ import {
   resolveProcessGroupRssCeiling,
   startBoundedProcess,
   vitestArgumentsWithSingleWorker,
+  WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
 } from "./bounded-process.mjs";
 
 const UNAVAILABLE_ON_WINDOWS_PATTERN = /unavailable on Windows/;
@@ -148,6 +149,32 @@ test("no ordinary caller can reach the 2560 MiB PGlite allowance", () => {
         wallLimitMs: 10_000,
       }),
     ORDINARY_CEILING_REFUSAL_PATTERN
+  );
+});
+
+test("the allowlisted typecheck ceiling reaches 8192 MiB and stops there", () => {
+  assert.equal(WHOLE_ESTATE_TYPECHECK_RSS_CEILING.limitMb, 8192);
+  assert.deepEqual(
+    resolveProcessGroupRssCeiling({
+      rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
+    }),
+    { limitMb: 8192, name: "whole-estate native typecheck" }
+  );
+  assert.throws(
+    () =>
+      resolveProcessGroupRssCeiling({
+        rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
+        rssLimitMb: 8193,
+      }),
+    /no greater than the whole-estate native typecheck ceiling of 8192 MiB/
+  );
+  // A look-alike literal is refused here exactly as for the PGlite ceiling.
+  assert.throws(
+    () =>
+      resolveProcessGroupRssCeiling({
+        rssCeiling: { limitMb: 8192, name: "whole-estate native typecheck" },
+      }),
+    UNALLOWLISTED_CEILING_PATTERN
   );
 });
 

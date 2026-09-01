@@ -249,8 +249,8 @@ try {
       // the first probe added there turns the census red. The config would then
       // compile nothing but the inherited ambient declaration and report
       // success forever. A permanently empty program passing is a false green;
-      // print the truth instead. Completeness is not lost - the shards in
-      // run-typecheck-shards.mjs still typecheck the whole tests/types estate,
+      // print the truth instead. Completeness is not lost - the whole-estate
+      // program in run-typecheck.mjs still typechecks all of tests/types,
       // and that census owns the rule that every DECLARED layer has a type
       // core.
       process.stderr.write(

@@ -99,11 +99,10 @@ audit.
 ## Commands
 
 ```bash
-pnpm test                 # The trusted gate: test:types:fast then test:core, budgeted under five minutes
+pnpm test                 # The trusted gate: test:types then test:core, budgeted under five minutes
 pnpm test:core            # All core runtime projects
 pnpm test:all             # Core, extended-local, local providers, optional Bun, local D1, and package checks
-pnpm test:types           # COMPLETE sequential TypeScript shards, including every layer probe project
-pnpm test:types:fast      # Representative lane: 10 of the plan's shards; never a substitute for test:types
+pnpm test:types           # COMPLETE typecheck: every file the root tsconfig intends, one native TS 7 program, ~6s
 pnpm test:coverage        # Sequential subsystem shards, merged global report, working-tree metadata
 pnpm test:coverage:public # Public root surface; 100% in all four metrics
 pnpm test:coverage:schema # Whole schema subsystem; 100% in all four metrics
@@ -213,14 +212,16 @@ semantics that reuse would invalidate. Do not place concurrency or staleness
 tests inside an outer rollback.
 
 The bounded launchers share one workspace lock. Never overlap Vitest, layer
-runners, or TypeScript shards. Each child process group has a 1536 MiB RSS
+runners, or the typecheck. Each child process group has a 1536 MiB RSS
 ceiling sampled every 250 ms. Vitest also has one worker and a 768 MB heap
 ceiling a coverage subsystem may lower but never raise.
 Coverage orchestration and report merging use a separate 768 MB Node heap cap.
 
-There is exactly one allowlisted departure from 1536 MiB: an isolated live-PGlite
-provider stage may take 2560 MiB. That ceiling is a runaway detector, not a
-budget. PGlite grows into whatever headroom it is given and never returns its
+There are exactly two allowlisted departures from 1536 MiB. An isolated
+live-PGlite provider stage may take 2560 MiB, and the whole-estate native
+typecheck may take 8192 MiB (one TypeScript 7 program over 1589 files, measured
+5342 MiB; a bar set just above that would detect normal usage, not a runaway).
+Each ceiling is a runaway detector, not a budget. PGlite grows into whatever headroom it is given and never returns its
 Wasm heap on `close()`, so a bar set just above the largest observed file is
 circular and will be exceeded - an earlier 1792 MiB value, taken as "just above
 the 1747 MiB maximum", was itself sampled under a 1536 cap and three separate
@@ -254,17 +255,18 @@ explicit removal after the process table proves that no verification remains.
 Bounded verification fails closed on Windows until equivalent process-tree RSS
 enforcement and teardown verification exist.
 
-Complete TypeScript checking is also sequential: production, runtime-test
-estates, and every existing layer type-probe project run as separate shards.
-Each TypeScript shard has a 1280 MB heap and the same 1536 MiB process-group RSS
-cap. This replaces the unsafe monolithic 4 GiB path without dropping files.
-
-`pnpm test:types` is that complete estate and stays complete — no probe is ever
-dropped and no file omitted to buy speed. `pnpm test:types:fast` is a separate,
-explicitly representative lane of ten shards (the production shard plus one from
-each structurally distinct family), and it is what `pnpm test` runs so that gate
-fits under five minutes. The runner prints "REPRESENTATIVE, NOT EXHAUSTIVE" on
-every fast run. Never quote a fast-lane pass as complete type coverage.
+Complete TypeScript checking is ONE program: `scripts/run-typecheck.mjs` runs
+the native TypeScript 7 compiler (`typescript-native`, an alias of
+`typescript@7.0.2`; the JS `typescript@5.9.3` stays for the scripts that use the
+compiler API) over the root `tsconfig.json`, so every file that tsconfig
+intends is checked and nothing can be left out of a partition. Measured: 1589
+files, 5.7 s, 5342 MiB peak, under its own allowlisted 8192 MiB ceiling. The
+two-hundred-odd sequential 1280 MB shards this replaces existed only because a
+JS program over the estate blew that heap; they took 37 minutes, which is why
+`pnpm test` used to run a representative fast lane. It now runs the complete
+check. Two TypeScripts are installed, so `node_modules/.bin/tsc` is whichever
+won pnpm's bin collision (today the native one); every in-repo invocation names
+its compiler by path instead.
 
 Fourteen fast commands cover the estate, one per `layer-*` project in
 `vitest.workspace.ts`. That is one more than the thirteen-entry architectural

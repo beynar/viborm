@@ -6,6 +6,7 @@ import {
   ORDINARY_PROCESS_GROUP_RSS_CEILING,
   startBoundedProcess,
   vitestArgumentsWithSingleWorker,
+  WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
 } from "./bounded-process.mjs";
 import {
   EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS,
@@ -122,7 +123,7 @@ function packageScriptStage(script) {
     arguments: reenterThroughNode ? [packageManager, script] : [script],
     command: reenterThroughNode ? process.execPath : packageManager || "pnpm",
     // No heap override: each launcher inside the script owns its own ceiling
-    // (Vitest 768 MB, TypeScript shards 1280 MB). Imposing one here would be a
+    // (Vitest 768 MB; the native typecheck owns its own ceiling). Imposing one here would be a
     // new limit, not the current one.
     label: `pnpm ${script}`,
     rssCeiling: ORDINARY_PROCESS_GROUP_RSS_CEILING,
@@ -139,7 +140,12 @@ const stages = [
   // credential-free aggregate is the exhaustive gate, so it names the complete
   // type lane explicitly; inheriting `test` would have silently dropped the
   // full typecheck from test:all the moment the default was made fast.
-  packageScriptStage("test:types"),
+  // One native program over the whole estate: it needs the typecheck ceiling,
+  // not the ordinary 1536 the outer pnpm group would otherwise be held to.
+  {
+    ...packageScriptStage("test:types"),
+    rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
+  },
   packageScriptStage("test:core"),
   // The extended estate is split by what it boots. The files that open a live
   // PGlite database run ALONE under the allowlisted 2560 MiB ceiling, because
