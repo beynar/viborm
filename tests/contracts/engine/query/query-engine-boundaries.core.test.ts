@@ -1,3 +1,4 @@
+import { cacheInvalidationSchema } from "@cache";
 import { createOfficialCacheScope } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { createOfficialCacheNamespace } from "@cache/key";
@@ -6,6 +7,7 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
   UniqueConstraintError,
+  VibORMErrorCode,
 } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { instrumentation } from "@instrumentation/extension";
@@ -174,6 +176,95 @@ describe("query-engine cache boundaries", () => {
         cache: undefined,
       })
     ).toEqual({ args: { data: { id: "user-1" } }, options: undefined });
+  });
+
+  // `instanceof` walks the LEFT operand's prototype chain, so every predicate
+  // the cache boundary points at a caught value is itself a throw site once that
+  // value is a Proxy with a hostile `getPrototypeOf` trap. The two tests below
+  // pin both predicates on that path — `isError` (reached with no seam at all)
+  // and `isCacheConfigurationError` — because an escaping trap replaces the
+  // typed cache failure with the attacker's raw exception.
+  test("a hostile getPrototypeOf trap cannot replace the cache-read refusal", () => {
+    const trapFailure = new Error("getPrototypeOf trap fired");
+    let trapCalls = 0;
+    const hostileThrown = new Proxy(trapFailure, {
+      getPrototypeOf() {
+        trapCalls += 1;
+        throw trapFailure;
+      },
+    });
+
+    let thrown: unknown;
+    try {
+      prepareMutationCacheInput("delete", {
+        get cache(): unknown {
+          throw hostileThrown;
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    // Production code really did consult the hostile prototype chain, so the
+    // assertions below cannot pass vacuously.
+    expect(trapCalls).toBeGreaterThan(0);
+    expect(thrown).toBeInstanceOf(CacheConfigurationError);
+    expect(thrown).not.toBe(trapFailure);
+    const failure = thrown as CacheConfigurationError;
+    expect(failure.message).toBe(
+      "Mutation cache options for 'delete' could not be read."
+    );
+    expect(failure.code).toBe(VibORMErrorCode.CACHE_CONFIGURATION);
+  });
+
+  test("a hostile getPrototypeOf trap cannot replace the cache-validation refusal", () => {
+    const trapFailure = new Error("getPrototypeOf trap fired");
+    let trapCalls = 0;
+    const hostileThrown = new Proxy(trapFailure, {
+      getPrototypeOf() {
+        trapCalls += 1;
+        throw trapFailure;
+      },
+    });
+    const hostileParseOutput = {
+      autoInvalidate: false,
+      get invalidate(): unknown {
+        throw hostileThrown;
+      },
+    };
+
+    // `parse()` contains everything thrown INSIDE validation, so the only value
+    // `parseMutationCacheOptions` can catch that it did not itself create is one
+    // it reads back OUT of the parse result. Substituting the Standard Schema
+    // validator puts the hostile value on exactly that seam; every line of
+    // cache-flow.ts below it — the catch, the classifier, the wrapper — runs
+    // unmodified.
+    const standard = cacheInvalidationSchema["~standard"] as unknown as {
+      validate: (value: unknown) => unknown;
+    };
+    const originalValidate = standard.validate;
+    standard.validate = () => ({ value: hostileParseOutput });
+
+    let thrown: unknown;
+    try {
+      prepareMutationCacheInput("update", {
+        where: { id: "user-1" },
+        cache: { autoInvalidate: true },
+      });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      standard.validate = originalValidate;
+    }
+
+    expect(trapCalls).toBeGreaterThan(0);
+    expect(thrown).toBeInstanceOf(CacheConfigurationError);
+    expect(thrown).not.toBe(trapFailure);
+    const failure = thrown as CacheConfigurationError;
+    expect(failure.message).toBe(
+      "Mutation cache options for 'update' could not be validated."
+    );
+    expect(failure.code).toBe(VibORMErrorCode.CACHE_CONFIGURATION);
   });
 
   test("normalizes cache execution options and cacheability", () => {

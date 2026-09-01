@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,21 +38,52 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
     .sort()
 );
 
-// Six live-PGlite files in one process peaked just over 3072 MiB on three
-// shards. No single file needs that much (the heaviest measured is ~2.2 GiB),
-// so the accumulation is what has to come down, not the ceiling.
+/**
+ * The extended estate splits in two, because only one half may use the raised
+ * ceiling.
+ *
+ * A single live PGlite instance costs a measured 1294 MiB floor and the
+ * heaviest file measured 1747 MiB, so 62% of these files exceed the ordinary
+ * 1536 MiB ceiling on their own. The allowlisted 1792 MiB exception exists for
+ * exactly that, but it is conditioned on ISOLATION: one process must not be
+ * able to accumulate several databases. Packing three PGlite files into one
+ * process is precisely the accumulation the condition forbids.
+ *
+ * So a file that boots PGlite runs ALONE, and only those stages may select the
+ * raised ceiling. Everything else keeps the ordinary 1536 MiB and the existing
+ * three-file packing, which is what its measured footprint supports.
+ */
+const PGLITE_SOURCE =
+  /@electric-sql\/pglite|PGliteDriver|usePGliteSchemaFamily|openTestPGlite|openBorrowedPGlite/;
+
+function bootsLivePGlite(file) {
+  try {
+    return PGLITE_SOURCE.test(readFileSync(resolve(projectRoot, file), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+export const EXTENDED_LOCAL_PGLITE_TESTS = Object.freeze(
+  EXTENDED_LOCAL_TESTS.filter(bootsLivePGlite)
+);
+
+const EXTENDED_LOCAL_ORDINARY_TESTS = EXTENDED_LOCAL_TESTS.filter(
+  (file) => !bootsLivePGlite(file)
+);
+
 const EXTENDED_LOCAL_SHARD_SIZE = 3;
 
 export const EXTENDED_LOCAL_TEST_SHARDS = Object.freeze(
   Array.from(
     {
       length: Math.ceil(
-        EXTENDED_LOCAL_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
+        EXTENDED_LOCAL_ORDINARY_TESTS.length / EXTENDED_LOCAL_SHARD_SIZE
       ),
     },
     (_, index) =>
       Object.freeze(
-        EXTENDED_LOCAL_TESTS.slice(
+        EXTENDED_LOCAL_ORDINARY_TESTS.slice(
           index * EXTENDED_LOCAL_SHARD_SIZE,
           (index + 1) * EXTENDED_LOCAL_SHARD_SIZE
         )

@@ -305,8 +305,19 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/sqlite-statement-execution.provider.test.ts",
   ];
   const localProviders = [
-    "tests/providers/local/libsql.test.ts",
-    "tests/providers/local/sqlite3.test.ts",
+    // Derived, not listed: these estates were split into pieces, and a
+    // hardcoded pair silently dropped every piece from the drivers coverage
+    // lane (branches 92.53% -> 92.24%) while the tests still ran elsewhere.
+    ...["libsql", "sqlite3"].flatMap((prefix) =>
+      readdirSync(resolve(COVERAGE_PROJECT_ROOT, "tests/providers/local"))
+        .filter(
+          (file) =>
+            file.endsWith(".test.ts") &&
+            (file === `${prefix}.test.ts` || file.startsWith(`${prefix}-`))
+        )
+        .sort()
+        .map((file) => `tests/providers/local/${file}`)
+    ),
   ];
   const expectedCoverage = [...core, ...providerContracts, ...localProviders];
 

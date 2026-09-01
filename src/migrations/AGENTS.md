@@ -619,10 +619,21 @@ contradict each other.
 `pnpm test:coverage:migrations` is the exact migration-subsystem report. It
 passes the deterministic core and selected local extended list from
 `scripts/migration-test-manifest.mjs` to one bounded `coverage-migrations`
-invocation, requires 98% statements, branches, functions, and lines, and writes
-`coverage/migrations/index.html`. Its policy check rejects omitted eligible
-tests and resource-owning PGlite imports. Live DDL and external-provider
-behavior remain in provider projects.
+invocation and writes `coverage/migrations/index.html`.
+
+Its enforced floors are 98% statements, 98% functions and 98% lines, with
+branches at 97.3%. Statements, lines and functions hold the full 98; the branch
+floor is an APPROVED EXCEPTION with recorded evidence in
+`scripts/coverage-policy.mjs`. The 30 residual arms are unreachable defensive
+guards, each with a named upstream invariant: all 18 in `serializer.ts`
+(hydration always assigns `names.sql`; `EnumScalar.enumValues` returns `[]`, never
+`undefined`) and all 12 in `graph.ts` (a cycle there would need a SHA-256 preimage
+cycle). `scripts/merge-coverage.mjs` prints each measured metric beside the floor
+it enforces, so the exception is visible rather than inferred, and the floor is
+still a ratchet.
+
+Its policy check rejects omitted eligible tests and resource-owning PGlite
+imports. Live DDL and external-provider behavior remain in provider projects.
 
 ## Core Estate Exception
 

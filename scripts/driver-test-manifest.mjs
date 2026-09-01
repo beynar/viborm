@@ -20,10 +20,27 @@ const localProviderContracts = Object.freeze([
   "tests/contracts/drivers/sqlite-statement-execution.provider.test.ts",
 ]);
 
-const localProviderSuites = Object.freeze([
-  "tests/providers/local/libsql.test.ts",
-  "tests/providers/local/sqlite3.test.ts",
-]);
+/**
+ * The SQLite3 and LibSQL estates, read FROM DISK.
+ *
+ * These were the two original filenames. When those suites were split so each
+ * piece could typecheck under the 1280 MB shard heap, the hardcoded pair kept
+ * naming only the originals, so every piece dropped out of the drivers coverage
+ * lane - measured as branches 92.53% -> 92.24% and statements 96.15% -> 96.03%.
+ * The tests still ran elsewhere; they simply stopped being counted here.
+ */
+const localProviderSuites = Object.freeze(
+  ["libsql", "sqlite3"].flatMap((prefix) =>
+    readdirSync(resolve(projectRoot, "tests/providers/local"))
+      .filter(
+        (file) =>
+          file.endsWith(".test.ts") &&
+          (file === `${prefix}.test.ts` || file.startsWith(`${prefix}-`))
+      )
+      .sort()
+      .map((file) => `tests/providers/local/${file}`)
+  )
+);
 
 const DRIVER_CORE_COVERAGE_CHUNK_SIZE = 8;
 

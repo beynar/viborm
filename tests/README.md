@@ -52,9 +52,14 @@ waiver reasons, and layers without runtime or type core coverage.
 
 Query coverage has an additional fail-closed admission list in
 `scripts/query-engine-test-manifest.mjs`. It assigns every architecture, query,
-and write `.core.test.ts` file exactly once to the fast query project or the
-write-coverage project. A new core file fails the policy gate until that owner
-is selected; recursive globs cannot silently admit a provider-backed test.
+and write `.core.test.ts` file exactly once, to `QUERY_ENGINE_CORE_TESTS` (77
+files) or `WRITE_ENGINE_CORE_TESTS` (56 files). Both are fast layers:
+`layer-query-engine` and `layer-write-engine` execute them, so `pnpm test:core`
+and `pnpm test:all` run both halves of the engine. The coverage-only
+`coverage-write-engine-core` project re-reads those same 56 write files so the
+query-core report can merge them; it is not their only home. A new core file
+fails the policy gate until that owner is selected; recursive globs cannot
+silently admit a provider-backed test.
 
 Cache coverage admits every cache core file plus four deterministic public
 cache contracts and rejects resource-owning imports. Migration coverage uses
@@ -62,9 +67,9 @@ cache contracts and rejects resource-owning imports. Migration coverage uses
 local extended contracts; its policy check rejects omissions and live PGlite
 ownership. Client coverage uses `scripts/client-test-manifest.mjs` for the core
 contracts and the audited deterministic extended contracts. Write coverage
-keeps its provider-free core separate from a small audited set of high-signal
-provider-free contracts; `test:all` retains the exhaustive credential-free estate. All
-use dedicated coverage projects.
+measures those 56 provider-free core files plus one audited contract that swaps
+the Neon transport for an in-process fake, 57 files in all; `test:all` retains
+the exhaustive credential-free estate. All use dedicated coverage projects.
 
 Driver coverage uses `scripts/driver-test-manifest.mjs`. It admits every
 `tests/contracts/drivers` core file, five audited SQLite-backed
@@ -94,10 +99,11 @@ audit.
 ## Commands
 
 ```bash
-pnpm test                 # Complete type-check, then all core layer projects
+pnpm test                 # The trusted gate: test:types:fast then test:core, budgeted under five minutes
 pnpm test:core            # All core runtime projects
 pnpm test:all             # Core, extended-local, local providers, optional Bun, local D1, and package checks
-pnpm test:types           # Complete sequential TypeScript shards, including every layer probe project
+pnpm test:types           # COMPLETE sequential TypeScript shards, including every layer probe project
+pnpm test:types:fast      # Representative lane: 10 of the plan's shards; never a substitute for test:types
 pnpm test:coverage        # Sequential subsystem shards, merged global report, working-tree metadata
 pnpm test:coverage:public # Public root surface; 100% in all four metrics
 pnpm test:coverage:schema # Whole schema subsystem; 100% in all four metrics
@@ -108,12 +114,13 @@ pnpm test:coverage:extensions # Extensions subsystem; 100% in all four metrics
 pnpm test:coverage:errors # Errors subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapters subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
-pnpm test:coverage:query-engine-core # Query-engine core; floors 98/97.9 branches
-pnpm test:coverage:write-engine # Write engine; floors 82/80.5 br/92 fn - provider-bound suites excluded by design
-pnpm test:coverage:drivers # Drivers; floors 96/92.5 br/96 fn - per-provider files need a live connection
-pnpm test:coverage:client # Client; floors 96/94 br/96 fn - unreachable defensive arms
-pnpm test:coverage:cache # Cache; floors 98 in all four
-pnpm test:coverage:migrations # Migrations; floors 98/97.3 branches
+# Six approved exceptions. Floors are statements/branches/functions/lines.
+pnpm test:coverage:query-engine-core # Query-engine core; 98/97.9/98/98 - two unreachable `if (!row)` arms
+pnpm test:coverage:write-engine # Write engine; 82/80.5/92/82 - live-provider suites excluded by design
+pnpm test:coverage:drivers # Drivers; 96/92.5/96/96 - per-provider index.ts needs a live connection
+pnpm test:coverage:client # Client; 96/94/96/96 - unreachable defensive arms, uncalled functions
+pnpm test:coverage:cache # Cache; 98/98/98/98
+pnpm test:coverage:migrations # Migrations; 98/97.3/98/98 - 30 unreachable defensive branches
 pnpm test:coverage:policy # Static ownership and launcher-policy tests
 pnpm test:package         # One build, all runtime exports, all type entries, package probes
 pnpm test:providers       # Docker and hosted projects only; missing environment values skip by name
@@ -139,11 +146,30 @@ test file. Provider and runtime waivers explain evidence that is unavailable in 
 environment. Waived source stays in the denominator. There are no coverage
 exclusions or ignore pragmas.
 
-Public, schema, validation, SQL, instrumentation, extensions, errors, adapters,
-and CLI require 100% statements, branches, functions, and lines. Query-engine
-core, write-engine, drivers, client, cache, and migrations require 98% in all
-four metrics. Every focused report is written to
-`coverage/<subsystem>/index.html`.
+Nine subsystems require 100% statements, branches, functions, and lines: public,
+schema, validation, SQL, instrumentation, extensions, errors, adapters, and CLI.
+
+The other six are not a uniform 98 and do not share one number. Each floor below
+is the number actually enforced, and every departure from 100 is an APPROVED
+EXCEPTION whose measured evidence is recorded in `scripts/coverage-policy.mjs`.
+`scripts/merge-coverage.mjs` prints every measured metric beside its resolved
+floor in the focused merge and applies the identical floors in the aggregate
+merge, so the enforced value is always visible rather than inferred.
+
+| Subsystem | St | Br | Fn | Ln | Why it is not 100 |
+|---|---|---|---|---|---|
+| Query-engine core | 98 | 97.9 | 98 | 98 | The `if (!row)` guards in `result-count-parser.ts` and `result-row-parser.ts` are needed to typecheck and unreachable at runtime |
+| Write engine | 82 | 80.5 | 92 | 82 | The live-provider write suites belong to `test:all`; a provider-free lane cannot reach what they reach |
+| Drivers | 96 | 92.5 | 96 | 96 | Closing every provider-agnostic line reaches 97.39%; the ten per-provider `index.ts` files need a live connection this lane must not open |
+| Client | 96 | 94 | 96 | 96 | `default:` arms over closed unions, and seven functions with no public caller |
+| Cache | 98 | 98 | 98 | 98 | Subsystem target is 98 in all four; no per-metric exception on top of it |
+| Migrations | 98 | 97.3 | 98 | 98 | 30 unreachable defensive branches: 18 in `serializer.ts`, 12 in `graph.ts` |
+
+None of these hides untested behaviour. The suites the write-engine and driver
+lanes exclude all execute, and pass, in `pnpm test:all`. Every floor is a
+ratchet: a real regression in any metric still fails, raising a floor is the
+goal, and lowering one needs the same evidence and approval that set it. Every
+focused report is written to `coverage/<subsystem>/index.html`.
 Scalars, relations, and definition-time schema validation share the schema
 subsystem command; no legacy per-area coverage aliases remain.
 
@@ -172,7 +198,8 @@ Rules:
 - Keep transaction and forced atomic-batch drivers separate even when they use
   the same schema.
 - A structural/compiler proof must not boot a database.
-- Run the owned report with `pnpm test:coverage:write-engine`. Its literal
+- Run the write core fast with `pnpm test:layer:write-engine`, and the owned
+  report with `pnpm test:coverage:write-engine`. The report's literal
   provider-free selection runs as the sequential parts its manifest declares —
   seven core slices plus the isolated mocked-Neon contract — in the
   single-thread `coverage-write-engine` project, each part capped at a 512 MB
@@ -190,6 +217,14 @@ runners, or TypeScript shards. Each child process group has a 1536 MiB RSS
 ceiling sampled every 250 ms. Vitest also has one worker and a 768 MB heap
 ceiling a coverage subsystem may lower but never raise.
 Coverage orchestration and report merging use a separate 768 MB Node heap cap.
+
+There is exactly one allowlisted departure from 1536 MiB: an isolated live-PGlite
+provider stage may take 1792 MiB. The measured basis is a single PGlite instance,
+which has a 1294 MiB floor and was observed peaking at 1747 MiB. That allowance
+belongs to those stages; it is not a knob callers may reach for. Generic tests,
+typechecks, coverage, package work, SQLite, LibSQL and non-PGlite benchmarks all
+stay at 1536.
+
 On timeout, interruption, or RSS breach, the launcher terminates the complete
 group, escalates to SIGKILL, and verifies that no group member remains before
 releasing the lock.
@@ -209,7 +244,18 @@ estates, and every existing layer type-probe project run as separate shards.
 Each TypeScript shard has a 1280 MB heap and the same 1536 MiB process-group RSS
 cap. This replaces the unsafe monolithic 4 GiB path without dropping files.
 
-All 13 architectural test layers have an explicit fast command:
+`pnpm test:types` is that complete estate and stays complete — no probe is ever
+dropped and no file omitted to buy speed. `pnpm test:types:fast` is a separate,
+explicitly representative lane of ten shards (the production shard plus one from
+each structurally distinct family), and it is what `pnpm test` runs so that gate
+fits under five minutes. The runner prints "REPRESENTATIVE, NOT EXHAUSTIVE" on
+every fast run. Never quote a fast-lane pass as complete type coverage.
+
+Fourteen fast commands cover the estate, one per `layer-*` project in
+`vitest.workspace.ts`. That is one more than the thirteen-entry architectural
+taxonomy in `tests/contracts/contract.ts`, because the query engine's runtime
+core is split into a read half and a write half; the 56 write-core files are a
+runnable layer of their own, not a coverage-only registration.
 
 | Layer | Command |
 |---|---|
@@ -220,6 +266,7 @@ All 13 architectural test layers have an explicit fast command:
 | Schema validation | `pnpm test:layer:schema-validation` |
 | Schema JSON | `pnpm test:layer:schema-json` |
 | Query engine | `pnpm test:layer:query-engine` |
+| Write engine | `pnpm test:layer:write-engine` |
 | Adapters | `pnpm test:layer:adapters` |
 | Drivers | `pnpm test:layer:drivers` |
 | Client | `pnpm test:layer:client` |
@@ -228,14 +275,27 @@ All 13 architectural test layers have an explicit fast command:
 | Migrations | `pnpm test:layer:migrations` |
 
 Each layer command runs runtime sentinels first and its compile-only probes
-second. Both stages share one 30-second wall budget and the same 1536 MiB RSS
-cap. All Vitest projects run one file at a time. Runtime selections stop after
-five minutes by default. Coverage parts use ten minutes. `test:all` runs the
-exact extended-local manifest as deterministic three-file process shards with
-five minutes per shard, then runs each PGlite provider file in its own process
-with twenty minutes. Every process must prove teardown before the next shard
-starts. A layer command still has only thirty seconds for runtime and types
-together. Do not bypass these launchers for large selections.
+second. Both stages share one wall budget and the same 1536 MiB RSS cap. That
+budget is 30 seconds for thirteen of the fourteen layers. `client` is the one
+explicit exception at 45 seconds: it is the only layer whose compile-only estate
+cannot be a single program at the 1280 MB shard heap, so it runs as three tsc
+programs, and three tsc startups plus its runtime stage do not fit in 30 seconds.
+`scripts/run-layer-core.mjs` holds the measurement and the chunking. The
+exception buys wall time only — the 768 / 1280 / 1536 MiB memory contract is
+untouched, which is precisely why time was the right lever. If the client type
+estate ever fits in two programs, put it back to 30.
+
+`write-engine` is the one layer with no compile-only stage: no
+`tests/types/write-engine/` exists, because the write engine's probes live in
+the query-engine type core, and the layer runner says the stage was skipped
+rather than passing an empty program. Every other layer runs both stages.
+
+All Vitest projects run one file at a time. Runtime selections stop after five
+minutes by default. Coverage parts use ten minutes. `test:all` runs the exact
+extended-local manifest as deterministic three-file process shards with five
+minutes per shard, then runs each PGlite provider file in its own process with
+twenty minutes. Every process must prove teardown before the next shard starts.
+Do not bypass these launchers for large selections.
 
 ## Provider availability
 

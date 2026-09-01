@@ -1,10 +1,14 @@
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+  formatBoundedResourceLine,
+  ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+  ORDINARY_PROCESS_GROUP_RSS_CEILING,
   startBoundedProcess,
+  vitestArgumentsWithSingleWorker,
 } from "./bounded-process.mjs";
 import {
+  EXTENDED_LOCAL_PGLITE_TESTS,
   EXTENDED_LOCAL_TEST_SHARDS,
   EXTENDED_LOCAL_TESTS,
   LIBSQL_PROVIDER_TESTS,
@@ -16,9 +20,13 @@ import { acquireTestRunLock } from "./test-run-lock.mjs";
 const safeVitestRunner = fileURLToPath(
   new URL("./run-vitest-safe.mjs", import.meta.url)
 );
+const vitestEntry = fileURLToPath(
+  new URL("../node_modules/vitest/vitest.mjs", import.meta.url)
+);
 
 const VITEST_STAGE_HEAP_LIMIT_MB = 768;
-const STAGE_RSS_LIMIT_MB = DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB;
+const STAGE_RSS_LIMIT_MB = ORDINARY_PROCESS_GROUP_RSS_CEILING.limitMb;
+const PGLITE_STAGE_WALL_LIMIT_MS = 1_200_000;
 /**
  * `pnpm test` and `pnpm test:package` never carried an aggregate wall limit:
  * every launcher inside them (TypeScript shards, Vitest, tsdown) enforces its
@@ -33,6 +41,17 @@ const JAVASCRIPT_ENTRY_POINT = /\.[cm]?js$/;
 const describeError = (error) =>
   error instanceof Error ? error.message : String(error);
 
+function vitestArguments(project, files) {
+  return [
+    "run",
+    "--workspace",
+    "vitest.workspace.ts",
+    "--project",
+    project,
+    ...files,
+  ];
+}
+
 function vitestStage(label, wallLimitMs, project, files = []) {
   return {
     arguments: [
@@ -40,17 +59,52 @@ function vitestStage(label, wallLimitMs, project, files = []) {
       `--heap-limit-mb=${VITEST_STAGE_HEAP_LIMIT_MB}`,
       `--rss-limit-mb=${STAGE_RSS_LIMIT_MB}`,
       `--wall-limit-ms=${wallLimitMs}`,
-      "run",
-      "--workspace",
-      "vitest.workspace.ts",
-      "--project",
-      project,
-      ...files,
+      ...vitestArguments(project, files),
     ],
     command: process.execPath,
     heapLimitMb: VITEST_STAGE_HEAP_LIMIT_MB,
     label,
+    rssCeiling: ORDINARY_PROCESS_GROUP_RSS_CEILING,
     wallLimitMs,
+  };
+}
+
+/**
+ * The live-PGlite provider stages are the ONLY stages that carry the raised
+ * ceiling, and they are the only stages this runner launches Vitest for
+ * directly instead of through `run-vitest-safe.mjs`.
+ *
+ * Going direct is what makes the allowance real and honest at once. Every
+ * bounded child is spawned detached, so it leads its own process group and a
+ * launcher's sample sees only its own group: with a launcher in between, this
+ * runner was sampling ~one Node process while `run-vitest-safe.mjs` privately
+ * enforced the ordinary ceiling on the Vitest group that actually holds the
+ * database. Only the inner ceiling ever bound, and the ceiling this runner
+ * printed described a group the tests did not run in. With the launcher
+ * removed there is exactly one bound on exactly one group: the number printed
+ * below is the database's own peak, measured against the ceiling that killed it
+ * if it breached.
+ *
+ * Nothing the launcher contributes is lost. The heap limit, the single-worker
+ * policy and the wall limit are reproduced here; the workspace lock is already
+ * held by this process for the whole aggregate, and `acquireTestRunLock`
+ * returns a no-op release to any descendant of the owner, so the launcher's
+ * nested acquisition was that no-op.
+ *
+ * Isolation is the precondition of the allowance, so it is spelled out here:
+ * one file per stage, one stage per process, one live database at a time.
+ */
+function livePgliteProviderStage(file, project = "provider-pglite") {
+  return {
+    arguments: [
+      vitestEntry,
+      ...vitestArgumentsWithSingleWorker(vitestArguments(project, [file])),
+    ],
+    command: process.execPath,
+    heapLimitMb: VITEST_STAGE_HEAP_LIMIT_MB,
+    label: `${project}: ${file}`,
+    rssCeiling: ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+    wallLimitMs: PGLITE_STAGE_WALL_LIMIT_MS,
   };
 }
 
@@ -69,25 +123,40 @@ function packageScriptStage(script) {
     // (Vitest 768 MB, TypeScript shards 1280 MB). Imposing one here would be a
     // new limit, not the current one.
     label: `pnpm ${script}`,
+    rssCeiling: ORDINARY_PROCESS_GROUP_RSS_CEILING,
     wallLimitMs: NO_AGGREGATE_WALL_LIMIT_MS,
   };
 }
 
+const EXTENDED_LOCAL_ORDINARY_COUNT =
+  EXTENDED_LOCAL_TESTS.length - EXTENDED_LOCAL_PGLITE_TESTS.length;
+
 const stages = [
-  packageScriptStage("test"),
+  // NOT `pnpm test`. That is now the FAST default - a representative type lane
+  // plus core runtime, so it stays under five minutes for everyday use. The
+  // credential-free aggregate is the exhaustive gate, so it names the complete
+  // type lane explicitly; inheriting `test` would have silently dropped the
+  // full typecheck from test:all the moment the default was made fast.
+  packageScriptStage("test:types"),
+  packageScriptStage("test:core"),
+  // The extended estate is split by what it boots. The files that open a live
+  // PGlite database run ALONE under the allowlisted 1792 MiB ceiling, because
+  // that allowance is conditioned on isolation and packing three of them into
+  // one process is the accumulation the condition forbids. Everything else
+  // keeps the ordinary 1536 MiB and the three-file packing its footprint
+  // supports.
   ...EXTENDED_LOCAL_TEST_SHARDS.map((files, index) =>
     vitestStage(
-      `extended-local shard ${index + 1}/${EXTENDED_LOCAL_TEST_SHARDS.length} (${files.length} files; ${EXTENDED_LOCAL_TESTS.length} total)`,
+      `extended-local shard ${index + 1}/${EXTENDED_LOCAL_TEST_SHARDS.length} (${files.length} files; ${EXTENDED_LOCAL_ORDINARY_COUNT} ordinary of ${EXTENDED_LOCAL_TESTS.length})`,
       300_000,
       "extended-local",
       files
     )
   ),
-  ...PGLITE_PROVIDER_TESTS.map((file) =>
-    vitestStage(`provider-pglite: ${file}`, 1_200_000, "provider-pglite", [
-      file,
-    ])
+  ...EXTENDED_LOCAL_PGLITE_TESTS.map((file) =>
+    livePgliteProviderStage(file, "extended-local")
   ),
+  ...PGLITE_PROVIDER_TESTS.map((file) => livePgliteProviderStage(file)),
   ...SQLITE3_PROVIDER_TESTS.map((file) =>
     vitestStage(`provider-sqlite3: ${file}`, 300_000, "provider-sqlite3", [
       file,
@@ -146,7 +215,7 @@ try {
       command: stage.command,
       heapLimitMb: stage.heapLimitMb,
       label: `[test:all] ${stage.label}`,
-      rssLimitMb: STAGE_RSS_LIMIT_MB,
+      rssCeiling: stage.rssCeiling,
       wallLimitMs: stage.wallLimitMs,
     });
     activeRun = run;
@@ -157,7 +226,7 @@ try {
       if (activeRun === run) activeRun = undefined;
     }
     process.stderr.write(
-      `[test:all] ${stage.label}: ${(outcome.wallMs / 1000).toFixed(2)}s wall, ${(outcome.peakGroupRssKb / 1024).toFixed(1)} MiB peak sampled process-group RSS (sampled ceiling ${STAGE_RSS_LIMIT_MB} MiB). ${outcome.error ? "Teardown not verified." : "Teardown verified."}\n`
+      `${formatBoundedResourceLine(`[test:all] ${stage.label}`, outcome)}\n`
     );
     if (outcome.error) process.stderr.write(`${outcome.error.message}\n`);
     if (outcome.error || outcome.stopReason || outcome.code !== 0) {

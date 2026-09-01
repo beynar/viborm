@@ -194,10 +194,30 @@ export function prepareMutationCacheWriteOutcome(
   });
 }
 
+/**
+ * Classify a `catch (cause)` binding — an `unknown` this module did not create.
+ *
+ * The `catch` is deliberately kept: `instanceof` walks the LEFT operand's
+ * prototype chain, so it is itself a throw site whenever that operand is a
+ * Proxy whose `getPrototypeOf` trap throws. A bare `instanceof` here would let
+ * that trap's exception escape `parseMutationCacheOptions`, replacing the
+ * cache-configuration failure this boundary owns with an arbitrary raw value —
+ * the caller would lose the typed `CacheConfigurationError` that names what
+ * actually went wrong, and a `catch (e) { if (e instanceof CacheConfigurationError) }`
+ * written against the documented surface would silently stop matching.
+ *
+ * Do not "simplify" this back to `value instanceof CacheConfigurationError`.
+ * `isError` in `errors/diagnostic-safety.ts` is contained for the same reason,
+ * and `mutationCacheInputError` below relies on both staying total.
+ */
 function isCacheConfigurationError(
   value: unknown
 ): value is CacheConfigurationError {
-  return value instanceof CacheConfigurationError;
+  try {
+    return value instanceof CacheConfigurationError;
+  } catch {
+    return false;
+  }
 }
 
 export function validateCacheableOperation(operation: string): void {

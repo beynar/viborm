@@ -2,6 +2,85 @@ import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 export const DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB = 1536;
+
+/**
+ * A ceiling is an object, never a number, and only the frozen instances
+ * exported from this module are accepted. Identity IS the allowlist: an
+ * arbitrary caller cannot reach a raised ceiling by typing a number, by
+ * spelling a flag, by setting an environment variable, or by handing in a
+ * look-alike `{ limitMb: 1792 }`. It has to import the named export, so every
+ * raise in the repository is one grep away.
+ */
+export const ORDINARY_PROCESS_GROUP_RSS_CEILING = Object.freeze({
+  limitMb: DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+  name: "ordinary project",
+});
+
+/**
+ * The one allowlisted exception, and it is narrow on purpose.
+ *
+ * A single live PGlite instance floors at 1294 MiB of process-group RSS and one
+ * isolated provider file was measured peaking at 1747 MiB, so isolated live
+ * PGlite work cannot fit under the ordinary 1536 MiB ceiling however carefully
+ * it is written. 1792 MiB clears the measured maximum without leaving room for
+ * a second database: the allowance is sized for ONE instance, so a stage that
+ * accumulates several in one process is out of scope by construction, not by
+ * convention.
+ *
+ * Nothing else may select it. Typechecks, coverage, package work, `pnpm test`,
+ * SQLite, LibSQL, Bun, D1 and every benchmark stay on the ordinary ceiling.
+ * The heap contract is untouched: this raises sampled process-group RSS only,
+ * because PGlite's WebAssembly memory lives outside the V8 heap that the
+ * 768 MiB Vitest heap limit bounds.
+ */
+export const ISOLATED_PGLITE_PROVIDER_RSS_CEILING = Object.freeze({
+  limitMb: 1792,
+  name: "isolated live-PGlite provider",
+});
+
+const ALLOWLISTED_RSS_CEILINGS = new Set([
+  ORDINARY_PROCESS_GROUP_RSS_CEILING,
+  ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
+]);
+
+/**
+ * Resolves the ceiling a bounded process runs under. An explicit `rssLimitMb`
+ * may only ever LOWER the selected ceiling - the same one-way rule the
+ * `--rss-limit-mb` launcher option obeys - and the selected ceiling itself must
+ * be an allowlisted export.
+ */
+export function resolveProcessGroupRssCeiling({
+  rssCeiling = ORDINARY_PROCESS_GROUP_RSS_CEILING,
+  rssLimitMb,
+} = {}) {
+  if (!ALLOWLISTED_RSS_CEILINGS.has(rssCeiling)) {
+    throw new Error(
+      "rssCeiling must be one of the ceilings exported by bounded-process.mjs; an equivalent object literal is refused so the raised ceiling cannot be selected by an arbitrary caller."
+    );
+  }
+  const limitMb = rssLimitMb ?? rssCeiling.limitMb;
+  if (
+    !Number.isSafeInteger(limitMb) ||
+    limitMb <= 0 ||
+    limitMb > rssCeiling.limitMb
+  ) {
+    throw new Error(
+      `rssLimitMb must be a positive integer no greater than the ${rssCeiling.name} ceiling of ${rssCeiling.limitMb} MiB.`
+    );
+  }
+  return Object.freeze({ limitMb, name: rssCeiling.name });
+}
+
+/**
+ * The one line every bounded launcher prints when a stage ends. It reads the
+ * applied ceiling out of the outcome rather than off a caller-side constant, so
+ * a reader always sees the ceiling that was actually enforced - including when
+ * that ceiling is the PGlite allowance rather than the ordinary one.
+ */
+export function formatBoundedResourceLine(label, outcome) {
+  return `${label}: ${(outcome.wallMs / 1000).toFixed(2)}s wall, ${(outcome.peakGroupRssKb / 1024).toFixed(1)} MiB peak sampled process-group RSS (sampled ceiling ${outcome.rssCeiling.limitMb} MiB, ${outcome.rssCeiling.name}). ${outcome.error ? "Teardown not verified." : "Teardown verified."}`;
+}
+
 const RESOURCE_SAMPLE_INTERVAL_MS = 250;
 const TERMINATION_GRACE_MS = 1000;
 const TEARDOWN_VERIFICATION_MS = 2000;
@@ -44,6 +123,12 @@ export function nodeOptionsWithHeapLimit(nodeOptions, heapLimitMb) {
     .join(" ");
 }
 
+/**
+ * The command-line and environment path is deliberately NOT ceiling-aware: it
+ * is capped at the ordinary ceiling and may only lower it. Raised ceilings are
+ * selected in code, by importing a named ceiling, precisely so that no caller
+ * can type its way to one.
+ */
 export function parseRssLimitArgument(arguments_, environment = process.env) {
   const limitArguments = arguments_.filter((value) =>
     value.startsWith("--rss-limit-mb=")
@@ -185,11 +270,16 @@ export function startBoundedProcess({
   env = process.env,
   heapLimitMb,
   label,
-  rssLimitMb = DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB,
+  rssCeiling = ORDINARY_PROCESS_GROUP_RSS_CEILING,
+  rssLimitMb,
   stdio = "inherit",
   wallLimitMs,
 }) {
   assertBoundedProcessPlatform();
+  const appliedCeiling = resolveProcessGroupRssCeiling({
+    rssCeiling,
+    rssLimitMb,
+  });
   const childEnvironment = { ...env };
   if (heapLimitMb !== undefined) {
     childEnvironment.NODE_OPTIONS = nodeOptionsWithHeapLimit(
@@ -222,9 +312,9 @@ export function startBoundedProcess({
     try {
       const rssKb = processGroupRssKb(child.pid);
       peakGroupRssKb = Math.max(peakGroupRssKb, rssKb);
-      if (rssKb > rssLimitMb * 1024 && stopReason === undefined) {
+      if (rssKb > appliedCeiling.limitMb * 1024 && stopReason === undefined) {
         process.stderr.write(
-          `${label} exceeded its ${rssLimitMb} MiB sampled process-group RSS ceiling.\n`
+          `${label} exceeded its ${appliedCeiling.limitMb} MiB sampled process-group RSS ceiling (${appliedCeiling.name}).\n`
         );
         terminate("SIGTERM", "rss");
       }
@@ -263,6 +353,7 @@ export function startBoundedProcess({
         code: spawnError ? 1 : (code ?? (signal ? 1 : 0)),
         error: spawnError,
         peakGroupRssKb,
+        rssCeiling: appliedCeiling,
         stopReason,
         wallMs: performance.now() - startedAt,
       });

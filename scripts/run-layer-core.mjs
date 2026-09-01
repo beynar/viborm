@@ -22,6 +22,11 @@ const LAYERS = new Set([
   "schema-validation",
   "schema-json",
   "query-engine",
+  // Mirrors the `layer-*` projects in vitest.workspace.ts, which is what a
+  // layer name has to name here. `layer-write-engine` has existed there since
+  // the write core was split out of layer-query-engine, but this set rejected
+  // the name, so the write estate had no single-layer entry point at all.
+  "write-engine",
   "adapters",
   "drivers",
   "client",
@@ -60,11 +65,13 @@ const startedAt = performance.now();
  *
  * This is a WALL budget, not a memory one: the 768 / 1280 / 1536 MiB contract is
  * untouched. Client needs the extra time BECAUSE of that contract. Its
- * compile-only estate is 21 files and 268 KB, and at a 1280 MB shard heap it
- * cannot be one program - contextual-typing-gate.core.types.ts alone is 74 KB
- * and OOMs anything packed with it, and the other twenty OOM together too. So
- * it runs as three programs, each measured clean under 1536 MiB, and three tsc
- * startups cost ~24.9s on top of a 5.4s runtime stage.
+ * compile-only estate is 21 files and 221 KB of source - the byte total the
+ * shard budget below actually weighs, not the 268 KB of disk blocks a `du`
+ * reports - and at a 1280 MB shard heap it cannot be one program:
+ * contextual-typing-gate.core.types.ts alone is 74 KB and OOMs anything packed
+ * with it, and the other twenty OOM together too. So it runs as three programs,
+ * each measured clean under 1536 MiB, and three tsc startups cost ~24.9s on top
+ * of a 5.4s runtime stage.
  *
  * Raising this is the right lever precisely because the memory ceiling is not.
  * If the client type estate is ever trimmed back under two programs, put it
@@ -99,7 +106,8 @@ let typeShardDirectory;
 /**
  * Temporary tsconfigs that chunk one layer's compile-only type files. Returns
  * the layer's own tsconfig unchanged when it already fits in a single chunk, so
- * the common case spawns exactly one tsc as before.
+ * the common case spawns exactly one tsc as before, and an EMPTY list when the
+ * layer owns no type core - the caller announces that, it is never silent.
  */
 function typeShardProjects(layerName) {
   const layerRoot = `tests/types/${layerName}`;
@@ -108,9 +116,14 @@ function typeShardProjects(layerName) {
     files = readdirSync(resolve(projectRoot, layerRoot))
       .filter((file) => file.endsWith(".core.types.ts"))
       .sort();
-  } catch {
-    return [`${layerRoot}/tsconfig.json`];
+  } catch (error) {
+    // Only a missing directory means "this layer owns no type core". Any other
+    // fault - ENOTDIR, EACCES - is a real one and must never be read as
+    // "nothing to typecheck", so it propagates and fails the run.
+    if (error?.code !== "ENOENT") throw error;
+    return [];
   }
+  if (files.length === 0) return [];
   const weighed = files.map((file) => ({
     file,
     bytes: statSync(resolve(projectRoot, layerRoot, file)).size,
@@ -222,7 +235,29 @@ try {
     // inference. Chunk the layer's type files so each program stays inside the
     // heap. Splitting the work is the remedy; raising the heap is not.
     types = { code: 0 };
-    for (const [index, project] of typeShardProjects(layer).entries()) {
+    const typeProjects = typeShardProjects(layer);
+    if (typeProjects.length === 0) {
+      // Said out loud, never assumed. layer-write-engine is a RUNTIME split of
+      // the query-engine layer: contract-matrix.core.test.ts still resolves
+      // every tests/contracts/engine/** runtime core to `query-engine`, and the
+      // write engine's only compile-only probes live in the query-engine type
+      // core (tests/types/query-engine/routed-operation.core.types.ts imports
+      // @src/query-engine/write-engine/*). Handing it a
+      // tests/types/write-engine/tsconfig.json would buy a program that can
+      // never hold a probe: that census requires every .core.types.ts to sit
+      // under a declared TEST_LAYERS directory, `write-engine` is not one, so
+      // the first probe added there turns the census red. The config would then
+      // compile nothing but the inherited ambient declaration and report
+      // success forever. A permanently empty program passing is a false green;
+      // print the truth instead. Completeness is not lost - the shards in
+      // run-typecheck-shards.mjs still typecheck the whole tests/types estate,
+      // and that census owns the rule that every DECLARED layer has a type
+      // core.
+      process.stderr.write(
+        `Layer ${layer} types: SKIPPED - no tests/types/${layer}/*.core.types.ts exists, so this layer has no type core of its own and nothing was typechecked here.\n`
+      );
+    }
+    for (const [index, project] of typeProjects.entries()) {
       types = await runStage(
         `Layer ${layer} types ${index + 1}`,
         tscEntry,
@@ -247,7 +282,20 @@ try {
   failed = true;
   process.stderr.write(`${describeError(error)}\n`);
 } finally {
-  removeTypeShardDirectory();
+  // Both cleanups always run, both report, and neither can swallow the other.
+  // An unguarded removeTypeShardDirectory() used to sit in front of the lock
+  // release: one throwing rmSync skipped the release entirely and left the
+  // whole workspace locked behind an uncaught exception, with the shard
+  // directory still on disk and nothing said about either.
+  const shardDirectory = typeShardDirectory;
+  try {
+    removeTypeShardDirectory();
+  } catch (error) {
+    failed = true;
+    process.stderr.write(
+      `Type shard cleanup failed, remove ${shardDirectory} by hand: ${describeError(error)}\n`
+    );
+  }
   try {
     releaseTestRunLock();
   } catch (error) {
