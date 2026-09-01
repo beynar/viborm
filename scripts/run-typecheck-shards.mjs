@@ -18,10 +18,11 @@ const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const tscEntry = fileURLToPath(
   new URL("../node_modules/typescript/bin/tsc", import.meta.url)
 );
-// A WALL budget, not a memory one. The 1280 MB shard heap is what forces the
-// estate into dozens of sequential programs - roughly fifty tsc startups at
-// ~8s each - so ten minutes cannot hold it. Memory limits are unchanged.
-const wallLimitMs = 1_800_000;
+// A WALL budget, not a memory one, and the honest price of the 1280 MB shard
+// heap on this codebase. Provider suites alone need one program each and the
+// whole estate lands near two hundred sequential tsc runs at ~9s. Memory limits
+// are untouched; this is the time that buys them.
+const wallLimitMs = 3_600_000;
 const TYPE_SHARD_HEAP_LIMIT_MB = 1280;
 const TYPE_SHARD_RSS_LIMIT_MB = DEFAULT_PROCESS_GROUP_RSS_LIMIT_MB;
 /**
@@ -72,11 +73,12 @@ const benchmarkShards = Array.from(
 // not guessed: against tests/contracts/engine at a 1280 MB heap, 200 KB of
 // sources typechecks in 8.4s and 400 KB OOMs.
 const TYPE_SHARD_LARGE_BYTES = 40_000;
-// Start GENEROUS and let split-and-retry below find the real limit. A small
-// budget over-shards the directories that could take more, and every shard
-// pays a full tsc startup, so the cheapest correct strategy is few large
-// programs plus automatic halving wherever one does not fit.
-const TYPE_SHARD_BUDGET_BYTES = 400_000;
+// Start SMALL ENOUGH THAT MOST SHARDS FIT. Starting generous is pathological:
+// every oversized shard burns a full ~9s OOM before it is halved, and halving
+// recurses, so a 400 KB start produced 259 shards from 56 splits. At 150 KB
+// almost everything fits first time and split-and-retry below is a safety net
+// for the few dense outliers rather than the main mechanism.
+const TYPE_SHARD_BUDGET_BYTES = 150_000;
 
 function typescriptFilesUnder(relativeDirectory) {
   const absolute = resolve(projectRoot, relativeDirectory);
@@ -125,9 +127,36 @@ function directoryShards(name, relativeDirectory) {
   }));
 }
 
+/**
+ * Provider suites get one program EACH, with no packing attempt.
+ *
+ * Each is ~3.7M type instantiations against a measured cliff at ~3.85M, so no
+ * two of them ever share a program. Letting the packer try anyway cost a full
+ * ~9s OOM per pair before the split, which is what produced 250 shards from 41
+ * splits. Declaring the truth up front removes the wasted attempts.
+ */
+const providerOwnShards = typescriptFilesUnder("tests/providers").map(
+  (file) => ({
+    name: `provider-${file
+      .split("/")
+      .pop()
+      ?.replace(/\.test\.ts$/, "")}`,
+    include: [file],
+  })
+);
+
 const runtimeShards = [
-  { name: "production", include: ["src/**/*.ts"] },
-  { name: "tooling", include: ["scripts/*.ts", "demo.ts"] },
+  { name: "production", include: typescriptFilesUnder("src") },
+  {
+    name: "tooling",
+    include: [
+      ...readdirSync(resolve(projectRoot, "scripts"))
+        .filter((file) => file.endsWith(".ts"))
+        .sort()
+        .map((file) => `scripts/${file}`),
+      "demo.ts",
+    ],
+  },
   ...benchmarkShards,
   ...[
     "cache",
@@ -143,13 +172,17 @@ const runtimeShards = [
   ...["adapters", "architecture", "drivers", "engine", "public-client"].flatMap(
     (name) => directoryShards(`contracts-${name}`, `tests/contracts/${name}`)
   ),
+  ...providerOwnShards,
   {
+    // Concrete files, never globs. split-and-retry halves a shard's `include`
+    // array, so a glob is indivisible: this shard used to bottom out at one
+    // pattern covering every provider file and could never be made to fit.
     name: "support-and-providers",
     include: [
       "tests/inventory.ts",
-      "tests/fixtures/**/*.ts",
-      "tests/package/**/*.ts",
-      "tests/providers/**/*.ts",
+      ...typescriptFilesUnder("tests/fixtures"),
+      ...typescriptFilesUnder("tests/package"),
+      // NOT packed with anything: see PROVIDER_OWN_SHARDS below.
       "tests/types/relations/debug-relation-type.ts",
     ],
   },
