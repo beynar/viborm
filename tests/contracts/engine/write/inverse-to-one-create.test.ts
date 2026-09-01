@@ -7,8 +7,16 @@ import {
   inverseToOneCreateSchema,
   runInverseToOneCreateBehavior,
 } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for the statement-level witness below. The
+ * recording driver is built over that database, so it carries the family's namespace —
+ * without it the driver addresses `public`, where this suite has no tables. The two
+ * behavior legs run on schemas of their own, provisioned by `useBehaviorDatabase`.
+ */
+const getFamily = usePGliteSchemaFamily(inverseToOneCreateSchema);
 
 class RecordingPGliteDriver extends PGliteDriver {
   readonly statements: string[] = [];
@@ -45,37 +53,42 @@ runInverseToOneCreateBehavior({
 });
 
 test("an occupied slot is decided by the constraint alone, and is not retried", async () => {
-  const driver = new RecordingPGliteDriver();
+  const family = getFamily();
+  const driver = new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
   const client = createClient({ schema: inverseToOneCreateSchema, driver });
-  try {
-    await syncLiveSchema(client);
-    await client.account.create({
-      data: { id: 1, email: "a@x", code: "A", label: "l" },
-    });
-    await client.account.update({
+  // The schema family created the tables and truncated them for this test, and it owns
+  // the connection: the database is the worker's, shared with every other suite in the
+  // process, so this driver neither syncs it nor closes it.
+  await client.account.create({
+    data: { id: 1, email: "a@x", code: "A", label: "l" },
+  });
+  await client.account.update({
+    where: { id: 1 },
+    data: { profile: { create: { id: 10, bio: "first" } } },
+  });
+
+  driver.recording = true;
+  await expect(
+    client.account.update({
       where: { id: 1 },
-      data: { profile: { create: { id: 10, bio: "first" } } },
-    });
+      data: { profile: { create: { id: 11, bio: "second" } } },
+    })
+  ).rejects.toBeInstanceOf(UniqueConstraintError);
+  driver.recording = false;
 
-    driver.recording = true;
-    await expect(
-      client.account.update({
-        where: { id: 1 },
-        data: { profile: { create: { id: 11, bio: "second" } } },
-      })
-    ).rejects.toBeInstanceOf(UniqueConstraintError);
-    driver.recording = false;
-
-    const profileStatements = driver.statements.filter((statement) =>
-      statement.includes("n2_ito_profiles")
-    );
-    expect(
-      profileStatements.filter((statement) => statement.startsWith("INSERT"))
-    ).toHaveLength(1);
-    expect(
-      profileStatements.filter((statement) => statement.startsWith("SELECT"))
-    ).toHaveLength(0);
-  } finally {
-    await client.$disconnect();
-  }
+  // The table name is matched inside the statement, not anchored at its start: the
+  // recorded SQL is schema-qualified (`"suite_7"."n2_ito_profiles"`), and the INSERT /
+  // SELECT counts below are the claim — one insert, no pre-check probe.
+  const profileStatements = driver.statements.filter((statement) =>
+    statement.includes("n2_ito_profiles")
+  );
+  expect(
+    profileStatements.filter((statement) => statement.startsWith("INSERT"))
+  ).toHaveLength(1);
+  expect(
+    profileStatements.filter((statement) => statement.startsWith("SELECT"))
+  ).toHaveLength(0);
 });

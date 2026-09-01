@@ -9,6 +9,7 @@ import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { DbNull, s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Decimal from "decimal.js";
 import {
@@ -108,7 +109,14 @@ let client: Awaited<
     typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
   >
 >;
-let pglite: import("@electric-sql/pglite").PGlite;
+
+/**
+ * The worker's ONE PGlite, through this suite's own private schema, in place of
+ * a whole Wasm Postgres for this file alone. The family is deliberately given
+ * no models: the parent and child each case writes are read back by a LATER
+ * case, and a family that knew these tables would empty them between them.
+ */
+const getFamily = usePGliteSchemaFamily({});
 
 // Test data
 const testDate = new Date("2024-06-15T14:30:00.000Z");
@@ -116,18 +124,18 @@ const testDateOnly = new Date("2024-06-15");
 const testTime = "14:30:00";
 
 beforeAll(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
+  const family = getFamily();
+  client = await PGliteCreateClient({
+    schema,
+    client: family.database,
+    namespace: family.namespace,
+  });
   await syncLiveSchema(client);
 });
 
 afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
+  // The family owns the database and drops this suite's schema with it.
+  await client.$disconnect();
 });
 
 // =============================================================================

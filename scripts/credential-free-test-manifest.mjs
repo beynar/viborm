@@ -112,12 +112,26 @@ function bootsLivePGlite(file, seen = new Set()) {
  */
 const SHARED_FAMILY = /usePGliteSchemaFamily/;
 
-function usesSharedFamily(file) {
+/**
+ * Walks local imports. A suite need not name the fixture itself: the six
+ * nested-write-conformance files declare nothing and take their family from
+ * their shared harness.
+ */
+function usesSharedFamily(file, seen = new Set()) {
+  if (seen.has(file)) return false;
+  seen.add(file);
+  let source;
   try {
-    return SHARED_FAMILY.test(readFileSync(resolve(projectRoot, file), "utf8"));
+    source = readFileSync(resolve(projectRoot, file), "utf8");
   } catch {
     return false;
   }
+  if (SHARED_FAMILY.test(source)) return true;
+  for (const match of source.matchAll(LOCAL_IMPORT)) {
+    const dependency = resolveLocalImport(match[1], file);
+    if (dependency && usesSharedFamily(dependency, seen)) return true;
+  }
+  return false;
 }
 
 export const EXTENDED_LOCAL_SHARED_FAMILY_TESTS = Object.freeze(
@@ -126,7 +140,7 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_TESTS = Object.freeze(
   )
 );
 
-const SHARED_FAMILY_SHARD_SIZE = 20;
+const SHARED_FAMILY_SHARD_SIZE = 15;
 
 const shardCount = Math.ceil(
   EXTENDED_LOCAL_SHARED_FAMILY_TESTS.length / SHARED_FAMILY_SHARD_SIZE
@@ -155,8 +169,10 @@ export const EXTENDED_LOCAL_SHARED_FAMILY_SHARDS = Object.freeze(
  * at most a couple of databases between them. Measured: all 49 such files in ONE
  * process peak at 2182 MiB, against the 1536 an isolated one is given. They pack.
  */
+// `new PGliteDriver({ client })` borrows a database - it builds nothing. Only a
+// driver constructed with NO client creates an instance of its own.
 const OWN_INSTANCE =
-  /new PGlite\(|open(?:Borrowed|Test)PGlite|new \w*PGliteDriver\(/;
+  /new PGlite\(|open(?:Borrowed|Test)PGlite|new \w*PGliteDriver\(\s*\)/;
 
 // The shared fixture builds the worker's ONE instance. Reaching it is what makes
 // a suite cheap, so it must not count as building an instance of one's own.

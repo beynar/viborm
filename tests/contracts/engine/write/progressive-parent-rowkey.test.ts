@@ -153,6 +153,22 @@ class RecordingPGliteDriver extends PGliteDriver {
   }
 }
 
+/**
+ * ONE borrowed PGlite for the whole file.
+ *
+ * Neither block below can take a schema on the worker-wide family: the junction block
+ * carries its rows ACROSS its cases (its second case updates the stamp the first one
+ * created), which the family's per-test TRUNCATE would erase. What they do not need is
+ * two INSTANCES — a PGlite is a whole Postgres in Wasm — so the junction block takes a
+ * private Postgres SCHEMA on this same database instead of building a second one.
+ */
+let fileBorrowedDatabase: PGlite | undefined;
+
+function fileDatabase(): PGlite {
+  fileBorrowedDatabase ??= openBorrowedPGlite();
+  return fileBorrowedDatabase;
+}
+
 /** A row that carries a relation, so the nested `createMany` routes to a series. */
 const RELATION_BEARING_ROW = {
   id: "sp1",
@@ -197,7 +213,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
   let concurrent: any;
   const open = async () => {
     if (!client) {
-      database = openBorrowedPGlite();
+      database = fileDatabase();
       driver = new ProgressivePGliteDriver({ client: database });
       client = createClient({ schema: rowKeySchema, driver }) as any;
       concurrent = createClient({
@@ -543,12 +559,24 @@ const junctionRowKeySchema = (() => {
   return { hub, mark, note, spoke, stamp };
 })();
 
+/** The junction block's own schema on the file's one database. */
+const JUNCTION_NAMESPACE = "h1_junction";
+
 describe("H1 — each placement guards its exact progressive premise", () => {
   let driver: ProgressivePGliteDriver | undefined;
   let client: any;
   const open = async () => {
     if (!client) {
-      driver = new ProgressivePGliteDriver({ client: openBorrowedPGlite() });
+      // A private schema on the file's one database. The block above owns `public`
+      // there, and pushing this schema into it would plan a drop of those tables.
+      const database = fileDatabase();
+      await database.exec(
+        `CREATE SCHEMA IF NOT EXISTS "${JUNCTION_NAMESPACE}"`
+      );
+      driver = new ProgressivePGliteDriver({
+        client: database,
+        namespace: JUNCTION_NAMESPACE,
+      });
       client = createClient({ schema: junctionRowKeySchema, driver }) as any;
       await syncLiveSchema(client);
       await client.hub.create({

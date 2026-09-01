@@ -1,11 +1,19 @@
 import {
+  armClient,
   CHILD_HELD_EDGE,
-  freshClient,
+  cascadeSchema,
   seed,
   snapshot,
 } from "@tests/contracts/engine/write/nested-update-pk-transition-cascade-fixtures";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. Every arm below is built over
+ * that database and carries its namespace — without one a driver addresses `public`,
+ * where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(cascadeSchema);
 
 /**
  * The two N4/N5 MERGE arms of the PK-transition cascade boundary (T3b1 finding #1):
@@ -25,8 +33,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
 
         // RETARGETED BY PACKAGE D2. This was "the merge's one refusal": N4-U1's
@@ -59,7 +66,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [10, null],
           [20, null],
         ]);
-        await client.$disconnect();
       }
     );
 
@@ -69,8 +75,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
 
         // Drop the `id` from the SET and the intersection dissolves: N4-U1's planned
@@ -95,7 +100,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [10, null],
           [20, null],
         ]);
-        await client.$disconnect();
       }
     );
   }

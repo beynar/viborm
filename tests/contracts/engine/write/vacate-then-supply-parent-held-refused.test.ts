@@ -1,6 +1,6 @@
 import {
   depots,
-  seedParentHeld,
+  useParentHeldSeed,
 } from "@tests/contracts/engine/write/vacate-then-supply-parent-held-fixtures";
 import { describe, expect, test } from "vitest";
 
@@ -15,6 +15,10 @@ import { describe, expect, test } from "vitest";
  * The `d-alt` decoy is live and unconnected throughout, so a composition that vacated or
  * supplied the wrong row would be visible in every assertion below.
  */
+
+/** One schema on the worker's PGlite for this file, re-seeded before every case. */
+const seedParentHeld = useParentHeldSeed();
+
 describe("Package H — the parent-held direction composes the replacement", () => {
   test("delete + connect is the own-write ledger's refusal, and writes nothing", async () => {
     const client = await seedParentHeld();
@@ -38,7 +42,6 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-alt", "decoy"],
       ["d1", "incumbent"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 
   test("create + update stays refused on this direction — by the LATTICE", async () => {
@@ -62,6 +65,5 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-alt", "decoy"],
       ["d1", "incumbent"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 });

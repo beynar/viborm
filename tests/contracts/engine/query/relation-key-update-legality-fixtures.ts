@@ -1,19 +1,19 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: expectParity is invoked only from test cases.
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { expect } from "vitest";
 
 // The one schema and the one dual-substrate oracle every `relation-key-update-legality-*`
-// slice runs on. `expectParity` opens TWO fresh databases per scenario — the live arm and
-// the forced-batch arm — which is exactly why the scenarios are sliced across files by
-// model family instead of living in one describe.
+// slice runs on. `expectParity` runs each scenario twice — the live arm and the
+// forced-batch arm — on the worker's ONE shared PGlite, each arm in its own private
+// Postgres schema so it still starts from its own empty tables. The scenarios stay
+// sliced across files by model family.
 
 export const AUTHOR_ID_RELATION_KEY_ERROR = /relation key field 'authorId'/;
 // M12: the general owned-foreign-key refusal, which precedes this file's rule wherever
@@ -242,18 +242,44 @@ export function createLegalityClient(driver: PGliteDriver) {
   return createClient({ schema, driver });
 }
 
+/**
+ * ONE PGlite per worker, one private schema per execution substrate.
+ *
+ * The two arms need independent STATE, which two schemas give them; they never
+ * needed two Wasm Postgres instances, and this harness used to build one per
+ * scenario per arm. Each family truncates its own schema before every test, so a
+ * scenario still seeds into empty tables on both arms.
+ */
+const getLiveFamily = usePGliteSchemaFamily(schema);
+const getBatchFamily = usePGliteSchemaFamily(schema, "atomicBatch");
+
+/**
+ * The forced-batch arm's database and private schema, for the one scenario that
+ * has to build its own batch driver (the missing-slot race in
+ * `relation-key-update-legality-transition-arm.test.ts`). A driver built over the
+ * shared database MUST carry the namespace: without it it addresses `public`,
+ * where this suite has no tables.
+ */
+export function batchArmDriverOptions(): {
+  client: PGlite;
+  namespace: string;
+} {
+  const family = getBatchFamily();
+  return { client: family.database, namespace: family.namespace };
+}
+
 async function runScenario(
   mode: "batch" | "live",
   scenario: Scenario
 ): Promise<Outcome> {
-  const database = openTestPGlite();
+  const family = mode === "live" ? getLiveFamily() : getBatchFamily();
+  const options = { client: family.database, namespace: family.namespace };
   const driver =
     mode === "live"
-      ? new PGliteDriver({ client: database })
-      : new BatchOnlyPGliteDriver({ client: database });
+      ? new PGliteDriver(options)
+      : new BatchOnlyPGliteDriver(options);
   const client = createLegalityClient(driver);
   try {
-    await syncLiveSchema(client);
     await scenario.seed(client);
     let error: Outcome["error"];
     try {
@@ -266,10 +292,9 @@ async function runScenario(
     }
     return { error, state: await scenario.snapshot(client) };
   } finally {
+    // Releases this arm's client only. The database was SUPPLIED, so the driver
+    // never closes it, and the schema family owns both it and the schema.
     await client.$disconnect();
-    // Disconnecting a client does NOT release a borrowed Wasm database (see
-    // pglite-lifecycle.ts), and this harness opens one per scenario per mode.
-    await closeTestPGlite(database);
   }
 }
 

@@ -25,11 +25,8 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import {
   canonicalizeDecimal,
@@ -38,6 +35,15 @@ import {
 import { describe, expect, it } from "vitest";
 
 const TABLE = "dec_list_agreement";
+
+/**
+ * The PostgreSQL leg answers from the worker's ONE PGlite through this suite's
+ * own private schema. The family is given no models: the push below is the
+ * thing under test, so it still creates the table itself — inside
+ * `family.namespace`, which every raw statement here has to name because raw
+ * SQL is sent verbatim.
+ */
+const getFamily = usePGliteSchemaFamily({});
 
 const listLedger = (precision: number, scale: number) => ({
   ledger: s
@@ -139,22 +145,29 @@ describe("SQLite: the runtime container is the one the migration layer reads", (
 
 describe("PostgreSQL: the array typmod is the descriptor", () => {
   it("stores the members as column values, with no container between them", async () => {
-    const database = openTestPGlite();
-    const driver = new PGliteDriver({ client: database });
+    const family = getFamily();
+    const driver = new PGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema: listLedger(16, 2), driver });
     await push(client, { force: true });
 
     await client.ledger.create({ data: { id: "a", samples: MEMBERS } });
 
+    // The catalog spans every schema in the shared database, so the suite's own
+    // namespace is part of the identity of the column being read.
     const stored = await driver._executeRaw<{ format_type: string }>(
       `SELECT format_type(a.atttypid, a.atttypmod) FROM pg_attribute a
          JOIN pg_class c ON c.oid = a.attrelid
-        WHERE c.relname = '${TABLE}' AND a.attname = 'samples'`
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = '${family.namespace}'
+          AND c.relname = '${TABLE}' AND a.attname = 'samples'`
     );
     expect(stored.rows[0]?.format_type).toBe("numeric(16,2)[]");
 
     const members = await driver._executeRaw<{ samples: unknown }>(
-      `SELECT "samples" FROM "${TABLE}" WHERE "id" = 'a'`
+      `SELECT "samples" FROM "${family.namespace}"."${TABLE}" WHERE "id" = 'a'`
     );
     // Every member is its own exact value, not a document to parse.
     expect(members.rows[0]?.samples).toEqual([
@@ -163,7 +176,8 @@ describe("PostgreSQL: the array typmod is the descriptor", () => {
       "90071992547409.93",
     ]);
 
+    // The shared family owns the database; disconnecting releases only this
+    // driver.
     await client.$disconnect();
-    await closeTestPGlite(database);
   });
 });

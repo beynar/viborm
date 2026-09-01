@@ -1,12 +1,20 @@
 import {
+  armClient,
   CHILD_HELD_EDGE,
-  freshClient,
+  cascadeSchema,
   op,
   seed,
   snapshot,
 } from "@tests/contracts/engine/write/nested-update-pk-transition-cascade-fixtures";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. Every arm below is built over
+ * that database and carries its namespace — without one a driver addresses `public`,
+ * where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(cascadeSchema);
 
 /**
  * The three arms of the PK-transition cascade boundary (T3b1 finding #1) that seed an
@@ -29,8 +37,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
         // Give the transition target a child of its own: the NO-ACTION referential
         // action would strand it, so the depth occupied guard rejects — V1's verbatim
@@ -51,7 +58,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [10, null],
           [20, null],
         ]);
-        await client.$disconnect();
       }
     );
 
@@ -65,8 +71,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           timeout: 30_000,
         },
         async () => {
-          const { client } = freshClient(substrate);
-          await syncLiveSchema(client as any);
+          const client = armClient(getFamily(), substrate);
           await seed(client);
           // The SAME occupant as the arm above — the difference is only the operand.
           await (client as any).node.create({
@@ -101,7 +106,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
             [10, null],
             [20, null],
           ]);
-          await client.$disconnect();
         }
       );
     }

@@ -9,8 +9,8 @@ import { describe, test } from "vitest";
 
 // The LOCAL-FK slice: every scenario whose rewritten relation key is a column the CHILD
 // holds — `post.authorId`, and the shared primary/local-FK of `sharedProfile`. It is its
-// own file because `expectParity` boots one live and one forced-batch database per
-// scenario; the referenced-column, transition-arm, and occupied-guard families each get
+// own file because `expectParity` runs every scenario twice, once per execution
+// substrate; the referenced-column, transition-arm, and occupied-guard families each get
 // their own sibling for the same reason. The one schema and the parity oracle live in
 // `relation-key-update-legality-fixtures.ts`.
 

@@ -4,7 +4,14 @@ import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 /**
  * The read family (PLAN P4 item 1) as single read steps, across the driver
@@ -337,6 +344,14 @@ export function runReadBehavior(options: {
    * forced-batch driver bound to the Direct driver's underlying database.
    */
   readonly createObservedDriver?: () => AnyDriver;
+  /**
+   * Commit the seed before EVERY test instead of once for the suite. A leg on the
+   * shared PGlite schema family needs it: that fixture empties the suite's tables
+   * between tests, and a seed committed once would leave every scenario below
+   * reading two empty result sets and agreeing about them. A leg with a database of
+   * its own must NOT ask for it — re-seeding a live one collides on the primary keys.
+   */
+  readonly seedPerTest?: boolean;
 }): void {
   describe(`${options.name} reads (Observed vs Direct)`, () => {
     let direct: ReadClientInstance | undefined;
@@ -347,7 +362,7 @@ export function runReadBehavior(options: {
       const v1Driver = options.createDriver();
       direct = makeReadClient(v1Driver);
       await syncLiveSchema(direct);
-      await seedReads(direct);
+      if (!options.seedPerTest) await seedReads(direct);
 
       // Default the Observed arm to Direct's own driver so both read one seeded database;
       // a supplied factory shares that database in a different substrate mode.
@@ -356,6 +371,10 @@ export function runReadBehavior(options: {
         schema: readSchema,
         driver: distinctObservedDriver ?? v1Driver,
       });
+    });
+
+    beforeEach(async () => {
+      if (options.seedPerTest) await seedReads(direct!);
     });
 
     afterAll(async () => {

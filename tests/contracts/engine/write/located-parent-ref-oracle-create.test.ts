@@ -1,8 +1,17 @@
+import { locatedParentRefSchema } from "@tests/contracts/engine/write/located-parent-ref-behavior";
 import {
   type OracleScenario,
   runOracleAgreement,
   seed,
 } from "@tests/contracts/engine/write/located-parent-ref-fixtures";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+
+/**
+ * One shared PGlite, one private schema for this file. Both arms of every scenario run
+ * in it, and every driver the harness builds carries its namespace — without one a
+ * driver addresses `public`, where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(locatedParentRefSchema);
 
 /**
  * The dual-substrate oracle (N1-U3) on the three CREATE shapes: the located parent's
@@ -10,8 +19,8 @@ import {
  * `create`, once as a `createMany` leaf, and once through a whole create SUBTREE whose
  * own child is produced a level deeper.
  *
- * Every arm opens a fresh database — two per scenario, one per substrate — which is why
- * the scenario list is split across three files. The harness, the comparison, and the
+ * Every arm runs on empty tables in the shared schema declared above — the two arms of a
+ * scenario one after the other, truncated between. The harness, the comparison, and the
  * reasoning behind the oracle live in `located-parent-ref-fixtures.ts`; the reference
  * shapes are in `located-parent-ref-oracle-reference.test.ts` and the two failing
  * premises in `located-parent-ref-oracle-failure.test.ts`.
@@ -66,4 +75,4 @@ const oracleScenarios: OracleScenario[] = [
   },
 ];
 
-runOracleAgreement(oracleScenarios);
+runOracleAgreement(getFamily, oracleScenarios);

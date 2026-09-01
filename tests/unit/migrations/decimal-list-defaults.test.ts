@@ -14,11 +14,8 @@ import { introspect } from "@migrations/push";
 import { serializeModels } from "@migrations/serializer";
 import type { ColumnDef, SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
@@ -29,6 +26,15 @@ const LOGICAL_DEFAULT = ["1.20", "-3.40", "0.00", "90071992547409.93"];
 const POSTGRES_DEFAULT = "'{1.20,-3.40,0.00,90071992547409.93}'";
 const JSON_DEFAULT = '\'["120","-340","0","9007199254740993"]\'';
 const MYSQL_DEFAULT = `(${JSON_DEFAULT})`;
+
+/**
+ * The PostgreSQL legs answer from the worker's ONE PGlite through this suite's
+ * own private schema, instead of a whole Wasm Postgres each. The family carries
+ * no models: each case still pushes the estate it measures. That schema now
+ * outlives the case, so each drops the table a fresh database used to hand it
+ * empty, and every raw statement names the schema itself.
+ */
+const getFamily = usePGliteSchemaFamily({});
 
 function defaultSchema() {
   return {
@@ -257,21 +263,24 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
   });
 
   it("PostgreSQL ORM and raw omitted-column inserts agree and converge", async () => {
-    const database = openTestPGlite();
+    const { database, namespace } = getFamily();
+    await database.exec(`DROP TABLE IF EXISTS "${namespace}"."${TABLE}"`);
     const client = createClient({
       schema: storageSchema(),
-      driver: new PGliteDriver({ client: database }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     try {
       await push(client, { force: true });
       await client.ledger.create({ data: { id: "orm" } });
-      await database.exec(`INSERT INTO "${TABLE}" ("id") VALUES ('raw')`);
+      await database.exec(
+        `INSERT INTO "${namespace}"."${TABLE}" ("id") VALUES ('raw')`
+      );
       const physical = await database.query<{
         id: string;
         amounts: string;
         empty: string;
       }>(
-        `SELECT "id", "amounts"::text AS "amounts", "empty"::text AS "empty" FROM "${TABLE}" ORDER BY "id"`
+        `SELECT "id", "amounts"::text AS "amounts", "empty"::text AS "empty" FROM "${namespace}"."${TABLE}" ORDER BY "id"`
       );
       expect(physical.rows).toEqual([
         {
@@ -287,35 +296,38 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
       ]);
       expect((await push(client, { force: true })).operations).toEqual([]);
     } finally {
+      // The shared family owns the database; only this client is released here.
       await client.$disconnect();
-      await closeTestPGlite(database);
     }
   });
 
   it("PostgreSQL changes and removes a list default without churn", async () => {
-    const database = openTestPGlite();
+    const { database, namespace } = getFamily();
+    await database.exec(`DROP TABLE IF EXISTS "${namespace}"."${TABLE}"`);
     const initial = createClient({
       schema: storageSchema(),
-      driver: new PGliteDriver({ client: database }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     try {
       await push(initial, { force: true });
 
       const changed = createClient({
         schema: changedStorageSchema(),
-        driver: new PGliteDriver({ client: database }),
+        driver: new PGliteDriver({ client: database, namespace }),
       });
       await push(changed, { force: true });
-      await database.exec(`INSERT INTO "${TABLE}" ("id") VALUES ('changed')`);
+      await database.exec(
+        `INSERT INTO "${namespace}"."${TABLE}" ("id") VALUES ('changed')`
+      );
       const physical = await database.query<{ amounts: string }>(
-        `SELECT "amounts"::text AS "amounts" FROM "${TABLE}" WHERE "id" = 'changed'`
+        `SELECT "amounts"::text AS "amounts" FROM "${namespace}"."${TABLE}" WHERE "id" = 'changed'`
       );
       expect(physical.rows).toEqual([{ amounts: "{4.20}" }]);
       expect((await push(changed, { force: true })).operations).toEqual([]);
 
       const removed = createClient({
         schema: noDefaultStorageSchema(),
-        driver: new PGliteDriver({ client: database }),
+        driver: new PGliteDriver({ client: database, namespace }),
       });
       await push(removed, { force: true });
       expect((await push(removed, { force: true })).operations).toEqual([]);
@@ -326,8 +338,8 @@ describe("literal decimal-list defaults converge and populate old rows", () => {
           ?.columns.find((column) => column.name === "amounts")?.default
       ).toBeUndefined();
     } finally {
+      // The shared family owns the database; only this client is released here.
       await initial.$disconnect();
-      await closeTestPGlite(database);
     }
   });
 });

@@ -13,6 +13,7 @@ const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { AnyNull, DbNull, JsonNull, s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import Decimal from "decimal.js";
 import {
@@ -202,22 +203,28 @@ let client: Awaited<
     typeof PGliteCreateClient<typeof schema, { schema: typeof schema }>
   >
 >;
-let pglite: import("@electric-sql/pglite").PGlite;
+
+/**
+ * The worker's ONE PGlite, through this suite's own private schema, in place of
+ * a whole Wasm Postgres for this file alone. The family is deliberately given
+ * no models: the record each case writes is read back by a LATER case, and a
+ * family that knew this table would empty it between them.
+ */
+const getFamily = usePGliteSchemaFamily({});
 
 beforeAll(async () => {
-  // Use in-memory PGlite
-  const { PGlite } = await import("@electric-sql/pglite");
-  pglite = new PGlite();
-  client = await PGliteCreateClient({ schema, client: pglite });
+  const family = getFamily();
+  client = await PGliteCreateClient({
+    schema,
+    client: family.database,
+    namespace: family.namespace,
+  });
   await syncLiveSchema(client);
 });
 
 afterAll(async () => {
-  try {
-    await client.$disconnect();
-  } finally {
-    await pglite.close();
-  }
+  // The family owns the database and drops this suite's schema with it.
+  await client.$disconnect();
 });
 
 // =============================================================================

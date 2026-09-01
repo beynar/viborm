@@ -1,12 +1,20 @@
 import {
+  armClient,
   CHILD_HELD_EDGE,
-  freshClient,
+  cascadeSchema,
   op,
   seed,
   snapshot,
 } from "@tests/contracts/engine/write/nested-update-pk-transition-cascade-fixtures";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. Every arm below is built over
+ * that database and carries its namespace — without one a driver addresses `public`,
+ * where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(cascadeSchema);
 
 /**
  * The three arms that bracket the ORDERING mechanism of the PK-transition cascade
@@ -30,8 +38,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
 
         // No child carries the target's key 1, so the occupied guard passes and the
@@ -45,7 +52,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [10, null],
           [20, null],
         ]);
-        await client.$disconnect();
       }
     );
 
@@ -55,8 +61,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
         // **RETARGETED BY E2-U3 (authorized test change).** This arm asserted the
         // refusal, on the reasoning that "neither ordering serves both edges": the
@@ -83,7 +88,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         // … and so did the join row: a write against the vacated 1 has no row to
         // reference (the falsification raises a ForeignKeyError there).
         expect(state.links).toContainEqual([7, [5]]);
-        await client.$disconnect();
       }
     );
 
@@ -93,8 +97,7 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
         timeout: 30_000,
       },
       async () => {
-        const { client } = freshClient(substrate);
-        await syncLiveSchema(client as any);
+        const client = armClient(getFamily(), substrate);
         await seed(client);
         await (client as any).node.update(op(M2M_EDGE));
         const state = await snapshot(client);
@@ -108,7 +111,6 @@ describe("nested update PK-transition cascade boundary (finding #1)", () => {
           [20, null],
         ]);
         expect(state.links).toContainEqual([7, [5]]);
-        await client.$disconnect();
       }
     );
   }

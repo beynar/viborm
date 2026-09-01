@@ -8,9 +8,9 @@ import { describe, test } from "vitest";
 // referenced by — `organization.code` on the cascading pair, `registry.tag` on the
 // non-cascading one. The two are read together because they are the same axis with the
 // referential action flipped, and the registry pair exists precisely to reach the
-// derivation the cascading pair never asks for. One live and one forced-batch database
-// per scenario; the schema and the parity oracle live in
-// `relation-key-update-legality-fixtures.ts`.
+// derivation the cascading pair never asks for. One live and one forced-batch arm per
+// scenario, each in its own private schema on the worker's shared database; the schema
+// and the parity oracle live in `relation-key-update-legality-fixtures.ts`.
 
 describe("relation-key update legality", () => {
   test("rejects non-PK referenced arithmetic before effects", async () => {

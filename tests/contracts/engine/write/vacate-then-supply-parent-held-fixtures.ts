@@ -1,8 +1,5 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 
 /** Parent-held to-one updates do not support a replacement pair. */
 export const parentHeldSchema = (() => {
@@ -30,24 +27,29 @@ export const parentHeldSchema = (() => {
 })();
 
 /**
- * One fresh database per call, seeded with the incumbent `d1`, the live and
- * unconnected `d-alt` decoy, and the station whose slot the payload under test
- * rewrites. Every parent-held witness needs its own committed starting state, so the
- * database is per-test rather than per-file.
+ * A private SCHEMA on the worker's ONE PGlite, emptied before every test and then
+ * seeded with the incumbent `d1`, the live and unconnected `d-alt` decoy, and the
+ * station whose slot the payload under test rewrites.
+ *
+ * Every parent-held witness still gets its own committed starting state — that is
+ * what the fixture's per-test reset gives it — without the database per witness this
+ * used to open: nine live PGlite instances across the two suites that call it, each a
+ * whole Postgres in Wasm, none of them released until the file ended.
+ *
+ * Call it at the TOP LEVEL of a suite: it registers the family's hooks on that file.
  */
-export const seedParentHeld = async () => {
-  const client = createClient({
-    schema: parentHeldSchema,
-    driver: new PGliteDriver({ client: openBorrowedPGlite() }),
-  }) as any;
-  await syncLiveSchema(client);
-  await client.depot.create({ data: { id: "d1", note: "incumbent" } });
-  await client.depot.create({ data: { id: "d-alt", note: "decoy" } });
-  await client.station.create({
-    data: { id: "s1", label: "L", depotId: "d1" },
-  });
-  return client;
-};
+export function useParentHeldSeed(): () => Promise<any> {
+  const getFamily = usePGliteSchemaFamily(parentHeldSchema);
+  return async () => {
+    const client = getFamily().client as any;
+    await client.depot.create({ data: { id: "d1", note: "incumbent" } });
+    await client.depot.create({ data: { id: "d-alt", note: "decoy" } });
+    await client.station.create({
+      data: { id: "s1", label: "L", depotId: "d1" },
+    });
+    return client;
+  };
+}
 
 /** `[id, note]` for every depot, ordered by code unit rather than by the database. */
 export const depots = async (client: any): Promise<unknown[][]> =>

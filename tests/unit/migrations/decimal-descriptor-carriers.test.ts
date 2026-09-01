@@ -7,12 +7,13 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import type { ResolveChange } from "@migrations/types";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const ORPHANED_CARRIER = /viborm_decimal_amount_10_2/;
 const UNMARKED_TEXT_STORAGE = /unmarked TEXT storage/i;
@@ -588,22 +589,30 @@ describe("adopting a column that carries no descriptor", () => {
   });
 });
 
+/**
+ * The PostgreSQL leg answers from the worker's ONE PGlite through this suite's
+ * own private schema, in place of a whole Wasm Postgres of its own. The family
+ * carries no models: every case below still builds the estate it adopts. Raw
+ * SQL is sent verbatim, so each statement names that schema itself.
+ */
+const getPostgresFamily = usePGliteSchemaFamily({});
+
 describe("PostgreSQL validates against the target domain alone", () => {
   let db: PGlite;
+  let namespace = "";
   beforeAll(() => {
-    db = new PGlite();
-  });
-  afterAll(async () => {
-    await db.close();
+    const family = getPostgresFamily();
+    db = family.database;
+    namespace = family.namespace;
   });
 
   it("refuses an unconstrained numeric whose value the target would round", async () => {
-    await db.exec(`DROP TABLE IF EXISTS "pgadopt"`);
+    await db.exec(`DROP TABLE IF EXISTS "${namespace}"."pgadopt"`);
     await db.exec(
-      `CREATE TABLE "pgadopt" ("id" TEXT NOT NULL PRIMARY KEY, "amount" numeric)`
+      `CREATE TABLE "${namespace}"."pgadopt" ("id" TEXT NOT NULL PRIMARY KEY, "amount" numeric)`
     );
     await db.exec(
-      `INSERT INTO "pgadopt" ("id","amount") VALUES ('a', 123.456789)`
+      `INSERT INTO "${namespace}"."pgadopt" ("id","amount") VALUES ('a', 123.456789)`
     );
     const client = createClient({
       schema: {
@@ -614,11 +623,11 @@ describe("PostgreSQL validates against the target domain alone", () => {
           })
           .map("pgadopt"),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await expect(push(client, { force: true })).rejects.toThrow();
     const rows = await db.query<{ v: string }>(
-      `SELECT "amount"::text AS v FROM "pgadopt"`
+      `SELECT "amount"::text AS v FROM "${namespace}"."pgadopt"`
     );
     // §7.3: "No descriptor change rounds existing data."
     expect(rows.rows[0]?.v).toBe("123.456789");
@@ -626,12 +635,12 @@ describe("PostgreSQL validates against the target domain alone", () => {
   });
 
   it("adopts an unconstrained numeric whose values all fit, and converges", async () => {
-    await db.exec(`DROP TABLE IF EXISTS "pgadopt2"`);
+    await db.exec(`DROP TABLE IF EXISTS "${namespace}"."pgadopt2"`);
     await db.exec(
-      `CREATE TABLE "pgadopt2" ("id" TEXT NOT NULL PRIMARY KEY, "amount" numeric)`
+      `CREATE TABLE "${namespace}"."pgadopt2" ("id" TEXT NOT NULL PRIMARY KEY, "amount" numeric)`
     );
     await db.exec(
-      `INSERT INTO "pgadopt2" ("id","amount") VALUES ('a', 123.45)`
+      `INSERT INTO "${namespace}"."pgadopt2" ("id","amount") VALUES ('a', 123.45)`
     );
     const client = createClient({
       schema: {
@@ -642,11 +651,11 @@ describe("PostgreSQL validates against the target domain alone", () => {
           })
           .map("pgadopt2"),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await push(client, { force: true });
     const rows = await db.query<{ v: string }>(
-      `SELECT "amount"::text AS v FROM "pgadopt2"`
+      `SELECT "amount"::text AS v FROM "${namespace}"."pgadopt2"`
     );
     expect(rows.rows[0]?.v).toBe("123.45");
     expect((await push(client, { force: true })).operations).toEqual([]);
@@ -654,19 +663,21 @@ describe("PostgreSQL validates against the target domain alone", () => {
   });
 
   it("renames a table and moves its typmod in one convergent push", async () => {
-    await db.exec(`DROP TABLE IF EXISTS "pg_table_before", "pg_table_after"`);
+    await db.exec(
+      `DROP TABLE IF EXISTS "${namespace}"."pg_table_before", "${namespace}"."pg_table_after"`
+    );
     const before = createClient({
       schema: tableLedgerModel("pg_table_before", 10, 2),
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await push(before, { force: true });
     await db.exec(
-      `INSERT INTO "pg_table_before" ("id","amount","label") VALUES ('a',123.45,'kept')`
+      `INSERT INTO "${namespace}"."pg_table_before" ("id","amount","label") VALUES ('a',123.45,'kept')`
     );
 
     const after = createClient({
       schema: tableLedgerModel("pg_table_after", 10, 4),
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     const seen: string[] = [];
     const first = await push(after, {
@@ -678,7 +689,7 @@ describe("PostgreSQL validates against the target domain alone", () => {
       "alterColumn",
     ]);
     const rows = await db.query<{ amount: string; label: string }>(
-      `SELECT "amount"::text AS "amount", "label" FROM "pg_table_after"`
+      `SELECT "amount"::text AS "amount", "label" FROM "${namespace}"."pg_table_after"`
     );
     expect(rows.rows).toEqual([{ amount: "123.4500", label: "kept" }]);
     expect((await push(after, { force: true })).operations).toEqual([]);
@@ -687,7 +698,8 @@ describe("PostgreSQL validates against the target domain alone", () => {
 
   it("retargets an enum-removal decision through accepted table and column renames", async () => {
     await db.exec(
-      `DROP TABLE IF EXISTS "enum_before", "enum_after"; DROP TYPE IF EXISTS "closure_state"`
+      `DROP TABLE IF EXISTS "${namespace}"."enum_before", "${namespace}"."enum_after"; ` +
+        `DROP TYPE IF EXISTS "${namespace}"."closure_state"`
     );
     const before = createClient({
       schema: {
@@ -703,11 +715,11 @@ describe("PostgreSQL validates against the target domain alone", () => {
           })
           .map("enum_before"),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await push(before, { force: true });
     await db.exec(
-      `INSERT INTO "enum_before" ("id","status") VALUES ('a','retired')`
+      `INSERT INTO "${namespace}"."enum_before" ("id","status") VALUES ('a','retired')`
     );
 
     const after = createClient({
@@ -724,7 +736,7 @@ describe("PostgreSQL validates against the target domain alone", () => {
           })
           .map("enum_after"),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     const enumTargets: string[] = [];
     await push(after, {
@@ -740,7 +752,7 @@ describe("PostgreSQL validates against the target domain alone", () => {
 
     expect(enumTargets).toEqual(["enum_after.state"]);
     const rows = await db.query<{ state: string }>(
-      `SELECT "state" FROM "enum_after"`
+      `SELECT "state" FROM "${namespace}"."enum_after"`
     );
     expect(rows.rows).toEqual([{ state: "active" }]);
     await after.$disconnect();

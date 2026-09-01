@@ -2,14 +2,33 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import type { ResolveCallback, ResolveChange } from "@migrations/types";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const INVALID_RESOLUTION_RESULT = /invalid resolution result/i;
+
+/**
+ * Every PostgreSQL case below answers from the worker's ONE PGlite through this
+ * suite's own private schema. The family carries no models of its own: each
+ * case pushes the estate it is about to attack.
+ */
+const getFamily = usePGliteSchemaFamily({});
+
+/**
+ * The private schema outlives each case, where a fresh database used to hand
+ * every case an empty one. Dropping the estate a case is about to build gives
+ * it the same starting point: no ledger table, and no enum type left behind by
+ * an earlier case for this one's introspection to find.
+ */
+async function dropLedgerEstate(enumName: string): Promise<void> {
+  const { database, namespace } = getFamily();
+  await database.exec(`DROP TABLE IF EXISTS "${namespace}"."ledger"`);
+  await database.exec(`DROP TYPE IF EXISTS "${namespace}"."${enumName}"`);
+}
 
 function ledger(field: string, precision: number) {
   return {
@@ -108,7 +127,8 @@ async function expectForgedEnumDecisionRejected(
   nullable: boolean,
   resolve: ResolveCallback
 ): Promise<{ failure: unknown; stored: Array<{ status: string }> }> {
-  const db = new PGlite();
+  const { database: db, namespace } = getFamily();
+  await dropLedgerEstate(enumName);
   const beforeStatus = nullable
     ? s.enum(["active", "retired"]).name(enumName).nullable()
     : s.enum(["active", "retired"]).name(enumName);
@@ -116,11 +136,11 @@ async function expectForgedEnumDecisionRejected(
     schema: {
       ledger: s.model({ id: s.string().id(), status: beforeStatus }),
     },
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await push(before, { force: true });
   await db.exec(
-    `INSERT INTO "ledger" ("id", "status") VALUES ('kept', 'retired')`
+    `INSERT INTO "${namespace}"."ledger" ("id", "status") VALUES ('kept', 'retired')`
   );
   const afterStatus = nullable
     ? s.enum(["active"]).name(enumName).nullable()
@@ -129,7 +149,7 @@ async function expectForgedEnumDecisionRejected(
     schema: {
       ledger: s.model({ id: s.string().id(), status: afterStatus }),
     },
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 
   let failure: unknown;
@@ -140,12 +160,12 @@ async function expectForgedEnumDecisionRejected(
   }
   try {
     const stored = await db.query<{ status: string }>(
-      `SELECT "status" FROM "ledger" WHERE "id" = 'kept'`
+      `SELECT "status" FROM "${namespace}"."ledger" WHERE "id" = 'kept'`
     );
     return { failure, stored: stored.rows };
   } finally {
+    // The shared family owns the database; only this client is released here.
     await after.$disconnect();
-    await db.close();
   }
 }
 
@@ -154,17 +174,9 @@ function errorMessage(error: unknown): string {
 }
 
 describe("enum resolution result kind boundary", () => {
-  let db: PGlite;
-
-  beforeAll(() => {
-    db = new PGlite();
-  });
-
-  afterAll(async () => {
-    await db.close();
-  });
-
   it("refuses a wrong-kind result before enum data or type effects", async () => {
+    const { database: db, namespace } = getFamily();
+    await dropLedgerEstate("resolution_status");
     const before = createClient({
       schema: {
         ledger: s.model({
@@ -172,11 +184,11 @@ describe("enum resolution result kind boundary", () => {
           status: s.enum(["active", "retired"]).name("resolution_status"),
         }),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     await push(before, { force: true });
     await db.exec(
-      `INSERT INTO "ledger" ("id", "status") VALUES ('kept', 'retired')`
+      `INSERT INTO "${namespace}"."ledger" ("id", "status") VALUES ('kept', 'retired')`
     );
     const after = createClient({
       schema: {
@@ -185,7 +197,7 @@ describe("enum resolution result kind boundary", () => {
           status: s.enum(["active"]).name("resolution_status"),
         }),
       },
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
 
     await expect(
@@ -195,7 +207,7 @@ describe("enum resolution result kind boundary", () => {
       })
     ).rejects.toThrow(INVALID_RESOLUTION_RESULT);
     const stored = await db.query<{ status: string }>(
-      `SELECT "status" FROM "ledger" WHERE "id" = 'kept'`
+      `SELECT "status" FROM "${namespace}"."ledger" WHERE "id" = 'kept'`
     );
     expect(stored.rows).toEqual([{ status: "retired" }]);
     await after.$disconnect();

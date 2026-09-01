@@ -1,6 +1,6 @@
 import {
   depots,
-  seedParentHeld,
+  useParentHeldSeed,
 } from "@tests/contracts/engine/write/vacate-then-supply-parent-held-fixtures";
 import { describe, expect, test } from "vitest";
 
@@ -19,8 +19,12 @@ import { describe, expect, test } from "vitest";
  * This file holds the compositions that EXECUTE. The two the parent-held direction
  * declines — one by the own-write ledger, one by the lattice — are in
  * `vacate-then-supply-parent-held-refused.test.ts`. Every witness here seeds its own
- * database, so the split costs no extra one.
+ * committed starting state, so the split costs no extra database.
  */
+
+/** One schema on the worker's PGlite for this file, re-seeded before every case. */
+const seedParentHeld = useParentHeldSeed();
+
 describe("Package H — the parent-held direction composes the replacement", () => {
   test("delete + create replaces: the newcomer holds the slot and is NOT orphaned", async () => {
     const client = await seedParentHeld();
@@ -36,7 +40,6 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-alt", "decoy"],
       ["d-new", "fresh"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 
   test("disconnect + connect is ONE root assignment, and the incumbent survives", async () => {
@@ -52,7 +55,6 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-alt", "decoy"],
       ["d1", "incumbent"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 
   test("disconnect + create mints the newcomer and leaves the incumbent connected to nothing", async () => {
@@ -74,7 +76,6 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-new", "fresh"],
       ["d1", "incumbent"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 
   test.each([
@@ -119,7 +120,6 @@ describe("Package H — the parent-held direction composes the replacement", () 
         await client.station.findUnique({ where: { id: "s1" } })
       ).toMatchObject({ depotId: whereId });
       expect(await depots(client)).toEqual(expected);
-      await client.$disconnect();
     },
     30_000
   );
@@ -139,6 +139,5 @@ describe("Package H — the parent-held direction composes the replacement", () 
       ["d-alt", "moved"],
       ["d1", "incumbent"],
     ]);
-    await client.$disconnect();
   }, 30_000);
 });

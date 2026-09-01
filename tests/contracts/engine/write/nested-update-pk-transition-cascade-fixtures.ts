@@ -3,14 +3,16 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 
 /**
  * T3b1 fixer round 1, finding #1 — the PK-transition cascade boundary, post-P6 (the
  * single engine).
  *
- * The shared bed for the three arm families, each of which now lives in its own
- * sibling file so that one process does not boot every arm's fresh database at once:
+ * The shared bed for the three arm families, each of which lives in its own sibling
+ * file. Every arm runs on the worker's ONE PGlite, in the private schema its file
+ * provisions with `usePGliteSchemaFamily` — each arm used to boot a PGlite of its own,
+ * which is a whole Postgres compiled to Wasm, and nothing here asserts on the database
+ * itself:
  *
  *  - `nested-update-pk-transition-cascade-ordering.test.ts` — the three arms that
  *    bracket the ORDERING mechanism (child-held, self-m2m, both kinds at once).
@@ -160,14 +162,30 @@ export async function snapshot(client: AnyClient): Promise<Snapshot> {
   };
 }
 
-export function freshClient(substrate: "tx" | "batch"): {
-  client: AnyClient;
-  db: PGlite;
-} {
-  const db = openBorrowedPGlite();
+/**
+ * The shared PGlite schema an arm file provisions for itself, reduced to the two members
+ * an arm needs. The database is SHARED with every other suite in the worker, so the
+ * driver below is given `namespace` — without it it addresses `public`, where these
+ * suites have no tables at all.
+ */
+export interface CascadeFamily {
+  readonly database: PGlite;
+  readonly namespace: string;
+}
+
+/**
+ * One arm's client, on its file's schema and its own substrate. The schema family
+ * creates the tables once and truncates them before every test, so an arm still opens on
+ * empty tables — what a PGlite instance per arm used to buy.
+ */
+export function armClient(
+  family: CascadeFamily,
+  substrate: "tx" | "batch"
+): AnyClient {
+  const options = { client: family.database, namespace: family.namespace };
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
-  return { client: makeClient(driver), db };
+      ? new PGliteDriver(options)
+      : new BatchOnlyPGliteDriver(options);
+  return makeClient(driver);
 }

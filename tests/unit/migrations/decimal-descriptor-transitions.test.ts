@@ -9,13 +9,14 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import type { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { postgresDecimalFitsCheck } from "@migrations/decimal";
 import { introspect as introspectClient } from "@migrations/push";
 import { s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   decimalLedger as ledger,
   decimalListLedger as listLedger,
@@ -301,32 +302,38 @@ describe("SQLite family: a second push is empty", () => {
 // POSTGRESQL — validate through a constraint, then move the typmod
 // =============================================================================
 
+/**
+ * The PostgreSQL leg answers from the worker's ONE PGlite through this suite's
+ * own private schema, in place of a whole Wasm Postgres of its own. Every
+ * statement below already named a schema explicitly; only which schema it names
+ * has changed.
+ */
+const getFamily = usePGliteSchemaFamily({});
+
 describe("PostgreSQL: §7.3 on PGlite", () => {
   let database: PGlite | undefined;
+  let namespace = "";
 
-  beforeAll(async () => {
-    database = new PGlite();
-    await database.exec('CREATE SCHEMA "tenant_dec"');
-  });
-
-  afterAll(async () => {
-    await database?.close();
+  beforeAll(() => {
+    const family = getFamily();
+    database = family.database;
+    namespace = family.namespace;
   });
 
   function clientFor(schema: ReturnType<typeof ledger>) {
     return createClient({
       schema,
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
   }
 
   async function reset() {
-    await database?.exec(`DROP TABLE IF EXISTS "tenant_dec"."${TABLE}"`);
+    await database?.exec(`DROP TABLE IF EXISTS "${namespace}"."${TABLE}"`);
   }
 
   async function values(): Promise<unknown[]> {
     const rows = await database?.query<{ amount: unknown }>(
-      `SELECT "amount"::text AS amount FROM "tenant_dec"."${TABLE}" ORDER BY "id"`
+      `SELECT "amount"::text AS amount FROM "${namespace}"."${TABLE}" ORDER BY "id"`
     );
     return (rows?.rows ?? []).map((row) => row.amount);
   }
@@ -336,7 +343,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     const first = clientFor(ledger(12, 2));
     await push(first, { force: true });
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","amount") VALUES ('a', 123.45)`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","amount") VALUES ('a', 123.45)`
     );
     await first.$disconnect();
 
@@ -346,7 +353,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     await narrowed.$disconnect();
 
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","amount") VALUES ('b', 12345678.90)`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","amount") VALUES ('b', 12345678.90)`
     );
     const tooNarrow = clientFor(ledger(6, 2));
     await expect(push(tooNarrow, { force: true })).rejects.toThrow();
@@ -360,7 +367,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     const first = clientFor(ledger(10, 4));
     await push(first, { force: true });
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","amount") VALUES ('a', 123.4500)`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","amount") VALUES ('a', 123.4500)`
     );
     await first.$disconnect();
 
@@ -383,7 +390,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     const first = clientFor(ledger(10, 2));
     await push(first, { force: true });
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","amount") VALUES ('a', 123.45)`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","amount") VALUES ('a', 123.45)`
     );
     await first.$disconnect();
 
@@ -395,7 +402,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     // 10000.0000 is nine digits at scale 4 and eleven at scale 6: the two
     // extra fractional digits cost integer digits the precision does not have.
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","amount") VALUES ('b', 10000.0000)`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","amount") VALUES ('b', 10000.0000)`
     );
     const overflows = clientFor(ledger(10, 6));
     await expect(push(overflows, { force: true })).rejects.toThrow();
@@ -407,21 +414,21 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     await reset();
     const first = createClient({
       schema: listLedger(10, 2),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     await push(first, { force: true });
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","samples") VALUES ('a', '{1.25,3.00,1.25}')`
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","samples") VALUES ('a', '{1.25,3.00,1.25}')`
     );
     await first.$disconnect();
 
     const widened = createClient({
       schema: listLedger(12, 2),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     await push(widened, { force: true });
     const rows = await database?.query<{ samples: string }>(
-      `SELECT "samples"::text AS samples FROM "tenant_dec"."${TABLE}"`
+      `SELECT "samples"::text AS samples FROM "${namespace}"."${TABLE}"`
     );
     // Order and duplicates are the array's own.
     expect(rows?.rows[0]?.samples).toBe("{1.25,3.00,1.25}");
@@ -429,7 +436,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
 
     const narrowed = createClient({
       schema: listLedger(12, 1),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     await expect(push(narrowed, { force: true })).rejects.toThrow();
     await narrowed.$disconnect();
@@ -439,11 +446,11 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     await reset();
     const first = createClient({
       schema: nullableListLedger(10, 2),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     await push(first, { force: true });
     await database?.exec(
-      `INSERT INTO "tenant_dec"."${TABLE}" ("id","samples") VALUES ` +
+      `INSERT INTO "${namespace}"."${TABLE}" ("id","samples") VALUES ` +
         `('whole-null', NULL), ` +
         `('member-null', ARRAY[1.25,NULL]::numeric(10,2)[])`
     );
@@ -451,11 +458,11 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
 
     const widened = createClient({
       schema: nullableListLedger(12, 2),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     await expect(push(widened, { force: true })).rejects.toThrow();
     const preserved = await database?.query<{ samples: string | null }>(
-      `SELECT "samples"::text AS "samples" FROM "tenant_dec"."${TABLE}" ORDER BY "id"`
+      `SELECT "samples"::text AS "samples" FROM "${namespace}"."${TABLE}" ORDER BY "id"`
     );
     expect(preserved?.rows).toEqual([
       { samples: "{1.25,NULL}" },
@@ -463,11 +470,11 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     ]);
 
     await database?.exec(
-      `DELETE FROM "tenant_dec"."${TABLE}" WHERE "id" = 'member-null'`
+      `DELETE FROM "${namespace}"."${TABLE}" WHERE "id" = 'member-null'`
     );
     await push(widened, { force: true });
     const nullable = await database?.query<{ samples: string | null }>(
-      `SELECT "samples"::text AS "samples" FROM "tenant_dec"."${TABLE}"`
+      `SELECT "samples"::text AS "samples" FROM "${namespace}"."${TABLE}"`
     );
     expect(nullable?.rows).toEqual([{ samples: null }]);
     await widened.$disconnect();
@@ -475,16 +482,16 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
 
   it("refuses every non-finite scalar and array member while preserving admitted rows", async () => {
     await database?.exec(
-      `DROP TABLE IF EXISTS "tenant_dec"."decimal_fit_sql"; ` +
-        `CREATE TABLE "tenant_dec"."decimal_fit_sql" (` +
+      `DROP TABLE IF EXISTS "${namespace}"."decimal_fit_sql"; ` +
+        `CREATE TABLE "${namespace}"."decimal_fit_sql" (` +
         `"id" text PRIMARY KEY, "amount" numeric, "samples" numeric[]); ` +
-        `ALTER TABLE "tenant_dec"."decimal_fit_sql" ADD CONSTRAINT "scalar_fits" ` +
+        `ALTER TABLE "${namespace}"."decimal_fit_sql" ADD CONSTRAINT "scalar_fits" ` +
         `CHECK (${postgresDecimalFitsCheck('"amount"', "numeric(10,2)")}); ` +
-        `ALTER TABLE "tenant_dec"."decimal_fit_sql" ADD CONSTRAINT "list_fits" ` +
+        `ALTER TABLE "${namespace}"."decimal_fit_sql" ADD CONSTRAINT "list_fits" ` +
         `CHECK (${postgresDecimalFitsCheck('"samples"', "numeric(10,2)[]")})`
     );
     await database?.exec(
-      `INSERT INTO "tenant_dec"."decimal_fit_sql" ("id","amount","samples") VALUES ` +
+      `INSERT INTO "${namespace}"."decimal_fit_sql" ("id","amount","samples") VALUES ` +
         `('nulls', NULL, NULL), ` +
         `('finite', 1.25, ARRAY[1.25,3.00,1.25]::numeric[])`
     );
@@ -496,7 +503,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     ]) {
       await expect(
         database?.exec(
-          `INSERT INTO "tenant_dec"."decimal_fit_sql" ("id","amount") ` +
+          `INSERT INTO "${namespace}"."decimal_fit_sql" ("id","amount") ` +
             `VALUES ('${name}', ${literal})`
         )
       ).rejects.toThrow();
@@ -507,7 +514,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
       ]) {
         await expect(
           database?.exec(
-            `INSERT INTO "tenant_dec"."decimal_fit_sql" ("id","samples") ` +
+            `INSERT INTO "${namespace}"."decimal_fit_sql" ("id","samples") ` +
               `VALUES ('${name}', ARRAY[${position}]::numeric[])`
           )
         ).rejects.toThrow();
@@ -520,7 +527,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
       samples: string | null;
     }>(
       `SELECT "id", "amount"::text AS "amount", "samples"::text AS "samples" ` +
-        `FROM "tenant_dec"."decimal_fit_sql" ORDER BY "id"`
+        `FROM "${namespace}"."decimal_fit_sql" ORDER BY "id"`
     );
     expect(preserved?.rows).toEqual([
       { id: "finite", amount: "1.25", samples: "{1.25,3.00,1.25}" },
@@ -541,7 +548,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
     await reset();
     const list = createClient({
       schema: listLedger(10, 5),
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     expect(
       (await push(list, { force: true })).operations.length
@@ -573,7 +580,7 @@ describe("PostgreSQL: §7.3 on PGlite", () => {
           })
           .map(TABLE),
       },
-      driver: new PGliteDriver({ client: database, namespace: "tenant_dec" }),
+      driver: new PGliteDriver({ client: database, namespace }),
     });
     expect(
       (await push(seeded, { force: true })).operations.length

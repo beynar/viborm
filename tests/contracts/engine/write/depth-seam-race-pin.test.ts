@@ -1,19 +1,28 @@
-import { PGliteDriver } from "@drivers/pglite";
 import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   depthSeamSchema,
   makeSeamEngine,
 } from "@tests/contracts/engine/write/depth-seam-behavior";
+import { createInMemoryPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
 
 // ---------------------------------------------------------------------------
 // N6-U1 STRUCTURAL: the nested create-arm `racePin`, and its deliberate absence.
 //
 // These witnesses inspect a COMPILED fragment and never execute one, so this file
-// boots no database at all: `new PGliteDriver()` with no client creates its PGlite
+// boots no database at all: a `PGliteDriver` with no client creates its PGlite
 // lazily, on connect, and nothing here connects. That is why the arms live apart
 // from the depth-seam injection harnesses, each of which needs a fresh instance.
+//
+// The driver therefore comes from the SHARED FIXTURE's factory rather than being
+// constructed here. Both spellings build the same lazy driver, but the test manifest
+// reads a driver construction in the file's own source as "this suite pays for a
+// PGlite instance" and gives the file a process to itself (`buildsOwnInstance`,
+// `scripts/credential-free-test-manifest.mjs`). That is a false positive for a file
+// that never connects, and borrowing the factory is what makes the classification
+// match the measurement. Anything added here that DOES execute an operation would
+// boot an instance of its own and belongs in one of the harness files instead.
 //
 // The behavior suite proves the create arm RUNS when the filter excludes the
 // located row. This proves that arm is not RETRYABLE, which no state assertion
@@ -39,7 +48,7 @@ import { describe, expect, test } from "vitest";
 function nestedUpsertCreateArmWrites(
   where: Record<string, unknown>
 ): WriteStep[] {
-  const engine = makeSeamEngine(new PGliteDriver());
+  const engine = makeSeamEngine(createInMemoryPGliteDriver());
   const operation = new UpdateOperation(engine, depthSeamSchema.workspace, {
     where: { id: 2 },
     data: {
@@ -70,7 +79,7 @@ function nestedUpsertCreateArmWrites(
 function junctionUpsertCreateArmWrites(
   where: Record<string, unknown>
 ): WriteStep[] {
-  const engine = makeSeamEngine(new PGliteDriver());
+  const engine = makeSeamEngine(createInMemoryPGliteDriver());
   const operation = new UpdateOperation(engine, depthSeamSchema.album, {
     where: { id: 1 },
     data: {

@@ -1,25 +1,43 @@
-import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite } from "@electric-sql/pglite";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  readSchema,
+  runReadBehavior,
+} from "@tests/contracts/engine/write/read-behavior";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 
-import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
+/**
+ * The read family on PGlite, in transaction and forced atomic-batch modes.
+ *
+ * Each leg takes a private SCHEMA on the worker's ONE PGlite rather than a database
+ * of its own. That fixture empties the suite's tables before every test, so both legs
+ * ask for the seed to be re-committed per test: without it every scenario would read
+ * two empty result sets and agree about them.
+ */
+const getTransactionFamily = usePGliteSchemaFamily(readSchema);
 
-// The read family on PGlite, in transaction and forced atomic-batch modes.
 runReadBehavior({
   name: "PGlite transaction",
-  createDriver: () => new PGliteDriver(),
+  createDriver: () => getTransactionFamily().driver,
+  seedPerTest: true,
 });
 
-// The batch arm binds both drivers to one PGlite instance so both clients read
-// the same seeded database.
-let sharedBatchDb: PGlite | undefined;
+// The batch arm binds both drivers to one PGlite instance AND one schema, so both
+// clients read the same seeded tables. The Observed arm's extra driver is built over
+// the shared database and MUST carry the namespace: without it it addresses `public`,
+// where this suite has no tables at all.
+const getBatchFamily = usePGliteSchemaFamily(readSchema);
+
 runReadBehavior({
   name: "PGlite atomic batch",
-  createDriver: () => {
-    sharedBatchDb = openBorrowedPGlite();
-    return new PGliteDriver({ client: sharedBatchDb });
+  createDriver: () => getBatchFamily().driver,
+  createObservedDriver: () => {
+    const family = getBatchFamily();
+    return new BatchOnlyPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
   },
-  createObservedDriver: () =>
-    new BatchOnlyPGliteDriver({ client: sharedBatchDb as PGlite }),
+  seedPerTest: true,
 });

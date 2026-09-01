@@ -2,6 +2,8 @@ import type { QueryExecutionContext } from "@drivers/driver";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { clientUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { describe, expect, test } from "vitest";
 
 interface Deferred {
@@ -37,17 +39,30 @@ class RecordingPGliteDriver extends PGliteDriver {
   }
 }
 
+/**
+ * One PGlite for the whole worker, one private schema for this file. The recorder is
+ * built over that shared database and MUST carry the suite's namespace: without it it
+ * would address `public`, which belongs to no suite. The queue table below is raw SQL,
+ * which the driver never rewrites, so it is qualified from the namespace by hand.
+ */
+const getFamily = usePGliteSchemaFamily(clientUserPostSchema);
+
 describe("transaction-bound scope scheduling with PGlite", () => {
   test("persists a sibling admitted before nested rollback", async () => {
-    const driver = new RecordingPGliteDriver();
+    const family = getFamily();
+    const driver = new RecordingPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
+    const queue = `"${family.namespace}"."phase8_scope_queue"`;
     const nestedStarted = createDeferred();
     const releaseNested = createDeferred();
-    const nestedInsert = "INSERT INTO phase8_scope_queue (id) VALUES (1)";
-    const siblingInsert = "INSERT INTO phase8_scope_queue (id) VALUES (2)";
+    const nestedInsert = `INSERT INTO ${queue} (id) VALUES (1)`;
+    const siblingInsert = `INSERT INTO ${queue} (id) VALUES (2)`;
 
     try {
       await driver._executeRaw(
-        "CREATE TABLE phase8_scope_queue (id INTEGER PRIMARY KEY)"
+        `CREATE TABLE ${queue} (id INTEGER PRIMARY KEY)`
       );
       await driver.withTransaction(async (outerTx) => {
         const nested = outerTx.withTransaction(async (nestedTx) => {
@@ -68,13 +83,11 @@ describe("transaction-bound scope scheduling with PGlite", () => {
         await expect(nested).rejects.toThrow("roll back nested insert");
         await expect(sibling).resolves.toMatchObject({ rowCount: 1 });
         expect(siblingReachedProvider).toBe(false);
-        await outerTx._executeRaw(
-          "INSERT INTO phase8_scope_queue (id) VALUES (3)"
-        );
+        await outerTx._executeRaw(`INSERT INTO ${queue} (id) VALUES (3)`);
       });
 
       const result = await driver._executeRaw<{ id: number }>(
-        "SELECT id FROM phase8_scope_queue ORDER BY id"
+        `SELECT id FROM ${queue} ORDER BY id`
       );
       expect(result.rows.map((row) => row.id)).toEqual([2, 3]);
       const rollbackIndex = driver.providerStatements.findIndex((statement) =>

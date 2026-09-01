@@ -1,17 +1,13 @@
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import {
+  batchArmDriverOptions,
   createLegalityClient,
   expectParity,
   OCCUPIED_RELATION_ERROR,
   SET_NULL_OCCUPIED_ERROR,
 } from "@tests/contracts/engine/query/relation-key-update-legality-fixtures";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import {
-  closeTestPGlite,
-  openTestPGlite,
-} from "@tests/fixtures/pglite-lifecycle";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
 // The TRANSITION-ARM slice: one payload shape — a parent PK transition beside a nested
@@ -28,8 +24,11 @@ class MissingSlotRaceBatchDriver extends BatchOnlyPGliteDriver {
   private hasPlanted = false;
   private readonly plant: (client: PGlite) => Promise<void>;
 
-  constructor(client: PGlite, plant: (client: PGlite) => Promise<void>) {
-    super({ client });
+  constructor(
+    options: ConstructorParameters<typeof BatchOnlyPGliteDriver>[0],
+    plant: (client: PGlite) => Promise<void>
+  ) {
+    super(options);
     this.plant = plant;
   }
 
@@ -235,19 +234,22 @@ describe("relation-key update legality", () => {
   });
 
   test("pins an empty setNull slot until the parent update executes", async () => {
-    const database = openTestPGlite();
+    // The forced-batch arm's shared database and its private schema. The race
+    // driver is an EXTRA driver over that database, so it carries the namespace,
+    // and the row it plants is written with verbatim SQL — which the driver does
+    // not rewrite, so it names the schema itself.
+    const options = batchArmDriverOptions();
     const driver = new MissingSlotRaceBatchDriver(
-      database,
+      options,
       async (plantingClient) => {
         await plantingClient.query(
-          'INSERT INTO "relation_key_set_null_children" ("id", "label", "parentId") VALUES ($1, $2, $3)',
+          `INSERT INTO "${options.namespace}"."relation_key_set_null_children" ("id", "label", "parentId") VALUES ($1, $2, $3)`,
           [1, "Concurrent", 1]
         );
       }
     );
     const client = createLegalityClient(driver);
     try {
-      await syncLiveSchema(client);
       await client.setNullParent.create({ data: { id: 1, name: "Parent" } });
       driver.arm();
 
@@ -274,7 +276,6 @@ describe("relation-key update legality", () => {
       ]);
     } finally {
       await client.$disconnect();
-      await closeTestPGlite(database);
     }
   });
 
