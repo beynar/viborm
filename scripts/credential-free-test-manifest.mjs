@@ -53,8 +53,13 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
  * raised ceiling. Everything else keeps the ordinary 1536 MiB and the existing
  * three-file packing, which is what its measured footprint supports.
  */
-const PGLITE_SOURCE =
-  /@electric-sql\/pglite|PGliteDriver|usePGliteSchemaFamily|openTestPGlite|openBorrowedPGlite/;
+// Deliberately broad and case-insensitive. A token list missed
+// `import { createClient as PGliteCreateClient } from "@drivers/pglite"`,
+// and 24 PGlite-touching files stayed packed - one of them put a supposedly
+// ordinary shard 3.2 MiB over the ceiling. Over-matching costs only isolation,
+// a file running alone that need not; under-matching breaks the run.
+const PGLITE_SOURCE = /pglite/i;
+/@electric-sql\/pglite|PGliteDriver|usePGliteSchemaFamily|openTestPGlite|openBorrowedPGlite/;
 
 function bootsLivePGlite(file) {
   try {
