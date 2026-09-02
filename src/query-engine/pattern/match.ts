@@ -2330,17 +2330,31 @@ function relationFilterArgs(
   if (leaf.presence === "null") return { [quantifier]: null };
   const carrier = variantCarrier(ctx, fieldOfExtension(leaf.extension));
   const target = extensionScope(ctx, leaf.extension);
-  // An inner `not` is a collection's `isNot` arm; the ordinary `every` carries
-  // its predicate as written and is negated at lowering.
-  const negated = leaf.inner?.kind === "not" && carrier !== undefined;
-  const inner = negated ? (leaf.inner as { item: Predicate }).item : leaf.inner;
-  const innerArgs = inner ? predicateAsArgs(target, inner) : undefined;
-  if (!carrier) return { [quantifier]: innerArgs ?? {} };
-  const tagged = {
-    type: leaf.extension.variant,
-    ...(innerArgs ? { [negated ? "isNot" : "is"]: innerArgs } : {}),
+  if (!carrier) {
+    return { [quantifier]: predicateAsArgs(target, leaf.inner) ?? {} };
+  }
+  if (isVariantRowCarrier(carrier)) {
+    // A ROW carrier states its polarity in the QUANTIFIER — `is` / `isNot` —
+    // and carries its predicate as written; the negation happens at lowering.
+    const innerArgs = predicateAsArgs(target, leaf.inner);
+    return {
+      type: leaf.extension.variant,
+      ...(innerArgs ? { [quantifier]: innerArgs } : {}),
+    };
+  }
+  // A COLLECTION arm's quantifier is `some` / `every` / `none`, and an `isNot`
+  // member predicate arrives already negated: that inner `not` is what says so.
+  const negated = leaf.inner?.kind === "not";
+  const innerArgs = predicateAsArgs(
+    target,
+    negated ? (leaf.inner as { item: Predicate }).item : leaf.inner
+  );
+  return {
+    [quantifier]: {
+      type: leaf.extension.variant,
+      ...(innerArgs ? { [negated ? "isNot" : "is"]: innerArgs } : {}),
+    },
   };
-  return isVariantRowCarrier(carrier) ? tagged : { [quantifier]: tagged };
 }
 
 /** The scope of an extension's target row. */

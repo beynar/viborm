@@ -35,6 +35,7 @@ import {
   type ExpectedPolymorphicVariantShape,
   type ExpectedRelationResultShape,
   type ExpectedResultShape,
+  isBatchOperation,
   type Operation,
   QueryEngineError,
   type ScopeSource,
@@ -234,6 +235,39 @@ export function expectedShapeOf(
 }
 
 /**
+ * The bulk COUNT arm: `createMany` / `updateMany` / `deleteMany` without a
+ * projection answer with `{ count }`, and what the program publishes for them
+ * is a NUMBER — the `rowCount` its write reported — not rows.
+ *
+ * `undefined` is not a malformed answer: a bulk whose write compiled to nothing
+ * (an empty `createMany`, a `limit: 0` update) publishes no count, and the
+ * answer is the count the caller asked for, zero. Anything else that is not a
+ * number refuses in today's words. The number then crosses the ordinary result
+ * boundary as the `{ rowCount }` carrier, so the public `{ count }` — and every
+ * driver and adapter middleware that watches a batch result — is unchanged.
+ */
+function decodeCount<T>(
+  pattern: Pattern,
+  published: unknown,
+  boundary: DecodeBoundary
+): T {
+  const operation = pattern.operation as Operation;
+  // `undefined` is the only absence: a program with no write publishes nothing.
+  // `null` is a value, and not a count — today refuses it, so this does too.
+  const count = published === undefined ? 0 : published;
+  if (typeof count !== "number" && typeof count !== "bigint") {
+    throw new QueryEngineError(
+      `query-engine-v2 ${operation} did not resolve a numeric count.`
+    );
+  }
+  return new ResultParser(
+    boundary,
+    rootRow(pattern).table.model,
+    boundary.driver
+  ).parse<T>(operation, { rowCount: Number(count) }, {});
+}
+
+/**
  * Decode provider rows through the pattern: validate each row against the
  * projection's exact key set, decode scalars through the boundary's codec
  * chains, relation carriers and variant arms through the same walk.
@@ -246,6 +280,11 @@ export function decodeRows<T>(
 ): T {
   const model = rootRow(pattern).table.model;
   const operation = pattern.operation as Operation;
+  // A bulk name is the count arm by construction: the row-returning arm of the
+  // same family carries the internal `…AndReturn` name (`ReadOperation`,
+  // `ManyAndReturnOperation`), so the public name never reaches here with rows.
+  if (isBatchOperation(operation))
+    return decodeCount<T>(pattern, rows, boundary);
   const shape = expectedShapeOf(pattern, boundary);
   const parser = new ResultParser(boundary, model, boundary.driver);
   const compiled = options.consumable
