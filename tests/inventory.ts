@@ -28,6 +28,9 @@ const unitOwners: ReadonlyArray<{ prefix: string; layer: TestLayer }> = [
   { prefix: "tests/unit/cache/", layer: "cache" },
   { prefix: "tests/unit/instrumentation/", layer: "instrumentation" },
   { prefix: "tests/unit/migrations/", layer: "migrations" },
+  // The pattern engine's suites are query-engine unit tests; they share the
+  // layer's type core rather than owning a layer of their own.
+  { prefix: "tests/pattern/", layer: "query-engine" },
 ];
 
 const contractOwners: ReadonlyArray<{ prefix: string; layer: TestLayer }> = [
