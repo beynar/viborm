@@ -1220,12 +1220,9 @@ class Construction {
     );
     // A retracted row's cells are its identity (matched), never cleared cells.
     const cellMode: Mode = mode === "retract" ? "match" : mode;
-    // `cells` pairs the reference row to the REFERENCED endpoint; the asking
-    // side is whichever of K2's two endpoint pairings that is not.
-    const toParent =
-      cells.cells[0]?.holderColumn === via.targetCells[0]?.holderColumn
-        ? via.sourceCells
-        : via.targetCells;
+    // K2 publishes both pairings of a reference row: toward the asking side
+    // (the parent) and toward the referenced side (`cells`).
+    const toParent = via.askingCells;
     this.references.push({
       holder: row.id,
       referenced: parent.id,
