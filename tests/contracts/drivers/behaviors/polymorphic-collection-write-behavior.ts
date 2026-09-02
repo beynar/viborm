@@ -123,13 +123,16 @@ export function runPolymorphicCollectionWriteBehavior(
      */
     async function members(table: string): Promise<string[]> {
       const { client } = requireDatabase();
-      // The identifier is quoted by THIS PROVIDER'S adapter, never by a literal
-      // `"` — MySQL reads a double-quoted name as a string literal and rejects
-      // the statement outright (errno 1064), which is why the read sibling has
-      // always gone through `identifiers.escape` and why this must too.
-      const ident = client.$driver.adapter.identifiers.escape;
+      // The identifier is rendered by THIS PROVIDER'S adapter, never by a
+      // literal `"` — MySQL reads a double-quoted name as a string literal and
+      // rejects the statement outright (errno 1064). `identifiers.table` is the
+      // renderer for a persistent table: it quotes for the dialect AND applies
+      // the adapter's namespace, which a suite sharing one database instance
+      // needs, because its tables live in a private schema rather than in
+      // `public`.
+      const tableRef = client.$driver.adapter.identifiers.table;
       const rows = await client.$queryRaw<Record<string, unknown>>(
-        sql`SELECT * FROM ${ident(table)}`
+        sql`SELECT * FROM ${tableRef(table)}`
       );
       return rows
         .map((row) => {

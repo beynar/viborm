@@ -81,6 +81,33 @@ const collectionSchema = (() => {
 const ARTICLE_MEMBERS = "coll_contract_galleries_items_article";
 const CLIP_MEMBERS = "coll_contract_galleries_items_clip";
 
+type NamespacedClient = {
+  readonly $driver: { readonly adapter: { readonly namespace?: string } };
+};
+
+/**
+ * A CATALOG read resolves a name against the connection, not against the
+ * adapter, so the schema has to be spelled here. A suite that shares one
+ * database instance owns a private schema: an unqualified `::regclass` there
+ * resolves to nothing at all. `namespace` is undefined on the dialects that do
+ * not qualify, and the name then stays bare.
+ */
+function catalogName(client: NamespacedClient, table: string): string {
+  const namespace = client.$driver.adapter.namespace;
+  return namespace ? `"${namespace}"."${table}"` : `"${table}"`;
+}
+
+/**
+ * The schema MySQL's `information_schema` rows carry: the adapter's bound
+ * database when it has one, and otherwise the session's own — which is what an
+ * unqualified MySQL client addresses. Without the filter the read also answers
+ * with a sibling suite's constraints.
+ */
+function constraintSchema(client: NamespacedClient) {
+  const namespace = client.$driver.adapter.namespace;
+  return namespace === undefined ? sql`DATABASE()` : sql`${namespace}`;
+}
+
 export type PolymorphicCollectionReadBehaviorOptions = {
   readonly name: string;
 } & BehaviorDatabaseSource;
@@ -130,23 +157,24 @@ export function runPolymorphicCollectionReadBehavior(
         return;
       }
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       if (dialect === "mysql") {
         const named = await client.$queryRaw<{ name: string }>(
-          sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ${table} AND CONSTRAINT_TYPE = 'FOREIGN KEY'`
+          sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ${constraintSchema(client)} AND TABLE_NAME = ${table} AND CONSTRAINT_TYPE = 'FOREIGN KEY'`
         );
         for (const row of named) {
           await client.$executeRaw(
-            sql`ALTER TABLE ${ident(table)} DROP FOREIGN KEY ${ident(row.name)}`
+            sql`ALTER TABLE ${tableRef(table)} DROP FOREIGN KEY ${ident(row.name)}`
           );
         }
         return;
       }
       const rows = await client.$queryRaw<{ conname: string }>(
-        sql`SELECT conname FROM pg_constraint WHERE conrelid = ${table}::regclass AND contype = 'f'`
+        sql`SELECT conname FROM pg_constraint WHERE conrelid = ${catalogName(client, table)}::regclass AND contype = 'f'`
       );
       for (const row of rows) {
         await client.$executeRaw(
-          sql`ALTER TABLE ${ident(table)} DROP CONSTRAINT ${ident(row.conname)}`
+          sql`ALTER TABLE ${tableRef(table)} DROP CONSTRAINT ${ident(row.conname)}`
         );
       }
     }
@@ -168,26 +196,27 @@ export function runPolymorphicCollectionReadBehavior(
       const dialect = client.$driver.dialect;
       if (dialect === "sqlite") return false;
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       if (dialect === "mysql") {
         // MySQL SATISFIES THE FOREIGN KEY'S INDEX REQUIREMENT WITH THIS VERY
         // UNIQUE INDEX, so dropping it while the keys stand is errno 1553.
         await disableMemberForeignKeys(client, table);
         const named = await client.$queryRaw<{ name: string }>(
-          sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ${table} AND CONSTRAINT_TYPE = 'UNIQUE'`
+          sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ${constraintSchema(client)} AND TABLE_NAME = ${table} AND CONSTRAINT_TYPE = 'UNIQUE'`
         );
         for (const row of named) {
           await client.$executeRaw(
-            sql`ALTER TABLE ${ident(table)} DROP INDEX ${ident(row.name)}`
+            sql`ALTER TABLE ${tableRef(table)} DROP INDEX ${ident(row.name)}`
           );
         }
         return true;
       }
       const rows = await client.$queryRaw<{ conname: string }>(
-        sql`SELECT conname FROM pg_constraint WHERE conrelid = ${table}::regclass AND contype = 'u'`
+        sql`SELECT conname FROM pg_constraint WHERE conrelid = ${catalogName(client, table)}::regclass AND contype = 'u'`
       );
       for (const row of rows) {
         await client.$executeRaw(
-          sql`ALTER TABLE ${ident(table)} DROP CONSTRAINT ${ident(row.conname)}`
+          sql`ALTER TABLE ${tableRef(table)} DROP CONSTRAINT ${ident(row.conname)}`
         );
       }
       return true;
@@ -202,8 +231,9 @@ export function runPolymorphicCollectionReadBehavior(
       targetId: number
     ) {
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       await client.$executeRaw(
-        sql`INSERT INTO ${ident(table)} (${ident("galleryId")}, ${ident(
+        sql`INSERT INTO ${tableRef(table)} (${ident("galleryId")}, ${ident(
           column
         )}) VALUES (${galleryId}, ${targetId})`
       );
@@ -407,12 +437,13 @@ export function runPolymorphicCollectionReadBehavior(
     test("an owner-scoped orphan fails the read, even hidden behind only", async () => {
       const { client, gallery, clip } = await seed();
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       // With its FKs intact the provider CASCADEs the membership away and there
       // is no orphan at all. Disable them, then delete the target: the
       // membership row survives, pointing at nothing.
       await disableMemberForeignKeys(client, CLIP_MEMBERS);
       await client.$executeRaw(
-        sql`DELETE FROM ${ident("coll_contract_clips")} WHERE ${ident("id")} = ${clip.id}`
+        sql`DELETE FROM ${tableRef("coll_contract_clips")} WHERE ${ident("id")} = ${clip.id}`
       );
 
       const full = client.gallery.findUniqueOrThrow({
@@ -515,8 +546,9 @@ export function runPolymorphicCollectionReadBehavior(
       // Move `second`'s membership rather than adding one: the UNIQUE over the
       // target side is intact here, exactly as a singular inverse requires.
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       await client.$executeRaw(
-        sql`DELETE FROM ${ident(ARTICLE_MEMBERS)} WHERE ${ident("galleryId")} = ${gallery.id} AND ${ident("articleId")} = ${second.id}`
+        sql`DELETE FROM ${tableRef(ARTICLE_MEMBERS)} WHERE ${ident("galleryId")} = ${gallery.id} AND ${ident("articleId")} = ${second.id}`
       );
       await link(client, ARTICLE_MEMBERS, late.id, "articleId", second.id);
       const unlinked = await client.article.create({
