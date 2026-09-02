@@ -384,6 +384,9 @@ class Packing {
       rootIds.select = this.ids.allocate(stepLabels.select(name));
       rootIds.guard = this.ids.allocate(stepLabels.guardExists(name));
     } else if (op === "updateMany" || op === "deleteMany") {
+      if (op === "updateMany" && this.hasNestedRows()) {
+        rootIds.match = this.ids.allocate(`${name}.updateManySeries.capture`);
+      }
       rootIds.write = this.ids.allocate(op);
     } else if (op === "updateManyAndReturn" || op === "deleteManyAndReturn") {
       rootIds.write = this.ids.allocate(
@@ -664,8 +667,10 @@ class Packing {
       const op = this.pattern.operation;
       if (op === "create" || op.startsWith("createMany")) return false;
       if (op.startsWith("updateMany") || op.startsWith("deleteMany")) {
-        // The predicate rides the one bulk statement; there is no locate.
-        return false;
+        // A scalar-only bulk write is one statement and needs no capture; a
+        // relation-bearing one captures its roots first, because member N
+        // observes what member N-1 wrote (AGENTS core rule 7).
+        return op.startsWith("updateMany") && this.hasNestedRows();
       }
       if (op === "delete" && this.deleteFolds()) return false;
       if (op === "update" && this.updateFolds()) return false;
@@ -808,17 +813,53 @@ class Packing {
     return undefined;
   }
 
-  /** The decoded first row of a match, through the existing captured-row parser. */
+  /**
+   * WHAT A MATCH SELECTS — one owner, read by the statement that asks for it and
+   * by the decode that reads its answer back. A row's answer must be decoded
+   * against the columns its own statement requested: reading it against some
+   * other projection asks the parser for columns the provider was never told to
+   * return, which it reports as a malformed result.
+   */
+  private matchSelect(row: Row): Record<string, boolean> {
+    if (this.isRoot(row)) return this.select(this.matchFields(row));
+    const edge = this.edge(row.id);
+    const model = row.table.model;
+    const verb = this.verb(row);
+    const selector = this.selectorWhere(row);
+    if (edge?.kind === "parentHeld" && selector) {
+      // A target named by its own selector publishes the columns the reference
+      // stores, not its key.
+      return this.select(
+        edge.reference.columns.map((c) =>
+          this.fieldOf(model, c.referencedColumn)
+        )
+      );
+    }
+    if (edge?.kind === "childHeld" && this.matchCells(row).length === 0) {
+      // A merge also reads the reference columns it decides on.
+      const extraFields =
+        verb === "connectOrCreate" || (verb === "upsert" && selector)
+          ? edge.reference.columns.map((c) =>
+              this.fieldOf(model, c.holderColumn)
+            )
+          : [];
+      return this.select([...this.keyFields(row), ...extraFields]);
+    }
+    return this.keySelect(row);
+  }
+
+  /** The decoded first row of a match, read through that match's own projection. */
   private matchedRow(row: Row): Record<string, unknown> | undefined {
     if (this.decoded.has(row.id)) return this.decoded.get(row.id);
     const source = this.publisher(row);
     const raw = source ? this.known?.[planningKey(source.step, "rows")] : [];
+    const published = (source ?? { row }).row;
     const rows = Array.isArray(raw)
       ? parseCapturedRows(
           this.engine,
-          (source ?? { row }).row.table.model,
+          published.table.model,
           raw,
-          this.select(this.matchFields((source ?? { row }).row))
+          this.matchSelect(published)
         )
       : [];
     this.decoded.set(row.id, rows[0]);
@@ -1166,6 +1207,21 @@ class Packing {
 
   private rootMatch(row: Row): StatementStep {
     const scope = this.scope(row.table.model);
+    if (row.cardinality === "set") {
+      // The series capture: every root the filter names, locked, so the members
+      // that follow address rows this operation already holds.
+      const filter = this.filterWhere(row.table.model, row.predicate);
+      return {
+        id: this.idOf(row.id, "match"),
+        kind: "read",
+        statement: buildFind(scope, {
+          ...(filter ? { where: filter } : {}),
+          select: this.keySelect(row),
+          forUpdate: this.txMode,
+        }),
+        outputs: { rows: { kind: "rows" } },
+      };
+    }
     const where = this.selectorWhere(row) ?? {};
     const fields = this.matchFields(row);
     const upsert = this.pattern.operation === "upsert";
@@ -1248,7 +1304,7 @@ class Packing {
           ...base,
           statement: buildFindUnique(scope, {
             where: selector,
-            select: this.select(referencedFields),
+            select: this.matchSelect(row),
             forUpdate: this.txMode,
           }),
           outputs: rows,
@@ -1294,13 +1350,7 @@ class Packing {
     const membershipSql = this.membershipPredicate(row, scope.rootAlias, true);
     if (this.matchCells(row).length === 0) {
       // connect / set / connectOrCreate / upsert-by-selector: the target globally.
-      const extraFields =
-        verb === "connectOrCreate" || (verb === "upsert" && selector)
-          ? edge.reference.columns.map((c) =>
-              this.fieldOf(model, c.holderColumn)
-            )
-          : [];
-      const select = this.select([...this.keyFields(row), ...extraFields]);
+      const select = this.matchSelect(row);
       const statement =
         group.length > 1
           ? buildFind(scope, {

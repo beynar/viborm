@@ -337,8 +337,15 @@ describe("key transition through a reference the row itself holds", () => {
     expect(pattern.rows[0]!.newKey![0]).toBe(pattern.rows[1]!.key[0]);
   });
 
-  test("a merge supplying that key is recorded as the shared-key ambiguity refusal", () => {
-    const { deferredRefusals } = construct(
+  test("a merge supplying that key defers NOTHING: today reconciles the contributions", () => {
+    // MEASURED on today's engine for this exact schema and payload (`ok` in
+    // both worlds), and on the corpus's `create:calibration:shared-key.connectOrCreate`
+    // (12/12 cells `ok`). THREE contributions land on the shared key here and
+    // today accepts all three: the `.id()` default the parse boundary
+    // materialized, and one per arm. Reconciling them is the final-assignment
+    // ledger's job (ATOM §20.1); refusing an unresolvable one is packing's,
+    // because resolvability depends on the substrate.
+    const { pattern, deferredRefusals } = construct(
       sharedKey,
       sharedKey.settings,
       "create",
@@ -351,9 +358,16 @@ describe("key transition through a reference the row itself holds", () => {
         },
       }
     );
-    expect(deferredRefusals.map((r) => r.kind)).toEqual([
-      "sharedKeyAmbiguousArm",
-      "sharedKeyAmbiguousArm",
-    ]);
+    expect(deferredRefusals).toEqual([]);
+    expect(arms(pattern)).toEqual(["0:found@r1", "1:missing@r1"]);
+    const key = cells(pattern).filter(
+      (cell) => cell.column === "accountId" && cell.mode === "assert"
+    );
+    expect(key.map((cell) => cell.arm)).toEqual([undefined, 0, 1]);
+    // The two arm contributions are the located / fresh account's key; the
+    // unconditional one is the materialized default.
+    expect(key[1]!.value).toBe('lit("a")');
+    expect(key[2]!.value).toBe('lit("a")');
+    expect(key[0]!.value).not.toBe('lit("a")');
   });
 });

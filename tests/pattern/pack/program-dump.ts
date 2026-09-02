@@ -110,6 +110,51 @@ function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
+/**
+ * Align two step lists by id (longest common subsequence) so one early
+ * difference cannot make every later step look missing, then classify what the
+ * alignment leaves: a step only the oracle has, a step only the program has, a
+ * pair whose ids match but whose bytes do not, and a pair the alignment had to
+ * reorder.
+ */
+function alignById(
+  oracle: readonly DumpStep[],
+  mine: readonly DumpStep[]
+): { oracle?: DumpStep; mine?: DumpStep; position: number }[] {
+  const rows = oracle.length;
+  const columns = mine.length;
+  const table: number[][] = Array.from({ length: rows + 1 }, () =>
+    new Array<number>(columns + 1).fill(0)
+  );
+  for (let i = rows - 1; i >= 0; i--) {
+    for (let j = columns - 1; j >= 0; j--) {
+      table[i][j] =
+        oracle[i]?.id === mine[j]?.id
+          ? (table[i + 1]?.[j + 1] ?? 0) + 1
+          : Math.max(table[i + 1]?.[j] ?? 0, table[i]?.[j + 1] ?? 0);
+    }
+  }
+  const pairs: { oracle?: DumpStep; mine?: DumpStep; position: number }[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < rows && j < columns) {
+    if (oracle[i]?.id === mine[j]?.id) {
+      pairs.push({ oracle: oracle[i], mine: mine[j], position: i });
+      i++;
+      j++;
+    } else if ((table[i + 1]?.[j] ?? 0) >= (table[i]?.[j + 1] ?? 0)) {
+      pairs.push({ oracle: oracle[i], position: i });
+      i++;
+    } else {
+      pairs.push({ mine: mine[j], position: i });
+      j++;
+    }
+  }
+  for (; i < rows; i++) pairs.push({ oracle: oracle[i], position: i });
+  for (; j < columns; j++) pairs.push({ mine: mine[j], position: i });
+  return pairs;
+}
+
 /** Classify every step-level difference between the oracle and the program. */
 export function diffSteps(
   phase: "planning" | "final",
@@ -117,37 +162,50 @@ export function diffSteps(
   mine: readonly DumpStep[]
 ): StepDifference[] {
   const differences: StepDifference[] = [];
-  const oracleIds = oracle.map((step) => step.id);
-  const mineIds = mine.map((step) => step.id);
-  for (const [position, step] of oracle.entries()) {
-    const counterpart = mine[position];
-    if (!counterpart) {
+  const mineIds = new Set(mine.map((step) => step.id));
+  const oracleIds = new Set(oracle.map((step) => step.id));
+  for (const pair of alignById(oracle, mine)) {
+    const { position } = pair;
+    if (pair.oracle && !pair.mine) {
+      const step = pair.oracle;
       differences.push({
         phase,
         position,
         id: step.id,
-        kind:
-          step.kind === "read"
-            ? "untaken-arm read difference"
-            : "byte special case",
-        detail: "missing in the pattern program",
-      });
-      continue;
-    }
-    if (counterpart.id !== step.id) {
-      differences.push({
-        phase,
-        position,
-        id: step.id,
-        kind: mineIds.includes(step.id)
+        // A step the program emits elsewhere is an ORDER difference; one it
+        // never emits is a missing statement — an untaken-arm read only when
+        // it is a read.
+        kind: mineIds.has(step.id)
           ? "order mismatch"
           : step.kind === "read"
             ? "untaken-arm read difference"
             : "byte special case",
-        detail: `oracle '${step.id}' vs program '${counterpart.id}'`,
+        detail: mineIds.has(step.id)
+          ? "emitted at another position"
+          : "missing in the pattern program",
       });
       continue;
     }
+    if (pair.mine && !pair.oracle) {
+      const step = pair.mine;
+      differences.push({
+        phase,
+        position,
+        id: step.id,
+        kind: oracleIds.has(step.id)
+          ? "order mismatch"
+          : step.kind === "read"
+            ? "untaken-arm read difference"
+            : "byte special case",
+        detail: oracleIds.has(step.id)
+          ? "emitted at another position"
+          : "extra in the pattern program",
+      });
+      continue;
+    }
+    const step = pair.oracle;
+    const counterpart = pair.mine;
+    if (!(step && counterpart)) continue;
     if (step.kind === "guard") {
       if (!same(step.premise, counterpart.premise)) {
         differences.push({
@@ -188,19 +246,6 @@ export function diffSteps(
         detail: `${field}: ${JSON.stringify(canonical(step[field]))} vs ${JSON.stringify(canonical(counterpart[field]))}`,
       });
     }
-  }
-  for (const [position, step] of mine.entries()) {
-    if (position < oracle.length) continue;
-    differences.push({
-      phase,
-      position,
-      id: step.id,
-      kind:
-        step.kind === "read" && !oracleIds.includes(step.id)
-          ? "untaken-arm read difference"
-          : "byte special case",
-      detail: "extra in the pattern program",
-    });
   }
   return differences;
 }

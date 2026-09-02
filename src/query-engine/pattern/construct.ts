@@ -59,13 +59,17 @@ import type {
 } from "./pattern";
 import {
   ABSOLUTE_UPDATE_KEY,
+  isVerb,
+  locatedBy,
   type PayloadShape,
+  referenceRowLabel,
   type Step,
   toOneComposition,
   VERB_ORDER,
   type Verb,
   type VerbItem,
   verbRow,
+  writeLabel,
 } from "./sugar";
 
 // ---------------------------------------------------------------------------
@@ -123,6 +127,14 @@ export interface DeferredRefusal {
    * smallest count the refusal fires at.
    */
   readonly messageFor?: (recordCount: number) => string;
+  /**
+   * The merge arm this refusal belongs to. An arm-scoped refusal is raised ONLY
+   * when that arm is the one taken: today defers a found arm's admits behind
+   * its decision (ATOM §19 — "an upsert found arm runs deferred update legality
+   * only when found; a missing create arm does not analyze the untaken update
+   * subtree"). Absent means unconditional.
+   */
+  readonly arm?: ArmId;
 }
 
 export interface Constructed {
@@ -190,6 +202,10 @@ interface RowDraft {
   matchIsDecision?: boolean;
   /** The public verb that produced the row (message-only, K1 `Row.verb`). */
   verb?: string;
+  /** K1 `Row.located`: how this row's identity is obtained. */
+  located?: "probe" | "correlated" | "none";
+  /** K1 `Row.label`: the step label its statements carry. */
+  label?: string;
 }
 
 interface Context {
@@ -212,6 +228,13 @@ interface Context {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** The root operations whose one statement carries the whole set (§7.2). */
+const BULK_OPERATIONS: ReadonlySet<string> = new Set([
+  "createMany",
+  "updateMany",
+  "deleteMany",
+]);
 
 const RELATION_QUANTIFIERS = ["some", "every", "none", "is", "isNot"] as const;
 type Quantifier = (typeof RELATION_QUANTIFIERS)[number];
@@ -255,7 +278,15 @@ class Construction {
     const root = this.root();
     // Every row a verb plan created is already stamped; what is left is the
     // root and its arms, whose public verb is the operation itself.
-    for (const row of this.rows) row.verb ??= this.operation;
+    for (const row of this.rows) {
+      row.verb ??= this.operation;
+      // A fresh row needs no identity; anything else the plan did not classify
+      // is addressed by its own selector — the root's `where`, and the rows a
+      // bulk statement carries its predicate for (the packer folds those two
+      // probes into the write, which is a shape decision, not a verb one).
+      row.located ??= row.fresh ? "none" : "probe";
+      this.stampLabel(row, row.verb, row.id === root.id);
+    }
     this.projection = this.projectionFrom(
       this.model,
       this.args.select,
@@ -304,14 +335,15 @@ class Construction {
         });
         const found = this.arm(decision, "found");
         const missing = this.arm(decision, "missing");
-        this.portablePrimaryKey(this.args.update, "update");
-        this.record(
-          decision,
-          this.requireRecord("update"),
-          "atKey",
-          "update",
-          found
-        );
+        const update = this.requireRecord("update");
+        // Today runs an upsert's §19 admits inside ONE deferred thunk that the
+        // FOUND arm calls, and builds that thunk only when the update arm has
+        // relation work of its own. Both halves are reproduced: the refusal is
+        // tagged with the found arm, and a scalar-only update arm records none.
+        if (this.writesRelations(this.model, update)) {
+          this.portablePrimaryKey(update, "update", found);
+        }
+        this.record(decision, update, "atKey", "update", found);
         this.freshRow(
           this.model,
           this.requireRecord("create"),
@@ -416,6 +448,42 @@ class Construction {
     };
     this.rows.push(row);
     return row;
+  }
+
+  /**
+   * The step name a model's statements carry: its declared name, as the write
+   * engine's own `getStepModelName` reads it. Inlined rather than imported so
+   * construction keeps no dependency on the engine it replaces.
+   */
+  private stepName(model: Model<any>): string {
+    const names = model["~"].names;
+    return names.ts ?? names.sql ?? getTableName(model);
+  }
+
+  /**
+   * Stamp K1's `label` on a row: `<model>.<write label>`, the id today's engine
+   * gives that row's statements. A BULK root is the one shape with no model
+   * half — today names it by the operation alone (`updateMany`).
+   */
+  private stampLabel(row: RowDraft, verb: string, isRoot = false): void {
+    if (row.label !== undefined) return;
+    const name = this.stepName(row.table.model);
+    if (isRoot && BULK_OPERATIONS.has(verb)) {
+      // A bulk root that PROJECTS rows is routed to the returning arm, which
+      // today names with the model; the plain form is the operation alone.
+      const projects =
+        this.args.select !== undefined || this.args.include !== undefined;
+      row.label = projects
+        ? `${name}.${verb}Return`
+        : verb === "createMany"
+          ? `${name}.${verb}`
+          : verb;
+      return;
+    }
+    // The ROOT is named by its operation, whatever its arms write: an upsert's
+    // statement is `<name>.upsert` even where the found arm's update is a
+    // second, separately named statement.
+    row.label = `${name}.${isRoot ? verb : writeLabel(verb, row.fresh)}`;
   }
 
   private arm(decision: RowDraft, taken: Arm["taken"]): ArmId {
@@ -609,7 +677,13 @@ class Construction {
       this.relation(row, family, value, `${path}.${field}`, arm);
     }
     if (mode === "atKey") {
-      this.relationKeyLegality(model, scalarData, [...single, ...bound], path);
+      this.relationKeyLegality(
+        model,
+        scalarData,
+        [...single, ...bound],
+        path,
+        arm
+      );
       this.keyTransition(row, keyColumns, arm);
     }
   }
@@ -977,6 +1051,17 @@ class Construction {
       ...(context.arm === undefined ? {} : { arm: context.arm }),
     });
     context.target = target;
+    if (context.verb !== undefined && isVerb(context.verb)) {
+      target.located = locatedBy({
+        verb: context.verb,
+        fresh: false,
+        targeted: !untargeted,
+        parentHoldsReference: cells.holderIsSource,
+        ownReferenceRow: cells.viaJunction !== undefined,
+        clearable: cells.nullable,
+        setValued: cardinality === "set",
+      });
+    }
     if (step.locate === "membership") {
       context.referenceRow = this.membership(
         context,
@@ -1145,25 +1230,18 @@ class Construction {
     }
     const holder = cells.holderIsSource ? parent : target;
     const referenced = cells.holderIsSource ? target : parent;
-    if (
-      mode === "assert" &&
-      holder.fresh &&
-      arm !== undefined &&
-      cells.cells.every((pair) =>
-        this.keyFields(holder.table.model)
-          .map((f) => getColumnName(holder.table.model, f))
-          .includes(pair.holderColumn)
-      )
-    ) {
-      this.defer({
-        stage: "packing",
-        kind: "sharedKeyAmbiguousArm",
-        relation: cells.relation.field,
-        path: context.path,
-        error: "UnsupportedOperationError",
-        message: `query-engine-v2 create does not support a shared-primary-key ${context.verb ?? "merge"} on relation '${cells.relation.field}' whose foreign key '${cells.holder.fields.join(", ")}' (this record's primary key) does not resolve to one final value.`, // census: error-text
-      });
-    }
+    // MEASURED, twice: a merge that supplies a reference whose columns ARE the
+    // record's own key is NOT refused today — the corpus payload
+    // `create:calibration:shared-key.connectOrCreate` (12/12 cells `ok`), and
+    // the same shape over a key carrying a materialized `.id()` default, where
+    // the default and the two arms are three contributions today's final
+    // assignment ledger reconciles (ATOM §20.1). Today refuses only when the
+    // value cannot be resolved at compile, which is a SUBSTRATE fact
+    // (`bindsGeneratedKey`) construction does not have. So nothing is deferred
+    // here; the refusal belongs to packing, which knows the substrate:
+    //   `query-engine-v2 create does not support a shared-primary-key <verb> on
+    //    relation '<f>' whose foreign key '<cols>' (this record's primary key)
+    //    does not resolve to one final value.`
     const discriminator = cells.discriminator
       ? {
           column: cells.discriminator.column,
@@ -1220,6 +1298,14 @@ class Construction {
     );
     // A retracted row's cells are its identity (matched), never cleared cells.
     const cellMode: Mode = mode === "retract" ? "match" : mode;
+    // A reference row's statement is named for what it does to the REFERENCE,
+    // not for the target it points at.
+    row.label = `${this.stepName(cells.referenced.model)}.${referenceRowLabel({
+      verb: context.verb,
+      freshTarget: target?.fresh === true,
+      retracting: mode === "retract",
+      uniqueReference: cells.unique,
+    })}`;
     // K2 publishes both pairings of a reference row: toward the asking side
     // (the parent) and toward the referenced side (`cells`).
     const toParent = via.askingCells;
@@ -1571,8 +1657,19 @@ class Construction {
     this.deferred.push(refusal);
   }
 
+  /** Whether a record writes any relation of its model. */
+  private writesRelations(
+    model: Model<any>,
+    record: Record<string, unknown>
+  ): boolean {
+    const relations = model["~"].state.relations as Record<string, unknown>;
+    return Object.keys(record).some(
+      (key) => key in relations && record[key] !== undefined
+    );
+  }
+
   /** ATOM §19's first two legality checks, recorded for the scheduler to raise first. */
-  private portablePrimaryKey(data: unknown, path: string): void {
+  private portablePrimaryKey(data: unknown, path: string, arm?: ArmId): void {
     if (!isRecord(data)) return;
     for (const field of this.keyFields(this.model)) {
       const value = data[field];
@@ -1590,6 +1687,7 @@ class Construction {
           path: `${path}.${field}`,
           error: "QueryEngineError",
           message: `Primary key field '${field}' accepts exactly one update operation; received ${named.join(", ") || "none"}.`,
+          ...(arm === undefined ? {} : { arm }),
         });
         continue;
       }
@@ -1604,6 +1702,7 @@ class Construction {
           path: `${path}.${field}`,
           error: "QueryEngineError",
           message: `Arithmetic updates are not portable for ${type} primary key field '${field}'. Use an explicit set value.`,
+          ...(arm === undefined ? {} : { arm }),
         });
       }
     }
@@ -1613,7 +1712,8 @@ class Construction {
     model: Model<any>,
     scalarData: Record<string, unknown>,
     written: readonly [string, ReferenceFamily, unknown][],
-    path: string
+    path: string,
+    arm?: ArmId
   ): void {
     const keyFields = new Set(this.keyFields(model));
     for (const [field, family] of written) {
@@ -1639,6 +1739,7 @@ class Construction {
             path: `${path}.${member}`,
             error: "NestedWriteError",
             message: `Cannot update relation key field '${member}' with a non-literal operation while mutating relation '${field}'. Use a literal value or '{ set: ... }'.`,
+            ...(arm === undefined ? {} : { arm }),
           });
           continue;
         }
@@ -1651,6 +1752,7 @@ class Construction {
             path: `${path}.${member}`,
             error: "NestedWriteError",
             message: `Cannot update relation key field '${member}' to null while mutating relation '${field}'. A null reference names no row for that relation to point at.`,
+            ...(arm === undefined ? {} : { arm }),
           });
         }
       }
@@ -1761,5 +1863,7 @@ function freeze(draft: RowDraft): Row {
     ...(draft.predicate ? { predicate: draft.predicate } : {}),
     ...(draft.matchIsDecision ? { matchIsDecision: true } : {}),
     ...(draft.verb === undefined ? {} : { verb: draft.verb }),
+    ...(draft.located === undefined ? {} : { located: draft.located }),
+    ...(draft.label === undefined ? {} : { label: draft.label }),
   };
 }

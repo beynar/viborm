@@ -498,6 +498,100 @@ export function isVerb(key: string): key is Verb {
 }
 
 /**
+ * The step-label suffix a row's WRITE statement carries (`team.connect`,
+ * `org.update`). It is the verb itself — except for a FRESH row a merge
+ * created, which today names `create`: the arm writes a new record whatever
+ * the merge was spelled. A verb whose own plan opens with a fresh assertion
+ * (`create`, `createMany`) keeps its name, because that name IS the write.
+ *
+ * The model half of the label is the caller's; this is the half the verb owns,
+ * so the packer never keys a table by (edge kind × verb) to recover it.
+ */
+export function writeLabel(verb: string | undefined, fresh: boolean): string {
+  if (verb === undefined) return "";
+  if (!isVerb(verb)) return verb;
+  const [first] = verbRow(verb).plan;
+  // A merge names its arms after what each arm WRITES, never after the merge:
+  // the missing arm creates, the found arm updates.
+  if (first?.primitive === "merge") return fresh ? "create" : "update";
+  return fresh && first?.primitive !== "assertFresh" ? "create" : verb;
+}
+
+/**
+ * The label a REFERENCE ROW's statement carries (K1 `Row.label`).
+ *
+ * Today names it for what the statement does to the REFERENCE, not for the
+ * target it points at: a fresh target's row is an insert, a retracted one a
+ * delete, a set's two halves clear and refill, and a UNIQUE reference — the
+ * singular slot — inserts whether or not its target is fresh. Every spelling
+ * below is a byte-pinned step id, which is why the census exempts its line: an
+ * id, like an error message, is text rather than a branch.
+ */
+export function referenceRowLabel(input: {
+  readonly verb: string | undefined;
+  readonly freshTarget: boolean;
+  readonly retracting: boolean;
+  readonly uniqueReference: boolean;
+}): string {
+  if (input.verb === "set") {
+    return input.retracting ? "set.clear" : "set.insert"; // census: label
+  }
+  if (input.retracting) {
+    return input.verb === "disconnect" ? "disconnect" : "junction.delete"; // census: label
+  }
+  return input.freshTarget || input.uniqueReference
+    ? "junction.insert" // census: label
+    : (input.verb ?? "connect");
+}
+
+/**
+ * How a row's identity is obtained (K1 `Row.located`), from the verb's plan and
+ * the cell map — never from the storage kind by name.
+ *
+ * A row whose item spells a selector or filter names its own target and is
+ * PROBED. Otherwise the reference decides: when the PARENT holds it, the
+ * target's key has to be read out of the parent's row (a probe); when the
+ * TARGET holds it, the write correlates inline (no probe). A reference row of
+ * its own is probed for the verbs that name one target, and correlated for the
+ * ones that address the whole neighbour set.
+ */
+export function locatedBy(input: {
+  readonly verb: Verb;
+  readonly fresh: boolean;
+  readonly targeted: boolean;
+  readonly parentHoldsReference: boolean;
+  readonly ownReferenceRow: boolean;
+  readonly clearable: boolean;
+  readonly setValued: boolean;
+}): "probe" | "correlated" | "none" {
+  if (input.fresh) return "none";
+  if (input.targeted) return "probe";
+  const row = verbRow(input.verb);
+  // An unbounded writer addresses the whole set through its own predicate.
+  if (row.stage === 2 && input.verb !== "set") return "correlated";
+  if (input.ownReferenceRow) {
+    return input.verb === "disconnect" ? "correlated" : "probe";
+  }
+  if (input.parentHoldsReference) {
+    return row.plan.some(
+      (step) =>
+        step.primitive === "merge" ||
+        (step.primitive === "match" && step.locate === "selector")
+    ) || input.verb === "update"
+      ? "probe"
+      : "correlated";
+  }
+  // The target holds the reference: only a departure that cannot be nulled is
+  // read (today's required-foreign-key orphan refusal).
+  if (input.verb === "set" && input.setValued) {
+    return input.clearable ? "correlated" : "probe";
+  }
+  return input.verb === "disconnect" || input.verb === "delete"
+    ? "correlated"
+    : "probe";
+}
+
+/**
  * The text a violated target premise raises for the verb stamped on a row
  * (`Row.verb`), or `undefined` when that verb tolerates an empty match. The
  * raiser (packing) reads this; construction never spells the sentence.

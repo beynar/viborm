@@ -23,6 +23,9 @@ const ADMITTED_FIELD = /viaJunction/g;
 // message may name a storage word when it says so. The exemption is per line
 // and must be explicit; it never covers a decision.
 const ERROR_TEXT_LINE = /^.*\/\/ census: error-text\s*$/gm;
+// A step id is text too: the label a row's statements carry is byte-pinned to
+// today's engine, so the line that spells one is exempt on the same terms.
+const LABEL_LINE = /^.*\/\/ census: label\s*$/gm;
 // The class NAME may appear only as the `DeferredRefusal.error` label; never
 // imported, never constructed.
 const ENGINE_ERRORS =
@@ -31,6 +34,8 @@ const NESTED_ONLY_VERBS = /"(connect|disconnect|connectOrCreate)"/;
 const THROWS = /throw new (\w+)/g;
 const CONNECT_OR_CREATE = /"connectOrCreate"/;
 const MESSAGE_LINE = /message: `|^\s*[?:] "|^\s*\? "/;
+/** A label line returns a quoted id and nothing else. */
+const LABEL_SPELLING = /return "[\w.]+"|\? "[\w.]+"|: "[\w.]+"/;
 
 describe("construction census", () => {
   test.each([
@@ -39,6 +44,7 @@ describe("construction census", () => {
   ])("%s spells no storage word", (file) => {
     const source = read(file)
       .replace(ERROR_TEXT_LINE, "")
+      .replace(LABEL_LINE, "")
       .replace(ADMITTED_FIELD, "");
     const hit = STORAGE_WORDS.exec(source);
     expect(hit ? `${file}: ${hit[0]} at ${hit.index}` : "").toBe("");
@@ -54,6 +60,16 @@ describe("construction census", () => {
     for (const line of exempt) {
       expect(line).toMatch(MESSAGE_LINE);
     }
+  });
+
+  test("the label exemption covers only step-id spellings, and only in sugar.ts", () => {
+    const exempt = read("sugar.ts").match(LABEL_LINE) ?? [];
+    expect(exempt.length).toBeGreaterThan(0);
+    for (const line of exempt) {
+      expect(line).toMatch(LABEL_SPELLING);
+    }
+    // Construction spells no label of its own: the vocabulary has one home.
+    expect(read("construct.ts").match(LABEL_LINE)).toBeNull();
   });
 
   test("construct.ts throws only ValidationError (and an unreachable TypeError)", () => {

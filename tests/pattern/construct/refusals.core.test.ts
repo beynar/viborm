@@ -173,4 +173,47 @@ describe("deferred refusals", () => {
     );
     expect(move!.message).toBe(move!.messageFor?.(2));
   });
+
+  test("an upsert's §19 admits are ARM-SCOPED: today defers them to the found arm", () => {
+    // `UpsertOperation` builds ONE deferred thunk — the portable-primary-key
+    // check and the relation-key legality — and `compileFoundArm` calls it. So
+    // the refusal exists only when the decision found a row, and only when the
+    // update arm carries relation work (today's `updateHasRelations` gate).
+    const scoped = constructRaw(schema, schema.post, "upsert", {
+      where: { id: 1 },
+      create: { id: 1, title: "c" },
+      update: {
+        id: { set: 2, increment: 1 },
+        author: { connect: { id: "u1" } },
+      },
+    });
+    const [refusal] = scoped.deferredRefusals;
+    expect(refusal).toMatchObject({
+      kind: "portablePrimaryKey",
+      error: "QueryEngineError",
+    });
+    // The arm it names is the merge's FOUND arm, so a raiser that takes the
+    // missing arm must not raise it.
+    const found = scoped.pattern.arms.find((arm) => arm.taken === "found");
+    expect(found).toBeDefined();
+    expect(refusal?.arm).toBe(found?.id);
+
+    // A scalar-only update arm records nothing at all: today never builds the
+    // thunk for it, so the shape reaches planning.
+    const scalarOnly = constructRaw(schema, schema.post, "upsert", {
+      where: { id: 1 },
+      create: { id: 1, title: "c" },
+      update: { id: { set: 2, increment: 1 } },
+    });
+    expect(scalarOnly.deferredRefusals).toEqual([]);
+  });
+
+  test("a root update's admits are unconditional: there is no arm to defer behind", () => {
+    const { deferredRefusals } = constructRaw(schema, schema.post, "update", {
+      where: { id: 1 },
+      data: { id: { set: 2, increment: 1 } },
+    });
+    expect(deferredRefusals).toHaveLength(1);
+    expect(deferredRefusals[0]?.arm).toBeUndefined();
+  });
 });
