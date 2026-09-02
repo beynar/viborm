@@ -16,6 +16,7 @@ import { refuseUnsupportedSubstrate } from "@src/query-engine/pattern/execute/ad
 import type { Program } from "@src/query-engine/pattern/fragment";
 import { StepIds } from "@src/query-engine/pattern/ids";
 import { pack } from "@src/query-engine/pattern/pack";
+import type { Pattern } from "@src/query-engine/pattern/pattern";
 import { type Scheduled, schedule } from "@src/query-engine/pattern/schedule";
 import type { PlanningKnown } from "@src/query-engine/write-engine/Part";
 import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
@@ -59,7 +60,9 @@ export function scheduleCell(
   payload: CorpusPayload,
   engine: QueryEngine,
   dialect: PlanningDialect,
-  substrate: Substrate
+  substrate: Substrate,
+  /** Receives the constructed pattern, which the execution differential decodes through. */
+  onPattern?: (pattern: Pattern) => void
 ): Scheduled {
   const { schema, model } = schemaOf(payload);
   // Today refuses an unresolvable substrate BEFORE the parse boundary
@@ -82,6 +85,7 @@ export function scheduleCell(
     operation: payload.operation as WriteOperation,
     validatedArgs: args,
   });
+  onPattern?.(pattern);
   return schedule(
     pattern,
     {

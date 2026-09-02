@@ -13,7 +13,10 @@
 import { writeFileSync } from "node:fs";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { decodeRows, expectedShapeOf } from "@src/query-engine/pattern/decode";
 import { execute } from "@src/query-engine/pattern/execute";
+import type { Program } from "@src/query-engine/pattern/fragment";
+import type { Pattern } from "@src/query-engine/pattern/pattern";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { isRecordSeries } from "@src/query-engine/write-engine/record-series";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
@@ -146,13 +149,33 @@ async function runExecution(
     mine as never,
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
+  // Today's executor returns the DECODED public result; the pattern engine
+  // returns the program's outputs, which unit G decodes. Compare like with
+  // like: decode ours, and hand the executor the projection's expected row
+  // keys so a malformed provider row is refused on both sides.
+  let pattern: Pattern | undefined;
   const ours = await settle(
-    execute(
-      () =>
-        packCell(scheduleCell(payload, myEngine, dialect, substrate), myEngine),
-      mine as never,
-      { execution: context, retry: false }
-    )
+    (async () => {
+      const program = packCell(
+        scheduleCell(payload, myEngine, dialect, substrate, (p) => {
+          pattern = p;
+        }),
+        myEngine
+      );
+      const boundary = {
+        adapter: myEngine.adapter,
+        relations: myEngine.relations,
+        driver: mine as never,
+      };
+      const outputs = await execute(program, mine as never, {
+        execution: context,
+        retry: false,
+        expectedRows: expectedRowsOf(pattern, boundary, program),
+      });
+      return pattern
+        ? decodeRows(pattern, terminalRows(outputs), boundary)
+        : outputs;
+    })()
   );
 
   const traceMine = mine.trace();
@@ -171,6 +194,30 @@ async function runExecution(
     };
   }
   return { kind: "equal" };
+}
+
+/** The rows the terminal read published, as `decodeRows` consumes them. */
+function terminalRows(outputs: Readonly<Record<string, unknown>>): unknown {
+  const values = Object.values(outputs);
+  return values.length === 1 ? values[0] : outputs;
+}
+
+/** The projection's raw keys per published step, so a malformed row is refused. */
+function expectedRowsOf(
+  pattern: Pattern | undefined,
+  boundary: Parameters<typeof expectedShapeOf>[1],
+  program: Program
+): Readonly<Record<string, readonly string[]>> | undefined {
+  if (!pattern) return undefined;
+  const keys = [...expectedShapeOf(pattern, boundary).rawKeys];
+  if (keys.length === 0) return undefined;
+  const expected: Record<string, readonly string[]> = {};
+  for (const source of Object.values(program.outputs)) {
+    for (const reference of Array.isArray(source) ? source : [source]) {
+      expected[reference.step] = keys;
+    }
+  }
+  return expected;
 }
 
 function summarize(results: readonly CellResult[]): string {
