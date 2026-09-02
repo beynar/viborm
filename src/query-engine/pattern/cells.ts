@@ -102,6 +102,13 @@ function side(model: Model<any>, fields: readonly string[]): CellSide {
   };
 }
 
+function sameSlot(
+  one: { readonly source: Model<any>; readonly field: string },
+  other: { readonly source: Model<any>; readonly field: string }
+): boolean {
+  return one.source === other.source && one.field === other.field;
+}
+
 function rowKeyFields(model: Model<any>): readonly string[] {
   return getModelKeyCatalog(model).rowKey?.fields ?? [];
 }
@@ -159,6 +166,8 @@ function junctionCells(
     readonly uniqueTarget: boolean;
     readonly variant?: string;
     readonly onUpdate?: string;
+    /** Is the asking slot the topology's source side (decided by slot identity, exact on a self-relation). */
+    readonly sourceIsAsking: boolean;
   }
 ): ReferenceCells {
   const sourceSide = side(
@@ -169,7 +178,7 @@ function junctionCells(
     topology.target.model,
     topology.target.members.map((m) => m.referencedField)
   );
-  const sourceIsAsking = topology.source.model === slot.slot.source;
+  const { sourceIsAsking } = options;
   const referenced = sourceIsAsking ? targetSide : sourceSide;
   const junctionMembers = sourceIsAsking
     ? topology.target.members
@@ -243,6 +252,7 @@ export function referenceCells(
         cells: junctionCells(slot, edge.topology, {
           uniqueTarget: false,
           onUpdate: edge.onUpdate,
+          sourceIsAsking: sameSlot(edge.endpoints[0], slot.slot),
         }),
       };
     case "variantRowCarrier": {
@@ -297,6 +307,7 @@ export function referenceCells(
         junctionCells(slot, member.topology, {
           uniqueTarget: member.uniqueTarget,
           variant: member.variant,
+          sourceIsAsking: member.topology.source.model === slot.slot.source,
         });
       if (slot.member && "topology" in slot.member) {
         return { kind: "single", cells: memberCells(slot.member) };

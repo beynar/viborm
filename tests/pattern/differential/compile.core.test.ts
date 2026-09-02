@@ -8,6 +8,7 @@
  * the four numbers per divergence class plus the per-payload detail (and
  * writes them as JSON to PATTERN_M1_REPORT when set). Set PATTERN_M1_STRICT=1
  * to make any divergence fail the run — the M1 exit criterion.
+ * PATTERN_M1_FILTER=<regex> restricts the run to matching payload names.
  */
 import { writeFileSync } from "node:fs";
 import type { Model } from "@schema/model";
@@ -199,8 +200,12 @@ function summarize(results: readonly CellResult[]): string {
 describe("M1 compile-level differential over the corpus", () => {
   test("every payload × dialect × substrate × world", () => {
     const results: CellResult[] = [];
+    const filter = process.env.PATTERN_M1_FILTER
+      ? new RegExp(process.env.PATTERN_M1_FILTER)
+      : undefined;
     for (const payload of payloads) {
       if (!WRITE_OPERATIONS.has(payload.operation)) continue;
+      if (filter && !filter.test(payload.name)) continue;
       for (const dialect of DIALECTS)
         for (const substrate of SUBSTRATES)
           for (const world of WORLDS) {
