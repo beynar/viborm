@@ -11,158 +11,16 @@
  * PATTERN_M1_FILTER=<regex> restricts the run to matching payload names.
  */
 import { writeFileSync } from "node:fs";
-import type { Model } from "@schema/model";
-import {
-  constructPattern,
-  type DeferredRefusal,
-  type WriteOperation,
-} from "@src/query-engine/pattern/construct";
-import { StepIds } from "@src/query-engine/pattern/ids";
-import { pack } from "@src/query-engine/pattern/pack";
-import { schedule } from "@src/query-engine/pattern/schedule";
-import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
 import type { PlanningDialect } from "@tests/fixtures/drivers/planning";
-import { type CorpusPayload, payloads } from "@tests/pattern/corpus/payloads";
-import { schemas } from "@tests/pattern/corpus/schemas";
-import {
-  type Dump,
-  dumpOperation,
-  engineFor,
-  type KnownWorld,
-  oracleFor,
-  planningDriver,
-  type Substrate,
-  synthesizeKnown,
-} from "@tests/pattern/harness/dump";
-import {
-  diffSteps,
-  dumpProgram,
-  type StepDifference,
-} from "@tests/pattern/pack/program-dump";
-import { createSchemaRegistry } from "@validation";
+import { payloads } from "@tests/pattern/corpus/payloads";
+import type { KnownWorld, Substrate } from "@tests/pattern/harness/dump";
 import { describe, expect, test } from "vitest";
+import { errorOf, WRITE_OPERATIONS } from "./chain";
+import { type CellResult, type Outcome, runCell } from "./compile-cell";
 
-const WRITE_OPERATIONS = new Set<string>([
-  "create",
-  "update",
-  "delete",
-  "upsert",
-  "createMany",
-  "createManyAndReturn",
-  "updateMany",
-  "updateManyAndReturn",
-  "deleteMany",
-  "deleteManyAndReturn",
-]);
 const DIALECTS: readonly PlanningDialect[] = ["postgresql", "mysql", "sqlite"];
 const SUBSTRATES: readonly Substrate[] = ["transaction", "batch"];
 const WORLDS: readonly KnownWorld[] = ["found", "missing"];
-
-type Outcome =
-  | { readonly kind: "equal" }
-  | { readonly kind: "series-skipped" }
-  | { readonly kind: "steps"; readonly differences: readonly StepDifference[] }
-  | { readonly kind: "error-identity"; readonly detail: string }
-  | { readonly kind: "crash"; readonly detail: string };
-
-interface CellResult {
-  readonly payload: string;
-  readonly dialect: PlanningDialect;
-  readonly substrate: Substrate;
-  readonly world: KnownWorld;
-  readonly outcome: Outcome;
-}
-
-function raise(refusal: DeferredRefusal): never {
-  // ponytail: name + message is what the differential compares; the exact
-  // class (and code) is a packing concern the raiser owns.
-  const error = new Error(refusal.message);
-  error.name = refusal.error;
-  throw error;
-}
-
-function errorOf(e: unknown): { name: string; message: string } {
-  if (e instanceof Error) return { name: e.name, message: e.message };
-  return { name: "unknown", message: String(e) };
-}
-
-function runCell(
-  payload: CorpusPayload,
-  dialect: PlanningDialect,
-  substrate: Substrate,
-  world: KnownWorld
-): Outcome {
-  const schema = schemas[payload.schema] as Record<string, Model<any>>;
-  const model = schema[payload.model] as Model<any>;
-  const oracle: Dump = dumpOperation(
-    schema,
-    model,
-    payload.model,
-    payload.operation,
-    payload.args,
-    dialect,
-    substrate,
-    world,
-    payload.options
-  );
-  if (oracle.kind === "recordSeries") return { kind: "series-skipped" };
-
-  let mine: ReturnType<typeof dumpProgram> | undefined;
-  let failure: { name: string; message: string } | undefined;
-  try {
-    const registry = createSchemaRegistry(schema);
-    const args = parseValidated(
-      Reflect.get(registry.getModelSchemas(model).args, payload.operation),
-      payload.args,
-      payload.operation as never,
-      ""
-    ) as Record<string, unknown>;
-    const driver = planningDriver(dialect, substrate);
-    const engine = engineFor(schema, driver);
-    const { pattern, deferredRefusals } = constructPattern({
-      index: engine.relations,
-      model,
-      operation: payload.operation as WriteOperation,
-      validatedArgs: args,
-    });
-    const scheduled = schedule(
-      pattern,
-      {
-        bindsGeneratedKey: dialect === "mysql" ? "insertId" : "returning",
-        supportsTransactions: substrate === "transaction",
-      },
-      deferredRefusals.map((refusal) => () => raise(refusal))
-    );
-    const planned = pack(scheduled, engine, new StepIds());
-    const known = synthesizeKnown(
-      oracleFor(schema, dialect, substrate),
-      { steps: planned.fragments.flatMap((f) => f.matches.flat()) },
-      world
-    );
-    mine = dumpProgram(driver, pack(scheduled, engine, new StepIds(), known));
-  } catch (e) {
-    failure = errorOf(e);
-  }
-
-  if (oracle.error || failure) {
-    const same =
-      oracle.error?.name === failure?.name &&
-      oracle.error?.message === failure?.message;
-    if (same) return { kind: "equal" };
-    return {
-      kind: "error-identity",
-      detail: `oracle ${oracle.error ? `${oracle.error.name}: ${oracle.error.message}` : "ok"} vs mine ${failure ? `${failure.name}: ${failure.message}` : "ok"}`,
-    };
-  }
-  if (!mine) return { kind: "crash", detail: "no program and no error" };
-  const differences = [
-    ...diffSteps("planning", oracle.planning, mine.planning),
-    ...diffSteps("final", oracle.final, mine.final),
-  ];
-  return differences.length === 0
-    ? { kind: "equal" }
-    : { kind: "steps", differences };
-}
 
 function summarize(results: readonly CellResult[]): string {
   const counts = new Map<string, number>();

@@ -150,7 +150,7 @@ export function oracleFor(
  * observes several rows (an `IN` list, or `DumpOptions.capturedRoots`), and
  * they differ per row so a series sorts and addresses distinct members.
  */
-function sentinelFor(
+export function sentinelFor(
   oracle: Oracle,
   modelName: string | undefined,
   column: string,
@@ -217,7 +217,7 @@ function splitSelectList(list: string): readonly string[] {
  * elaborate would need the compiler to publish its projection, which is
  * exactly what K1's `Projection` does in the pattern engine.
  */
-function selectAliases(sql: string): readonly string[] {
+export function selectAliases(sql: string): readonly string[] {
   const upper = sql.toUpperCase();
   const start = upper.indexOf("SELECT");
   const end = upper.indexOf(" FROM ");
