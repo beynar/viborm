@@ -111,9 +111,25 @@ for any JSON-like value; both report `steps` (accepted removals) and `attempts`
 
 ## Invalid mode
 
-`mutate(strategy, payload, schema, registry)` returns a mutant the schema must
-refuse, labelled with its refusal class and, where the sentence is fixed, the
-message:
+`mutate(strategy, payload, schema, registry)` returns a mutant labelled with the
+STAGE that decides it (`expect.stage`) and, where the sentence is fixed, the
+message. There are two halves, and the stage is the discriminant:
+
+- `VALIDATION_STRATEGIES` — the parse boundary refuses them; `expect.class` is
+  the validator's refusal class.
+- `SEMANTIC_STRATEGIES` — the parse boundary ACCEPTS them, and the verdict comes
+  from a §19 admit (`construction`), OwnWrite (`legality`), the packer
+  (`packing`), an execution premise (`premise`), or is no refusal at all
+  (`none`: the shape must reach a program). `expect.error` is today's error
+  class, `expect.messageFor(N)` the sentence when it names a runtime count, and
+  `expect.deferredKind` the `DeferredRefusal.kind` the pattern engine's
+  construction records for the same shape.
+
+`INVALID_STRATEGIES` is both halves. The M1 fuzz dashboard runs the semantic
+half as its own cells (`fuzz-invalid:<strategy>:…`), so the differential
+compares REFUSALS below validation, not statements.
+
+### The validation half
 
 | strategy | mutation | class |
 |---|---|---|
@@ -126,4 +142,33 @@ message:
 | `missing-required` | a required create key removed | missing-required (`Missing required field`) |
 | `select-and-include` | both projections at the root | exclusive-keys (`Mutually exclusive`) |
 
-A strategy returns `undefined` when the payload offers nothing to mutate.
+### The semantic half
+
+Every mutant is ISOLATED: projections are dropped, the root selector is reduced
+to the row key (a bulk root matches every row), and the mutated arm carries
+exactly the tested shape — otherwise the base payload's own verbs decide the
+cell before the mutation does.
+
+| strategy | mutation | stage today | today's sentence |
+|---|---|---|---|
+| `bulk-membership-move-connect` | `updateMany` + `connect` on an edge stored on the target row (or a unique member slot) | construction (§5.2, after the capture counts rows) | `updateMany matched N rows, so it cannot apply 'connect' to relation '…'` |
+| `bulk-membership-move-set` | the same with `set` | construction | the same sentence with `'set'` |
+| `bulk-membership-move-disconnect` | the same with `disconnect` | **none** — a `disconnect` names no target to steal | — |
+| `bulk-member-to-many-verb` | `updateMany` + a nested `updateMany` on a to-many | none (routes to a record series, ATOM §17) | — |
+| `null-relation-key` | `{ fk: null, relation: { connect } }` | packing | ATOM §20.1's `conflicting final assignments for column '…'` (the null-key sentence is what construction defers) |
+| `primary-key-two-operations` | `{ pk: { set, increment } }` on an int key | construction (§19) | `Primary key field '…' accepts exactly one update operation` — an `upsert` reaches `getUpdatedPrimaryKeyValue` first and words it differently |
+| `primary-key-arithmetic` | `{ increment }` on a float/decimal key | construction (§19) | `Arithmetic updates are not portable for … primary key field '…'` |
+| `relation-key-non-literal` | `{ fk: { increment }, relation: { connect } }` | construction | `Cannot update relation key field '…' with a non-literal operation` |
+| `shared-key-ambiguous-arm` | a merge supplying a reference whose columns ARE the row key | packing | `does not support a shared-primary-key …` |
+| `disconnect-then-connect` | the accepted to-one composition | **none** | — |
+| `create-then-update-same-row` | nested `create` with a spelled key + `update` naming it | **none** (measured: OwnWrite does not call this feedback) | — |
+| `set-then-connect` | `set` beside `connect` on one to-many | **none** | — |
+| `unknown-variant` | `type: "__nope"` on a variant family | **validation** (measured: the discriminator is a literal union, so construction's `unknownVariant` arm is defensive and unreachable) | `did not match any union member` |
+| `to-one-update-where-mismatch` | a to-one `update` whose filter selects another row | premise | `Cannot update relation '…': target record was not found for this parent.` |
+| `set-orphans-required-child` | `set` on a to-many whose members hold a REQUIRED reference | premise | `Cannot set relation '…' because foreign key field(s) … are required` |
+
+A strategy returns `undefined` when the payload offers nothing to mutate. Three
+of the semantic shapes are absent from the generator's own fixture schemas
+(`primary-key-arithmetic`, `relation-key-non-literal`,
+`shared-key-ambiguous-arm`) and from the corpus schemas; the list is recorded in
+`generator.core.test.ts`.

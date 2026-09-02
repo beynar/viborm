@@ -11,8 +11,10 @@ import {
 import { describe, expect, test } from "vitest";
 import {
   connectProgram,
+  foldedLocatePremiseProgram,
   mergeOutcomeProgram,
   packedMergeProgram,
+  packedSingleStatementProgram,
   singleStatementProgram,
 } from "./fixtures";
 
@@ -82,6 +84,51 @@ describe("transaction enforcer", () => {
     });
     expect(driver.trace()).toEqual([
       'assert#0 UPDATE "sim_posts" SET "title" = $1 WHERE "id" = $2 ["t","p1"] @post',
+    ]);
+  });
+
+  test("a packed one-statement program runs bare on every substrate", async () => {
+    const expected = [
+      'assert#0 UPDATE "sim_posts" SET "title" = $1 WHERE "id" = $2 ["t","p1"] @post',
+    ];
+    // The packer's own shape: a `pack` callback and an empty match level.
+    const transaction = new SimulatedDriver();
+    await expect(
+      execute(packedSingleStatementProgram(), transaction)
+    ).resolves.toEqual({ result: 1 });
+    expect(transaction.trace()).toEqual(expected);
+
+    const batch = new SimulatedDriver({
+      capabilities: CAPABILITY_PRESETS.neonHttp,
+    });
+    await expect(
+      execute(packedSingleStatementProgram(), batch)
+    ).resolves.toEqual({ result: 1 });
+    expect(batch.trace()).toEqual(expected);
+  });
+
+  test("a premise that outlived its folded locate is a guard statement on a batch, not on a transaction", async () => {
+    // The transaction substrate enforces the premise with the match's lock and
+    // emits no guard, so the write is still the operation's whole effect.
+    const transaction = new SimulatedDriver();
+    await expect(
+      execute(foldedLocatePremiseProgram(), transaction)
+    ).resolves.toEqual({ result: 1 });
+    expect(transaction.trace()).toEqual([
+      'assert#0 UPDATE "sim_posts" SET "title" = $1 WHERE "id" = $2 ["t","p1"] @post',
+    ]);
+
+    const batch = new SimulatedDriver({
+      capabilities: CAPABILITY_PRESETS.neonHttp,
+    });
+    await expect(execute(foldedLocatePremiseProgram(), batch)).resolves.toEqual(
+      { result: 1 }
+    );
+    expect(batch.trace()).toEqual([
+      "-- batchBegin #1 (2)",
+      '[batch] assert#0 SELECT 1 / CASE WHEN EXISTS (SELECT "id" FROM "sim_users" WHERE "id" = $1) THEN 1 ELSE 0 END AS "__viborm_assert__" ["u1"] @post',
+      '[batch] assert#0 UPDATE "sim_posts" SET "title" = $1 WHERE "id" = $2 ["t","p1"] @post',
+      "-- batchCommit #1",
     ]);
   });
 

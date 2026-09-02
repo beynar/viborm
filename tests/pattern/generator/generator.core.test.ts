@@ -17,7 +17,14 @@ import {
   type SchemaMap,
   validatePayload,
 } from "./generate";
-import { INVALID_STRATEGIES, type InvalidStrategy, mutate } from "./invalid";
+import {
+  INVALID_STRATEGIES,
+  type InvalidStrategy,
+  mutate,
+  SEMANTIC_STRATEGIES,
+  type SemanticStrategy,
+  VALIDATION_STRATEGIES,
+} from "./invalid";
 import { nodeCount, shrinkPayload } from "./shrink";
 
 // =============================================================================
@@ -328,7 +335,7 @@ describe.each(fixtures)("payload generator over the %s schema", (_, schema) => {
     }
   });
 
-  describe.each(INVALID_STRATEGIES)("invalid strategy %s", (strategy) => {
+  describe.each(VALIDATION_STRATEGIES)("invalid strategy %s", (strategy) => {
     test("is refused with a ValidationError by the parse boundary", () => {
       let applied = 0;
       for (const payload of corpus) {
@@ -346,14 +353,80 @@ describe.each(fixtures)("payload generator over the %s schema", (_, schema) => {
       );
     });
   });
+
+  // The semantic half's whole point: the parse boundary ACCEPTS these, so the
+  // differentials reach the verdict below validation. A strategy that states
+  // `stage: "validation"` is the measured exception — its shape is semantic but
+  // the public grammar refuses it — and must be refused, not accepted.
+  describe.each(SEMANTIC_STRATEGIES)("semantic strategy %s", (strategy) => {
+    test("reaches the stage it states", () => {
+      let applied = 0;
+      const wrong: string[] = [];
+      for (const payload of corpus) {
+        const mutant = mutate(strategy, payload, schema, registry);
+        if (!mutant) continue;
+        applied++;
+        const parsed = (() => {
+          try {
+            validatePayload(registry, schema, mutant.payload);
+            return undefined;
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
+        })();
+        const where = `${payload.model}.${payload.operation} seed=${payload.seed}`;
+        if (mutant.expect.stage === "validation" && parsed === undefined) {
+          wrong.push(`${where}: expected a validation refusal, got none`);
+        }
+        if (mutant.expect.stage !== "validation" && parsed !== undefined) {
+          wrong.push(`${where}: ${parsed}`);
+        }
+        if (applied >= 25) break;
+      }
+      appliedByStrategy.set(
+        strategy,
+        (appliedByStrategy.get(strategy) ?? 0) + applied
+      );
+      expect(wrong.slice(0, 3)).toEqual([]);
+    });
+  });
 });
 
+/**
+ * Shapes the three fixture schemas above do not contain, so their strategies
+ * cannot apply here. Each is exercised by the CORPUS schemas instead (the fuzz
+ * dashboard's `fuzz-invalid:` cells); the list is the record of which is which.
+ */
+const ABSENT_FROM_FIXTURES: readonly SemanticStrategy[] = [
+  // no float or decimal primary key
+  "primary-key-arithmetic",
+  // no relation whose foreign key is numeric
+  "relation-key-non-literal",
+  // no relation whose foreign key IS the record's own primary key
+  "shared-key-ambiguous-arm",
+];
+
 describe("invalid strategies across the three schemas", () => {
-  test("every strategy applied to at least one payload", () => {
-    const unapplied = INVALID_STRATEGIES.filter(
+  test("every validation strategy applied to at least one payload", () => {
+    const unapplied = VALIDATION_STRATEGIES.filter(
       (strategy) => (appliedByStrategy.get(strategy) ?? 0) === 0
     );
     expect(unapplied).toEqual([]);
+  });
+
+  test("every semantic strategy applied, or is a shape these fixtures lack", () => {
+    const unapplied = SEMANTIC_STRATEGIES.filter(
+      (strategy) => (appliedByStrategy.get(strategy) ?? 0) === 0
+    );
+    expect(unapplied).toEqual(
+      ABSENT_FROM_FIXTURES.filter((strategy) => unapplied.includes(strategy))
+    );
+  });
+
+  test("the two halves are disjoint and cover the whole list", () => {
+    expect([...VALIDATION_STRATEGIES, ...SEMANTIC_STRATEGIES].sort()).toEqual(
+      [...INVALID_STRATEGIES].sort()
+    );
   });
 });
 

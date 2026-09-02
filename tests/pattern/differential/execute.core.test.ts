@@ -15,6 +15,7 @@ import { createOperationExecutionContext } from "@query-engine/execution-context
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { decodeRows, expectedShapeOf } from "@src/query-engine/pattern/decode";
 import { execute } from "@src/query-engine/pattern/execute";
+import { publishesRows } from "@src/query-engine/pattern/execute/admission";
 import type { Program } from "@src/query-engine/pattern/fragment";
 import type { Pattern } from "@src/query-engine/pattern/pattern";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
@@ -172,7 +173,9 @@ async function runExecution(
         retry: false,
         expectedRows: expectedRowsOf(pattern, boundary, program),
       });
-      return pattern
+      // A program that publishes no read has no rows to decode: its result is
+      // the bulk `{ count }` arm, which today returns as it stands.
+      return pattern && publishesRows(program)
         ? decodeRows(pattern, terminalRows(outputs), boundary)
         : outputs;
     })()

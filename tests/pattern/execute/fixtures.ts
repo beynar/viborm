@@ -239,6 +239,65 @@ export function singleStatementProgram(): Program {
   );
 }
 
+/**
+ * The same one statement, as the packer really hands it over: the fragment
+ * carries a `pack` callback (every packed fragment does) and an EMPTY match
+ * level (what a locate folded into the write leaves behind). Neither is a
+ * statement, so this program's whole effect is still one statement.
+ */
+export function packedSingleStatementProgram(): Program {
+  const write: WriteStep = {
+    id: "post.title",
+    kind: "write",
+    model: "post",
+    statement: sql`UPDATE "sim_posts" SET "title" = ${"t"} WHERE "id" = ${"p1"}`,
+    outputs: { count: { kind: "rowCount" } },
+  };
+  return program(
+    [
+      {
+        matches: [[]],
+        // What the packer hands over before it knows the match rows; `pack`
+        // is what supplies the real statement.
+        writes: [],
+        premises: [],
+        pack: () => ({ writes: [write], premises: [] }),
+        inherited: [],
+        boundary: { kind: "end" },
+      },
+    ],
+    { result: ref("post.title", "count") }
+  );
+}
+
+/**
+ * One write whose locate FOLDED into it: the fragment runs no match, yet the
+ * premise that locate stated survives (an empty match level is all that is
+ * left of it). On an atomic batch that premise is still a guard statement.
+ */
+export function foldedLocatePremiseProgram(): Program {
+  const locate = findAuthor("u1", false);
+  const write: WriteStep = {
+    id: "post.title",
+    kind: "write",
+    model: "post",
+    statement: sql`UPDATE "sim_posts" SET "title" = ${"t"} WHERE "id" = ${"p1"}`,
+    outputs: { count: { kind: "rowCount" } },
+  };
+  return program(
+    [
+      {
+        matches: [[]],
+        writes: [write],
+        premises: [existsPremise(locate)],
+        inherited: [],
+        boundary: { kind: "end" },
+      },
+    ],
+    { result: ref("post.title", "count") }
+  );
+}
+
 function mergeArms(stepId: string): {
   readonly insert: WriteStep;
   readonly update: WriteStep;

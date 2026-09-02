@@ -5,9 +5,10 @@
  * The one entry. It chooses the enforcer from the driver's declared substrate
  * exactly as today's `OperationExecutor.execute` does:
  *
- * - a program that is one plain statement (no matches, one read or write with
- *   no reference, no insert-id output, no skip effect) runs directly on the
- *   driver with no envelope — statement atomicity;
+ * - a program whose whole effect is one plain statement (no match, one read or
+ *   write with no reference, no insert-id output, no skip effect) runs
+ *   directly on the driver with no envelope, on EVERY substrate — statement
+ *   atomicity;
  * - a driver with neither an interactive transaction nor an atomic batch
  *   cannot run a multi-statement program and is refused with today's error;
  * - an interactive transaction runs every fragment linearly inside one
@@ -25,12 +26,15 @@ import {
   normalizedBindParameterLimit,
 } from "@drivers/bind-parameter-capacity";
 import { createOperationExecutionContext } from "../../execution-context";
-import { statementHasReferences } from "../../write-engine/OperationFragment";
+import {
+  type StatementStep,
+  statementHasReferences,
+} from "../../write-engine/OperationFragment";
 import { markRaceIfPinned } from "../../write-engine/race-retry";
 import { noAtomicSubstrateError } from "../../write-engine/shared";
-import type { Program } from "../fragment";
+import type { Fragment, Program } from "../fragment";
 import { publishesRows, refuseUnsupportedSubstrate } from "./admission";
-import { executeInBatch } from "./batch";
+import { executeInBatch, guardSteps } from "./batch";
 import { withRaceRetry } from "./retry";
 import { executeInSegments } from "./segments";
 import { executeInTransaction } from "./transaction";
@@ -38,6 +42,7 @@ import {
   attributionOf,
   enforcePostcondition,
   extractOutputs,
+  packFragment,
   type RowsBoundary,
   type RuntimeValues,
   resolveProgramOutputs,
@@ -84,16 +89,17 @@ async function executeOnce(
     createOperationExecutionContext(program.model, program.operation);
   refuseUnsupportedSubstrate(driver, program.operation, publishesRows(program));
   const rows = rowsBoundary(driver, program.operation, options.expectedRows);
-  const direct = statementAtomicProgram(program);
+  const resolved = packWhatNoMatchDecides(program);
+  const direct = statementAtomicProgram(resolved, driver);
   if (direct) {
-    return runStatementAtomic(program, direct, driver, context, rows);
+    return runStatementAtomic(resolved, direct, driver, context, rows);
   }
   if (!(driver.supportsTransactions || driver.supportsBatch)) {
     throw noAtomicSubstrateError(driver.driverName, program.operation);
   }
   if (driver.supportsTransactions) {
     return executeInTransaction({
-      program,
+      program: resolved,
       driver,
       context,
       rows,
@@ -101,7 +107,7 @@ async function executeOnce(
     });
   }
   const run = {
-    program,
+    program: resolved,
     driver,
     context,
     rows,
@@ -112,23 +118,61 @@ async function executeOnce(
       ? { writeMayBeVisible: options.writeMayBeVisible }
       : {}),
   };
-  return program.fragments.length === 1
+  return resolved.fragments.length === 1
     ? executeInBatch(run)
     : executeInSegments(run);
 }
 
+/** Does this fragment run any match at all? An EMPTY LEVEL is not a match. */
+function hasMatches(fragment: Fragment): boolean {
+  return fragment.matches.some((level) => level.length > 0);
+}
+
 /**
- * The statement-atomic seam: one plain statement, no envelope. A postcondition
- * is permitted and enforced after the single round trip (the statement either
- * committed its one row or affected none).
+ * Settle every fragment whose writes no execution can still change.
+ *
+ * A fragment re-packs its taken arm from what its own matches bound (§6.3).
+ * A fragment with NO match has nothing to learn: its `known` is empty whenever
+ * it is packed, so packing it now yields exactly what packing it after an
+ * empty match phase would. Doing it here — once — is what lets the seam below
+ * see a program's real statements instead of the arm-less placeholder the
+ * packer hands over, and the enforcers then run those same steps.
  */
-function statementAtomicProgram(program: Program) {
+function packWhatNoMatchDecides(program: Program): Program {
+  if (!program.fragments.some((f) => f.pack && !hasMatches(f))) return program;
+  return {
+    ...program,
+    fragments: program.fragments.map((fragment) => {
+      if (!fragment.pack || hasMatches(fragment)) return fragment;
+      const { pack: _settled, ...rest } = packFragment(fragment, new Map());
+      return rest;
+    }),
+  };
+}
+
+/**
+ * The statement-atomic seam: a program whose whole effect is ONE statement
+ * runs bare, on every substrate, exactly as today's engine runs it (its
+ * `compileSingleStatementCandidate` + `canExecuteDirectly`). A postcondition is
+ * permitted and enforced after the single round trip — the statement either
+ * committed its one row or affected none, so there is nothing to roll back.
+ */
+function statementAtomicProgram(
+  program: Program,
+  driver: AnyDriver
+): StatementStep | undefined {
   const [fragment] = program.fragments;
   if (!fragment || program.fragments.length !== 1) return undefined;
+  // A match is a statement of its own, and its rows may still re-pack the
+  // writes; both make this more than one statement.
+  if (hasMatches(fragment) || fragment.writes.length !== 1) return undefined;
+  // On an atomic-batch substrate each premise lowers to a GUARD statement of
+  // its own; the transaction substrate enforces the same premise with the
+  // match's lock and emits none. A premise outlives its match whenever the
+  // locate folded into the write, which is why counting matches is not enough.
   if (
-    fragment.pack ||
-    fragment.matches.length !== 0 ||
-    fragment.writes.length !== 1
+    !driver.supportsTransactions &&
+    guardSteps(fragment.premises).length > 0
   ) {
     return undefined;
   }
@@ -148,7 +192,7 @@ function statementAtomicProgram(program: Program) {
 
 async function runStatementAtomic(
   program: Program,
-  step: NonNullable<ReturnType<typeof statementAtomicProgram>>,
+  step: StatementStep,
   driver: AnyDriver,
   context: QueryExecutionContext,
   rows: RowsBoundary
