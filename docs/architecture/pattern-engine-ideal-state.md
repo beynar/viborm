@@ -853,20 +853,20 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 07acde88 | Construction stamps a verb on every row and carries today's failure text per verb; construction invariants hold over 600 generated payloads and 1,841 mutants. 262 equal. |
 | 2026-09-02 | 3401a4ab | Read mode over generated reads: 900 payloads × 3 dialects byte-equal and decode-equal, after fixing two refusal-precedence gaps (groupBy duplicate fields, findUnique projecting before addressing). M3 holds for generated reads. |
 | 2026-09-02 | 9817d156 | The packer owns the row lock (executors add none); substrate admission refuses before the parse boundary, in the executor and in the differential chain. **M1 582 equal, M2 522 equal, 18 trace, 12 outcome.** |
+| 2026-09-02 | 67e24c67 | Packer rewritten as family lowerings keyed by one storage fact (parent-held / child-held / junction) crossed with row facts, with total id allocation, the per-dialect mutation folds, junction statements and the terminal read lowered as a match. M2 compares decoded results, enforces the projection's row shape and erases the per-operation scratch id. **M1 1,460 equal, fuzz 277, M2 989 equal, 437 trace, 4 outcome.** |
 
-Open divergence classes, by owner (cell counts from the 08bf6522 run):
+Open divergence classes, by owner (cell counts from the 67e24c67 run):
 
-- Packer (D+E): row-id allocation for connect / disconnect / set rows (≈540);
-  predicate lowering through the public-args path instead of `lowerPredicate`
-  (≈470); variant families not addressable (≈300); statement `outputs` /
-  `model` (≈200); per-dialect insert forms (postgres CTE with projection,
-  sqlite without RETURNING, mysql insertId) (≈80); bulk member fragments (no
-  `member` boundary yet, so every series cell diverges).
-- Construction (C): refusals today raises that the pattern engine does not
-  (`No fields to update`, nested-dependency refusals) and failure text per verb.
-- Executors (F): closed. The double lock and the substrate refusal are fixed;
-  the premise-order divergence proved to be the scheduler's (a located root
-  that is also a decision loses its `required` flag, so its refusal no longer
-  precedes a nested target's).
+- Packer (D+E): match emission — which families send a probe (277 missing
+  matches, 224 order mismatches); a write addressing its row by the payload's
+  literal instead of the matched key (63 execution cells); variant families
+  (231); selectors still built as public `where` objects instead of lowered
+  predicates (150); the parent id inlining (84); member fragments for series
+  (70). Scheduler: legality over-refusals (72) and the located root that loses
+  its `required` flag (30).
+- Executors (F): a one-statement program opens an atomic scope where today
+  sends the statement bare (≈212 execution cells).
+- Construction (C): semantic generator strategies, so the dashboards reach
+  refusals below the parse boundary.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
