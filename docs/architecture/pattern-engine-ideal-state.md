@@ -854,19 +854,23 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 3401a4ab | Read mode over generated reads: 900 payloads × 3 dialects byte-equal and decode-equal, after fixing two refusal-precedence gaps (groupBy duplicate fields, findUnique projecting before addressing). M3 holds for generated reads. |
 | 2026-09-02 | 9817d156 | The packer owns the row lock (executors add none); substrate admission refuses before the parse boundary, in the executor and in the differential chain. **M1 582 equal, M2 522 equal, 18 trace, 12 outcome.** |
 | 2026-09-02 | 67e24c67 | Packer rewritten as family lowerings keyed by one storage fact (parent-held / child-held / junction) crossed with row facts, with total id allocation, the per-dialect mutation folds, junction statements and the terminal read lowered as a match. M2 compares decoded results, enforces the projection's row shape and erases the per-operation scratch id. **M1 1,460 equal, fuzz 277, M2 989 equal, 437 trace, 4 outcome.** |
+| 2026-09-02 | bb24c065 | Terminal write projection lowered by `matchWriteResult` (returning / fold / reselect) against today's builders. Statement-atomic seam settles arm-less fragments and runs a one-statement program bare on every substrate. Fifteen semantic generator strategies with measured stage labels. M2 compares decoded results, enforces the row shape, and lets a write answer its own projection. **M1 1,460 equal, fuzz 277, M2 1,205 equal, 213 trace, 12 outcome.** |
 
-Open divergence classes, by owner (cell counts from the 67e24c67 run):
+Open divergence classes, by owner (cell counts from the bb24c065 run):
 
 - Packer (D+E): match emission — which families send a probe (277 missing
-  matches, 224 order mismatches); a write addressing its row by the payload's
-  literal instead of the matched key (63 execution cells); variant families
-  (231); selectors still built as public `where` objects instead of lowered
+  matches, 224 order mismatches); a write bound to the payload's literal
+  instead of the key its own match captured (≈110 execution cells); variant
+  families (231); selectors built as public filter objects instead of lowered
   predicates (150); the parent id inlining (84); member fragments for series
-  (70). Scheduler: legality over-refusals (72) and the located root that loses
-  its `required` flag (30).
-- Executors (F): a one-statement program opens an atomic scope where today
-  sends the statement bare (≈212 execution cells).
-- Construction (C): semantic generator strategies, so the dashboards reach
-  refusals below the parse boundary.
+  (70); statement count (16) and match level grouping (4). Scheduler: legality
+  over-refusals (72), and the root refusal that must live in `pack` after the
+  whole match phase rather than as an `expects` on the locate (9).
+- Match and decode (G): the terminal write projection proved over the whole
+  corpus rather than six goldens; a count arm in `decodeRows`, which today's
+  engine never routes through the parser at all.
+- Construction (C): arm-scoped deferred refusals (18 cells today defers to the
+  found arm); a refusal today raises and the pattern engine does not (12);
+  three semantic strategies no fixture schema can exercise.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
