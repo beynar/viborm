@@ -192,13 +192,16 @@ const client = createClient({
   driver: {} as any,
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — the binding exists so tsc type-checks groupBy's `by`/`where` inference against this schema; deleting it removes the check.
 const res1 = client.user.groupBy({
   by: ["age"],
   where: {},
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — instantiating ModelOperationInput is the assertion; deleting the alias removes the check.
 type Input = Prettify<ModelOperationInput<typeof testUser, "findFirst">>;
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — the binding exists so tsc checks the $withCache + deep nested include/where inference; deleting it removes the check.
 const res = await (
   client as unknown as {
     $withCache(options: { ttl: number }): typeof client;

@@ -27,7 +27,6 @@
  */
 
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
-import { s } from "@schema";
 import {
   mysqlDecimalListMarker,
   readMysqlDecimalListMarker,
@@ -37,38 +36,8 @@ import { ddlContext } from "@tests/unit/migrations/_estate";
 import { encodeDecimalListContainer } from "@validation/primitives/decimal-codec";
 import { describe, expect, it } from "vitest";
 
-const TABLE = "dec_list_agreement";
-
-const listLedger = (precision: number, scale: number) => ({
-  ledger: s
-    .model({
-      id: s.string().id(),
-      samples: s.decimal({ precision, scale }).array(),
-    })
-    .map(TABLE),
-});
-
 /** The logical members every leg below round-trips. */
 const MEMBERS = ["1.2", "-0.03", "90071992547409.93"];
-
-async function storedContainer(driver: {
-  _executeRaw: <T>(sql: string) => Promise<{ rows: T[] }>;
-}): Promise<unknown> {
-  const rows = await driver._executeRaw<{ samples: unknown }>(
-    `SELECT "samples" FROM "${TABLE}" WHERE "id" = 'a'`
-  );
-  return rows.rows[0]?.samples;
-}
-
-/**
- * The members the CONVERSION leg uses.
- *
- * Smaller than {@link MEMBERS} for a reason SQLite states itself: a scale
- * increase multiplies every coefficient, and `precision + scale <= 18` has to
- * hold on BOTH sides of the change, so a member whose coefficient already needs
- * sixteen digits has no wider domain to move into on this provider.
- */
-const CONVERTIBLE = ["1.2", "-0.03"];
 
 describe("MySQL: the marker recovers the descriptor the runtime encodes against", () => {
   it("emits the marker for a decimal list and only for one", () => {

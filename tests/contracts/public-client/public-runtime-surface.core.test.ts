@@ -1,3 +1,4 @@
+// biome-ignore lint/performance/noNamespaceImport: the namespace object IS the subject — the test enumerates Object.keys(viborm) to pin the whole public runtime surface
 import * as viborm from "@src/index";
 import { describe, expect, it } from "vitest";
 

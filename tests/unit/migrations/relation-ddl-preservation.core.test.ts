@@ -44,9 +44,6 @@ import {
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
-const CREATE_TABLE_NAME =
-  /CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:(?:"[^"]+"|`[^`]+`|\w+)\.)?(?:"([^"]+)"|`([^`]+)`|(\w+))/i;
-
 const migrationDrivers = {
   postgres: postgresMigrationDriver,
   mysql: mysqlMigrationDriver,

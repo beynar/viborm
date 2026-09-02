@@ -20,7 +20,9 @@ const acceptedPerson: PersonInput = { name: "Ada" };
 // @ts-expect-error - an unknown key beside a real key must be refused
 const refusedPerson: PersonInput = { name: "Ada", nmae: "typo" };
 
+// biome-ignore lint/complexity/noVoid: the discard is how a compile-only probe binding is consumed without asserting on its value
 void acceptedPerson;
+// biome-ignore lint/complexity/noVoid: the discard is how a compile-only probe binding is consumed without asserting on its value
 void refusedPerson;
 
 const withoutName = v.omit(personSchema, ["name"] as const);

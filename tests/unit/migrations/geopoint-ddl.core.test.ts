@@ -60,22 +60,6 @@ function jsonLocationSchema() {
   };
 }
 
-function partialIndexPointSchema() {
-  return {
-    place: s
-      .model({
-        id: s.string().id(),
-        location: s.point(),
-        active: s.boolean(),
-      })
-      .map("places")
-      .index(["active"], {
-        name: "places_active_partial",
-        where: "active = true",
-      }),
-  };
-}
-
 function snapshot(
   migrationDriver: MigrationDriver,
   schema: Schema = indexedPointSchema()

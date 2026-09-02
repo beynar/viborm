@@ -50,6 +50,8 @@ const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace({
 });
 const OFFICIAL_CACHE_SCOPE = createOfficialCacheScope(OFFICIAL_CACHE_NAMESPACE);
 const USER_CACHE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:user:`;
+const NO_VALIDATED_PAYLOAD_PATTERN = /exposes no validated payload/;
+const UNKNOWN_OPERATION_PATTERN = /Unknown operation 'missing'/;
 
 class RecordingMemoryCache extends MemoryCache {
   readonly clearedPrefixes: string[] = [];
@@ -713,7 +715,7 @@ describe("pending operation transaction coordination", () => {
     expect(read.cacheKeyArgs()).toEqual({
       where: { name: { equals: "Arnaud" } },
     });
-    expect(() => write.cacheKeyArgs()).toThrow(/exposes no validated payload/);
+    expect(() => write.cacheKeyArgs()).toThrow(NO_VALIDATED_PAYLOAD_PATTERN);
   });
 
   it("normalizes OrThrow operation identity and refuses unknown routed names", () => {
@@ -733,6 +735,6 @@ describe("pending operation transaction coordination", () => {
         "missing",
         {},
       ]).buildStatement()
-    ).toThrow(/Unknown operation 'missing'/);
+    ).toThrow(UNKNOWN_OPERATION_PATTERN);
   });
 });

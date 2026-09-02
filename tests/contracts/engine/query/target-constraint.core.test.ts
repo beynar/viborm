@@ -28,6 +28,22 @@ import { isSql, sql } from "@sql";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
+const ID_NOT_KNOWN_BEFORE_EXECUTION_PATTERN =
+  /primary key field 'id'.*known before execution/;
+const SEQUENCE_NOT_KNOWN_BEFORE_EXECUTION_PATTERN =
+  /primary key field 'sequence'.*known before execution/;
+const SEQUENCE_MISSING_PATTERN = /primary key field 'sequence' is missing/;
+const TENANT_ID_MISSING_PATTERN = /primary key field 'tenantId' is missing/;
+const UNSUPPORTED_OPERATION_PATTERN = /unsupported operation/;
+const DIVIDE_PRIMARY_KEY_BY_ZERO_PATTERN = /divide a primary key by zero/;
+const UNSAFE_INTEGER_PATTERN = /unsafe integer/;
+const NON_FINITE_NUMBER_PATTERN = /non-finite number/;
+const SINGLE_UPDATE_OPERATION_PATTERN = /accepts exactly one update operation/;
+const NOT_PORTABLE_NUMBER_PK_PATTERN = /not portable for number primary key/;
+const NOT_PORTABLE_DECIMAL_PK_PATTERN = /not portable for decimal primary key/;
+const DIVIDE_ID_FIELD_BY_ZERO_PATTERN = /divide primary key field 'id' by zero/;
+const NON_FINITE_INCREMENT_PATTERN = /non-finite 'increment' operand/;
+
 const target = s
   .model({
     id: s.int().id().map("target_id"),
@@ -390,13 +406,13 @@ describe("mutation row identity", () => {
     });
     expect(() =>
       planNestedCreateIdentity(manualIdentity, { label: "missing" })
-    ).toThrow(/primary key field 'id'.*known before execution/);
+    ).toThrow(ID_NOT_KNOWN_BEFORE_EXECUTION_PATTERN);
     expect(() =>
       planNestedCreateIdentity(compoundIdentity, {
         tenantId: 1,
         label: "partial",
       })
-    ).toThrow(/primary key field 'sequence'.*known before execution/);
+    ).toThrow(SEQUENCE_NOT_KNOWN_BEFORE_EXECUTION_PATTERN);
   });
 
   test("builds only refetch identities that are atomically knowable", () => {
@@ -435,14 +451,14 @@ describe("mutation row identity", () => {
         { tenantId: 1 },
         "compound"
       )
-    ).toThrow(/primary key field 'sequence' is missing/);
+    ).toThrow(SEQUENCE_MISSING_PATTERN);
     expect(() =>
       getPrimaryKeyValuesFromRecord(
         compoundIdentity,
         { tenantId: null, sequence: 2n },
         "compound"
       )
-    ).toThrow(/primary key field 'tenantId' is missing/);
+    ).toThrow(TENANT_ID_MISSING_PATTERN);
     expect(
       getPrimaryKeyValuesFromRecord(
         compoundIdentity,
@@ -518,7 +534,7 @@ describe("mutation row identity", () => {
         { increment: 1, decrement: 1 },
         "int"
       )
-    ).toThrow(/unsupported operation/);
+    ).toThrow(UNSUPPORTED_OPERATION_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.int,
@@ -527,7 +543,7 @@ describe("mutation row identity", () => {
         { divide: 0 },
         "int"
       )
-    ).toThrow(/divide a primary key by zero/);
+    ).toThrow(DIVIDE_PRIMARY_KEY_BY_ZERO_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.bigint,
@@ -536,7 +552,7 @@ describe("mutation row identity", () => {
         { divide: 0n },
         "bigint"
       )
-    ).toThrow(/divide a primary key by zero/);
+    ).toThrow(DIVIDE_PRIMARY_KEY_BY_ZERO_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.int,
@@ -545,7 +561,7 @@ describe("mutation row identity", () => {
         { increment: 1 },
         "int"
       )
-    ).toThrow(/unsafe integer/);
+    ).toThrow(UNSAFE_INTEGER_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.number,
@@ -554,7 +570,7 @@ describe("mutation row identity", () => {
         { multiply: 2 },
         "number"
       )
-    ).toThrow(/non-finite number/);
+    ).toThrow(NON_FINITE_NUMBER_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.int,
@@ -563,7 +579,7 @@ describe("mutation row identity", () => {
         { increment: 1 },
         "int"
       )
-    ).toThrow(/unsupported operation/);
+    ).toThrow(UNSUPPORTED_OPERATION_PATTERN);
     expect(() =>
       getUpdatedPrimaryKeyValue(
         numericIdentities.bigint,
@@ -572,7 +588,7 @@ describe("mutation row identity", () => {
         { increment: 1 },
         "bigint"
       )
-    ).toThrow(/unsupported operation/);
+    ).toThrow(UNSUPPORTED_OPERATION_PATTERN);
   });
 
   test("rejects non-portable update envelopes before planning", () => {
@@ -580,31 +596,31 @@ describe("mutation row identity", () => {
       assertPortablePrimaryKeyUpdateInput(numericIdentities.int, "update", {
         data: { id: { increment: 1, decrement: 1 } },
       })
-    ).toThrow(/accepts exactly one update operation/);
+    ).toThrow(SINGLE_UPDATE_OPERATION_PATTERN);
     expect(() =>
       assertPortablePrimaryKeyUpdateInput(
         numericIdentities.number,
         "updateMany",
         { data: { id: { increment: 1 } } }
       )
-    ).toThrow(/not portable for number primary key/);
+    ).toThrow(NOT_PORTABLE_NUMBER_PK_PATTERN);
     expect(() =>
       assertPortablePrimaryKeyUpdateInput(numericIdentities.decimal, "upsert", {
         update: { id: { multiply: 2 } },
       })
-    ).toThrow(/not portable for decimal primary key/);
+    ).toThrow(NOT_PORTABLE_DECIMAL_PK_PATTERN);
     expect(() =>
       assertPortablePrimaryKeyUpdateInput(
         numericIdentities.bigint,
         "updateManyAndReturn",
         { data: { id: { divide: 0n } } }
       )
-    ).toThrow(/divide primary key field 'id' by zero/);
+    ).toThrow(DIVIDE_ID_FIELD_BY_ZERO_PATTERN);
     expect(() =>
       assertPortablePrimaryKeyUpdateInput(numericIdentities.int, "update", {
         data: { id: { increment: Number.POSITIVE_INFINITY } },
       })
-    ).toThrow(/non-finite 'increment' operand/);
+    ).toThrow(NON_FINITE_INCREMENT_PATTERN);
     expect(() =>
       assertPortablePrimaryKeyUpdateInput(numericIdentities.int, "update", {
         data: { id: { set: 3 } },

@@ -952,7 +952,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
   });
 
   test("a constraint violated in a child arm rolls the whole tree back", async () => {
-    const { driver, client } = await boot();
+    const { client } = await boot();
 
     await expect(
       client.account.create({

@@ -13,6 +13,8 @@ import { prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+const IS_A_COLLECTION_PATTERN = /is a collection/;
+
 const schema = (() => {
   const article = s
     .model({
@@ -230,6 +232,6 @@ describe("coverage low value", () => {
         new StepScope(),
         true
       )
-    ).toThrow(/is a collection/);
+    ).toThrow(IS_A_COLLECTION_PATTERN);
   });
 });

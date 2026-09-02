@@ -39,6 +39,7 @@ function materialize(codec: ValueCodec, value: unknown): unknown {
 }
 
 function expectSnapshotFailure(run: () => unknown): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This shared helper is invoked only from registered tests.
   expect(run).toThrow(CacheSnapshotFailure);
 }
 

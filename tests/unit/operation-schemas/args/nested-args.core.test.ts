@@ -626,6 +626,7 @@ describe("Deeply Nested Updates", () => {
         where: { id: string };
         data: {
           posts: {
+            // biome-ignore lint/complexity/noBannedTypes: the empty object type is the rejected payload under test.
             createMany: {};
           };
         };

@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 class ProcessExitError extends Error {
-  constructor(readonly code: number) {
+  readonly code: number;
+
+  constructor(code: number) {
     super(`process.exit(${code})`);
+    this.code = code;
   }
 }
 

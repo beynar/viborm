@@ -31,9 +31,6 @@ import { sortOperations } from "@src/migrations/utils";
 import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 
-const MOVED_SHARED_IDX = /moved_shared_idx/;
-const MOVED_B = /moved_b/;
-
 function dropIndex(tableName: string, indexName: string): DiffOperation {
   return { type: "dropIndex", tableName, indexName };
 }

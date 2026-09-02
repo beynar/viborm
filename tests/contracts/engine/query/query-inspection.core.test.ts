@@ -124,7 +124,11 @@ describe("query inspection snapshots", () => {
 
   test("discloses executable and custom-prototype values only as opaque facts", () => {
     class ProviderValue {
-      constructor(readonly value: string) {}
+      readonly value: string;
+
+      constructor(value: string) {
+        this.value = value;
+      }
     }
 
     const snapshot = snapshotQueryInput({

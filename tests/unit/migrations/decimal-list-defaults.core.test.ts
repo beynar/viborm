@@ -53,48 +53,6 @@ function defaultSchema() {
   };
 }
 
-function storageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(LOGICAL_DEFAULT),
-        empty: s.decimal({ precision: 16, scale: 2 }).array().default([]),
-      })
-      .map(TABLE),
-  };
-}
-
-function changedStorageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(["4.20"]),
-        empty: s.decimal({ precision: 16, scale: 2 }).array().default([]),
-      })
-      .map(TABLE),
-  };
-}
-
-function noDefaultStorageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s.decimal({ precision: 16, scale: 2 }).array(),
-        empty: s.decimal({ precision: 16, scale: 2 }).array(),
-      })
-      .map(TABLE),
-  };
-}
-
 function snapshotFor(driver: MigrationDriver): SchemaSnapshot {
   return serializeModels(defaultSchema(), { migrationDriver: driver });
 }

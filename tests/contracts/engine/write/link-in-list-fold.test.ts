@@ -459,7 +459,7 @@ describe("the link IN-list fold — statement traffic", () => {
   });
 
   test("the folded M2M connect is still idempotent", async () => {
-    const { driver, client } = await boot();
+    const { client } = await boot();
     await client.author.update({
       where: { id: 1 },
       data: { labels: { connect: [{ id: 30 }, { id: 31 }] } },

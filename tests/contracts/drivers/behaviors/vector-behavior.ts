@@ -144,6 +144,7 @@ export function runVectorBehavior({
       expect(typeof scores.get("exact")).toBe("number");
       expect(scores.get("exact")).toBeCloseTo(0);
       expect(scores.get("near")).toBeCloseTo(0.282_842_7);
+      // biome-ignore lint/suspicious/noApproximativeNumericConstant: This is the expected L2 distance the provider returns, not a stand-in for Math.SQRT2.
       expect(scores.get("orthogonal")).toBeCloseTo(1.414_213_5);
       expect(scores.get("opposite")).toBeCloseTo(2);
     });
@@ -177,6 +178,7 @@ export function runVectorBehavior({
       ]);
       expect(docs[0]?._distance).toBeCloseTo(0);
       expect(docs[1]?._distance).toBeCloseTo(0.282_842_7);
+      // biome-ignore lint/suspicious/noApproximativeNumericConstant: This is the expected L2 distance the provider returns, not a stand-in for Math.SQRT2.
       expect(docs[2]?._distance).toBeCloseTo(1.414_213_5);
     });
 

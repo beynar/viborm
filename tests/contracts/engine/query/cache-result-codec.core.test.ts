@@ -25,6 +25,8 @@ import { isRecord } from "@validation/value-guards";
 import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
 
+const INCOMPLETE_CODEC_PATTERN = /incomplete/i;
+
 let jsonValidationCalls = 0;
 const countingJsonSchema: StandardSchemaV1<JsonValue, JsonValue> = {
   "~standard": {
@@ -1162,7 +1164,7 @@ describe("coverage low value", () => {
     ] as const) {
       expect(() =>
         compileCacheResultCodec(model, operation, operation, shape)
-      ).toThrow(/incomplete/i);
+      ).toThrow(INCOMPLETE_CODEC_PATTERN);
     }
   });
 
@@ -1173,7 +1175,7 @@ describe("coverage low value", () => {
 
     expect(() =>
       compileCacheResultCodec(scalarModel, "create", "create", shape)
-    ).toThrow(/incomplete/i);
+    ).toThrow(INCOMPLETE_CODEC_PATTERN);
   });
 
   test("normalizes a non-Error cache codec failure cause", () => {
@@ -1184,6 +1186,7 @@ describe("coverage low value", () => {
       { id: "one" },
       {
         getPrototypeOf() {
+          // biome-ignore lint/style/useThrowOnlyError: This fixture throws a non-Error on purpose; the test asserts the codec normalizes it.
           throw "non-error failure";
         },
       }

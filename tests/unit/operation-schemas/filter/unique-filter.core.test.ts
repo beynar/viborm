@@ -29,6 +29,7 @@ describe("Unique Filter - Types (Simple Model)", () => {
   });
 
   test("type: all fields are optional (empty object matches)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 
@@ -89,6 +90,7 @@ describe("Unique Filter - Compound ID Model Runtime", () => {
 
   test("type: does not have single field id (compound id)", () => {
     // Compound ID model has no single-field unique constraints
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 

@@ -142,7 +142,7 @@ describe("diagnostic disclosure contracts", () => {
       })
     ).toEqual({});
 
-    const sparseColumns = Array<string>(1);
+    const sparseColumns = new Array<string>(1);
     expect(sanitizeErrorMetadata({ columns: sparseColumns })).toEqual({});
     expect(sanitizeErrorMetadata({ columns: [1] })).toEqual({});
   });
@@ -512,7 +512,7 @@ describe("record-series progress diagnostics", () => {
       { ...progress, mayHaveCommittedSegment: false },
       { ...progress, totalMembers: -1 },
       { ...progress, memberPath: "0" },
-      { ...progress, memberPath: Array<number>(1) },
+      { ...progress, memberPath: new Array<number>(1) },
       { ...progress, memberPath: [0, -1] },
       { ...progress, memberPath: Array.from({ length: 33 }, () => 0) },
     ]) {
@@ -750,14 +750,19 @@ describe("coverage low value", () => {
     );
     expect(Reflect.get(detached, "name")).toBe("VibORMError");
 
-    const hostileNewTarget = new Proxy(function HostileError() {}, {
-      getOwnPropertyDescriptor() {
-        throw new Error("descriptor denied");
+    const hostileNewTarget = new Proxy(
+      function HostileError() {
+        // Only a construct target for Reflect.construct; it is never called.
       },
-      getPrototypeOf() {
-        throw new Error("prototype denied");
-      },
-    });
+      {
+        getOwnPropertyDescriptor() {
+          throw new Error("descriptor denied");
+        },
+        getPrototypeOf() {
+          throw new Error("prototype denied");
+        },
+      }
+    );
     const hostile = Reflect.construct(
       VibORMError,
       ["hostile", VibORMErrorCode.INTERNAL_ERROR],

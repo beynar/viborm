@@ -266,6 +266,7 @@ describe("prepared query execution outcomes", () => {
           {
             extension: "array-post-work",
             async handler({ proceed }) {
+              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
               void proceed();
               throw postWorkFailure;
             },
@@ -547,6 +548,7 @@ describe("query continuation authority", () => {
           {
             extension: "uncaught-double-proceed",
             handler({ proceed }) {
+              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
               void proceed();
               return proceed();
             },
@@ -1191,6 +1193,7 @@ describe("hostile query thenables", () => {
           {
             extension: "undefined-rejection",
             handler({ proceed }) {
+              // biome-ignore lint/complexity/noVoid: the extra proceed() call is deliberately left floating; the discard marks that
               void proceed();
               return Promise.reject(undefined);
             },

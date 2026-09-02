@@ -192,6 +192,8 @@ export class OwnWriteSteps {
       case "deleteMany":
         this.processDeleteMany(entry);
         return;
+      default:
+        break;
     }
   }
 

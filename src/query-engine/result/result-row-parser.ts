@@ -1,5 +1,4 @@
 import type { Model } from "@schema/model";
-import type { AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
 import {
   type ExpectedResultShape,
@@ -284,7 +283,6 @@ export function createRowParser(
   rowKeys?: RowKeyCapture
 ): CompiledRowParser {
   const scalars: Record<string, Scalar> = model["~"].state.scalars;
-  const relations: Record<string, AnyRelation> = model["~"].state.relations;
   const len = keys.length;
   const steps: ((
     result: Record<string, unknown>,

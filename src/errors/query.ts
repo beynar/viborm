@@ -251,6 +251,7 @@ export class PendingOperationError extends VibORMError {
   /** Discriminant: one of {@link PendingOperationErrorCode}, never a code outside the family. */
   declare readonly code: PendingOperationErrorCode;
 
+  // biome-ignore lint/complexity/noUselessConstructor: not a forwarder — it narrows the public signature, restricting `code` to PendingOperationErrorCode and `options` to `{ meta }`; deleting it would widen the constructor back to the base's VibORMErrorCode plus `cause`/`diagnostics`.
   constructor(
     message: string,
     code: PendingOperationErrorCode,

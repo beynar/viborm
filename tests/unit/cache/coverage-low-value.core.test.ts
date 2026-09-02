@@ -603,6 +603,7 @@ describe("official cache definition and hostile configuration", () => {
       {},
       {
         ownKeys() {
+          // biome-ignore lint/style/useThrowOnlyError: the test drives the non-Error throw path on purpose.
           throw "reflection refused";
         },
       }

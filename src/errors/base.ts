@@ -388,6 +388,7 @@ const DEFECT: CodeVerdict = { expected: false, retryable: false };
  * question: could re-running the identical operation succeed?
  */
 function verdictFor(code: VibORMErrorCode): CodeVerdict {
+  // biome-ignore lint/style/useDefaultSwitchClause: a default arm would swallow the exhaustiveness proof this switch exists for — with no default, TypeScript makes a code added to VibORMErrorCode without a disposition a compile error.
   switch (code) {
     // Connection (1xxx). The server said no, or the client could not be built from the given
     // configuration — all outside the engine. A timeout may clear on its own; a refused or

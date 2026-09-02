@@ -1,3 +1,4 @@
+// biome-ignore-all lint/style/useFilenamingConvention: the name mirrors the fromObject entry point it covers, and several manifests restate this file name by hand.
 import { ValidationError, VibORMErrorCode } from "@errors";
 import v, { parse } from "@validation";
 import type { InferOutput, VibSchema } from "@validation/types";
@@ -192,8 +193,6 @@ describe("fromObject", () => {
 
   test("works with deeply nested thunks", () => {
     // A more complex recursive structure
-    type Node = { id: string; children?: Node[] };
-
     const nodeSchema = v.object({
       id: v.string(),
       children: () => v.object({ items: nodeSchema }, { array: true }),

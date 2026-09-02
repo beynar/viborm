@@ -85,6 +85,9 @@ const REMAINING_ROUTE =
 const SKIP_WITH_RELATIONS_ROUTE =
   "createMany with skipDuplicates + relation-bearing rows";
 
+const NEXT_OWNER_DECLARATION_PATTERN =
+  /\n\s*(?:(?:export\s+)?function|private)\s+\w+\s*\(/;
+
 interface Case {
   readonly label: string;
   readonly construct: () => void;
@@ -1270,7 +1273,7 @@ describe("write engine route inventory (P6 accounting)", () => {
       }
       const nextOwner = source
         .slice(declaration.index + declaration[0].length)
-        .search(/\n\s*(?:(?:export\s+)?function|private)\s+\w+\s*\(/);
+        .search(NEXT_OWNER_DECLARATION_PATTERN);
       const ownerSource = source.slice(
         declaration.index,
         nextOwner === -1

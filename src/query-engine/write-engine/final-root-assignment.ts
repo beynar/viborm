@@ -91,6 +91,7 @@ function finalAssignmentIdentitiesEqual(
   left: FinalAssignmentIdentity,
   right: FinalAssignmentIdentity
 ): boolean {
+  // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
   switch (left.kind) {
     case "literal":
       return right.kind === "literal"
@@ -128,6 +129,7 @@ function finalReferenceSourcesEqual(
   rightField: string
 ): boolean {
   if (left.kind !== right.kind) return false;
+  // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
   switch (left.kind) {
     case "literal":
       return right.kind === "literal" && fkEquals(left.value, right.value);

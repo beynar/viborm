@@ -23,6 +23,12 @@ const MALFORMED_RESULT_PATTERN = /result|payload|rows/i;
 const RELATION_COUNT_PATTERN = /relation count/i;
 const REQUIRED_RELATION_NULL_PATTERN =
   /a required included relation returned null/;
+const RESERVED_COUNT_FIELD_PATTERN =
+  /relation counts.*model field named '_count'/i;
+const INSPECTION_FAILED_PATTERN = /inspection failed/i;
+const LOST_PRIVATE_COLUMN_ROW_PATTERN = /lost its private-column row/i;
+const MALFORMED_DECIMAL_SUM_PATTERN =
+  /malformed decimal scalar.*sum is not an exact decimal/i;
 
 class RelationMiddlewareDriver extends D1Driver {
   override readonly result: DriverResultParser = {
@@ -778,7 +784,7 @@ describe("result parser contracts", () => {
         [],
         { include: { _count: { select: { children: true } } } }
       )
-    ).toThrow(/relation counts.*model field named '_count'/i);
+    ).toThrow(RESERVED_COUNT_FIELD_PATTERN);
   });
 
   test.each([
@@ -909,7 +915,7 @@ describe("result parser contracts", () => {
         { select: { id: true } },
         { id: "database_id" }
       )
-    ).toThrow(/inspection failed/i);
+    ).toThrow(INSPECTION_FAILED_PATTERN);
   });
 
   test("rejects captured projection middleware that changes row cardinality", () => {
@@ -929,7 +935,7 @@ describe("result parser contracts", () => {
         { select: { id: true } },
         { id: "database_id" }
       )
-    ).toThrow(/lost its private-column row/i);
+    ).toThrow(LOST_PRIVATE_COLUMN_ROW_PATTERN);
   });
 
   test("parses each aggregate leaf in its declared result domain", () => {
@@ -1052,7 +1058,7 @@ describe("result parser contracts", () => {
         ],
         { _sum: { exact: true } }
       )
-    ).toThrow(/malformed decimal scalar.*sum is not an exact decimal/i);
+    ).toThrow(MALFORMED_DECIMAL_SUM_PATTERN);
   });
 });
 

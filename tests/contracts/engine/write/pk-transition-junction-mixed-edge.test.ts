@@ -219,6 +219,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ]);
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
@@ -259,6 +260,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
           client.comment.findUnique({ where: { id: "c1" } })
         ).resolves.toMatchObject({ postId: "p9" });
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
@@ -305,6 +307,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ).resolves.toMatchObject({ postId: "p9" });
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
@@ -336,6 +339,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         await expect(tagsOf(client, "p9")).resolves.toEqual(["t1"]);
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
@@ -368,6 +372,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
           { id: "t2", name: "second" },
         ]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
@@ -407,6 +412,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ).resolves.toBeNull();
         await expect(tagsOf(client, "p1")).resolves.toEqual(["t1", "t2"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
   });

@@ -22,6 +22,8 @@ const SPARSE_ERROR_PATTERN = /sparse/i;
 const STRING_ERROR_PATTERN = /string/i;
 const ASYNC_SCHEMA_ERROR_PATTERN = /asynchronous.*not supported/i;
 const DECIMAL_ERROR_PATTERN = /decimal/i;
+const DATETIME_ERROR_PATTERN = /datetime/i;
+const DISTANCE_RESULT_ERROR_PATTERN = /distance result/i;
 
 const customJsonSchema = v.object(
   {
@@ -290,11 +292,11 @@ describe("strict scalar result contracts", () => {
       new Date("1970-01-01T00:00:00.000Z")
     );
     expect(() => parseField("epochTime", "0", new SQLiteAdapter())).toThrow(
-      /datetime/i
+      DATETIME_ERROR_PATTERN
     );
     expect(() =>
       parseField("julianTime", "2440587.5", new SQLiteAdapter())
-    ).toThrow(/datetime/i);
+    ).toThrow(DATETIME_ERROR_PATTERN);
   });
 
   test("translates provider scalar decoder failures without hiding VibORM errors", () => {
@@ -754,7 +756,7 @@ describe("strict scalar result contracts", () => {
           vector3: { _distance: { to: [0, 0, 0] } },
         },
       })
-    ).toThrow(/distance result/i);
+    ).toThrow(DISTANCE_RESULT_ERROR_PATTERN);
   });
 });
 

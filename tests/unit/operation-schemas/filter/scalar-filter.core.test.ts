@@ -28,6 +28,7 @@ describe("Scalar Filter - Types", () => {
   });
 
   test("type: all fields are optional (empty object matches)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 

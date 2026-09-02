@@ -770,6 +770,7 @@ export class RelationJunctionPart implements JunctionCompilePart {
     resolvedMemberships?: ResolvedJunctionMembershipRegistry
   ): readonly OperationStep[] {
     const parent = this.parentLiteral(known);
+    // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness over `plan.kind` is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
     switch (this.plan.kind) {
       case "connect":
         return this.compileConnect(
@@ -3100,6 +3101,8 @@ export function buildJunctionParts(input: {
         }
         break;
       }
+      default:
+        break;
     }
   }
   return parts;

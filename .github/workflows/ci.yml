@@ -106,10 +106,9 @@ jobs:
       - name: Check whitespace
         run: git diff --check "${QUALITY_BASE_SHA}" HEAD
 
-      # The complete lane: every probe and every file, run by
-      # scripts/run-typecheck-shards.mjs as sequential bounded tsc programs.
-      # Never narrow this to the fast lane - `pnpm test:types:fast` exists for
-      # local iteration, and CI is where exhaustiveness is proved.
+      # The complete lane: every file the root tsconfig intends, checked as
+      # ONE native TypeScript 7 program by scripts/run-typecheck.mjs (~6 s,
+      # 8192 MiB allowlisted ceiling). It is the same check `pnpm test` runs.
       - name: Check public types
         run: pnpm test:types
 

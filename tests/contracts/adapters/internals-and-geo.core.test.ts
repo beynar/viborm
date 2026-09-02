@@ -14,8 +14,11 @@ import {
 import { Sql, sql } from "@sql";
 
 function expectComposable(fragment: Sql): void {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This shared helper is invoked only from registered tests.
   expect(fragment).toBeInstanceOf(Sql);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This shared helper is invoked only from registered tests.
   expect(fragment.toStatement().length).toBeGreaterThan(0);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This shared helper is invoked only from registered tests.
   expect(Array.isArray(fragment.values)).toBe(true);
 }
 

@@ -18,8 +18,6 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 
-const UNSUPPORTED_SPATIAL_INDEX = /unsupported index type "spatial"/i;
-
 function pointSchema() {
   return {
     place: s
@@ -44,26 +42,6 @@ function indexedPointSchema() {
   };
 }
 
-function unindexedPointSchema() {
-  return {
-    place: s.model({ id: s.string().id(), location: s.point() }).map("places"),
-  };
-}
-
-function nullablePointSchema() {
-  return {
-    place: s
-      .model({ id: s.string().id(), location: s.point().nullable() })
-      .map("places"),
-  };
-}
-
-function jsonLocationSchema() {
-  return {
-    place: s.model({ id: s.string().id(), location: s.json() }).map("places"),
-  };
-}
-
 function partialIndexPointSchema() {
   return {
     place: s
@@ -85,12 +63,6 @@ function snapshot(
   schema: Schema = indexedPointSchema()
 ): SchemaSnapshot {
   return serializeModels(schema, { migrationDriver });
-}
-
-function firstTable(value: SchemaSnapshot) {
-  const table = value.tables[0];
-  if (!table) throw new Error("the serialized schema omitted its table");
-  return table;
 }
 
 describe("SQLite GeoPoint convergence", () => {

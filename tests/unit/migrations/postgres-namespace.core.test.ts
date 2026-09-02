@@ -25,7 +25,6 @@ import { ddlContext, pgEstateDriver, RecordingDriver } from "./_estate";
 /** Refusal texts these controls pin, hoisted so no matcher builds one per call. */
 const UNBOUND_ESTATE = /not bound to an estate/;
 const EXTERNAL_SCHEMA_TYPE = /lives in another schema/;
-const CROSS_SCHEMA_TOPOLOGY = /unsupported migration topology/;
 
 // =============================================================================
 // RENDERING — §4.1's position table

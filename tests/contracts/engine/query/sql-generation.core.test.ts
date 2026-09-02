@@ -41,6 +41,31 @@ const JSON_AGG_REGEX = /json_agg|COALESCE/i;
 const IS_NULL_REGEX = /IS NULL|NOT EXISTS/i;
 const IS_NOT_NULL_REGEX = /IS NOT NULL|EXISTS/i;
 
+const ORDER_BY_NEXT_ID_DESC_NULLS_FIRST_PATTERN =
+  /ORDER BY .*"nextId" DESC NULLS FIRST/;
+const INSENSITIVE_STRING_CONTAINS_PATTERN =
+  /mode: 'insensitive'.*has no string_contains/;
+const PORTABLE_JSON_PATH_PATTERN = /requires a portable JSON path/;
+const MUST_BE_OBJECT_PATTERN = /must be an object/;
+const REQUIRES_SCALAR_FIELD_PATTERN = /requires at least one scalar field/;
+const UNKNOWN_RELATION_ORDER_FIELD_PATTERN =
+  /Unknown relation orderBy field 'author.missing'/;
+const NESTED_RELATION_MUST_BE_OBJECT_PATTERN =
+  /author.publisher.*must be an object/;
+const TO_MANY_ORDER_PATTERN = /cannot order through a to-many relation/;
+const REQUIRES_COUNT_PATTERN = /requires _count/;
+const COUNT_NOT_SUPPORTED_PATTERN = /is not supported.*_count/;
+const COUNT_SORT_DIRECTION_PATTERN = /_count.*must be 'asc' or 'desc'/;
+const UNSUPPORTED_SORT_DIRECTION_PATTERN = /Unsupported sort direction/;
+const REQUIRES_SORT_PATTERN = /requires sort/;
+const NULLS_PLACEMENT_PATTERN = /nulls must be 'first' or 'last'/;
+const SORT_DIRECTION_OBJECT_PATTERN = /must be a sort direction object/;
+const VECTOR_DISTANCE_SORT_PATTERN =
+  /Vector distance orderBy sort must be 'asc' or 'desc'/;
+const GEO_DISTANCE_SORT_PATTERN =
+  /GeoPoint distance orderBy sort must be 'asc' or 'desc'/;
+const DISTINCT_FIELD_NOT_FOUND_PATTERN = /Distinct field 'posts' not found/;
+
 // =============================================================================
 // TEST MODELS
 // =============================================================================
@@ -301,7 +326,7 @@ describe("Basic CRUD Operations", () => {
         })
         .toStatement("$n");
 
-      expect(statement).toMatch(/ORDER BY .*"nextId" DESC NULLS FIRST/);
+      expect(statement).toMatch(ORDER_BY_NEXT_ID_DESC_NULLS_FIRST_PATTERN);
     });
 
     test("compound unique cursor uses compound whereUnique fields", () => {
@@ -475,7 +500,7 @@ describe("Basic CRUD Operations", () => {
             metadata: { mode: "insensitive", equals: { name: "Arnaud" } },
           },
         })
-      ).toThrow(/mode: 'insensitive'.*has no string_contains/);
+      ).toThrow(INSENSITIVE_STRING_CONTAINS_PATTERN);
     });
 
     test("json array predicates preserve scalar containment and endpoint meaning", () => {
@@ -551,7 +576,7 @@ describe("Basic CRUD Operations", () => {
           getSql(Author, "findMany", {
             where: { metadata: { path, equals: "active" } },
           })
-        ).toThrow(/requires a portable JSON path/);
+        ).toThrow(PORTABLE_JSON_PATH_PATTERN);
       }
     });
 
@@ -2428,7 +2453,7 @@ describe("coverage low value", () => {
         postScope.rootAlias,
         new Map()
       )
-    ).toThrow(/must be an object/);
+    ).toThrow(MUST_BE_OBJECT_PATTERN);
     expect(() =>
       buildRelationOrders(
         postScope,
@@ -2437,7 +2462,7 @@ describe("coverage low value", () => {
         postScope.rootAlias,
         new Map()
       )
-    ).toThrow(/requires at least one scalar field/);
+    ).toThrow(REQUIRES_SCALAR_FIELD_PATTERN);
     expect(() =>
       buildRelationOrders(
         postScope,
@@ -2446,7 +2471,7 @@ describe("coverage low value", () => {
         postScope.rootAlias,
         new Map()
       )
-    ).toThrow(/Unknown relation orderBy field 'author.missing'/);
+    ).toThrow(UNKNOWN_RELATION_ORDER_FIELD_PATTERN);
     expect(() =>
       buildRelationOrders(
         postScope,
@@ -2455,7 +2480,7 @@ describe("coverage low value", () => {
         postScope.rootAlias,
         new Map()
       )
-    ).toThrow(/author.publisher.*must be an object/);
+    ).toThrow(NESTED_RELATION_MUST_BE_OBJECT_PATTERN);
     expect(() =>
       buildRelationOrders(
         postScope,
@@ -2464,7 +2489,7 @@ describe("coverage low value", () => {
         postScope.rootAlias,
         new Map()
       )
-    ).toThrow(/cannot order through a to-many relation/);
+    ).toThrow(TO_MANY_ORDER_PATTERN);
 
     const authorScope = scopeFor(adapter, nestedRelationOrderBySchema.Author);
     const postsRelation = lookupRelation(authorScope, "posts");
@@ -2477,7 +2502,7 @@ describe("coverage low value", () => {
         authorScope.rootAlias,
         new Map()
       )
-    ).toThrow(/requires _count/);
+    ).toThrow(REQUIRES_COUNT_PATTERN);
     expect(() =>
       buildRelationOrders(
         authorScope,
@@ -2486,7 +2511,7 @@ describe("coverage low value", () => {
         authorScope.rootAlias,
         new Map()
       )
-    ).toThrow(/is not supported.*_count/);
+    ).toThrow(COUNT_NOT_SUPPORTED_PATTERN);
     expect(() =>
       buildRelationOrders(
         authorScope,
@@ -2495,7 +2520,7 @@ describe("coverage low value", () => {
         authorScope.rootAlias,
         new Map()
       )
-    ).toThrow(/_count.*must be 'asc' or 'desc'/);
+    ).toThrow(COUNT_SORT_DIRECTION_PATTERN);
   });
 
   test("sort order helper refuses invalid directions excluded by validation", () => {
@@ -2507,14 +2532,16 @@ describe("coverage low value", () => {
     const column = sql.raw`"t0"."name"`;
 
     expect(() => buildSingleOrder(scope, column, "sideways")).toThrow(
-      /Unsupported sort direction/
+      UNSUPPORTED_SORT_DIRECTION_PATTERN
     );
-    expect(() => buildSingleOrder(scope, column, {})).toThrow(/requires sort/);
+    expect(() => buildSingleOrder(scope, column, {})).toThrow(
+      REQUIRES_SORT_PATTERN
+    );
     expect(() =>
       buildSingleOrder(scope, column, { sort: "asc", nulls: "middle" })
-    ).toThrow(/nulls must be 'first' or 'last'/);
+    ).toThrow(NULLS_PLACEMENT_PATTERN);
     expect(() => buildSingleOrder(scope, column, 1)).toThrow(
-      /must be a sort direction object/
+      SORT_DIRECTION_OBJECT_PATTERN
     );
     expect(() =>
       buildSingleOrder(
@@ -2529,7 +2556,7 @@ describe("coverage low value", () => {
         },
         { name: "embedding", scalarState: { type: "vector", dimension: 3 } }
       )
-    ).toThrow(/Vector distance orderBy sort must be 'asc' or 'desc'/);
+    ).toThrow(VECTOR_DISTANCE_SORT_PATTERN);
     expect(() =>
       buildSingleOrder(
         geoPointScope,
@@ -2542,7 +2569,7 @@ describe("coverage low value", () => {
         },
         { name: "location", scalarState: { type: "point" } }
       )
-    ).toThrow(/GeoPoint distance orderBy sort must be 'asc' or 'desc'/);
+    ).toThrow(GEO_DISTANCE_SORT_PATTERN);
   });
 
   test("distinct helper refuses a non-scalar field excluded by validation", () => {
@@ -2550,6 +2577,6 @@ describe("coverage low value", () => {
     expect(buildDistinctColumns(scope, [], scope.rootAlias)).toBeUndefined();
     expect(() =>
       buildDistinctColumns(scope, ["posts"], scope.rootAlias)
-    ).toThrow(/Distinct field 'posts' not found/);
+    ).toThrow(DISTINCT_FIELD_NOT_FOUND_PATTERN);
   });
 });

@@ -9,23 +9,17 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import type { MigrationDriver } from "@migrations/drivers";
 import { introspect } from "@migrations/push";
-import { serializeModels } from "@migrations/serializer";
-import type { ColumnDef, SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { ddlContextFor } from "./_estate";
 
 const TABLE = "decimal_list_defaults";
 const LOGICAL_DEFAULT = ["1.20", "-3.40", "0.00", "90071992547409.93"];
-const POSTGRES_DEFAULT = "'{1.20,-3.40,0.00,90071992547409.93}'";
 const JSON_DEFAULT = '\'["120","-340","0","9007199254740993"]\'';
-const MYSQL_DEFAULT = `(${JSON_DEFAULT})`;
 
 /**
  * The PostgreSQL legs answer from the worker's ONE PGlite through this suite's
@@ -35,34 +29,6 @@ const MYSQL_DEFAULT = `(${JSON_DEFAULT})`;
  * empty, and every raw statement names the schema itself.
  */
 const getFamily = usePGliteSchemaFamily({});
-
-function defaultSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(LOGICAL_DEFAULT),
-        empty: s.decimal({ precision: 16, scale: 2 }).array().default([]),
-        generated: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(() => ["4.20"]),
-        nullable: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .nullable()
-          .default(null),
-        nullableScalar: s
-          .decimal({ precision: 16, scale: 2 })
-          .nullable()
-          .default(null),
-      })
-      .map(TABLE),
-  };
-}
 
 function storageSchema() {
   return {
@@ -104,25 +70,6 @@ function noDefaultStorageSchema() {
       })
       .map(TABLE),
   };
-}
-
-function snapshotFor(driver: MigrationDriver): SchemaSnapshot {
-  return serializeModels(defaultSchema(), { migrationDriver: driver });
-}
-
-function columnsFor(driver: MigrationDriver): Map<string, ColumnDef> {
-  const table = snapshotFor(driver).tables[0];
-  if (table === undefined) throw new Error("decimal default table is missing");
-  return new Map(table.columns.map((column) => [column.name, column]));
-}
-
-function createTableSql(driver: MigrationDriver): string {
-  const table = snapshotFor(driver).tables[0];
-  if (table === undefined) throw new Error("decimal default table is missing");
-  return driver.generateDDL(
-    { type: "createTable", table },
-    ddlContextFor("artifact", { tables: [] })
-  );
 }
 
 describe("literal decimal-list defaults converge and populate old rows", () => {

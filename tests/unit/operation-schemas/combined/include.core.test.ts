@@ -21,6 +21,7 @@ describe("Include Schema - Types (Simple Model)", () => {
   type Input = InferInput<typeof simpleSchemas.include>;
 
   test("type: empty object matches (no relations)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 });

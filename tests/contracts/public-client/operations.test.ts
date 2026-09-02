@@ -896,7 +896,7 @@ describe("Update Operations", () => {
 describe("Delete Operations", () => {
   describe("delete", () => {
     test("deletes a record by id", async () => {
-      const { alice, bob } = await createStandardUserPostUsers(client);
+      const { alice } = await createStandardUserPostUsers(client);
 
       const result = await client.user.delete({
         where: { id: alice.id },
@@ -1411,7 +1411,7 @@ describe("Relation Queries", () => {
   });
 
   test("filters by relation (some)", async () => {
-    const { alice, bob } = await createStandardUserPostUsers(client);
+    const { alice } = await createStandardUserPostUsers(client);
     await createStandardUserPostPosts(client, alice.id);
 
     const result = await client.user.findMany({

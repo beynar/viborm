@@ -48,15 +48,6 @@ test("nested update resolves a manyToOne target declared later", async () => {
     data: { id: "m1", name: "m1", teamId: "t1" },
   });
 
-  const fallbackClient: Record<
-    string,
-    Record<string, (args: Record<string, unknown>) => unknown>
-  > = new Proxy(
-    {},
-    {
-      get: (_target, modelName) => Reflect.get(baseClient, modelName),
-    }
-  );
   const observed = observeClientOperations({
     schema,
     driver,

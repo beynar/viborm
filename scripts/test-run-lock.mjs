@@ -55,6 +55,10 @@ function getWorkspaceState() {
   return workspaceState;
 }
 
+const PROCESS_TABLE_ROW_PATTERN = /^\s*(\d+)\s+(\d+)\s+(.+)$/;
+const TRAILING_SLASHES_PATTERN = /\/+$/;
+const PATH_TERMINATOR_PATTERN = /[\s"'`]/;
+
 const WORKSPACE_VERIFICATION_MARKERS = [
   "/node_modules/vitest/vitest.mjs",
   "/node_modules/typescript/bin/tsc",
@@ -69,7 +73,7 @@ export function parseProcessTable(output) {
   const pids = new Set();
   for (const line of output.split("\n")) {
     if (line.trim().length === 0) continue;
-    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+    const match = line.match(PROCESS_TABLE_ROW_PATTERN);
     if (!match) {
       throw new Error("The process table contains an unreadable row.");
     }
@@ -122,7 +126,7 @@ export function currentAncestors(processes, currentPid) {
 }
 
 export function isWorkspaceVerification(command, workspace) {
-  const root = workspace.replace(/\/+$/, "");
+  const root = workspace.replace(TRAILING_SLASHES_PATTERN, "");
   const workspacePath = `${root}/`;
   let searchFrom = 0;
   while (searchFrom < command.length) {
@@ -130,7 +134,7 @@ export function isWorkspaceVerification(command, workspace) {
     if (rootIndex < 0) return false;
     const pathTail = command
       .slice(rootIndex + root.length)
-      .split(/[\s"'`]/, 1)[0];
+      .split(PATH_TERMINATOR_PATTERN, 1)[0];
     if (
       WORKSPACE_VERIFICATION_MARKERS.some((marker) => pathTail.endsWith(marker))
     ) {
@@ -206,7 +210,9 @@ export function acquireTestRunLock(label) {
       );
     }
     if (ancestors.has(owner.pid)) {
-      return () => {};
+      return () => {
+        // The lock is owned by an ancestor process, which releases it itself.
+      };
     }
     throw new Error(
       `Test command refused: ${owner.label ?? "another test command"} (PID ${owner.pid}) already owns this workspace.`

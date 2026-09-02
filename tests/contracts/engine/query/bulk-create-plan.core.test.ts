@@ -34,6 +34,18 @@ import { readTestTransactionOperation } from "@tests/fixtures/transaction-operat
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
+const HETEROGENEOUS_ROWS_PATTERN =
+  /Heterogeneous insert rows require grouped execution/;
+const EXPLICIT_ZERO_PATTERN = /Explicit zero is not portable.*'id'/;
+const GENERATED_ULID_REQUIRED_PATTERN =
+  /Auto-generated value 'ulid'.*must be provided explicitly/;
+const ANY_NULL_PATTERN = /AnyNull matches both nulls/;
+const MISSING_DECIMAL_DESCRIPTOR_PATTERN =
+  /has no declared precision and scale/;
+const INEXACT_DECIMAL_PATTERN = /not an exact decimal/;
+const INEXACT_DECIMAL_MEMBER_PATTERN =
+  /received a member that is not an exact decimal/;
+
 class PlanDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter = new PostgresAdapter();
 
@@ -157,7 +169,7 @@ describe("bulk create planning", () => {
     ]);
     expect(() =>
       buildValues(scope, [{ label: "generated" }, { id: 7, label: "manual" }])
-    ).toThrow(/Heterogeneous insert rows require grouped execution/);
+    ).toThrow(HETEROGENEOUS_ROWS_PATTERN);
   });
 
   test("refuses non-portable explicit and missing generated values", () => {
@@ -166,18 +178,18 @@ describe("bulk create planning", () => {
         id: 0,
         label: "zero",
       })
-    ).toThrow(/Explicit zero is not portable.*'id'/);
+    ).toThrow(EXPLICIT_ZERO_PATTERN);
     expect(() =>
       buildValues(scopeFor(new PostgresAdapter(), generatedBigInt), {
         id: 0n,
         label: "zero",
       })
-    ).toThrow(/Explicit zero is not portable.*'id'/);
+    ).toThrow(EXPLICIT_ZERO_PATTERN);
     expect(() =>
       buildValues(scopeFor(new PostgresAdapter(), generatedText), {
         label: "missing",
       })
-    ).toThrow(/Auto-generated value 'ulid'.*must be provided explicitly/);
+    ).toThrow(GENERATED_ULID_REQUIRED_PATTERN);
     expect(
       buildValues(scopeFor(new PostgresAdapter(), generatedText), {
         id: "01JTESTVALUE",
@@ -241,7 +253,7 @@ describe("bulk create planning", () => {
     ).toEqual(["null"]);
     expect(() =>
       buildScalarSqlValue(scope, valueModel, "payload", AnyNull)
-    ).toThrow(/AnyNull matches both nulls/);
+    ).toThrow(ANY_NULL_PATTERN);
   });
 
   test("keeps scalar comparison literals consistent with insert literals", () => {
@@ -279,13 +291,13 @@ describe("bulk create planning", () => {
 
     expect(() =>
       decimalLiteral(new PostgresAdapter(), "amount", "1.20", undefined)
-    ).toThrow(/has no declared precision and scale/);
+    ).toThrow(MISSING_DECIMAL_DESCRIPTOR_PATTERN);
     expect(() =>
       decimalLiteral(new PostgresAdapter(), "amount", {}, descriptor)
-    ).toThrow(/not an exact decimal/);
+    ).toThrow(INEXACT_DECIMAL_PATTERN);
     expect(() =>
       decimalListMember(new SQLiteAdapter(), "amounts", {}, descriptor)
-    ).toThrow(/received a member that is not an exact decimal/);
+    ).toThrow(INEXACT_DECIMAL_MEMBER_PATTERN);
     expect(() =>
       decimalListMembers(
         new SQLiteAdapter(),
@@ -293,7 +305,7 @@ describe("bulk create planning", () => {
         ["1.20", {}],
         descriptor
       )
-    ).toThrow(/received a member that is not an exact decimal/);
+    ).toThrow(INEXACT_DECIMAL_MEMBER_PATTERN);
     expect(
       decimalListMember(new SQLiteAdapter(), "amounts", "1.20", descriptor)
         .values

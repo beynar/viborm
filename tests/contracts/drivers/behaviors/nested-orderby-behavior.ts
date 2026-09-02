@@ -9,6 +9,8 @@ import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+const TO_MANY_ORDER_BY_REJECTION_PATTERN = /posts|to-many|_count|orderBy/i;
+
 const company = s
   .model({
     id: s.string().id(),
@@ -379,7 +381,7 @@ export function runNestedOrderByBehavior({
           } as never,
           select: { id: true },
         })
-      ).rejects.toThrow(/posts|to-many|_count|orderBy/i);
+      ).rejects.toThrow(TO_MANY_ORDER_BY_REJECTION_PATTERN);
     });
 
     test("combines nested orderBy with take, skip, and scalar tiebreakers", async () => {

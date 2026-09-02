@@ -9,6 +9,7 @@ import {
 } from "@drivers/bun-sqlite";
 import { createClient as createD1Client, D1Driver } from "@drivers/d1";
 import { Driver } from "@drivers/driver";
+// biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as driverBase from "@drivers/exports";
 import {
   createClient as createLibSQLClient,

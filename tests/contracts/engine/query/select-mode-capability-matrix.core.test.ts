@@ -17,6 +17,7 @@ function unsupportedOperation(
   operation: AtomicOperation
 ): PromiseLike<unknown> {
   const client = createClient({ schema: nestedWriteBehaviorSchema, driver });
+  // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness over AtomicOperation is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
   switch (operation) {
     case "create":
       return client.user.create({

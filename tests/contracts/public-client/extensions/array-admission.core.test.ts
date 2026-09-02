@@ -71,6 +71,7 @@ describe("array query admission", () => {
       [slot],
       new TransactionWriteOutcomes(),
       (_slot, child) => {
+        // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
         void child();
         return Promise.resolve("observed query");
       }
@@ -91,6 +92,7 @@ describe("array query admission", () => {
         [slot],
         new TransactionWriteOutcomes(),
         (_slot, child) => {
+          // biome-ignore lint/complexity/noVoid: the child promise is deliberately left floating; the discard marks that
           void child();
           return Promise.reject(failure);
         }

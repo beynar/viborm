@@ -83,6 +83,7 @@ describe("comparison operands", () => {
     );
     const thrownValue = runInOperandScope(model, () =>
       parse(operand, () => {
+        // biome-ignore lint/style/useThrowOnlyError: the test drives the non-Error throw path on purpose.
         throw "callback refused";
       })
     );

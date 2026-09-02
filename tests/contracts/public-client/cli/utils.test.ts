@@ -23,6 +23,14 @@ import {
 import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const MISSING_CONFIG_FILE_PATTERN = /Could not find VibORM configuration file/;
+const TS_LOADER_HINT_PATTERN =
+  /Make sure you're running with a TypeScript loader/;
+const MISSING_CLIENT_PATTERN = /Missing "client"/;
+const INVALID_CLIENT_PATTERN = /Invalid "client"/;
+const NO_MODELS_PATTERN = /No models found in client schema/;
+const SCHEMA_VALIDATION_FAILED_PATTERN = /Schema validation failed/;
+
 // ===========================================================================
 // loadConfig
 // ===========================================================================
@@ -90,7 +98,7 @@ describe("loadConfig", () => {
     const missing = `${project.dir}/nope.config.ts`;
 
     await expect(loadConfig({ config: missing })).rejects.toThrow(
-      /Could not find VibORM configuration file/
+      MISSING_CONFIG_FILE_PATTERN
     );
     await expect(loadConfig({ config: missing })).rejects.toThrow(missing);
   });
@@ -120,7 +128,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Make sure you're running with a TypeScript loader/
+      TS_LOADER_HINT_PATTERN
     );
   });
 
@@ -131,9 +139,7 @@ describe("loadConfig", () => {
     });
     chdir(project.dir);
 
-    await expect(loadConfig()).rejects.toThrow(
-      /Make sure you're running with a TypeScript loader/
-    );
+    await expect(loadConfig()).rejects.toThrow(TS_LOADER_HINT_PATTERN);
   });
 
   it("preserves a JavaScript config import failure", async () => {
@@ -255,7 +261,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Missing "client"/
+      MISSING_CLIENT_PATTERN
     );
   });
 
@@ -265,7 +271,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Invalid "client"/
+      INVALID_CLIENT_PATTERN
     );
   });
 
@@ -275,7 +281,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Invalid "client"/
+      INVALID_CLIENT_PATTERN
     );
   });
 
@@ -286,7 +292,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Invalid "client"/
+      INVALID_CLIENT_PATTERN
     );
   });
 
@@ -321,7 +327,7 @@ describe("loadConfig", () => {
     writeConfigFixture(project, { schemaBody: "const schema = {};" });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /No models found in client schema/
+      NO_MODELS_PATTERN
     );
   });
 
@@ -349,7 +355,7 @@ describe("loadConfig", () => {
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      /Schema validation failed/
+      SCHEMA_VALIDATION_FAILED_PATTERN
     );
   });
 });
@@ -401,7 +407,7 @@ describe("coverage low value", () => {
       });
 
       await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-        /Invalid "client"/
+        INVALID_CLIENT_PATTERN
       );
     } finally {
       project.cleanup();

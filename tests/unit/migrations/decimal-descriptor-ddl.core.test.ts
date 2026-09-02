@@ -29,7 +29,6 @@ import { ddlContextFor } from "./_estate";
 
 /** A space after the comma is a second spelling of one domain (trap: churn). */
 const SPACED_TYPE_ARGUMENT = /\(\s*\d+\s*,\s+\d+\s*\)/;
-const AMOUNT_REAL = /"amount"\s+REAL/i;
 
 function ledger() {
   return {
