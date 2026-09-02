@@ -145,9 +145,9 @@ describe("pattern oracle goldens", () => {
 
 describe("pattern oracle corpus summary", () => {
   test("the corpus has the frozen size, and its refusals are the ones named", () => {
-    expect(payloads.length).toBe(246);
+    expect(payloads.length).toBe(253);
     const invalid = payloads.filter(isInvalidPayload);
-    expect(invalid.length).toBe(21);
+    expect(invalid.length).toBe(24);
 
     const report: string[] = [];
     const unexpected: string[] = [];

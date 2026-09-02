@@ -1,0 +1,94 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Record was replaced by another transaction during nested connectOrCreate",
+        "raceable": false,
+        "relation": "device"
+      },
+      "id": "device.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_devices\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "expects": null,
+      "id": "calibration.create",
+      "kind": "write",
+      "model": "calibration",
+      "onUniqueConflict": null,
+      "outputs": {
+        "produced:deviceId": {
+          "field": "deviceId",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        1,
+        "o"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_calibrations\" (\"deviceId\", \"offset\") VALUES (CAST($1 AS INTEGER), $2) RETURNING \"deviceId\" AS \"deviceId\""
+    },
+    {
+      "expects": null,
+      "id": "calibration.select",
+      "kind": "read",
+      "model": "calibration",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "calibration.create.produced:deviceId"
+        }
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"deviceId\" AS \"deviceId\" FROM \"public\".\"pc_calibrations\" AS \"t0\" WHERE \"t0\".\"deviceId\" = CAST($1 AS INTEGER) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "calibration",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "calibration.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "device.find",
+      "kind": "read",
+      "model": "device",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_devices\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

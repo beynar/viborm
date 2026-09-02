@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V7001",
+    "message": "Nested create requires primary key field 'deviceId' to be known before execution.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "device",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

@@ -1,0 +1,130 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'sample' row for its unique where.",
+        "raceable": false
+      },
+      "id": "sample.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_samples\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'reading': target record was not found.",
+        "raceable": false,
+        "relation": "reading"
+      },
+      "id": "reading.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1.5
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_readings\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "sample.update",
+      "kind": "write",
+      "model": "sample",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        1.5,
+        1
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_samples\" SET \"readingId\" = CAST(? AS NUMERIC) WHERE \"pc_samples\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "sample.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_samples\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "sample",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "sample.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'sample' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "sample.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_samples\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "reading.find",
+      "kind": "read",
+      "model": "reading",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1.5
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_readings\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

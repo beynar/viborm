@@ -289,7 +289,6 @@ const UNKNOWN_DISCONNECT = /Unknown key: disconnect/;
 const EMPTY_SELECTOR = /cannot be empty/;
 const MISSING_REQUIRED = /Missing required field/;
 const MUTUALLY_EXCLUSIVE = /Mutually exclusive/;
-const SHARED_PRIMARY_KEY = /does not support a shared-primary-key/;
 const UNION_MEMBER = /did not match any union member/;
 
 const VALIDATION: Readonly<Record<ValidationStrategy, Strategy>> = {
@@ -977,10 +976,15 @@ const SEMANTIC: Readonly<Record<SemanticStrategy, SemanticFn>> = {
         [edge.field]: { connectOrCreate: { where: selector, create: created } },
       }),
       expect: {
-        stage: "packing",
-        error: "UnsupportedOperationError",
-        message: SHARED_PRIMARY_KEY,
-        deferredKind: "sharedKeyAmbiguousArm",
+        // MEASURED on the corpus schema built for this shape
+        // (`invalid:create:calibration:shared-key.connectOrCreate`, 12/12 cells
+        // `ok`): today orders the target's write first and reads its returned
+        // key. The refusal exists — `does not support a shared-primary-key …` —
+        // but only where that value cannot be resolved, which is a SUBSTRATE
+        // fact (`bindsGeneratedKey`), so the packer owns it and construction
+        // defers nothing.
+        stage: "none",
+        message: undefined,
       },
     };
   },

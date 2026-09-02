@@ -1,0 +1,75 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "calibration.create",
+      "kind": "write",
+      "model": "calibration",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        1,
+        "o"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_calibrations\" (\"deviceId\", \"offset\") VALUES (CAST($1 AS INTEGER), $2)"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "calibration.select",
+      "kind": "read",
+      "model": "calibration",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"deviceId\" AS \"deviceId\" FROM \"public\".\"pc_calibrations\" AS \"t0\" WHERE \"t0\".\"deviceId\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "calibration",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "calibration.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "device.find",
+      "kind": "read",
+      "model": "device",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_devices\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

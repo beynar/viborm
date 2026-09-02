@@ -13,6 +13,12 @@
  * - `poly`     — a row-held polymorphic reference (`.optional()` and required)
  *                and a polymorphic collection with one plural and one singular
  *                inverse member.
+ * - `keys`     — the three KEY shapes the other three lack, each of which a
+ *                semantic refusal names: a float primary key (arithmetic on it
+ *                is not portable), a NUMERIC foreign key (the only spelling
+ *                that admits a non-literal relation-key write), and an edge
+ *                whose foreign key IS the row key (a merge supplying it cannot
+ *                resolve one final value).
  *
  * Each schema is hydrated and validated at module load, exactly as the client
  * would, so a corpus payload never meets an unvalidated topology.
@@ -233,12 +239,66 @@ export const poly = (() => {
   return { post, video, comment, spotlight, clip, shelf };
 })();
 
-for (const schema of [fk, junction, poly]) {
+// ---------------------------------------------------------------------------
+// keys — the key shapes a semantic refusal names
+// ---------------------------------------------------------------------------
+
+export const keys = (() => {
+  const reading = s
+    .model({
+      // FLOAT primary key: `{ increment }` on it is refused as non-portable.
+      id: s.number().id(),
+      label: s.string(),
+      samples: s.toMany(() => sample),
+    })
+    .map("pc_readings");
+
+  const sample = s
+    .model({
+      id: s.int().id(),
+      value: s.string(),
+      // NUMERIC foreign key: the int update grammar admits `{ increment }`,
+      // which is the non-literal relation-key write nothing else can spell.
+      readingId: s.number().nullable(),
+      reading: s
+        .toOne(() => reading)
+        .fields("readingId")
+        .references("id"),
+    })
+    .map("pc_samples");
+
+  const device = s
+    .model({
+      // DATABASE-generated key, so a merge's missing arm cannot spell it.
+      id: s.int().id().increment(),
+      name: s.string(),
+      calibration: s.toOne(() => calibration),
+    })
+    .map("pc_devices");
+
+  const calibration = s
+    .model({
+      // The reference IS this row's key: a merge that supplies it has to
+      // resolve one final value for the record's own primary key, and a fresh
+      // device's key is not one until it is written.
+      deviceId: s.int().id(),
+      offset: s.string(),
+      device: s
+        .toOne(() => device)
+        .fields("deviceId")
+        .references("id"),
+    })
+    .map("pc_calibrations");
+
+  return { reading, sample, device, calibration };
+})();
+
+for (const schema of [fk, junction, poly, keys]) {
   hydrateSchemaNames(schema);
   validateSchemaOrThrow(schema);
 }
 
 /** The corpus schemas by name, as `payloads.ts` addresses them. */
-export const schemas = { fk, junction, poly } as const;
+export const schemas = { fk, junction, poly, keys } as const;
 
 export type SchemaName = keyof typeof schemas;

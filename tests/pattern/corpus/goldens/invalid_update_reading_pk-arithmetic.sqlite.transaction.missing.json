@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V9001",
+    "message": "Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    "name": "QueryEngineError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "reading",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

@@ -66,6 +66,14 @@ const poly = (
   options?: DumpOptions
 ): CorpusPayload => ({ name, schema: "poly", model, operation, args, options });
 
+const keys = (
+  name: string,
+  model: string,
+  operation: string,
+  args: Record<string, unknown>,
+  options?: DumpOptions
+): CorpusPayload => ({ name, schema: "keys", model, operation, args, options });
+
 // ---------------------------------------------------------------------------
 // fk — root create
 // ---------------------------------------------------------------------------
@@ -1809,6 +1817,54 @@ const polyCollection: readonly CorpusPayload[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// keys — the key shapes the other schemas cannot spell
+// ---------------------------------------------------------------------------
+
+const keysPayloads: readonly CorpusPayload[] = [
+  keys("create:reading:scalar", "reading", "create", {
+    data: { id: 1.5, label: "one" },
+    select: { id: true },
+  }),
+  // The shared-key edge, supplied by a `connect`: the record's own primary key
+  // comes from the located row, which resolves to ONE value.
+  keys("create:calibration:shared-key.connect", "calibration", "create", {
+    data: { offset: "o", device: { connect: { id: 1 } } },
+    select: { deviceId: true },
+  }),
+  keys("invalid:update:device:calibration.create", "device", "update", {
+    where: { id: 1 },
+    data: { calibration: { create: { offset: "o" } } },
+    select: { id: true },
+  }),
+  keys("update:sample:reading.connect", "sample", "update", {
+    where: { id: 1 },
+    data: { reading: { connect: { id: 1.5 } } },
+    select: { id: true },
+  }),
+  // A merge supplying the reference that IS this record's primary key. Today
+  // ACCEPTS it — the target's write is ordered first and its returned key
+  // read — so it is a valid payload; the shared-primary-key refusal fires only
+  // where that value cannot be resolved, which is a substrate fact.
+  keys(
+    "create:calibration:shared-key.connectOrCreate",
+    "calibration",
+    "create",
+    {
+      data: {
+        offset: "o",
+        device: {
+          connectOrCreate: {
+            where: { id: 1 },
+            create: { name: "D" },
+          },
+        },
+      },
+      select: { deviceId: true },
+    }
+  ),
+];
+
+// ---------------------------------------------------------------------------
 // invalid — the refusal is the contract
 // ---------------------------------------------------------------------------
 
@@ -1994,6 +2050,22 @@ const invalid: readonly CorpusPayload[] = [
       select: { id: true },
     }
   ),
+  // A float primary key: arithmetic on it is not portable (§19).
+  keys("invalid:update:reading:pk-arithmetic", "reading", "update", {
+    where: { id: 1.5 },
+    data: { id: { increment: 1 } },
+    select: { id: true },
+  }),
+  // The one non-literal spelling of a relation key: a numeric foreign key
+  // written with `{ increment }` while its own relation is written.
+  keys("invalid:update:sample:fk-non-literal", "sample", "update", {
+    where: { id: 1 },
+    data: {
+      readingId: { increment: 1 },
+      reading: { connect: { id: 1.5 } },
+    },
+    select: { id: true },
+  }),
 ];
 
 export const payloads: readonly CorpusPayload[] = [
@@ -2004,6 +2076,7 @@ export const payloads: readonly CorpusPayload[] = [
   ...junctionPayloads,
   ...polyRowHeld,
   ...polyCollection,
+  ...keysPayloads,
   ...invalid,
 ];
 

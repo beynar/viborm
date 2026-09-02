@@ -1,0 +1,16 @@
+{
+  "dialect": "postgresql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot update relation key field 'readingId' with a non-literal operation while mutating relation 'reading'. Use a literal value or '{ set: ... }'.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "sample",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}
