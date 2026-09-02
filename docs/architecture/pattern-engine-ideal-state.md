@@ -859,6 +859,7 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 97d59970 | `decodeRows` gains the bulk count arm, which today's engine never routes through the parser at all; the write-result fuzz proves the terminal projection over 4,384 cells (555 payloads × 3 dialects × 2 substrates, series result reads included) with one allowed difference. **M2 1,237 equal, 208 trace, 0 outcome.** |
 | 2026-09-02 | 8827aa7d | A calibration corpus schema (float primary key, numeric foreign key, an edge whose foreign key is the row key) with 84 goldens, so three semantic refusal strategies become exercisable; no existing golden moved. Corpus 3,204 cells. **M1 1,531 equal, fuzz 371, M2 1,293 equal, 208 trace, 0 outcome; read fuzz 3,600 cells and write-result fuzz 5,179, both fully equal.** |
 | 2026-09-02 | d51843aa | One sentence retires a family of false refusals: *a reference row writes nothing about the rows it names* (overlap 112 → 61). Variant members bound from the resolved edge rather than the carrier name; the private `(type, id)` pair lowers as a predicate instead of leaking into a public filter; a database-bound variable is published by whichever packed match carries it; the guard shape is read from row facts. **M1 1,723 equal, M2 1,436 equal, 251 trace, 0 outcome.** |
+| 2026-09-02 | c496172e | The projection emitter relocated to `builders/projection-select.ts` with projection-shaped entry points beside today's argument-shaped ones; match mode 2,630 → 686 lines and ~250 lines of inverse retired, with the old engine's path untouched. The pattern suites given an owner in the contract matrix and the test inventory. **Five projects green: 217 files, 4,283 tests.** |
 
 Open divergence classes, by owner (cell counts from the d51843aa run):
 
@@ -872,8 +873,11 @@ Open divergence classes, by owner (cell counts from the d51843aa run):
 - Construction (C): `Row.located` and `Row.label`, which unblock 227 lines of
   packer tables; arm-scoped deferred refusals; the shared-key construction
   change left unfinished at the session limit.
-- Match and decode (G): the projection emitter's relocation (P1); the read
-  swap itself is M5.
+- Match and decode (G): malformed provider rows and container policy, the two
+  pieces M3 still lacks before it can be marked passed.
+- Executors (F): M2 is half its definition — faults, error class/code/meta,
+  retry, `recordSeriesProgress` and instrumentation facts are not compared at
+  all yet.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
 
