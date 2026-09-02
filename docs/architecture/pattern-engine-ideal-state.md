@@ -855,22 +855,39 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 9817d156 | The packer owns the row lock (executors add none); substrate admission refuses before the parse boundary, in the executor and in the differential chain. **M1 582 equal, M2 522 equal, 18 trace, 12 outcome.** |
 | 2026-09-02 | 67e24c67 | Packer rewritten as family lowerings keyed by one storage fact (parent-held / child-held / junction) crossed with row facts, with total id allocation, the per-dialect mutation folds, junction statements and the terminal read lowered as a match. M2 compares decoded results, enforces the projection's row shape and erases the per-operation scratch id. **M1 1,460 equal, fuzz 277, M2 989 equal, 437 trace, 4 outcome.** |
 | 2026-09-02 | bb24c065 | Terminal write projection lowered by `matchWriteResult` (returning / fold / reselect) against today's builders. Statement-atomic seam settles arm-less fragments and runs a one-statement program bare on every substrate. Fifteen semantic generator strategies with measured stage labels. M2 compares decoded results, enforces the row shape, and lets a write answer its own projection. **M1 1,460 equal, fuzz 277, M2 1,205 equal, 213 trace, 12 outcome.** |
+| 2026-09-02 | 8d628bae | Correlation direction taken from construction order (the enclosing row's match publishes the column) rather than re-derived; matched-then-retracted rows keep a match node; a located row is re-addressed by the key its own match captured. Three packer tables become contract facts: `Row.located`, `Row.label`, `BoundPremise.shape`. **M1 1,475 equal, order mismatches 224 → 122; fuzz 291; M2 1,225 equal, 208 trace, 12 outcome.** |
 
-Open divergence classes, by owner (cell counts from the bb24c065 run):
+Open divergence classes, by owner (cell counts from the 8d628bae run):
 
-- Packer (D+E): match emission — which families send a probe (277 missing
-  matches, 224 order mismatches); a write bound to the payload's literal
-  instead of the key its own match captured (≈110 execution cells); variant
-  families (231); selectors built as public filter objects instead of lowered
-  predicates (150); the parent id inlining (84); member fragments for series
-  (70); statement count (16) and match level grouping (4). Scheduler: legality
-  over-refusals (72), and the root refusal that must live in `pack` after the
-  whole match phase rather than as an `expects` on the locate (9).
-- Match and decode (G): the terminal write projection proved over the whole
-  corpus rather than six goldens; a count arm in `decodeRows`, which today's
-  engine never routes through the parser at all.
-- Construction (C): arm-scoped deferred refusals (18 cells today defers to the
-  found arm); a refusal today raises and the pattern engine does not (12);
-  three semantic strategies no fixture schema can exercise.
+- Packer (D+E): overlap classification, which grew to 112 over-refusals as a
+  side effect of matched rows keeping their match nodes; variant families
+  (123 + 93); selectors built as public filter objects (90 + 45); parent id
+  inlining (84); member fragments for series (70). Match emission is down to
+  258 missing matches and 122 order mismatches, dominated by the series
+  payloads.
+- Match and decode (G): the terminal write projection over the whole corpus;
+  a count arm in `decodeRows`.
+- Construction (C): `Row.located` and `Row.label` stamped from the verb plans;
+  arm-scoped deferred refusals; a refusal today raises and the engine does not;
+  a schema gap that leaves three semantic strategies unexercised.
+
+### 13.10 The pinned-byte term, measured
+
+§11 budgets packing at 2.5k lines plus up to 5k of special cases that exist
+only to reproduce today's bytes. That term is now measured rather than
+guessed. Of `pack.ts`'s 3,207 lines: about 1,290 are the design — one rule over
+cells and edges, value and key resolution, predicate and assignment lowering,
+premises, the terminal pattern, junction lowering, write dispatch — and about
+1,720 are byte-pinning: id labels per family, guard shapes, per-verb probe and
+write shapes, root-operation shapes, fold gates, emission predicates, message
+families.
+
+The measurement's value is that it names which special cases are avoidable.
+Three were: which rows send a probe is a property of the verb's plan, the step
+label belongs where the public verb is spelled, and there are only three guard
+shapes, decided by the match rather than the verb. All three are now contract
+facts. The rest of the term is what the design predicted: today's bytes are
+pinned somewhere, and the engine keeps them in one file rather than spread
+across a verb table.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
