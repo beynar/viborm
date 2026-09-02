@@ -546,3 +546,19 @@ function buildCountPairs(
 
   return pairs;
 }
+
+/**
+ * The projection-shaped twins of {@link buildSelect} and
+ * {@link buildSelectWithAliases}, re-exported here so both spellings of "build
+ * a SELECT list" are found in one place.
+ *
+ * They are the entries this module's own walk becomes an adapter over once the
+ * public request is converted at the parse boundary; the map of that rewiring
+ * — which modules retire, and why the args entries must survive as adapters —
+ * is in `builders/projection-select.ts`'s header.
+ */
+export {
+  buildProjectionSelect,
+  buildProjectionSelectWithAliases,
+  type ProjectionSelectOptions,
+} from "./projection-select";

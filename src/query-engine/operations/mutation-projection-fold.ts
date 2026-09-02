@@ -35,8 +35,10 @@ import {
 } from "@adapters/adapter-internals";
 import { getColumnName } from "@schema/model";
 import { Sql, sql } from "@sql";
+import { buildProjectionSelectWithAliases } from "../builders/projection-select";
 import { buildSelectWithAliases } from "../builders/select-builder";
 import { getScalarFieldNames, variantCarrier } from "../context";
+import type { Projection } from "../pattern/pattern";
 import { isVariantRowCarrier, type QueryScope } from "../types";
 import {
   isOperationValueReference,
@@ -123,25 +125,54 @@ export function buildMutationProjectionFold(
     include?: Record<string, unknown>;
   }
 ): Sql {
+  return foldStatement(
+    ctx,
+    args,
+    returningEveryColumn(ctx, args.select, args.include),
+    buildSelectWithAliases(ctx, args.select, args.include, ctx.rootAlias)
+  );
+}
+
+/**
+ * The same fold from a `Projection` — the twin the pattern engine calls, and
+ * the entry `buildMutationProjectionFold` becomes an adapter over when the
+ * public request is converted at the parse boundary (see
+ * `builders/projection-select.ts`'s header for that map).
+ */
+export function buildProjectionMutationFold(
+  ctx: QueryScope,
+  args: {
+    mutation: Sql;
+    siblings?: readonly Sql[];
+    projection: Projection;
+  }
+): Sql {
+  return foldStatement(
+    ctx,
+    args,
+    returningProjectedColumns(ctx, args.projection),
+    buildProjectionSelectWithAliases(ctx, args.projection, ctx.rootAlias)
+  );
+}
+
+/** The CTE, its unread sibling arms, and the projection read over it. */
+function foldStatement(
+  ctx: QueryScope,
+  args: { mutation: Sql; siblings?: readonly Sql[] },
+  returning: Sql,
+  projection: { sql: Sql; lateralJoins: Sql[] }
+): Sql {
   const { adapter, rootAlias } = ctx;
   const cte = adapter.cte.with([
     {
       name: MUTATION_CTE,
-      query: sql`${args.mutation} ${adapter.mutations.returning(
-        returningEveryColumn(ctx, args.select, args.include)
-      )}`,
+      query: sql`${args.mutation} ${adapter.mutations.returning(returning)}`,
     },
     ...(args.siblings ?? []).map((query, index) => ({
       name: `${SIBLING_CTE_PREFIX}${index}`,
       query,
     })),
   ]);
-  const projection = buildSelectWithAliases(
-    ctx,
-    args.select,
-    args.include,
-    rootAlias
-  );
   // No WHERE and no LIMIT: the CTE already IS the affected rows, and the callers
   // that fold address a unique row, so there is exactly one. A LIMIT here would
   // be a second spelling of a cardinality the mutation's own `where` fixes.
@@ -158,6 +189,34 @@ export function buildMutationProjectionFold(
     parts.joins = projection.lateralJoins;
   }
   return sql`${cte} ${assembleAdapterSelect(adapter, parts)}`;
+}
+
+/**
+ * {@link returningEveryColumn}, asked of a `Projection`: every scalar column,
+ * plus the private `(type, id)` pair of every ROW-CARRIER relation the
+ * projection reads. A collection contributes none — its membership lives in
+ * member junction tables, not on the mutated row.
+ */
+function returningProjectedColumns(
+  ctx: QueryScope,
+  projection: Projection
+): Sql {
+  const columns = getScalarFieldNames(ctx.model).map((field) =>
+    ctx.adapter.identifiers.escape(getColumnName(ctx.model, field))
+  );
+  const seen = new Set<string>();
+  for (const { field } of projection.relations) {
+    if (seen.has(field)) continue;
+    seen.add(field);
+    const relation = variantCarrier(ctx, field);
+    if (!(relation && isVariantRowCarrier(relation))) continue;
+    const { storage } = relation.edge;
+    columns.push(
+      ctx.adapter.identifiers.escape(storage.typeColumn.name),
+      ctx.adapter.identifiers.escape(storage.idColumn.name)
+    );
+  }
+  return sql.join(columns, ", ");
 }
 
 /**
