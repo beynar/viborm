@@ -857,6 +857,7 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | bb24c065 | Terminal write projection lowered by `matchWriteResult` (returning / fold / reselect) against today's builders. Statement-atomic seam settles arm-less fragments and runs a one-statement program bare on every substrate. Fifteen semantic generator strategies with measured stage labels. M2 compares decoded results, enforces the row shape, and lets a write answer its own projection. **M1 1,460 equal, fuzz 277, M2 1,205 equal, 213 trace, 12 outcome.** |
 | 2026-09-02 | 8d628bae | Correlation direction taken from construction order (the enclosing row's match publishes the column) rather than re-derived; matched-then-retracted rows keep a match node; a located row is re-addressed by the key its own match captured. Three packer tables become contract facts: `Row.located`, `Row.label`, `BoundPremise.shape`. **M1 1,475 equal, order mismatches 224 → 122; fuzz 291; M2 1,225 equal, 208 trace, 12 outcome.** |
 | 2026-09-02 | 97d59970 | `decodeRows` gains the bulk count arm, which today's engine never routes through the parser at all; the write-result fuzz proves the terminal projection over 4,384 cells (555 payloads × 3 dialects × 2 substrates, series result reads included) with one allowed difference. **M2 1,237 equal, 208 trace, 0 outcome.** |
+| 2026-09-02 | 8827aa7d | A calibration corpus schema (float primary key, numeric foreign key, an edge whose foreign key is the row key) with 84 goldens, so three semantic refusal strategies become exercisable; no existing golden moved. Corpus 3,204 cells. **M1 1,531 equal, fuzz 371, M2 1,293 equal, 208 trace, 0 outcome; read fuzz 3,600 cells and write-result fuzz 5,179, both fully equal.** |
 
 Open divergence classes, by owner (cell counts from the 8d628bae run):
 
@@ -894,3 +895,31 @@ pinned somewhere, and the engine keeps them in one file rather than spread
 across a verb table.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
+
+### 13.11 What the read swap costs, measured
+
+The wave-2 layer move was priced before being attempted, and the price says it
+is really two moves, not one.
+
+**Relocation (safe, doing it now).** The projection emitter — 1,606 of match
+mode's 2,630 lines, because a projection's relation entry carries its own
+filter, window, order, variant arms and counts, so the emitter transitively
+needs the include, window, order, predicate and count lowerings — moves below
+both entry points into its own module, and projection-shaped entry points are
+added beside today's argument-shaped ones. That retires about 250 of the
+379-line inverse the pattern engine only needs because today's builders speak
+the public request's grammar. The old engine's path does not change.
+
+**The swap (M5, not before).** Rewiring today's callers to the one emitter is
+the read swap: 17 production call sites convert their arguments to a
+projection at the parse boundary, and four modules lose their only caller —
+the include builder, the many-to-many include, the polymorphic collection
+read, the nested read window, plus the polymorphic read entry, about 1,095
+lines of read path that become deletable. About 45 white-box test sites
+survive only if the argument-shaped entry points remain as adapters. This is
+the M5 swap arriving early, and it puts every legacy read through the new
+lowering, so it waits until the write side is byte-equal — a read regression
+and a write regression must never be in flight together.
+
+The number worth keeping: the read path's deletion at M5 is **≈1,095 lines**,
+measured rather than estimated, on top of the 379-line inverse.
