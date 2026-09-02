@@ -86,7 +86,6 @@ import {
   type VariantJunctionCarrierSlot,
   type VariantRowCarrierSlot,
 } from "../types";
-import type { ReadExtension } from "./construct-read";
 import type {
   Extension,
   OrderTerm,
@@ -163,8 +162,6 @@ function fieldOf(model: Model<any>, column: string): string {
   return byColumn.get(column) ?? column;
 }
 
-const readExtension = (extension: Extension): ReadExtension => extension;
-
 const fieldOfExtension = (extension: Extension): string =>
   extension.reference.relation.field;
 
@@ -184,22 +181,14 @@ function matchUnique(ctx: QueryScope, pattern: Pattern, root: Row): Sql {
   const { adapter, rootAlias } = ctx;
   const selection = lowerProjection(ctx, pattern, rootAlias, "auto");
   const from = adapter.identifiers.table(getTableName(ctx.model), rootAlias);
-  const conditions: Sql[] = root.key.map((variable) => {
-    const field = variable.scalar?.field ?? "";
-    return adapter.operators.eq(
-      adapter.identifiers.column(rootAlias, getColumnName(ctx.model, field)),
-      buildScalarSqlValue(ctx, ctx.model, field, literalValue(variable))
-    );
-  });
-  const filter = lowerPredicate(ctx, pattern, root.predicate, rootAlias, true);
-  if (filter) conditions.push(filter);
+  // The flat discriminator-then-filters conjunction `buildWhereUnique` emits.
   return assembleAdapterSelect(adapter, {
     columns: selection.sql,
     from,
     ...(selection.lateralJoins.length > 0
       ? { joins: selection.lateralJoins }
       : {}),
-    where: adapter.operators.and(...conditions),
+    where: lowerRowSelector(ctx, root, rootAlias) ?? adapter.operators.and(),
     limit: sql`1`,
   });
 }
@@ -223,7 +212,7 @@ function matchFind(ctx: QueryScope, pattern: Pattern, root: Row): Sql {
   const selection = lowerProjection(ctx, pattern, rootAlias, "auto");
   const from = adapter.identifiers.table(getTableName(ctx.model), rootAlias);
 
-  let where = lowerPredicate(ctx, pattern, root.predicate, rootAlias, true);
+  let where = lowerPredicate(ctx, root.predicate, rootAlias, true);
   if (pagination.cursorCondition) {
     where = where
       ? adapter.operators.and(where, pagination.cursorCondition)
@@ -284,7 +273,7 @@ function aggregateInput(
     window.take,
     rootAlias
   );
-  let where = lowerPredicate(ctx, pattern, root.predicate, rootAlias, true);
+  let where = lowerPredicate(ctx, root.predicate, rootAlias, true);
   if (pagination.cursorCondition) {
     where = where
       ? adapter.operators.and(where, pagination.cursorCondition)
@@ -497,7 +486,7 @@ function matchGroupBy(ctx: QueryScope, pattern: Pattern, root: Row): Sql {
   columns.push(...aggregateColumns(ctx, specs, rootAlias));
 
   const from = adapter.identifiers.table(getTableName(ctx.model), rootAlias);
-  const where = lowerPredicate(ctx, pattern, root.predicate, rootAlias, true);
+  const where = lowerPredicate(ctx, root.predicate, rootAlias, true);
   const groupBy = sql.join(
     byFields.map((field) =>
       adapter.identifiers.column(rootAlias, getColumnName(ctx.model, field))
@@ -963,7 +952,6 @@ function subqueryInclude(
   const conditions: Sql[] = [...baseConditions];
   const innerWhere = lowerPredicate(
     childCtx,
-    target,
     rootRow(target).predicate,
     relatedAlias,
     true
@@ -1045,7 +1033,6 @@ function lateralInclude(
   const conditions: Sql[] = [...baseConditions];
   const innerWhere = lowerPredicate(
     childCtx,
-    target,
     rootRow(target).predicate,
     relatedAlias,
     true
@@ -1096,7 +1083,6 @@ function nestedWindow(
   const conditions: Sql[] = [...baseConditions];
   const innerWhere = lowerPredicate(
     ctx,
-    target,
     rootRow(target).predicate,
     alias,
     true
@@ -1246,7 +1232,6 @@ function singularOwnRowInclude(
   const conditions: Sql[] = [...traversal.conditions()];
   const innerWhere = lowerPredicate(
     childCtx,
-    target,
     rootRow(target).predicate,
     targetAlias,
     true
@@ -1597,7 +1582,7 @@ function lowerCount(
   const carrier = variantCarrier(ctx, field);
   if (carrier && !isVariantRowCarrier(carrier)) {
     const arms = memberArms(ctx, carrier, parentAlias);
-    const { variant } = readExtension(extension);
+    const { variant } = extension;
     if (variant !== undefined) {
       const selected = selectArm(arms, variant, field);
       const conditions: Sql[] = [...selected.traversal.conditions()];
@@ -1608,7 +1593,6 @@ function lowerCount(
       );
       const predicate = lowerPredicate(
         childCtx,
-        target,
         rootRow(target).predicate,
         selected.traversal.targetAlias,
         true
@@ -1657,7 +1641,6 @@ function lowerCount(
     );
     const innerWhere = lowerPredicate(
       childCtx,
-      target,
       predicate,
       traversal.targetAlias,
       true
@@ -1819,23 +1802,41 @@ function lowerOrder(
 // ---------------------------------------------------------------------------
 
 /**
- * Lower one predicate tree on `alias`. Scalar leaves are spelled by the filter
- * owner (`buildWhere` over one field); structural leaves by their own owners;
- * relation leaves by this module's traversal recursion.
+ * THE PREDICATE LOWERING — the one entry the packer (D+E) and this module's
+ * own SELECTs share for K1 shapes. Nothing here goes through the public-args
+ * path, so a K1 `Predicate` or a K1 row key never meets the validator's
+ * "must be a filter object" / "requires at least one unique discriminator".
+ *
+ * - `lowerPredicate(ctx, predicate, alias, polarity?)` lowers one K1
+ *   `Predicate` tree on the table aliased `alias`. `ctx` is a `QueryScope`
+ *   whose `model` is the row's model and whose `rootAlias` is `alias` for a
+ *   root row (`createQueryScope(engine, model)`), or a child scope
+ *   (`createChildScope(parent, model, alias)`) for any other row. Scalar
+ *   leaves are spelled by the filter owner (`buildWhere` over one field),
+ *   structural leaves by their own owners, relation leaves by this module's
+ *   traversal recursion (aliases are spent on `ctx.nextAlias()`). `polarity`
+ *   is the positive/negative context (`NOT` flips it; it only decides a geo
+ *   distance leaf's spelling). Returns `undefined` for an empty tree.
+ * - `lowerRowKey(ctx, key, alias)` lowers a row's K1 `key` — literal
+ *   variables carrying `scalar.field` — to the conjunction of column
+ *   equalities `buildWhereUnique` emits for a discriminator (each operand
+ *   bound through `buildScalarSqlValue`). `undefined` for an empty key.
+ * - `lowerRowSelector(ctx, row, alias)` is both: the key equalities followed
+ *   by the row's predicate, as one `AND` — what a `findUnique` root, a
+ *   located write target, or a guard's re-run selects by.
  */
 export function lowerPredicate(
   ctx: QueryScope,
-  pattern: Pattern,
   predicate: Predicate | undefined,
   alias: string,
-  polarity: boolean
+  polarity = true
 ): Sql | undefined {
   if (!predicate) return undefined;
   const { adapter } = ctx;
   switch (predicate.kind) {
     case "and": {
       const items = predicate.items
-        .map((item) => lowerPredicate(ctx, pattern, item, alias, polarity))
+        .map((item) => lowerPredicate(ctx, item, alias, polarity))
         .filter((item): item is Sql => item !== undefined);
       // A relation group (the quantifiers of one relation key) is a filter of
       // its own: an `every: {}` that left silently still yields the group's
@@ -1849,20 +1850,14 @@ export function lowerPredicate(
     }
     case "or": {
       const items = predicate.items
-        .map((item) => lowerPredicate(ctx, pattern, item, alias, polarity))
+        .map((item) => lowerPredicate(ctx, item, alias, polarity))
         .filter((item): item is Sql => item !== undefined);
       return items.length === 0
         ? adapter.literals.false()
         : adapter.operators.or(...items);
     }
     case "not": {
-      const item = lowerPredicate(
-        ctx,
-        pattern,
-        predicate.item,
-        alias,
-        !polarity
-      );
+      const item = lowerPredicate(ctx, predicate.item, alias, !polarity);
       return item === undefined ? undefined : adapter.operators.not(item);
     }
     case "scalar": {
@@ -1905,6 +1900,51 @@ export function lowerPredicate(
     default:
       return undefined;
   }
+}
+
+/** One column equality per key member, each operand bound in the field's domain. */
+function rowKeyEqualities(
+  ctx: QueryScope,
+  key: readonly Variable[],
+  alias: string
+): Sql[] {
+  const { adapter } = ctx;
+  return key.map((variable) => {
+    const field = variable.scalar?.field ?? "";
+    return adapter.operators.eq(
+      adapter.identifiers.column(alias, getColumnName(ctx.model, field)),
+      buildScalarSqlValue(ctx, ctx.model, field, literalValue(variable))
+    );
+  });
+}
+
+/** See {@link lowerPredicate}. */
+export function lowerRowKey(
+  ctx: QueryScope,
+  key: readonly Variable[],
+  alias: string
+): Sql | undefined {
+  if (key.length === 0) return undefined;
+  return ctx.adapter.operators.and(...rowKeyEqualities(ctx, key, alias));
+}
+
+/**
+ * See {@link lowerPredicate}. FLAT: the key equalities and the predicate are
+ * one conjunction (`(k1 AND k2 AND filter)`), which is the discriminator-then-
+ * filters shape `buildWhereUnique` emits; nesting the key would be a
+ * different statement on a compound key.
+ */
+export function lowerRowSelector(
+  ctx: QueryScope,
+  row: Row,
+  alias: string
+): Sql | undefined {
+  const conditions = rowKeyEqualities(ctx, row.key, alias);
+  const predicate = lowerPredicate(ctx, row.predicate, alias, true);
+  if (predicate) conditions.push(predicate);
+  return conditions.length === 0
+    ? undefined
+    : ctx.adapter.operators.and(...conditions);
 }
 
 function scopeAt(ctx: QueryScope, alias: string): QueryScope {
@@ -2007,7 +2047,6 @@ function lowerRelationLeaf(
   );
   let inner = lowerPredicate(
     childCtx,
-    leaf.extension.target,
     leaf.inner,
     traversal.targetAlias,
     innerPolarity
@@ -2042,7 +2081,7 @@ function variantRowFilter(
     alias,
     relation.edge.storage.idColumn.name
   );
-  const { variant } = readExtension(leaf.extension);
+  const { variant } = leaf.extension;
   const edge = selectVariantRow(relation, String(variant));
   const discriminator = adapter.operators.exactTextEq(
     typeColumn,
@@ -2062,7 +2101,6 @@ function variantRowFilter(
   const correlation = adapter.operators.eq(targetColumn, idColumn);
   const nestedWhere = lowerPredicate(
     targetScope,
-    leaf.extension.target,
     leaf.inner,
     targetAlias,
     leaf.quantifier === "is" ? polarity : !polarity
@@ -2096,7 +2134,7 @@ function variantCollectionFilter(
   const { adapter } = scope;
   const field = fieldOfExtension(leaf.extension);
   const arms = memberArms(scope, relation, alias);
-  const { variant } = readExtension(leaf.extension);
+  const { variant } = leaf.extension;
   const selected = selectArm(arms, String(variant), field);
   const targetPredicate = (arm: MemberArm, innerPolarity: boolean) => {
     if (!leaf.inner) return undefined;
@@ -2107,7 +2145,6 @@ function variantCollectionFilter(
     );
     return lowerPredicate(
       childCtx,
-      leaf.extension.target,
       leaf.inner,
       arm.traversal.targetAlias,
       innerPolarity

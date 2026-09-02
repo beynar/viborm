@@ -405,7 +405,7 @@ const N = (
   args: Record<string, unknown>
 ) => on(nestedOrderSchema, model, operation, name, args);
 
-export const CORPUS: readonly ReadCase[] = [
+const CORPUS: readonly ReadCase[] = [
   // --- read-traversal-byte-pins ---------------------------------------------
   T(user, "findMany", "self m2m include forward", {
     include: { follows: true },
@@ -960,6 +960,54 @@ export const CORPUS: readonly ReadCase[] = [
 // =============================================================================
 // THE DIFFERENTIAL
 // =============================================================================
+
+/**
+ * K2 orients a junction by SLOT identity: the two directions of a self
+ * junction (`user.follows` / `user.followedBy`) read the same table with the
+ * sides swapped, and the K1 references must say so — the own row's columns
+ * toward the PARENT are the follower columns for `follows` and the followed
+ * columns for `followedBy`, and vice versa toward the target.
+ */
+describe("self-junction reference orientation", () => {
+  const registry = registryFor(traversalSchema);
+  const ownRowColumns = (field: "follows" | "followedBy") => {
+    const pattern = constructRead(
+      user,
+      "findMany",
+      { include: { [field]: true } },
+      registry.relations
+    );
+    const entry = pattern.projection?.relations.find((r) => r.field === field);
+    if (!entry) throw new Error(`no relation entry for ${field}`);
+    const toParent = entry.extension.reference;
+    const target = entry.extension.target;
+    const toTarget = target.references.find(
+      (reference) => reference.holder === toParent.holder
+    );
+    const ownRow = target.rows.find((row) => row.id === toParent.holder);
+    return {
+      table: ownRow?.table.table,
+      referenceRow: ownRow?.table.referenceRow,
+      toParent: toParent.columns.map((pair) => pair.holderColumn),
+      toTarget: toTarget?.columns.map((pair) => pair.holderColumn),
+    };
+  };
+
+  test("follows and followedBy swap the own row's columns", () => {
+    expect(ownRowColumns("follows")).toEqual({
+      table: "user_follows",
+      referenceRow: true,
+      toParent: ["followerId"],
+      toTarget: ["followedId"],
+    });
+    expect(ownRowColumns("followedBy")).toEqual({
+      table: "user_follows",
+      referenceRow: true,
+      toParent: ["followedId"],
+      toTarget: ["followerId"],
+    });
+  });
+});
 
 for (const pin of DIALECTS) {
   describe(`read differential on ${pin.dialect}`, () => {

@@ -49,21 +49,6 @@ import type {
   Window,
 } from "./pattern";
 
-// ---------------------------------------------------------------------------
-// The one read-side refinement K1 does not carry
-// ---------------------------------------------------------------------------
-
-/**
- * An extension that realizes ONE arm of a variant slot. K1 names the variant
- * on a `Projection.relations[]` entry, but a relation-filter leaf, a
- * `relationCounts[]` entry and a `relationAggregate` order term carry only
- * the extension — so the arm rides on the extension there. Absent on an
- * ordinary relation and on an extension that stands for every arm.
- */
-export interface ReadExtension extends Extension {
-  readonly variant?: string;
-}
-
 export type ReadOperation =
   | "findUnique"
   | "findFirst"
@@ -763,7 +748,7 @@ function spanningFilter(
 // ---------------------------------------------------------------------------
 
 interface Extended {
-  readonly extension: ReadExtension;
+  readonly extension: Extension;
   readonly target: PatternBuilder;
   readonly targetRow: RowId;
   readonly targetModel: Model<any>;
@@ -840,7 +825,7 @@ function extend(
   }
 
   const pattern: { current?: Pattern } = {};
-  const extension: ReadExtension = {
+  const extension: Extension = {
     reference,
     get target(): Pattern {
       pattern.current ??= target.finish(targetRow, "match", undefined);
@@ -1304,7 +1289,7 @@ function chainOrders(
   model: Model<any>,
   field: string,
   orderBy: Record<string, unknown>,
-  path: readonly ReadExtension[],
+  path: readonly Extension[],
   relationPath: string,
   depth: number
 ): OrderTerm[] {
