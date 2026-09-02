@@ -37,8 +37,7 @@ function summarize(results: readonly CellResult[]): string {
     .join("\n");
   const byPayload = new Map<string, string[]>();
   for (const r of results) {
-    if (r.outcome.kind === "equal" || r.outcome.kind === "series-skipped")
-      continue;
+    if (r.outcome.kind === "equal") continue;
     const line =
       r.outcome.kind === "steps"
         ? `${r.dialect}/${r.substrate}/${r.world}: ${r.outcome.differences.length} step diffs — ${r.outcome.differences[0]?.kind}: ${r.outcome.differences[0]?.detail.slice(0, 160)}`
@@ -93,12 +92,7 @@ describe("M1 compile-level differential over the corpus", () => {
     }
     expect(results.length).toBeGreaterThan(0);
     if (process.env.PATTERN_M1_STRICT) {
-      expect(
-        results.filter(
-          (r) =>
-            r.outcome.kind !== "equal" && r.outcome.kind !== "series-skipped"
-        )
-      ).toEqual([]);
+      expect(results.filter((r) => r.outcome.kind !== "equal")).toEqual([]);
     }
   }, 600_000);
 });

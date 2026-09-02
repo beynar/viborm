@@ -215,11 +215,9 @@ describe("M2 execution-level differential over the corpus", () => {
             try {
               const compiled = runCell(payload, dialect, substrate, world);
               outcome =
-                compiled.kind === "series-skipped"
-                  ? { kind: "series-skipped" }
-                  : compiled.kind !== "equal"
-                    ? { kind: "not-compile-equal" }
-                    : await runExecution(payload, dialect, substrate, world);
+                compiled.kind === "equal"
+                  ? await runExecution(payload, dialect, substrate, world)
+                  : { kind: "not-compile-equal" };
             } catch (e) {
               outcome = { kind: "crash", detail: errorOf(e).message };
             }

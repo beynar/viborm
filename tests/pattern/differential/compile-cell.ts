@@ -23,7 +23,6 @@ import { errorOf, packCell, scheduleCell, schemaOf } from "./chain";
 
 export type Outcome =
   | { readonly kind: "equal" }
-  | { readonly kind: "series-skipped" }
   | { readonly kind: "steps"; readonly differences: readonly StepDifference[] }
   | { readonly kind: "error-identity"; readonly detail: string }
   | { readonly kind: "crash"; readonly detail: string };
@@ -54,7 +53,28 @@ export function runCell(
     world,
     payload.options
   );
-  if (oracle.kind === "recordSeries") return { kind: "series-skipped" };
+  // A record series (ATOM §17) is dumped as capture + members + result reads;
+  // the pattern engine schedules the same bulk payload as member fragments.
+  // Both are flattened into one planning and one final sequence and compared
+  // step by step — coarse, but every member difference still surfaces.
+  const series = oracle.kind === "recordSeries";
+  const oraclePlanning = series
+    ? [
+        ...oracle.planning,
+        ...(oracle.members ?? []).flatMap((m) => m.planning),
+        ...(oracle.resultReads ?? []).flatMap((m) => m.planning),
+      ]
+    : oracle.planning;
+  const oracleFinal = series
+    ? [
+        ...(oracle.members ?? []).flatMap((m) => m.final),
+        ...(oracle.resultReads ?? []).flatMap((m) => m.final),
+      ]
+    : oracle.final;
+  const oracleError =
+    oracle.error ??
+    (oracle.members ?? []).find((m) => m.error)?.error ??
+    (oracle.resultReads ?? []).find((m) => m.error)?.error;
 
   let mine: ReturnType<typeof dumpProgram> | undefined;
   let failure: { name: string; message: string } | undefined;
@@ -66,27 +86,28 @@ export function runCell(
     const known = synthesizeKnown(
       oracleFor(schema, dialect, substrate),
       { steps: planned.fragments.flatMap((f) => f.matches.flat()) },
-      world
+      world,
+      payload.options?.capturedRoots ?? 1
     );
     mine = dumpProgram(driver, packCell(scheduled, engine, known));
   } catch (e) {
     failure = errorOf(e);
   }
 
-  if (oracle.error || failure) {
+  if (oracleError || failure) {
     const same =
-      oracle.error?.name === failure?.name &&
-      oracle.error?.message === failure?.message;
+      oracleError?.name === failure?.name &&
+      oracleError?.message === failure?.message;
     if (same) return { kind: "equal" };
     return {
       kind: "error-identity",
-      detail: `oracle ${oracle.error ? `${oracle.error.name}: ${oracle.error.message}` : "ok"} vs mine ${failure ? `${failure.name}: ${failure.message}` : "ok"}`,
+      detail: `oracle ${oracleError ? `${oracleError.name}: ${oracleError.message}` : "ok"} vs mine ${failure ? `${failure.name}: ${failure.message}` : "ok"}`,
     };
   }
   if (!mine) return { kind: "crash", detail: "no program and no error" };
   const differences = [
-    ...diffSteps("planning", oracle.planning, mine.planning),
-    ...diffSteps("final", oracle.final, mine.final),
+    ...diffSteps("planning", oraclePlanning, mine.planning),
+    ...diffSteps("final", oracleFinal, mine.final),
   ];
   return differences.length === 0
     ? { kind: "equal" }
