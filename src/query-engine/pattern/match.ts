@@ -86,13 +86,10 @@ import {
   type VariantJunctionCarrierSlot,
   type VariantRowCarrierSlot,
 } from "../types";
-import {
-  isPresenceLeaf,
-  type ReadExtension,
-  type ReadOrderTerm,
-} from "./construct-read";
+import type { ReadExtension } from "./construct-read";
 import type {
   Extension,
+  OrderTerm,
   Pattern,
   Predicate,
   Projection,
@@ -517,7 +514,7 @@ function matchGroupBy(ctx: QueryScope, pattern: Pattern, root: Row): Sql {
     : undefined;
   const window = projection.window ?? { orderBy: [] };
   const orders: Sql[] = [];
-  for (const term of window.orderBy as readonly ReadOrderTerm[]) {
+  for (const term of window.orderBy as readonly OrderTerm[]) {
     if (term.kind === "aggregate") {
       orders.push(
         buildSingleOrder(
@@ -657,7 +654,7 @@ function orderTermsAsArgs(
   window: Window
 ): Record<string, unknown>[] | undefined {
   const items: Record<string, unknown>[] = [];
-  for (const term of window.orderBy as readonly ReadOrderTerm[]) {
+  for (const term of window.orderBy as readonly OrderTerm[]) {
     switch (term.kind) {
       case "scalar":
         items.push({
@@ -1326,15 +1323,15 @@ function guardOwnRowIntegrity(
 // Variant projections (row carrier CASE, collection document)
 // ---------------------------------------------------------------------------
 
+type RelationEntry = Projection["relations"][number];
+
 function lowerVariantProjection(
   ctx: QueryScope,
   carrier: VariantRowCarrierSlot | VariantJunctionCarrierSlot,
   arms: readonly Projection["relations"][number][],
   parentAlias: string
 ): Sql {
-  const byVariant = new Map(
-    arms.map((arm) => [readExtension(arm.extension).variant, arm.extension])
-  );
+  const byVariant = new Map(arms.map((arm) => [arm.variant, arm]));
   return isVariantRowCarrier(carrier)
     ? variantRowRead(ctx, carrier, byVariant, parentAlias)
     : variantCollectionRead(ctx, carrier, byVariant, parentAlias);
@@ -1344,7 +1341,7 @@ function lowerVariantProjection(
 function variantRowRead(
   ctx: QueryScope,
   relation: VariantRowCarrierSlot,
-  byVariant: ReadonlyMap<string | undefined, Extension>,
+  byVariant: ReadonlyMap<string | undefined, RelationEntry>,
   parentAlias: string
 ): Sql {
   const { adapter } = ctx;
@@ -1378,7 +1375,7 @@ function variantRowRead(
     );
     const target = byVariant.get(publicType);
     const targetJson = target
-      ? nestedSelection(targetScope, target.target, "subquery").sql
+      ? nestedSelection(targetScope, target.extension.target, "subquery").sql
       : adapter.json.objectFromColumns([]);
     const targetColumn = adapter.identifiers.column(
       targetAlias,
@@ -1426,7 +1423,7 @@ function variantRowRead(
 function variantCollectionRead(
   ctx: QueryScope,
   relation: VariantJunctionCarrierSlot,
-  byVariant: ReadonlyMap<string | undefined, Extension>,
+  byVariant: ReadonlyMap<string | undefined, RelationEntry>,
   parentAlias: string
 ): Sql {
   const { adapter } = ctx;
@@ -1451,16 +1448,14 @@ function variantCollectionRead(
       traversal.junctionAlias,
       traversal.targetAlias
     );
-    const extension = byVariant.get(publicType);
-    const visible = extension
-      ? readExtension(extension).visible !== false
-      : false;
+    const entry = byVariant.get(publicType);
+    const visible = entry ? entry.visible !== false : false;
     const rows =
-      extension && visible
+      entry && visible
         ? visibleArmRows(
             ctx,
             member.topology.target.model,
-            extension.target,
+            entry.extension.target,
             publicType,
             traversal
           )
@@ -1724,7 +1719,7 @@ function lowerOrder(
     return reverse ? reverseSortValue(value) : value;
   };
 
-  for (const term of window.orderBy as readonly ReadOrderTerm[]) {
+  for (const term of window.orderBy as readonly OrderTerm[]) {
     switch (term.kind) {
       case "scalar": {
         const field = fieldOf(ctx.model, term.column);
@@ -1903,7 +1898,8 @@ export function lowerPredicate(
       );
     }
     case "relation":
-      return isPresenceLeaf(predicate)
+      return predicate.presence === "null" &&
+        (predicate.quantifier === "is" || predicate.quantifier === "isNot")
         ? lowerPresence(ctx, predicate.extension, predicate.quantifier, alias)
         : lowerRelationLeaf(ctx, predicate, alias, polarity);
     default:

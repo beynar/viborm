@@ -6,7 +6,7 @@ import {
   SimulatedDriver,
 } from "@tests/pattern/sim/simulated-driver";
 import { describe, expect, test } from "vitest";
-import { AUTHOR_PIN, mergeProgram } from "./fixtures";
+import { AUTHOR_PIN, mergeProgram, packedMergeProgram } from "./fixtures";
 
 /**
  * The world: the probe finds nothing on the first attempt (the missing arm
@@ -66,6 +66,33 @@ describe("race retry", () => {
       "write:ok",
       "commit",
     ]);
+  });
+
+  test("a packed merge needs no thunk: the re-run's match phase selects the found arm", async () => {
+    const { driver } = racingWorld("postgresql");
+    let probes = 0;
+    driver.useScript({
+      respond: (statement) => {
+        if (statement.kind === "read") {
+          probes += 1;
+          return probes === 1 ? rows() : rows({ id: "u1" });
+        }
+        return statement.sql.startsWith("INSERT")
+          ? fault("unique", {
+              table: AUTHOR_PIN.table,
+              constraint: AUTHOR_PIN.constraints[0],
+            })
+          : undefined;
+      },
+    });
+    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+      result: 1,
+    });
+    expect(
+      driver.statements
+        .filter((entry) => entry.kind === "write")
+        .map((entry) => `${entry.sql.split(" ")[0]}:${entry.outcome}`)
+    ).toEqual(["INSERT:fault", "UPDATE:ok"]);
   });
 
   test("a unique violation on another constraint is not a race and is not retried", async () => {

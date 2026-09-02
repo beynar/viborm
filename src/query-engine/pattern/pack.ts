@@ -58,8 +58,9 @@ import {
   getStepModelName,
   uniqueSelectorConjuncts,
 } from "../write-engine/shared";
+import { referenceCells } from "./cells";
 import type { BoundPremise, Fragment, Premise, Program } from "./fragment";
-import { type StepIds, stepLabels } from "./ids";
+import { StepIds, stepLabels } from "./ids";
 import type {
   Cell,
   Pattern,
@@ -162,16 +163,9 @@ class Packing {
     return this.pattern.references.filter((r) => r.referenced === row);
   }
 
-  /** A fresh row whose only cells are reference cells (D1's junction row). */
+  /** A row holding nothing but references (D1's junction row; K1 `TableRef.referenceRow`). */
   private isJunction(row: Row): boolean {
-    if (!row.fresh) return false;
-    const references = this.holderReferences(row.id);
-    if (references.length < 2) return false;
-    const columns = new Set(
-      references.flatMap((r) => r.columns.map((c) => c.holderColumn))
-    );
-    const cells = this.cells.get(row.id) ?? [];
-    return cells.length > 0 && cells.every((cell) => columns.has(cell.column));
+    return row.table.referenceRow === true;
   }
 
   private relationField(row: RowId): string {
@@ -526,8 +520,11 @@ class Packing {
 
   private premiseOf(node: Node, match: StatementStep): BoundPremise {
     const premise = this.refinePremise(node);
-    if (this.txMode) return { premise, match };
-    return { premise, match, guard: this.guardOf(node, match) };
+    // The guard carries today's exact typed failure; in a transaction the
+    // locked match is the premise and only the failure is kept.
+    const guard = this.guardOf(node, match);
+    if (this.txMode) return { premise, match, failure: guard.failure };
+    return { premise, match, guard, failure: guard.failure };
   }
 
   private refinePremise(node: Node): Premise {
@@ -717,27 +714,48 @@ class Packing {
       );
     }
     const statements = new JunctionStatements(scope, this.txMode);
+    // The column pairing comes from the cell map (K2), never from the edge.
+    const family = referenceCells(
+      this.engine.relations,
+      source.relation.model,
+      source.relation.field
+    );
+    const single = family.kind === "single" ? family.cells : undefined;
+    if (!single?.viaJunction) {
+      throw new Error(
+        `query-engine pattern: relation '${relationRef.name}' has no junction cells`
+      );
+    }
     const sideValues = (
       row: RowId,
-      members: readonly { junctionField: string; referencedField: string }[]
+      pairs: readonly { holderColumn: string; referencedColumn: string }[]
     ) => {
       const cells = this.cells.get(row) ?? [];
       return Object.fromEntries(
-        members.map((member) => {
-          const cell = cells.find((c) => c.column === member.junctionField);
+        pairs.map((pair) => {
+          const cell = cells.find((c) => c.column === pair.holderColumn);
           if (!cell) {
             throw new Error(
-              `query-engine pattern: junction row ${row} lacks column '${member.junctionField}'`
+              `query-engine pattern: junction row ${row} lacks column '${pair.holderColumn}'`
             );
           }
-          return [member.referencedField, this.value(cell.value)];
+          return [pair.referencedColumn, this.value(cell.value)];
         })
       );
     };
-    const parentValue = sideValues(first.id, bound.membership.source.members);
-    const targetValues = run.map((node) =>
-      sideValues(node.row, bound.membership.target.members)
-    );
+    // `viaJunction.source/target` are the topology's fixed sides; `cells` is
+    // the pairing oriented to the asking slot's TARGET, so the parent side is
+    // whichever fixed side the target pairing is not (exact on a self-relation).
+    const viaJunction = single.viaJunction;
+    const targetPairs = single.cells;
+    const targetColumns = new Set(targetPairs.map((pair) => pair.holderColumn));
+    const parentPairs = viaJunction.sourceCells.every((pair) =>
+      targetColumns.has(pair.holderColumn)
+    )
+      ? viaJunction.targetCells
+      : viaJunction.sourceCells;
+    const parentValue = sideValues(first.id, parentPairs);
+    const targetValues = run.map((node) => sideValues(node.row, targetPairs));
     const chunks = compileBindBudgetChunks(
       targetValues.length,
       this.engine.maxBindParametersPerStatement,
@@ -867,6 +885,18 @@ class Packing {
       matches,
       writes: this.writeSteps(scheduled.writes),
       premises,
+      // Re-pack the taken arm with the match rows. Ids are a pre-pass in
+      // payload order, so a fresh allocator reproduces the same ids; the
+      // match-phase refusals (`requireMatched`) fire here for the executor.
+      pack: (known) => {
+        const repacked = new Packing(
+          this.scheduled,
+          this.engine,
+          new StepIds(),
+          known
+        ).fragment(scheduled);
+        return { writes: repacked.writes, premises: repacked.premises };
+      },
       inherited: [],
       boundary: scheduled.boundary,
     };
@@ -878,14 +908,12 @@ class Packing {
     );
     const root = this.row(this.pattern.root);
     const rootIds = this.rowIds.get(root.id);
-    // K3 spells a published output as `<step>.<output>` (the executor's
-    // `planningKey` address); the existing fragment contract carries the same
-    // address as an `OperationValueReference`. The differential compares the
-    // two modulo that spelling — see the K3 note in the report.
+    // The existing fragment `outputs` contract: a reference to the terminal
+    // read (or, with no projection, to the root write).
     const producer = rootIds?.select ?? rootIds?.write;
     return {
       fragments,
-      outputs: producer ? { result: `${producer}.result` } : {},
+      outputs: producer ? { result: ref(producer, "result") } : {},
       model: getStepModelName(root.table.model, "record"),
       operation: this.pattern.operation,
     };

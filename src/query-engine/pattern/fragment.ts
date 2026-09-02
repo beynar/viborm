@@ -10,11 +10,14 @@
  * an ordered list of fragments.
  */
 import type {
+  Failure,
+  FragmentOutputSource,
   GuardStep,
   OperationStep,
   StatementStep,
   TargetConstraintPin,
 } from "../write-engine/OperationFragment";
+import type { PlanningKnown } from "../write-engine/Part";
 import type { RowId, VariableId } from "./pattern";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +72,15 @@ export interface BoundPremise {
   readonly premise: Premise;
   /** The match statement whose bindings the premise protects. */
   readonly match: StatementStep;
+  /**
+   * Explicit guard when the batch guard is NOT the match re-run. An
+   * `occupant` premise always carries one (a re-run cannot assert the
+   * occupant); an `unreferenced` premise is enforced at match time and
+   * carries none.
+   */
   readonly guard?: GuardStep;
+  /** The typed failure a violated premise raises — today's exact class, message and raceability. */
+  readonly failure: Failure;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +102,7 @@ export type FragmentBoundary =
     }
   | {
       /** A merge outcome (skipDuplicates root) must be observed before its dependents assert. */
+      /** `row` is the root write whose row count decides whether the dependents run. */
       readonly kind: "mergeOutcome";
       readonly row: RowId;
     };
@@ -105,8 +117,19 @@ export type FragmentBoundary =
 export interface Fragment {
   /** Matches, grouped by dependency level; each level is one round trip. */
   readonly matches: readonly (readonly StatementStep[])[];
-  /** Asserts and retracts in dataflow order (already respecting the anti-dependency). */
+  /**
+   * Asserts and retracts in dataflow order (already respecting the
+   * anti-dependency), packed without match results. When an arm is decided
+   * by this fragment's matches, `pack` re-packs the taken arm with the
+   * results; executors call it after the match phase when present.
+   */
   readonly writes: readonly OperationStep[];
+  readonly pack?: (known: PlanningKnown) => {
+    readonly writes: readonly OperationStep[];
+    readonly premises: readonly BoundPremise[];
+  };
+  /** The bulk member this fragment belongs to, when any (0-based). */
+  readonly member?: number;
   readonly premises: readonly BoundPremise[];
   /**
    * Inherited premises a later segment must re-assert: the parent's complete
@@ -125,8 +148,8 @@ export interface Fragment {
 /** The scheduled pattern: fragments in order, plus the terminal projection's outputs. */
 export interface Program {
   readonly fragments: readonly Fragment[];
-  /** Step ids published to the terminal result (the existing fragment `outputs` contract). */
-  readonly outputs: Readonly<Record<string, string | readonly string[]>>;
+  /** The terminal result's outputs — the existing fragment `outputs` contract. */
+  readonly outputs: Readonly<Record<string, FragmentOutputSource>>;
   /** Public model and operation, for attribution of engine-owned failures. */
   readonly model: string;
   readonly operation: string;

@@ -76,10 +76,14 @@ export class PatternBuilder {
     predicate?: Predicate;
     matchIsDecision?: boolean;
     verb?: string;
+    /** A reference-only (junction) row: its physical table, oriented to `model`. */
+    referenceRow?: string;
   }): Row {
-    const row: Row & { verb?: string } = {
+    const row: Row = {
       id: this.rows.length,
-      table: { model: input.model, table: getTableName(input.model) },
+      table: input.referenceRow
+        ? { model: input.model, referenceRow: true, table: input.referenceRow }
+        : { model: input.model, table: getTableName(input.model) },
       mode: input.mode,
       cardinality: input.cardinality ?? "one",
       key: input.key,

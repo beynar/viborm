@@ -35,6 +35,7 @@ import {
   enforcePostcondition,
   extractOutputs,
   materializeLinearSql,
+  packFragment,
   type RowsBoundary,
   type RuntimeValues,
   resolveProgramOutputs,
@@ -141,7 +142,9 @@ async function runFragmentLinear(
       );
     }
   }
-  for (const step of fragment.writes) {
+  // The arm the matches decided, re-packed with their results (§6.3).
+  const packed = packFragment(fragment, values);
+  for (const step of packed.writes) {
     await runWriteStep(
       step,
       driver,
@@ -218,8 +221,16 @@ async function runStatement(
   return result;
 }
 
-/** The matches whose bindings a premise protects — the decision reads. */
+/**
+ * The matches whose bindings a premise protects — the decision reads. A
+ * fragment that re-packs after its match phase (`pack`) is one whose matches
+ * decide an arm, so every one of them is a decision read (today's probe-first
+ * upsert locks its probe).
+ */
 export function decisionMatches(fragment: Fragment): ReadonlySet<string> {
+  if (fragment.pack) {
+    return new Set(fragment.matches.flat().map((match) => match.id));
+  }
   return new Set(fragment.premises.map((bound) => bound.match.id));
 }
 

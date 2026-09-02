@@ -287,63 +287,53 @@ export function statementExecutionContext(
 }
 
 // ---------------------------------------------------------------------------
-// Program outputs
+// The match phase's publication and the arm re-pack
 // ---------------------------------------------------------------------------
 
 /**
- * A K3 program publishes STEP IDS. A step with exactly one declared output
- * publishes that value; a step with several publishes its `rows` output when it
- * has one, else its `rowCount`. Anything else is a typed error, never a guess.
- * (The report proposes `Program.outputs` carry `OperationValueReference`s, the
- * existing fragment contract, which would make this rule unnecessary.)
+ * What the match phase bound, under the stable `planningKey(step, output)`
+ * address (`${step}.${output}`) — the same publication today's planning phase
+ * derives, so a `Fragment.pack` callback reads exactly what `compile(known)`
+ * read.
  */
-export function publishedReference(
-  program: Program,
-  stepId: string
-): OperationValueReference {
-  const step = findStatementStep(program, stepId);
-  if (!step) {
-    throw new QueryEngineError(
-      `Program output names step '${stepId}', which the program does not carry.`
-    );
+export function derivePlanningKnown(
+  fragment: Fragment,
+  values: RuntimeValues
+): Readonly<Record<string, unknown>> {
+  const known: Record<string, unknown> = {};
+  for (const level of fragment.matches) {
+    for (const match of level) {
+      for (const name of Object.keys(match.outputs)) {
+        known[`${match.id}.${name}`] = resolveRuntimeValue(
+          ref(match.id, name),
+          values
+        );
+      }
+    }
   }
-  const names = Object.keys(step.outputs);
-  const [only] = names;
-  if (only !== undefined && names.length === 1) return ref(stepId, only);
-  const preferred = names.find((name) => step.outputs[name]?.kind === "rows");
-  const counted = names.find((name) => step.outputs[name]?.kind === "rowCount");
-  const chosen = preferred ?? counted;
-  if (chosen === undefined) {
-    throw new QueryEngineError(
-      `Program output names step '${stepId}', which declares no single publishable output.`
-    );
-  }
-  return ref(stepId, chosen);
-}
-
-export function findStatementStep(
-  program: Program,
-  stepId: string
-): StatementStep | undefined {
-  for (const fragment of program.fragments) {
-    const found = statementStepsOf(fragment).find((step) => step.id === stepId);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-export function statementStepsOf(fragment: Fragment): StatementStep[] {
-  const steps: StatementStep[] = [];
-  for (const level of fragment.matches) steps.push(...level);
-  for (const step of fragment.writes) {
-    if (step.kind === "read" || step.kind === "write") steps.push(step);
-  }
-  return steps;
+  return known;
 }
 
 /**
- * Resolve the program's terminal outputs. An ordered list of step ids resolves
- * by concatenating rows or summing counts; mixing the two is a typed error.
+ * The fragment's write phase as it stands AFTER its matches ran: when the
+ * fragment decides an arm, `pack` re-packs the taken arm with the match
+ * results; otherwise the writes and premises are the ones scheduled up front.
+ * Every enforcer calls this once, after the match phase, and runs what it
+ * returns.
+ */
+export function packFragment(
+  fragment: Fragment,
+  values: RuntimeValues
+): Fragment {
+  if (!fragment.pack) return fragment;
+  const packed = fragment.pack(derivePlanningKnown(fragment, values));
+  return { ...fragment, writes: packed.writes, premises: packed.premises };
+}
+
+/**
+ * Resolve the program's terminal outputs (the existing fragment `outputs`
+ * contract). An ordered list of references resolves by concatenating rows or
+ * summing counts; mixing the two is a typed error.
  */
 export function resolveProgramOutputs(
   program: Program,
@@ -352,25 +342,21 @@ export function resolveProgramOutputs(
 ): Readonly<Record<string, unknown>> {
   const outputs: Record<string, unknown> = {};
   for (const [name, source] of Object.entries(program.outputs)) {
-    outputs[name] =
-      typeof source === "string"
-        ? resolveSingleOutput(program, name, source, values, rows)
-        : resolveOutputList(program, name, source, values, rows);
+    outputs[name] = isOperationValueReference(source)
+      ? resolveSingleOutput(name, source, values, rows)
+      : resolveOutputList(name, source, values, rows);
   }
   return outputs;
 }
 
 function resolveSingleOutput(
-  program: Program,
   name: string,
-  stepId: string,
+  reference: OperationValueReference,
   values: RuntimeValues,
   rows: RowsBoundary
 ): unknown {
-  const value = resolveRuntimeValue(
-    publishedReference(program, stepId),
-    values
-  );
+  const stepId = reference.step;
+  const value = resolveRuntimeValue(reference, values);
   if (isSql(value) || isOperationValueReference(value)) {
     throw new QueryEngineError(
       `Fragment output '${name}' did not resolve to a runtime value.`
@@ -380,14 +366,13 @@ function resolveSingleOutput(
 }
 
 function resolveOutputList(
-  program: Program,
   name: string,
-  stepIds: readonly string[],
+  references: readonly OperationValueReference[],
   values: RuntimeValues,
   rows: RowsBoundary
 ): unknown {
-  const resolved = stepIds.map((stepId) =>
-    resolveSingleOutput(program, name, stepId, values, rows)
+  const resolved = references.map((reference) =>
+    resolveSingleOutput(name, reference, values, rows)
   );
   if (resolved.every(Array.isArray)) {
     return resolved.flat();

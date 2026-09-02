@@ -20,7 +20,12 @@ import {
 } from "@tests/pattern/harness/dump";
 import { models, schema, smokeArgs } from "@tests/pattern/schedule/schema";
 import { describe, expect, test } from "vitest";
-import { diffSteps, dumpProgram, type StepDifference } from "./program-dump";
+import {
+  diffSteps,
+  dumpProgram,
+  dumpStep,
+  type StepDifference,
+} from "./program-dump";
 import { smokePattern } from "./smoke-pattern";
 
 function report(differences: readonly StepDifference[]): string {
@@ -59,7 +64,7 @@ function packSmoke(substrate: Substrate) {
     "found"
   );
   const program = pack(scheduled, engine, new StepIds(), known);
-  return { driver, engine, scheduled, program };
+  return { driver, engine, scheduled, program, planned, known };
 }
 
 describe("compile-level differential: K4 smoke payload", () => {
@@ -89,15 +94,7 @@ describe("compile-level differential: K4 smoke payload", () => {
       `${substrate}: planning ${oracle.planning.length}/${mine.planning.length}, final ${oracle.final.length}/${mine.final.length}\n${report(differences)}`
     );
     expect(differences).toEqual([]);
-    // K3 publishes `<step>.<output>` strings where the fragment contract
-    // carries `{ref}` objects: the same address, two spellings.
-    expect(mine.outputs).toEqual(
-      Object.fromEntries(
-        Object.entries(oracle.outputs as Record<string, { ref: string }>).map(
-          ([name, value]) => [name, value.ref]
-        )
-      )
-    );
+    expect(mine.outputs).toEqual(oracle.outputs);
   });
 
   test.each([
@@ -138,6 +135,35 @@ describe("compile-level differential: K4 smoke payload", () => {
       message: caught?.message,
       code: caught?.code,
     }).toEqual(oracle.error);
+  });
+
+  test.each([
+    "transaction",
+    "batch",
+  ] as const)("Fragment.pack re-packs the taken arm to the same steps as the two-pass on %s", (substrate) => {
+    const { driver, program, planned, known } = packSmoke(substrate);
+    const fragment = planned.fragments[0]!;
+    expect(fragment.pack).toBeDefined();
+    const repacked = fragment.pack!(known);
+    const expected = program.fragments[0]!;
+    const dumpAll = (steps: readonly (typeof expected.writes)[number][]) =>
+      steps.map((step, index) => dumpStep(driver, step, index));
+    expect(dumpAll(repacked.writes)).toEqual(dumpAll(expected.writes));
+    expect(
+      repacked.premises.map((p) => [
+        p.premise,
+        p.match.id,
+        p.guard?.id,
+        p.failure,
+      ])
+    ).toEqual(
+      expected.premises.map((p) => [
+        p.premise,
+        p.match.id,
+        p.guard?.id,
+        p.failure,
+      ])
+    );
   });
 
   test("the schedule states one premise per decision match, bound to its guard on batch", () => {

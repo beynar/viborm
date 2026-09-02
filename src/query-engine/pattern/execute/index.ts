@@ -123,7 +123,11 @@ async function executeOnce(
 function statementAtomicProgram(program: Program) {
   const [fragment] = program.fragments;
   if (!fragment || program.fragments.length !== 1) return undefined;
-  if (fragment.matches.length !== 0 || fragment.writes.length !== 1) {
+  if (
+    fragment.pack ||
+    fragment.matches.length !== 0 ||
+    fragment.writes.length !== 1
+  ) {
     return undefined;
   }
   const [step] = fragment.writes;

@@ -39,7 +39,6 @@ import {
   QueryEngineError,
   type ScopeSource,
 } from "../types";
-import type { ReadExtension } from "./construct-read";
 import type { Extension, Pattern, Projection, Row, Variable } from "./pattern";
 
 /** The parse boundary: the adapter, the resolved index, and the driver's middleware. */
@@ -132,9 +131,7 @@ function modelShape(
     const optional = resolved !== undefined && slotMayBeEmpty(resolved);
     rawKeys.push(field);
     const first = arms[0]!;
-    const variantOf = (extension: Extension) =>
-      (extension as ReadExtension).variant;
-    if (variantOf(first.extension) === undefined) {
+    if (first.variant === undefined) {
       const shape = modelShape(first.extension.target, source);
       relations.set(field, {
         model: extensionModel(first.extension),
@@ -148,13 +145,12 @@ function modelShape(
     }
     const variants = new Map<string, ExpectedPolymorphicVariantShape>();
     for (const arm of arms) {
-      const extension = arm.extension as ReadExtension;
-      const variant = String(extension.variant);
+      const { extension } = arm;
       const many = arm.cardinality === "many";
-      variants.set(variant, {
+      variants.set(String(arm.variant), {
         model: extensionModel(extension),
         shape: modelShape(extension.target, source),
-        ...(many ? { visible: extension.visible !== false } : {}),
+        ...(many ? { visible: arm.visible !== false } : {}),
         ...(many && pagesBackward(extension.target) ? { reversed: true } : {}),
       });
     }

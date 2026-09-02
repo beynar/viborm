@@ -41,6 +41,7 @@ import {
   attributionOf,
   materializeBatchSql,
   mergeRuntimeValues,
+  packFragment,
   type RuntimeValues,
   resolveProgramOutputs,
 } from "./values";
@@ -190,7 +191,9 @@ async function runFragmentSegment(
       throw attachProgress(error, progress, phases.match, memberPath);
     }
     try {
-      const unit = compileUnit(fragment, run.driver, attemptValues, {
+      // The arm the matches decided, re-packed with their results (§6.3).
+      const packed = packFragment(fragment, attemptValues);
+      const unit = compileUnit(packed, run.driver, attemptValues, {
         inherited: inheritedGuards(fragment, attemptValues),
         attribution,
         ...(group.mergeRoot ? { mergeRoot: group.mergeRoot } : {}),

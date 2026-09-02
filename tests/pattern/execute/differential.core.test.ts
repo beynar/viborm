@@ -28,7 +28,6 @@ import {
   type OperationFragment,
   type OperationStep,
   type PlanningFragment,
-  ref,
   type StatementOutputSource,
   type StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
@@ -172,36 +171,12 @@ function convert(
           ? substituteStep(step, known, local, mode === "batch")
           : step
       );
-      const outputs = Object.fromEntries(
-        Object.entries(program.outputs).map(([name, source]) => [
-          name,
-          typeof source === "string"
-            ? single(program, source)
-            : source.map((id) => single(program, id)),
-        ])
-      );
+      // K3's Program.outputs IS the fragment outputs contract now.
+      const outputs = program.outputs;
       return { steps: [...guards, ...writes], outputs };
     },
     parse: <T>(outputs: Readonly<Record<string, unknown>>): T => outputs as T,
   };
-}
-
-function single(program: Program, stepId: string) {
-  for (const fragment of program.fragments) {
-    for (const step of [...fragment.matches.flat(), ...fragment.writes]) {
-      if (
-        step.id !== stepId ||
-        step.kind === "guard" ||
-        step.kind === "recordSeries"
-      )
-        continue;
-      const [only] = Object.keys(step.outputs);
-      if (!only)
-        throw new Error(`differential: '${stepId}' declares no output`);
-      return ref(stepId, only);
-    }
-  }
-  throw new Error(`differential: '${stepId}' not found`);
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +405,11 @@ describe("execution-level differential (one-fragment programs)", () => {
                 raceable: false,
               },
               match: fragment!.matches[0]![0]!,
+              failure: {
+                kind: "query",
+                message: "the slot's occupant changed",
+                raceable: false,
+              },
             },
           ],
         },

@@ -120,6 +120,7 @@ describe("schedule: dataflow order", () => {
     // Payload order puts the junction row between its endpoints on purpose:
     // dataflow, not position, must place it last.
     const junction = b.row({
+      referenceRow: "post_tag",
       model: schema.post,
       mode: "assert",
       key: [],

@@ -12,6 +12,7 @@ import { describe, expect, test } from "vitest";
 import {
   connectProgram,
   mergeOutcomeProgram,
+  packedMergeProgram,
   singleStatementProgram,
 } from "./fixtures";
 
@@ -129,6 +130,25 @@ describe("transaction enforcer", () => {
       "write",
       "release",
       "commit",
+    ]);
+  });
+
+  test("pack re-packs the taken arm after the locked probe: found → update, missing → pinned insert", async () => {
+    const found = new SimulatedDriver({ script: authorFound });
+    await expect(execute(packedMergeProgram(), found)).resolves.toEqual({
+      result: 1,
+    });
+    expect(found.statements.map((entry) => entry.sql)).toEqual([
+      'SELECT "id" FROM "sim_users" WHERE "id" = $1 FOR UPDATE',
+      'UPDATE "sim_users" SET "email" = $1 WHERE "id" = $2',
+    ]);
+    const missing = new SimulatedDriver();
+    await expect(execute(packedMergeProgram(), missing)).resolves.toEqual({
+      result: 1,
+    });
+    expect(missing.statements.map((entry) => entry.sql)).toEqual([
+      'SELECT "id" FROM "sim_users" WHERE "id" = $1 FOR UPDATE',
+      'INSERT INTO "sim_users" ("id", "email") VALUES ($1, $2)',
     ]);
   });
 

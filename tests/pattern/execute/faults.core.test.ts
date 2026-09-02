@@ -1,5 +1,6 @@
 /** Unit F — premise invalidation between match and assert; malformed rows; a closed connection. */
 import { execute } from "@src/query-engine/pattern/execute";
+import { ref } from "@src/query-engine/write-engine/OperationFragment";
 import {
   CAPABILITY_PRESETS,
   fault,
@@ -38,7 +39,8 @@ describe("premise invalidation between the match and assert phases", () => {
       store.delete("sim_users", "u1");
     });
     await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
-      message: "Premise 'exists' on match 'author.find' no longer holds.",
+      name: "NestedWriteError",
+      message: "connect target 'author' no longer exists",
     });
     expect(driver.trace()).toEqual([
       'match#0 SELECT "id" FROM "sim_users" WHERE "id" = $1 ["u1"] @user',
@@ -82,7 +84,8 @@ describe("premise invalidation between the match and assert phases", () => {
       store.delete("sim_users", "u1");
     });
     await expect(execute(memberedProgram(3), driver)).rejects.toMatchObject({
-      message: "Premise 'exists' on match 'parent.capture' no longer holds.",
+      name: "NestedWriteError",
+      message: "parent 'user' no longer exists",
       meta: {
         recordSeriesProgress: {
           phase: "member",
@@ -107,9 +110,13 @@ describe("malformed provider rows", () => {
     });
     const program = connectProgram();
     await expect(
-      execute({ ...program, outputs: { author: "author.find" } }, driver, {
-        expectedRows: { "author.find": ["id", "name"] },
-      })
+      execute(
+        { ...program, outputs: { author: ref("author.find", "id") } },
+        driver,
+        {
+          expectedRows: { "author.find": ["id", "name"] },
+        }
+      )
     ).rejects.toMatchObject({
       name: "TransactionError",
       message: "Step 'author.find' did not produce row field 'id'.",
@@ -140,7 +147,7 @@ describe("malformed provider rows", () => {
           boundary: { kind: "end" as const },
         },
       ],
-      outputs: { author: "author.find" },
+      outputs: { author: ref("author.find", "rows") },
     };
     await expect(
       execute(program, driver, {

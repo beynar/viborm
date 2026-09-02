@@ -516,6 +516,14 @@ function dumpStep(
   };
 }
 
+/** Dump an arbitrary step list in the K4 format (the pattern engine's side of the differential). */
+export function dumpSteps(
+  driver: PlanningDriver,
+  steps: readonly OperationStep[]
+): readonly DumpStep[] {
+  return steps.map((step, index) => dumpStep(driver, step, index));
+}
+
 function dumpFragment(
   driver: PlanningDriver,
   fragment: PlanningFragment | OperationFragment

@@ -121,35 +121,6 @@ export interface Constructed {
   readonly deferredRefusals: readonly DeferredRefusal[];
 }
 
-/**
- * A cell or reference that belongs to a merge arm. K1's `Cell` and `Reference`
- * carry no arm (only `Row` does); a found arm that asserts a reference cell on
- * the UNCONDITIONAL parent row (a reference the parent itself holds, under a merge) needs one, so
- * construction emits these — structurally assignable to K1's types — and the
- * report proposes the K1 addition.
- */
-export interface ArmedCell extends Cell {
-  readonly arm?: ArmId;
-}
-export interface ArmedReference extends Reference {
-  readonly arm?: ArmId;
-}
-
-/**
- * Proposed K2 addition, read when present: the pairing between a reference
- * row's own columns and the ASKING endpoint's key. K2 today publishes the
- * pairing to the referenced endpoint (`cells`) and both endpoints' own key
- * columns (`viaJunction.source/target`), but not the reference row's columns
- * for the asking side. Without it the asking-side reference is recorded as a
- * deferred refusal rather than guessed.
- */
-export interface ReferenceRowSides {
-  readonly sourceCells?: readonly {
-    readonly holderColumn: string;
-    readonly referencedColumn: string;
-  }[];
-}
-
 /** Per-fragment construction (§5 rule 1): one pattern per bulk member. */
 export interface MemberConstructInput<Raw> {
   readonly index: ResolvedRelationIndex;
@@ -208,6 +179,8 @@ interface RowDraft {
   arm?: ArmId;
   predicate?: Predicate;
   matchIsDecision?: boolean;
+  /** The public verb that produced the row (message-only, K1 `Row.verb`). */
+  verb?: string;
 }
 
 interface Context {
@@ -219,6 +192,8 @@ interface Context {
   readonly item: VerbItem;
   readonly shape: PayloadShape;
   readonly path: string;
+  /** The public verb whose plan is running — stamped on the rows it creates, for messages only. */
+  readonly verb?: string;
   readonly arm?: ArmId;
   /** The target row a previous step bound. */
   target?: RowDraft;
@@ -252,8 +227,8 @@ class Construction {
   private readonly view: CellsView;
 
   private readonly rows: RowDraft[] = [];
-  private readonly cellList: ArmedCell[] = [];
-  private readonly references: ArmedReference[] = [];
+  private readonly cellList: Cell[] = [];
+  private readonly references: Reference[] = [];
   private readonly arms: Arm[] = [];
   private readonly variables: Variable[] = [];
   private readonly deferred: DeferredRefusal[] = [];
@@ -415,11 +390,12 @@ class Construction {
     cardinality: "one" | "set",
     fresh: boolean,
     arm?: ArmId,
-    table: string = getTableName(model)
+    table: string = getTableName(model),
+    referenceRow = false
   ): RowDraft {
     const row: RowDraft = {
       id: this.rows.length,
-      table: { model, table },
+      table: { model, table, ...(referenceRow ? { referenceRow: true } : {}) },
       mode,
       cardinality,
       key: [],
@@ -447,8 +423,8 @@ class Construction {
     mode: Mode,
     arm?: ArmId,
     relative?: Cell["relative"]
-  ): ArmedCell {
-    const cell: ArmedCell = {
+  ): Cell {
+    const cell: Cell = {
       row: row.id,
       column,
       value,
@@ -747,6 +723,7 @@ class Construction {
           this.apply(verbRow(verb).plan, {
             parent,
             family,
+            verb,
             cells: this.cellsFor(family, item.variant, `${path}.${verb}`),
             item,
             shape,
@@ -787,6 +764,7 @@ class Construction {
           this.apply(modify, {
             parent,
             family,
+            verb: composition.modify,
             cells: this.cellsFor(
               family,
               item.variant,
@@ -819,6 +797,7 @@ class Construction {
       const context: Context = {
         parent,
         family,
+        verb,
         cells: this.cellsFor(family, item.variant, `${path}.${verb}`),
         item,
         shape,
@@ -840,108 +819,119 @@ class Construction {
   ): readonly { readonly target: RowDraft; readonly arm?: ArmId }[] {
     const bound: { readonly target: RowDraft; readonly arm?: ArmId }[] = [];
     for (const step of steps) {
-      switch (step.primitive) {
-        case "match": {
-          const target = this.matchStep(step, context);
-          if (target)
-            bound.push({
-              target,
-              ...(context.arm === undefined ? {} : { arm: context.arm }),
-            });
-          break;
-        }
-        case "assertFresh": {
-          if (step.from === "rows") {
-            for (const [position, data] of (
-              context.item.rows ?? []
-            ).entries()) {
-              const target = this.freshRow(
-                this.targetModel(context.cells),
-                data,
-                `${context.path}.data.${position}`,
-                context.arm
-              );
-              if (context.item.skipDuplicates) this.skipDuplicates(target);
-              this.membership(context, target, "assert", target.arm);
-              bound.push({
-                target,
-                ...(target.arm === undefined ? {} : { arm: target.arm }),
-              });
-            }
-            context.target = undefined;
-            break;
-          }
-          const data = context.item[step.from] ?? {};
-          const target = this.freshRow(
-            this.targetModel(context.cells),
-            data,
-            `${context.path}.${step.from}`,
-            context.arm
-          );
-          context.target = target;
+      const before = this.rows.length;
+      this.step(step, context, bound);
+      if (context.verb !== undefined) {
+        for (const row of this.rows.slice(before)) row.verb ??= context.verb;
+      }
+    }
+    return bound;
+  }
+
+  /** One step of a plan. */
+  private step(
+    step: Step,
+    context: Context,
+    bound: { readonly target: RowDraft; readonly arm?: ArmId }[]
+  ): void {
+    switch (step.primitive) {
+      case "match": {
+        const target = this.matchStep(step, context);
+        if (target)
           bound.push({
             target,
             ...(context.arm === undefined ? {} : { arm: context.arm }),
           });
-          break;
-        }
-        case "assertAtKey": {
-          if (step.what === "reference") {
-            if (context.target) {
-              this.membership(context, context.target, "assert", context.arm);
-            }
-            break;
+        break;
+      }
+      case "assertFresh": {
+        if (step.from === "rows") {
+          for (const [position, data] of (context.item.rows ?? []).entries()) {
+            const target = this.freshRow(
+              this.targetModel(context.cells),
+              data,
+              `${context.path}.data.${position}`,
+              context.arm
+            );
+            if (context.item.skipDuplicates) this.skipDuplicates(target);
+            this.membership(context, target, "assert", target.arm);
+            bound.push({
+              target,
+              ...(target.arm === undefined ? {} : { arm: target.arm }),
+            });
           }
-          if (!context.target) break;
-          this.record(
-            context.target,
-            context.item[step.from ?? "data"] ?? {},
-            "atKey",
-            `${context.path}.${step.from ?? "data"}`,
-            context.arm
-          );
+          context.target = undefined;
           break;
         }
-        case "retract": {
-          this.retractStep(step, context);
+        const data = context.item[step.from] ?? {};
+        const target = this.freshRow(
+          this.targetModel(context.cells),
+          data,
+          `${context.path}.${step.from}`,
+          context.arm
+        );
+        context.target = target;
+        bound.push({
+          target,
+          ...(context.arm === undefined ? {} : { arm: context.arm }),
+        });
+        break;
+      }
+      case "assertAtKey": {
+        if (step.what === "reference") {
+          if (context.target) {
+            this.membership(context, context.target, "assert", context.arm);
+          }
           break;
         }
-        case "merge": {
-          const decision = this.matchStep(step.decision, context);
-          if (!decision) break;
-          const found = this.arm(decision, "found");
-          const missing = this.arm(decision, "missing");
-          // The found arm's row IS the decision row: a composed modify lands there.
-          bound.push({ target: decision, arm: found });
-          bound.push(
-            ...this.apply(step.found, {
-              ...context,
-              target: decision,
-              referenceRow: undefined,
-              arm: found,
-            }),
-            ...this.apply(step.missing, {
-              ...context,
-              target: undefined,
-              referenceRow: undefined,
-              arm: missing,
-            })
-          );
-          break;
-        }
-        case "setDifference": {
-          this.setDifference(context);
-          break;
-        }
-        default: {
-          const exhaustive: never = step;
-          throw new TypeError(
-            `construct: unknown step ${JSON.stringify(exhaustive)}`
-          );
-        }
+        if (!context.target) break;
+        this.record(
+          context.target,
+          context.item[step.from ?? "data"] ?? {},
+          "atKey",
+          `${context.path}.${step.from ?? "data"}`,
+          context.arm
+        );
+        break;
+      }
+      case "retract": {
+        this.retractStep(step, context);
+        break;
+      }
+      case "merge": {
+        const decision = this.matchStep(step.decision, context);
+        if (!decision) break;
+        const found = this.arm(decision, "found");
+        const missing = this.arm(decision, "missing");
+        // The found arm's row IS the decision row: a composed modify lands there.
+        bound.push({ target: decision, arm: found });
+        bound.push(
+          ...this.apply(step.found, {
+            ...context,
+            target: decision,
+            referenceRow: undefined,
+            arm: found,
+          }),
+          ...this.apply(step.missing, {
+            ...context,
+            target: undefined,
+            referenceRow: undefined,
+            arm: missing,
+          })
+        );
+        break;
+      }
+      case "setDifference": {
+        this.setDifference(context);
+        break;
+      }
+      default: {
+        const exhaustive: never = step;
+        throw new TypeError(
+          `construct: unknown step ${JSON.stringify(exhaustive)}`
+        );
       }
     }
-    return bound;
   }
 
   private matchStep(
@@ -1166,7 +1156,7 @@ class Construction {
           value: this.literal(cells.discriminator.storedValue),
         }
       : undefined;
-    const reference: ArmedReference = {
+    const reference: Reference = {
       holder: holder.id,
       referenced: referenced.id,
       columns: cells.cells,
@@ -1211,41 +1201,35 @@ class Construction {
       "one",
       mode === "assert",
       arm,
-      via.table
+      via.table,
+      true
     );
     // A retracted row's cells are its identity (matched), never cleared cells.
     const cellMode: Mode = mode === "retract" ? "match" : mode;
-    const sides = via as typeof via & ReferenceRowSides;
-    const sourceCells = sides.sourceCells;
-    if (sourceCells) {
-      this.references.push({
-        holder: row.id,
-        referenced: parent.id,
-        columns: sourceCells,
-        onKeyChange: cells.onKeyChange,
-        nullable: false,
-        unique: false,
-        relation: cells.relation,
-        ...(arm === undefined ? {} : { arm }),
-      });
-      for (const pair of sourceCells) {
-        this.cell(
-          row,
-          pair.holderColumn,
-          this.keyVariable(parent, pair.referencedColumn),
-          cellMode,
-          arm
-        );
-      }
-    } else {
-      this.defer({
-        stage: "packing",
-        kind: "referenceRowSourceCellsUnavailable",
-        relation: cells.relation.field,
-        path: context.path,
-        error: "QueryEngineError",
-        message: `query-engine pattern: the cell map publishes no asking-side columns for the reference row '${via.table}' of relation '${cells.relation.field}' (K2 gap: viaJunction.sourceCells).`,
-      });
+    // `cells` pairs the reference row to the REFERENCED endpoint; the asking
+    // side is whichever of K2's two endpoint pairings that is not.
+    const toParent =
+      cells.cells[0]?.holderColumn === via.targetCells[0]?.holderColumn
+        ? via.sourceCells
+        : via.targetCells;
+    this.references.push({
+      holder: row.id,
+      referenced: parent.id,
+      columns: toParent,
+      onKeyChange: cells.onKeyChange,
+      nullable: false,
+      unique: false,
+      relation: cells.relation,
+      ...(arm === undefined ? {} : { arm }),
+    });
+    for (const pair of toParent) {
+      this.cell(
+        row,
+        pair.holderColumn,
+        this.keyVariable(parent, pair.referencedColumn),
+        cellMode,
+        arm
+      );
     }
     if (target) {
       this.references.push({
@@ -1748,5 +1732,6 @@ function freeze(draft: RowDraft): Row {
     ...(draft.arm === undefined ? {} : { arm: draft.arm }),
     ...(draft.predicate ? { predicate: draft.predicate } : {}),
     ...(draft.matchIsDecision ? { matchIsDecision: true } : {}),
+    ...(draft.verb === undefined ? {} : { verb: draft.verb }),
   };
 }

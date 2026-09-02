@@ -10,8 +10,7 @@
  *
  * Row and variable identities are allocated from ONE counter for the whole
  * read, root and sub-patterns alike, so an `Extension.reference` can name the
- * parent row and the child row without ambiguity (K1 leaves that unstated; see
- * the report's proposed contract diffs).
+ * parent row and the child row without ambiguity (K1 states that rule).
  */
 import type { Model } from "@schema/model";
 import {
@@ -30,7 +29,11 @@ import {
 } from "../context";
 import { DISTANCE_RESULT_KEY } from "../result-aliases";
 import { QueryEngineError } from "../types";
-import { type ReferenceCells, referenceCells } from "./cells";
+import {
+  type ReferenceCells,
+  type ReferenceFamily,
+  referenceCells,
+} from "./cells";
 import type {
   Cell,
   Extension,
@@ -47,59 +50,19 @@ import type {
 } from "./pattern";
 
 // ---------------------------------------------------------------------------
-// Read-side refinements of the K1 vocabulary (proposed contract diffs)
+// The one read-side refinement K1 does not carry
 // ---------------------------------------------------------------------------
 
 /**
- * An extension as a read builds it. `variant` names the arm of a variant slot
- * this extension realizes; `visible` is false for a collection arm outside the
- * validated `only` allow-list (its integrity is still computed, its rows are
- * not emitted). Both are absent on an ordinary relation.
+ * An extension that realizes ONE arm of a variant slot. K1 names the variant
+ * on a `Projection.relations[]` entry, but a relation-filter leaf, a
+ * `relationCounts[]` entry and a `relationAggregate` order term carry only
+ * the extension — so the arm rides on the extension there. Absent on an
+ * ordinary relation and on an extension that stands for every arm.
  */
 export interface ReadExtension extends Extension {
   readonly variant?: string;
-  readonly visible?: boolean;
 }
-
-/** `is: null` / `isNot: null` — a presence test on the reference cells, no sub-pattern. */
-export interface PresenceLeaf {
-  readonly kind: "relation";
-  readonly quantifier: "is" | "isNot";
-  readonly extension: ReadExtension;
-  readonly inner?: undefined;
-  readonly presence: "null";
-}
-
-/** Order terms a read needs beyond K1's two (proposed diff on `OrderTerm`). */
-export type ReadOrderTerm =
-  | OrderTerm
-  | {
-      /** A scalar of a row reached through a chain of singular references. */
-      readonly kind: "relationScalar";
-      readonly path: readonly ReadExtension[];
-      readonly column: string;
-      readonly direction: "asc" | "desc";
-      readonly nulls?: "first" | "last";
-    }
-  | {
-      /** A structural order (`_distance`): the raw public order value rides as the operand. */
-      readonly kind: "structural";
-      readonly column: string;
-      readonly form: "distance";
-      readonly operand: Variable;
-    }
-  | {
-      /** A groupBy order on an aggregate expression (`{ _count: { _all: "desc" } }`). */
-      readonly kind: "aggregate";
-      readonly aggregate: "_count" | "_avg" | "_sum" | "_min" | "_max";
-      readonly field: string;
-      readonly direction: unknown;
-    };
-
-export const isPresenceLeaf = (
-  predicate: Predicate
-): predicate is Predicate & PresenceLeaf =>
-  predicate.kind === "relation" && "presence" in predicate;
 
 export type ReadOperation =
   | "findUnique"
@@ -168,11 +131,13 @@ export class PatternBuilder {
     options: {
       readonly key?: readonly Variable[];
       readonly table?: string;
+      readonly referenceRow?: true;
     } = {}
   ): RowId {
     const id = this.ids.nextRow();
     const table: TableRef = {
       model,
+      ...(options.referenceRow ? { referenceRow: true } : {}),
       table: options.table ?? getTableName(model),
     };
     const key =
@@ -230,12 +195,33 @@ export class PatternBuilder {
 // Slots
 // ---------------------------------------------------------------------------
 
-function slotOf(
+const families = new WeakMap<
+  ResolvedRelationIndex,
+  WeakMap<Model<any>, Map<string, ReferenceFamily>>
+>();
+
+/** The cell map's answer for one slot, resolved once per index. */
+function familyOf(
   index: ResolvedRelationIndex,
   model: Model<any>,
   field: string
-) {
-  return index.get(model)?.get(field);
+): ReferenceFamily {
+  let byModel = families.get(index);
+  if (!byModel) {
+    byModel = new WeakMap();
+    families.set(index, byModel);
+  }
+  let byField = byModel.get(model);
+  if (!byField) {
+    byField = new Map();
+    byModel.set(model, byField);
+  }
+  let family = byField.get(field);
+  if (!family) {
+    family = referenceCells(index, model, field);
+    byField.set(field, family);
+  }
+  return family;
 }
 
 /** A slot the payload selects the target of: one reference per variant. */
@@ -244,12 +230,7 @@ function spansVariants(
   model: Model<any>,
   field: string
 ): boolean {
-  const resolved = slotOf(index, model, field);
-  return (
-    resolved !== undefined &&
-    resolved.member === undefined &&
-    "carrier" in resolved.edge
-  );
+  return familyOf(index, model, field).kind === "variants";
 }
 
 /** Whether a spanning slot stores its reference on the holder row (vs a row of its own per member). */
@@ -258,8 +239,12 @@ function spanningSlotStoresOnHolder(
   model: Model<any>,
   field: string
 ): boolean {
-  const resolved = slotOf(index, model, field);
-  return resolved !== undefined && "storage" in resolved.edge;
+  const family = familyOf(index, model, field);
+  if (family.kind !== "variants") return false;
+  for (const cells of family.byVariant.values()) {
+    return cells.viaJunction === undefined;
+  }
+  return false;
 }
 
 function slotCardinality(model: Model<any>, field: string): "one" | "many" {
@@ -273,63 +258,8 @@ function variantNames(
   model: Model<any>,
   field: string
 ): readonly string[] {
-  const edge = slotOf(index, model, field)?.edge;
-  if (edge && "storage" in edge) return edge.members.map((m) => m.variant);
-  const family = referenceCells(index, model, field);
+  const family = familyOf(index, model, field);
   return family.kind === "variants" ? [...family.byVariant.keys()] : [];
-}
-
-/**
- * K2 BUG WORKAROUND (proposed cells.ts diff in the report): `referenceCells`
- * resolves a row carrier's private storage columns through `getColumnName`,
- * which knows scalar FIELDS only, so every row-carrier slot throws
- * `Scalar "<id column>" not found`. Until cells.ts reads those columns as the
- * physical names they already are, the same view is built here from the same
- * resolved storage — nothing is decided that cells.ts does not decide.
- */
-function rowCarrierCells(
-  index: ResolvedRelationIndex,
-  model: Model<any>,
-  field: string,
-  variant: string | undefined
-): ReferenceCells | undefined {
-  const resolved = slotOf(index, model, field);
-  const edge = resolved?.edge;
-  if (!(resolved && edge && "storage" in edge)) return undefined;
-  const wanted = variant ?? resolved.member?.variant;
-  const member = edge.members.find((m) => m.variant === wanted);
-  if (!member) return undefined;
-  const holderModel = edge.carrier.source;
-  const referencedColumn = getColumnName(
-    member.targetModel,
-    member.referencedField
-  );
-  return {
-    relation: { model, field },
-    holder: {
-      model: holderModel,
-      table: getTableName(holderModel),
-      columns: [edge.storage.idColumn.name],
-      fields: [edge.storage.idColumn.name],
-    },
-    referenced: {
-      model: member.targetModel,
-      table: getTableName(member.targetModel),
-      columns: [referencedColumn],
-      fields: [member.referencedField],
-    },
-    holderIsSource: holderModel === model,
-    cells: [{ holderColumn: edge.storage.idColumn.name, referencedColumn }],
-    discriminator: {
-      column: edge.storage.typeColumn.name,
-      storedValue: member.entry.storedValue,
-      variant: member.variant,
-    },
-    unique: edge.uniqueTarget,
-    nullable: edge.storage.idColumn.nullable,
-    onKeyChange: "none",
-    cardinality: slotCardinality(model, field),
-  };
 }
 
 function cellsFor(
@@ -338,9 +268,7 @@ function cellsFor(
   field: string,
   variant: string | undefined
 ): ReferenceCells {
-  const fallback = rowCarrierCells(index, model, field, variant);
-  if (fallback) return fallback;
-  const family = referenceCells(index, model, field);
+  const family = familyOf(index, model, field);
   if (family.kind === "single") return family.cells;
   const cells =
     variant === undefined ? undefined : family.byVariant.get(variant);
@@ -353,52 +281,20 @@ function cellsFor(
 }
 
 /**
- * The columns the OWN-ROW reference stores for the asking side. K2 publishes
- * the referenced side's pairing (`cells`) and the two models the own row joins
- * (`viaJunction.source/target` as model sides), but not the own row's columns
- * for the asking side — read from the resolved topology here. Proposed K2 diff:
- * `viaJunction.sourceCells` / `targetCells` pairs.
+ * The own row's columns that hold the ASKING side's key: whichever endpoint
+ * pairing is not the one `cells` already names for the referenced side.
  */
 function askingSidePairs(
-  index: ResolvedRelationIndex,
-  model: Model<any>,
-  field: string,
-  variant: string | undefined,
   cells: ReferenceCells
 ): readonly { holderColumn: string; referencedColumn: string }[] {
-  const resolved = slotOf(index, model, field);
-  const edge = resolved?.edge;
-  if (!edge) return [];
-  type Side = {
-    model: Model<any>;
-    members: readonly { junctionField: string; referencedField: string }[];
-  };
-  type Topology = { source: Side; target: Side };
-  let topology: Topology | undefined;
-  if ("topology" in edge) {
-    topology = edge.topology as Topology;
-  } else if ("members" in edge) {
-    const wanted = variant ?? resolved?.member?.variant;
-    const member = edge.members.find((m) => m.variant === wanted) as
-      | { topology?: Topology }
-      | undefined;
-    topology = member?.topology;
-  }
-  if (!topology) return [];
-  const side =
-    cells.viaJunction?.source.model === model &&
-    cells.viaJunction.target.model !== model
-      ? topology.source
-      : cells.viaJunction?.target.model === model &&
-          cells.viaJunction.source.model !== model
-        ? topology.target
-        : cells.referenced.model === topology.target.model
-          ? topology.source
-          : topology.target;
-  return side.members.map((member) => ({
-    holderColumn: member.junctionField,
-    referencedColumn: getColumnName(side.model, member.referencedField),
-  }));
+  const own = cells.viaJunction;
+  if (!own) return [];
+  const targetIsReferenced =
+    own.targetCells.length === cells.cells.length &&
+    own.targetCells.every(
+      (pair, i) => pair.holderColumn === cells.cells[i]?.holderColumn
+    );
+  return targetIsReferenced ? own.sourceCells : own.targetCells;
 }
 
 // ---------------------------------------------------------------------------
@@ -754,13 +650,7 @@ function presence(
   quantifier: "is" | "isNot"
 ): Predicate {
   const { extension } = extend(b, row, model, field, variant, "one");
-  const leaf: PresenceLeaf = {
-    kind: "relation",
-    quantifier,
-    extension,
-    presence: "null",
-  };
-  return leaf as Predicate;
+  return { kind: "relation", quantifier, extension, presence: "null" };
 }
 
 function quantified(
@@ -887,7 +777,7 @@ function extend(
   field: string,
   variant: string | undefined,
   cardinality: Row["cardinality"],
-  options: { readonly visible?: boolean; readonly allVariants?: boolean } = {}
+  options: { readonly allVariants?: boolean } = {}
 ): Extended {
   const cells = cellsFor(b.index, model, field, variant);
   const target = new PatternBuilder(b.ids, b.index);
@@ -911,6 +801,7 @@ function extend(
     const ownRow = target.row(targetModel, "set", {
       key: [],
       table: cells.viaJunction.table,
+      referenceRow: true,
     });
     target.references.push({
       holder: ownRow,
@@ -921,7 +812,7 @@ function extend(
     reference = {
       holder: ownRow,
       referenced: parentRow,
-      columns: askingSidePairs(b.index, model, field, variant, cells),
+      columns: askingSidePairs(cells),
       ...common,
     };
   } else {
@@ -956,7 +847,6 @@ function extend(
       return pattern.current;
     },
     ...(variant !== undefined && !options.allVariants ? { variant } : {}),
-    ...(options.visible === false ? { visible: false } : {}),
   };
   return {
     extension,
@@ -1198,14 +1088,21 @@ function spanningProjection(
         field,
         extension: extended.extension,
         cardinality: "one",
+        variant,
       });
       continue;
     }
     const visible = only ? only.includes(variant) : true;
-    const extended = extend(b, row, model, field, variant, "set", { visible });
+    const extended = extend(b, row, model, field, variant, "set");
     const arm = isRecord(arms?.[variant]) ? arms[variant] : {};
     extended.finish(nestedProjection(extended, arm));
-    entries.push({ field, extension: extended.extension, cardinality: "many" });
+    entries.push({
+      field,
+      extension: extended.extension,
+      cardinality: "many",
+      variant,
+      visible,
+    });
   }
   return entries;
 }
@@ -1313,9 +1210,9 @@ function orderTermsOf(
   row: RowId,
   model: Model<any>,
   orderBy: ReadArgs["orderBy"]
-): ReadOrderTerm[] {
+): OrderTerm[] {
   if (!orderBy) return [];
-  const terms: ReadOrderTerm[] = [];
+  const terms: OrderTerm[] = [];
   const items = Array.isArray(orderBy) ? orderBy : [orderBy];
   for (const item of items) {
     for (const [field, value] of Object.entries(item)) {
@@ -1363,7 +1260,7 @@ function scalarOrder(
   model: Model<any>,
   field: string,
   value: unknown
-): ReadOrderTerm {
+): OrderTerm {
   const column = getColumnName(model, field);
   if (value === "asc" || value === "desc") {
     return { kind: "scalar", column, direction: value };
@@ -1410,7 +1307,7 @@ function chainOrders(
   path: readonly ReadExtension[],
   relationPath: string,
   depth: number
-): ReadOrderTerm[] {
+): OrderTerm[] {
   if (depth > MAX_RELATION_ORDER_DEPTH) {
     throw new QueryEngineError(
       `Relation orderBy path '${relationPath}' exceeds maximum depth of ${MAX_RELATION_ORDER_DEPTH} relation hops.`
@@ -1420,7 +1317,7 @@ function chainOrders(
   extended.finish(undefined);
   const chain = [...path, extended.extension];
   const targetModel = extended.targetModel;
-  const terms: ReadOrderTerm[] = [];
+  const terms: OrderTerm[] = [];
   for (const [nested, value] of Object.entries(orderBy)) {
     if (value === undefined) continue;
     const fieldPath = `${relationPath}.${nested}`;
@@ -1485,7 +1382,7 @@ function countOrder(
   field: string,
   value: unknown,
   variant: string | undefined
-): ReadOrderTerm {
+): OrderTerm {
   if (!isRecord(value)) {
     throw new QueryEngineError(
       `Relation orderBy '${field}' must be an object.`
@@ -1571,9 +1468,9 @@ function groupByOrderTermsOf(
   model: Model<any>,
   orderBy: ReadArgs["orderBy"],
   byFields: readonly string[]
-): ReadOrderTerm[] {
+): OrderTerm[] {
   if (!orderBy) return [];
-  const terms: ReadOrderTerm[] = [];
+  const terms: OrderTerm[] = [];
   const items = Array.isArray(orderBy) ? orderBy : [orderBy];
   for (const item of items) {
     for (const [key, value] of Object.entries(item)) {

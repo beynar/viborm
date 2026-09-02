@@ -71,12 +71,8 @@ export function smokePattern(): Pattern {
       key: [],
       fresh: true,
       verb: "connect",
+      referenceRow: "post_tag",
     });
-    // The junction table is not a model; the row carries its physical name.
-    (junction as { table: { model: unknown; table: string } }).table = {
-      model: post,
-      table: "post_tag",
-    };
     b.cell(junction, "postId", postKey);
     b.cell(junction, "tagId", key);
     b.reference({

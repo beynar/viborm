@@ -64,6 +64,7 @@ import {
   materializeBatchSql,
   materializeLinearSql,
   mergeBatchOutputs,
+  packFragment,
   type RowsBoundary,
   type RuntimeValues,
   resolveConsumedValue,
@@ -118,7 +119,9 @@ export async function executeInBatch(
   const attribution = attributionOf(run.program);
   const values: RuntimeValues = new Map();
   await runMatchLevels(fragment, run.driver, values, run.context, attribution);
-  const unit = compileUnit(fragment, run.driver, values, {
+  // The arm the matches decided, re-packed with their results (§6.3).
+  const packed = packFragment(fragment, values);
+  const unit = compileUnit(packed, run.driver, values, {
     inherited: [],
     attribution,
   });
@@ -240,7 +243,7 @@ function enforceUnreferencedPremises(
       : undefined;
     if (Array.isArray(holders) && holders.length > 0) {
       throw createFailureError(
-        premiseFailure(bound),
+        bound.failure,
         attribution.model,
         attribution.operation
       );
@@ -259,17 +262,19 @@ function enforceUnreferencedPremises(
  * the pin rides the write and the unique constraint catches the race (the Pin
  * Rule). An `occupant` premise cannot be derived from the match re-run (the
  * match would still find A row, not necessarily the same occupant), so it
- * requires an explicit guard. `unreferenced` is enforced at match time.
+ * requires an explicit guard. `unreferenced` is enforced at match time. A
+ * derived guard raises the premise's own failure — today's exact class,
+ * message and raceability, supplied by packing.
  */
 export function guardFor(bound: BoundPremise): GuardStep | undefined {
   if (bound.guard) return bound.guard;
   const { premise, match } = bound;
   switch (premise.kind) {
     case "exists":
-      return derivedGuard(match, "exists", premiseFailure(bound));
+      return derivedGuard(match, "exists", bound.failure);
     case "notExists":
       if (premise.pin) return undefined;
-      return derivedGuard(match, "notExists", premiseFailure(bound));
+      return derivedGuard(match, "notExists", bound.failure);
     case "occupant":
       throw new QueryEngineError(
         `Premise 'occupant' on match '${match.id}' needs an explicit guard; the match re-run cannot assert the occupant.`
@@ -291,19 +296,6 @@ function derivedGuard(
     kind: "guard",
     premise: { kind, statement: match.statement },
     failure,
-  };
-}
-
-/**
- * K3 premises carry no failure of their own (the report proposes one), so a
- * derived guard's failure is the operation's: a `query` failure naming the
- * premise, raceable exactly as the premise says.
- */
-function premiseFailure(bound: BoundPremise): Failure {
-  return {
-    kind: "query",
-    message: `Premise '${bound.premise.kind}' on match '${bound.match.id}' no longer holds.`,
-    raceable: bound.premise.raceable,
   };
 }
 

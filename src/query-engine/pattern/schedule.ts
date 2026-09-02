@@ -53,13 +53,6 @@ export interface Substrate {
  */
 export type DeferredRefusal = () => never;
 
-/**
- * Public verb spelling for error text only. K1 carries none (proposed contract
- * addition, see the report); until it does the scheduler derives one from the
- * row's mode and honors this optional field when present.
- */
-type LabeledRow = Row & { readonly verb?: string };
-
 // ---------------------------------------------------------------------------
 // Nodes
 // ---------------------------------------------------------------------------
@@ -266,9 +259,9 @@ class PatternFacts {
     return row.arm === undefined ? true : (this.armTaken.get(row.arm) ?? true);
   }
 
+  /** `Row.verb` is message text only (K1); the fallback derives one from the mode. */
   verb(row: Row, kind: NodeKind): string {
-    const labeled = row as LabeledRow;
-    if (labeled.verb) return labeled.verb;
+    if (row.verb) return row.verb;
     if (kind === "match")
       return row.arm === undefined ? "connect" : "connectOrCreate";
     if (kind === "retract") return "delete";

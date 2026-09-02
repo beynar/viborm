@@ -6,14 +6,7 @@
 import { s } from "@schema";
 import { referenceCells } from "@src/query-engine/pattern/cells";
 import { describe, expect, test } from "vitest";
-import {
-  cells,
-  construct,
-  indexOf,
-  references,
-  rows,
-  withSourceCells,
-} from "./harness";
+import { cells, construct, indexOf, references, rows } from "./harness";
 
 const schema = (() => {
   const tag = s
@@ -33,27 +26,25 @@ const schema = (() => {
   return { tag, post };
 })();
 
+/** The plain K2 view of post.tags: the reference row's two pairings. */
 function edge() {
-  const family = withSourceCells(indexOf(schema), schema.post, "tags");
+  const family = referenceCells(indexOf(schema), schema.post, "tags");
   if (family.kind !== "single") throw new Error("expected one reference");
-  const via = family.cells.viaJunction as
-    | (NonNullable<typeof family.cells.viaJunction> & {
-        sourceCells: readonly {
-          holderColumn: string;
-          referencedColumn: string;
-        }[];
-      })
-    | undefined;
+  const via = family.cells.viaJunction;
   if (!via) throw new Error("expected a reference row");
+  // `cells` pairs the row to the referenced endpoint (tag); the asking side
+  // (post) is the other endpoint pairing.
+  const toPostPairs =
+    family.cells.cells[0]!.holderColumn === via.targetCells[0]!.holderColumn
+      ? via.sourceCells
+      : via.targetCells;
   return {
     table: via.table,
-    toPost: via.sourceCells.map(
-      (c) => `${c.holderColumn}->${c.referencedColumn}`
-    ),
+    toPost: toPostPairs.map((c) => `${c.holderColumn}->${c.referencedColumn}`),
     toTag: family.cells.cells.map(
       (c) => `${c.holderColumn}->${c.referencedColumn}`
     ),
-    postColumn: via.sourceCells[0]!.holderColumn,
+    postColumn: toPostPairs[0]!.holderColumn,
     tagColumn: family.cells.cells[0]!.holderColumn,
   };
 }
@@ -157,7 +148,11 @@ describe("reference rows", () => {
     ]);
   });
 
-  test("the plain K2 view records the asking-side gap as a deferred refusal, never a throw", () => {
+  test("the plain K2 view yields the real reference-row column names on both sides", () => {
+    const e = edge();
+    expect(e.postColumn).not.toBe(e.tagColumn);
+    expect(e.toPost).toEqual([`${e.postColumn}->id`]);
+    expect(e.toTag).toEqual([`${e.tagColumn}->id`]);
     const { pattern, deferredRefusals } = construct(
       schema,
       schema.post,
@@ -165,10 +160,14 @@ describe("reference rows", () => {
       { where: { id: "p1" }, data: { tags: { connect: { id: "t1" } } } },
       referenceCells
     );
-    expect(deferredRefusals.map((r) => r.kind)).toEqual([
-      "referenceRowSourceCellsUnavailable",
+    expect(deferredRefusals).toEqual([]);
+    expect(references(pattern).map((r) => r.columns)).toEqual([
+      e.toPost,
+      e.toTag,
     ]);
-    // The target-side reference is still complete.
-    expect(references(pattern)).toHaveLength(1);
+    // A reference-only row says so on its table, and every row names its verb.
+    expect(pattern.rows[2]!.table.referenceRow).toBe(true);
+    expect(pattern.rows[2]!.verb).toBe("connect");
+    expect(pattern.rows[0]!.table.referenceRow).toBeUndefined();
   });
 });

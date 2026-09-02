@@ -18,7 +18,11 @@ import type { Model } from "@schema/model";
 // Identity
 // ---------------------------------------------------------------------------
 
-/** Pattern-local row identity. Allocated in payload order at construction. */
+/**
+ * Pattern-local row identity. Allocated in payload order at construction from
+ * ONE counter shared with every extension target, so an `Extension.reference`
+ * can name a parent row and a child row unambiguously.
+ */
 export type RowId = number;
 
 /** Pattern-local variable identity. Allocated in payload order; bound once (D4). */
@@ -28,7 +32,13 @@ export type VariableId = number;
 export type ArmId = number;
 
 export interface TableRef {
+  /**
+   * The row's model — or, for a reference-only row (a junction), the model
+   * whose key the row is oriented to; `referenceRow` says which.
+   */
   readonly model: Model<any>;
+  /** The row holds nothing but references (a junction row). */
+  readonly referenceRow?: true;
   /** Physical table name, namespace-free; the adapter qualifies it. */
   readonly table: string;
 }
@@ -113,6 +123,11 @@ export interface Row {
    * matches (a `select`) do not.
    */
   readonly matchIsDecision?: boolean;
+  /**
+   * The public verb this row realizes, for error messages and step labels
+   * ONLY. Never a discriminant: no engine code may branch on it (census).
+   */
+  readonly verb?: string;
 }
 
 /**
@@ -135,6 +150,8 @@ export interface Cell {
     readonly operation: string;
     readonly operand: Variable;
   };
+  /** Present when the cell belongs to a merge arm (an arm asserting a cell on an unconditional row). */
+  readonly arm?: ArmId;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +189,8 @@ export interface Reference {
   readonly unique: boolean;
   /** The public relation this reference realizes, for error attribution and step labels. */
   readonly relation: { readonly model: Model<any>; readonly field: string };
+  /** Present when the reference is asserted or retracted inside a merge arm. */
+  readonly arm?: ArmId;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +232,13 @@ export type Predicate =
       readonly kind: "relation";
       readonly quantifier: "some" | "every" | "none" | "is" | "isNot";
       readonly extension: Extension;
+      /**
+       * `undefined` is a bare quantifier (`is: {}` / a bare `type`); an `and`
+       * with no items is `{}` spelled explicitly. The two are distinct.
+       */
       readonly inner?: Predicate;
+      /** `is: null` / `isNot: null` — a presence test with no sub-pattern. */
+      readonly presence?: "null";
     }
   | {
       /** A distance / geo / JSON-path leaf: structural decision here, spelling in the adapter. */
@@ -257,10 +282,32 @@ export type OrderTerm =
       readonly nulls?: "first" | "last";
     }
   | {
+      /** A scalar reached through a chain of singular extensions (`author: { name: "asc" }`). */
+      readonly kind: "relationScalar";
+      readonly path: readonly Extension[];
+      readonly column: string;
+      readonly direction: "asc" | "desc";
+      readonly nulls?: "first" | "last";
+    }
+  | {
       readonly kind: "relationAggregate";
       readonly extension: Extension;
       readonly aggregate: "count";
       readonly direction: "asc" | "desc";
+    }
+  | {
+      /** A structural order (`_distance`): the raw public order value rides as the operand; the adapter spells `form`. */
+      readonly kind: "structural";
+      readonly column: string;
+      readonly form: "distance";
+      readonly operand: Variable;
+    }
+  | {
+      /** A groupBy order on an aggregate expression (`{ _count: { _all: "desc" } }`); `direction` is the raw public value. */
+      readonly kind: "aggregate";
+      readonly aggregate: "_count" | "_avg" | "_sum" | "_min" | "_max";
+      readonly field: string;
+      readonly direction: unknown;
     };
 
 /**
@@ -273,11 +320,19 @@ export interface Projection {
     readonly field: string;
     readonly extension: Extension;
     readonly cardinality: "one" | "many";
+    /** One entry per variant for a payload-selected slot; entries share `field`. */
+    readonly variant?: string;
+    /** A variant arm that is traversed for integrity but not projected. */
+    readonly visible?: boolean;
   }[];
   readonly relationCounts: readonly {
     readonly field: string;
     readonly extension: Extension;
   }[];
+  /**
+   * `{ kind: "count" }` is `_count: true`; `{ kind: "count", column: "_all" }`
+   * is `_count: { _all: true }`; other columns count that column.
+   */
   readonly aggregates?: readonly {
     readonly kind: "count" | "avg" | "sum" | "min" | "max";
     readonly column?: string;
@@ -285,6 +340,7 @@ export interface Projection {
   readonly groupBy?: readonly string[];
   readonly having?: Predicate;
   readonly window?: Window;
+  /** Computed projections (`_distance`): `operands[0]` is the source column as a literal variable. */
   readonly computed?: readonly {
     readonly name: string;
     readonly form: string;

@@ -13,7 +13,11 @@ import {
   written,
 } from "@tests/pattern/sim/simulated-driver";
 import { describe, expect, test } from "vitest";
-import { connectProgram, levelledProgram } from "./fixtures";
+import {
+  connectProgram,
+  levelledProgram,
+  packedMergeProgram,
+} from "./fixtures";
 
 function batchDriver(script?: SimulatedScript) {
   return new SimulatedDriver({
@@ -119,10 +123,11 @@ describe("atomic-batch enforcer", () => {
         return undefined;
       },
     });
+    // The premise's own failure — today's exact class, message and relation.
     await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
-      name: "TransactionError",
-      message: "Premise 'exists' on match 'author.find' no longer holds.",
-      meta: { model: "post", operation: "update" },
+      name: "NestedWriteError",
+      message: "connect target 'author' no longer exists",
+      meta: { relation: "author" },
     });
     expect(driver.log.at(-1)).toEqual({
       entry: "lifecycle",
@@ -138,6 +143,30 @@ describe("atomic-batch enforcer", () => {
       "user",
       "post",
       "post",
+    ]);
+  });
+
+  test("pack re-packs the taken arm from the match results: found → update under an exists guard", async () => {
+    const driver = batchDriver();
+    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+      result: 1,
+    });
+    expect(driver.statements.map((entry) => entry.sql)).toEqual([
+      'SELECT "id" FROM "sim_users" WHERE "id" = $1',
+      'SELECT 1 / CASE WHEN EXISTS (SELECT "id" FROM "sim_users" WHERE "id" = $1) THEN 1 ELSE 0 END AS "__viborm_assert__"',
+      'UPDATE "sim_users" SET "email" = $1 WHERE "id" = $2',
+    ]);
+    expect(driver.statements[2]?.params).toEqual(["a@b", "u1"]);
+  });
+
+  test("pack re-packs the taken arm from the match results: missing → pinned insert, no guard", async () => {
+    const driver = batchDriver({});
+    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+      result: 1,
+    });
+    expect(driver.statements.map((entry) => entry.sql)).toEqual([
+      'SELECT "id" FROM "sim_users" WHERE "id" = $1',
+      'INSERT INTO "sim_users" ("id", "email") VALUES ($1, $2)',
     ]);
   });
 

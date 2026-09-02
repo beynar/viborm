@@ -54,6 +54,16 @@ export interface ReferenceCells {
     readonly table: string;
     readonly source: CellSide;
     readonly target: CellSide;
+    /** The reference row's own columns paired with the SOURCE endpoint's referenced fields. */
+    readonly sourceCells: readonly {
+      readonly holderColumn: string;
+      readonly referencedColumn: string;
+    }[];
+    /** The reference row's own columns paired with the TARGET endpoint's referenced fields. */
+    readonly targetCells: readonly {
+      readonly holderColumn: string;
+      readonly referencedColumn: string;
+    }[];
   };
   /** Present when a stored discriminator selects the referenced table. */
   readonly discriminator?: {
@@ -183,6 +193,20 @@ function junctionCells(
       table: topology.table,
       source: sourceSide,
       target: targetSide,
+      sourceCells: topology.source.members.map((m) => ({
+        holderColumn: m.junctionField,
+        referencedColumn: getColumnName(
+          topology.source.model,
+          m.referencedField
+        ),
+      })),
+      targetCells: topology.target.members.map((m) => ({
+        holderColumn: m.junctionField,
+        referencedColumn: getColumnName(
+          topology.target.model,
+          m.referencedField
+        ),
+      })),
     },
     unique: options.uniqueTarget,
     nullable: true,
@@ -228,15 +252,19 @@ export function referenceCells(
         const holderModel = edge.carrier.source;
         return {
           relation: { model: slot.slot.source, field: slot.slot.field },
-          holder: side(holderModel, [edge.storage.idColumn.name]),
+          // The private (type, id) storage names are physical columns, not
+          // scalar fields: never resolve them through the field registry.
+          holder: {
+            model: holderModel,
+            table: getTableName(holderModel),
+            columns: [edge.storage.idColumn.name],
+            fields: [edge.storage.idColumn.name],
+          },
           referenced: side(member.targetModel, [member.referencedField]),
           holderIsSource: holderModel === slot.slot.source,
           cells: [
             {
-              holderColumn: getColumnName(
-                holderModel,
-                edge.storage.idColumn.name
-              ),
+              holderColumn: edge.storage.idColumn.name,
               referencedColumn: getColumnName(
                 member.targetModel,
                 member.referencedField
@@ -244,7 +272,7 @@ export function referenceCells(
             },
           ],
           discriminator: {
-            column: getColumnName(holderModel, edge.storage.typeColumn.name),
+            column: edge.storage.typeColumn.name,
             storedValue: member.entry.storedValue,
             variant: member.variant,
           },

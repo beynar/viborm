@@ -5,7 +5,8 @@
  *
  * The SQL here is deliberately plain: the executors treat statements as
  * opaque, and the simulated driver never interprets them. What matters is the
- * structure — matches, premises, writes, boundaries, outputs.
+ * structure — matches, premises (with the failure a violated premise raises),
+ * writes, boundaries, outputs.
  */
 import { sql } from "@sql";
 import type {
@@ -14,6 +15,7 @@ import type {
   Program,
 } from "@src/query-engine/pattern/fragment";
 import {
+  type Failure,
   type GuardStep,
   type ReadStep,
   ref,
@@ -26,6 +28,30 @@ export const AUTHOR_PIN: TargetConstraintPin = {
   table: "sim_users",
   columns: ["email"],
   constraints: ["sim_users_email_key"],
+};
+
+/** The failure a violated `exists` premise on the connect target raises. */
+export const AUTHOR_GONE: Failure = {
+  kind: "nestedWrite",
+  message: "connect target 'author' no longer exists",
+  relation: "author",
+  raceable: false,
+};
+
+/** The failure a violated raceable `notExists` premise raises. */
+export const AUTHOR_APPEARED: Failure = {
+  kind: "nestedWrite",
+  message: "connect target 'author' appeared concurrently",
+  relation: "author",
+  raceable: true,
+};
+
+/** The failure a member raises when the parent's liveness premise is violated. */
+export const PARENT_GONE: Failure = {
+  kind: "nestedWrite",
+  message: "parent 'user' no longer exists",
+  relation: "posts",
+  raceable: false,
 };
 
 export function findAuthor(id = "u1", required = true): ReadStep {
@@ -74,12 +100,22 @@ export function updatePost(postId = "p1"): WriteStep {
 
 export function existsPremise(
   match: ReadStep,
-  guard?: GuardStep
+  guard?: GuardStep,
+  failure: Failure = AUTHOR_GONE
 ): BoundPremise {
   return {
     premise: { kind: "exists", row: 1, raceable: false },
     match,
     ...(guard ? { guard } : {}),
+    failure,
+  };
+}
+
+export function pinnedAbsencePremise(match: ReadStep): BoundPremise {
+  return {
+    premise: { kind: "notExists", row: 1, raceable: true, pin: AUTHOR_PIN },
+    match,
+    failure: AUTHOR_APPEARED,
   };
 }
 
@@ -111,7 +147,7 @@ export function connectProgram(
         boundary: { kind: "end" },
       },
     ],
-    { result: "post.update" }
+    { result: ref("post.update", "count") }
   );
 }
 
@@ -144,12 +180,20 @@ export function levelledProgram(): Program {
       {
         matches: [[author, tag], [profile]],
         writes: [updatePost(), link],
-        premises: [existsPremise(author), existsPremise(tag)],
+        premises: [
+          existsPremise(author),
+          existsPremise(tag, undefined, {
+            kind: "nestedWrite",
+            message: "connect target 'tags' no longer exists",
+            relation: "tags",
+            raceable: false,
+          }),
+        ],
         inherited: [],
         boundary: { kind: "end" },
       },
     ],
-    { result: "post.update", links: "post.tag" }
+    { result: ref("post.update", "count"), links: ref("post.tag", "count") }
   );
 }
 
@@ -172,55 +216,88 @@ export function singleStatementProgram(): Program {
         boundary: { kind: "end" },
       },
     ],
-    { result: "post.title" }
+    { result: ref("post.title", "count") }
   );
 }
 
+function mergeArms(stepId: string): {
+  readonly insert: WriteStep;
+  readonly update: WriteStep;
+} {
+  return {
+    insert: {
+      id: stepId,
+      kind: "write",
+      model: "user",
+      statement: sql`INSERT INTO "sim_users" ("id", "email") VALUES (${"u1"}, ${"a@b"})`,
+      outputs: { count: { kind: "rowCount" } },
+      racePin: AUTHOR_PIN,
+    },
+    update: {
+      id: stepId,
+      kind: "write",
+      model: "user",
+      statement: sql`UPDATE "sim_users" SET "email" = ${"a@b"} WHERE "id" = ${ref("author.find", "id")}`,
+      outputs: { count: { kind: "rowCount" } },
+    },
+  };
+}
+
 /**
- * A merge at the root (`upsert` / `connectOrCreate`), as the engine would
- * schedule it after the match phase decided the arm: the missing arm inserts
+ * A merge at the root (`upsert` / `connectOrCreate`) with the arm already
+ * decided (as a fresh construction would pack it): the missing arm inserts
  * with the pin riding the write; the found arm updates the matched row.
  */
 export function mergeProgram(arm: "missing" | "found"): Program {
   const probe = findAuthor("u1", false);
-  const insert: WriteStep = {
-    id: "author.create",
-    kind: "write",
-    model: "user",
-    statement: sql`INSERT INTO "sim_users" ("id", "email") VALUES (${"u1"}, ${"a@b"})`,
-    outputs: { count: { kind: "rowCount" } },
-    racePin: AUTHOR_PIN,
-  };
-  const update: WriteStep = {
-    id: "author.update",
-    kind: "write",
-    model: "user",
-    statement: sql`UPDATE "sim_users" SET "email" = ${"a@b"} WHERE "id" = ${ref("author.find", "id")}`,
-    outputs: { count: { kind: "rowCount" } },
-  };
+  const arms = mergeArms(arm === "missing" ? "author.create" : "author.update");
   return program(
     [
       {
         matches: [[probe]],
-        writes: [arm === "missing" ? insert : update],
+        writes: [arm === "missing" ? arms.insert : arms.update],
         premises: [
           arm === "missing"
-            ? {
-                premise: {
-                  kind: "notExists",
-                  row: 1,
-                  raceable: true,
-                  pin: AUTHOR_PIN,
-                },
-                match: probe,
-              }
+            ? pinnedAbsencePremise(probe)
             : existsPremise(probe),
         ],
         inherited: [],
         boundary: { kind: "end" },
       },
     ],
-    { result: arm === "missing" ? "author.create" : "author.update" },
+    {
+      result: ref(
+        arm === "missing" ? "author.create" : "author.update",
+        "count"
+      ),
+    },
+    { model: "user", operation: "upsert" }
+  );
+}
+
+/**
+ * The same merge, packed the way K3 now states it: the probe runs first, and
+ * `pack` re-packs the taken arm from the probe's result. Both arms publish
+ * under one step id so the program's outputs are static.
+ */
+export function packedMergeProgram(): Program {
+  const probe = findAuthor("u1", false);
+  const arms = mergeArms("author.merge");
+  return program(
+    [
+      {
+        matches: [[probe]],
+        writes: [],
+        premises: [],
+        pack: (known) =>
+          known["author.find.id"] === undefined
+            ? { writes: [arms.insert], premises: [pinnedAbsencePremise(probe)] }
+            : { writes: [arms.update], premises: [existsPremise(probe)] },
+        inherited: [],
+        boundary: { kind: "end" },
+      },
+    ],
+    { result: ref("author.merge", "count") },
     { model: "user", operation: "upsert" }
   );
 }
@@ -277,7 +354,11 @@ export function mergeOutcomeProgram(): Program {
         boundary: { kind: "end" },
       },
     ],
-    { root: "user.create", child: "post.create", tail: "audit.create" },
+    {
+      root: ref("user.create", "count"),
+      child: ref("post.create", "count"),
+      tail: ref("audit.create", "count"),
+    },
     { model: "user", operation: "createMany" }
   );
 }
@@ -302,6 +383,7 @@ export function memberedProgram(members = 3): Program {
   const liveness: BoundPremise = {
     premise: { kind: "exists", row: 0, raceable: false },
     match: capture,
+    failure: PARENT_GONE,
   };
   const fragments: Fragment[] = [
     {
@@ -325,6 +407,7 @@ export function memberedProgram(members = 3): Program {
     fragments.push({
       matches: [],
       writes: [write],
+      member: index,
       premises: [],
       inherited: [liveness],
       boundary:
@@ -335,7 +418,7 @@ export function memberedProgram(members = 3): Program {
   }
   return program(
     fragments,
-    { result: outputs },
+    { result: outputs.map((id) => ref(id, "count")) },
     { model: "user", operation: "update" }
   );
 }

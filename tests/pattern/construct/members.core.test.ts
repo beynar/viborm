@@ -8,7 +8,7 @@ import { constructMemberPatterns } from "@src/query-engine/pattern/construct";
 import { parseValidated } from "@src/query-engine/write-engine/parse-boundary";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { cells, indexOf, rows, withSourceCells } from "./harness";
+import { cells, indexOf, rows } from "./harness";
 
 const LITERAL_KEY = /^lit\("/;
 
@@ -46,7 +46,6 @@ describe("member patterns", () => {
       index,
       model: schema.author,
       operation: "createMany",
-      cells: withSourceCells,
       members: raw,
       // The member's own parse boundary: the whole `create` args schema over
       // `{ data: row }`, exactly what a series member is handed today.
@@ -79,7 +78,6 @@ describe("member patterns", () => {
       index,
       model: schema.author,
       operation: "updateMany",
-      cells: withSourceCells,
       members: captured,
       parseMember: (row) => ({
         where: row,

@@ -7,16 +7,17 @@
  * the transaction enforcer (savepoint per merge group) and the segments
  * enforcer (progress per member) read the same layout.
  *
- * Reading of the boundary kinds, stated once (the report flags it as the one
- * place K3 is ambiguous):
+ * Reading of the boundary kinds, stated once:
  *
- * - `member(i)` on fragment k: the NEXT fragment is bulk member `i` (row N
- *   must observe row N−1, so the boundary opens at the start of row N). A
- *   fragment before the first member boundary is the capture/prefix.
- * - `mergeOutcome(row)` on fragment k: fragment k's first write is the merge
- *   root; fragments k+1 … up to and including the next fragment whose boundary
- *   is `member` or `end` are its dependents, and run only when the root made a
- *   row.
+ * - `Fragment.member` names the bulk member a fragment belongs to. When a
+ *   fragment does not say, `member(i)` on the preceding fragment does: the
+ *   NEXT fragment is bulk member `i` (row N must observe row N−1, so the
+ *   boundary opens at the start of row N). A fragment before the first member
+ *   is the capture/prefix.
+ * - `mergeOutcome(row)` on fragment k: `row` is the root write. Statement
+ *   steps carry no row id, so the root is fragment k's first write; fragments
+ *   k+1 … up to and including the next fragment whose boundary is `member` or
+ *   `end` are its dependents, and run only when the root made a row.
  * - `executionBinding` cuts a fragment without changing membership.
  */
 import { QueryEngineError } from "@errors";
@@ -40,7 +41,7 @@ export function placements(program: Program): readonly FragmentPlacement[] {
   const placed: FragmentPlacement[] = [];
   let member: number | undefined;
   program.fragments.forEach((fragment, index) => {
-    placed.push({ fragment, index, member });
+    placed.push({ fragment, index, member: fragment.member ?? member });
     if (fragment.boundary.kind === "member") {
       member = fragment.boundary.index;
     }
@@ -51,6 +52,7 @@ export function placements(program: Program): readonly FragmentPlacement[] {
 export function memberCount(program: Program): number | undefined {
   const indices = new Set<number>();
   for (const fragment of program.fragments) {
+    if (fragment.member !== undefined) indices.add(fragment.member);
     if (fragment.boundary.kind === "member") {
       indices.add(fragment.boundary.index);
     }
@@ -58,7 +60,7 @@ export function memberCount(program: Program): number | undefined {
   return indices.size === 0 ? undefined : indices.size;
 }
 
-/** The first write of a merge-outcome fragment is its root. */
+/** The merge-outcome `row` is the root write: the fragment's first write. */
 export function mergeRootOf(fragment: Fragment): string {
   const root = fragment.writes.find((step) => step.kind === "write");
   if (!root) {

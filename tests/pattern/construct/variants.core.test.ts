@@ -5,6 +5,7 @@
  * a carrier.
  */
 import { s } from "@schema";
+import { referenceCells } from "@src/query-engine/pattern/cells";
 import { describe, expect, test } from "vitest";
 import {
   cells,
@@ -13,7 +14,6 @@ import {
   indexOf,
   references,
   rows,
-  withSourceCells,
 } from "./harness";
 
 const schema = (() => {
@@ -59,7 +59,7 @@ const collection = (() => {
 })();
 
 function subjectCells(variant: string) {
-  const family = withSourceCells(indexOf(schema), schema.card, "subject");
+  const family = referenceCells(indexOf(schema), schema.card, "subject");
   if (family.kind !== "variants") throw new Error("expected variants");
   const cells = family.byVariant.get(variant)!;
   return {
