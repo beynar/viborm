@@ -128,6 +128,20 @@ export interface Row {
    * ONLY. Never a discriminant: no engine code may branch on it (census).
    */
   readonly verb?: string;
+  /**
+   * How this row's identity is obtained, decided by the verb's plan when the
+   * row is built (§2): `probe` sends its own statement, `correlated` is
+   * addressed from an enclosing row's bindings, `none` is a fresh row that
+   * needs no identity. The packer READS this; it must never re-derive from the
+   * verb which rows send a probe.
+   */
+  readonly located?: "probe" | "correlated" | "none";
+  /**
+   * The step label this row's statements carry (`org.locate`, `team.connect`),
+   * spelled once by the verb's plan. Byte-pinning lives where the public verb
+   * is spelled, not in a table the packer keys by edge kind and verb.
+   */
+  readonly label?: string;
 }
 
 /**

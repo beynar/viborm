@@ -63,6 +63,20 @@ export type Premise =
     };
 
 /**
+ * How a premise is re-asserted where the substrate cannot hold a lock: there
+ * are only three shapes, and which one applies is a fact of the match that
+ * produced the bindings — not of the public verb. The scheduler decides it
+ * once; the packer spells the shape it names.
+ */
+export type GuardShape =
+  /** Re-read the captured row by the selector the match used. */
+  | "capturedSelector"
+  /** Read the membership (a reference row, or a holder's reference cells). */
+  | "membership"
+  /** Run the match statement again. */
+  | "matchRerun";
+
+/**
  * A premise bound to its enforcement. `guard` is present when packing decided
  * the batch guard is NOT the match re-run (the probe-first upsert's
  * selector-plus-key reassertion, the singular transfer's `take: 1` guard);
@@ -70,6 +84,8 @@ export type Premise =
  */
 export interface BoundPremise {
   readonly premise: Premise;
+  /** Which of the three guard shapes re-asserts this premise (§6, D6). */
+  readonly shape?: GuardShape;
   /** The match statement whose bindings the premise protects. */
   readonly match: StatementStep;
   /**
