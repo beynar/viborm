@@ -21,6 +21,32 @@ import {
   SCHEMA_BUILDER_KEYS,
 } from "./public-surface-golden.mjs";
 
+// The same pnpm this smoke runs under - not whichever `pnpm` is first on PATH.
+// The CI runner image ships pnpm v11 beside the pinned v10.11.0, and a bare
+// `pnpm` inside the sandbox resolved the other one, whose store is empty, so
+// `--offline` failed. Its stderr is surfaced too: a bare "Command failed" cost
+// a CI round trip to read.
+const PNPM_JS_ENTRY = /\.[cm]?js$/;
+function runPnpm(args, options) {
+  const entry = process.env.npm_execpath;
+  const [command, prefix] =
+    entry && PNPM_JS_ENTRY.test(entry)
+      ? [process.execPath, [entry]]
+      : ["pnpm", []];
+  try {
+    return execFileSync(command, [...prefix, ...args], {
+      ...options,
+      stdio: "pipe",
+    });
+  } catch (error) {
+    const stderr = error?.stderr?.toString?.() ?? "";
+    throw new Error(
+      `pnpm ${args.join(" ")} failed${stderr ? `:\n${stderr}` : ""}`,
+      { cause: error }
+    );
+  }
+}
+
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../.."
@@ -96,9 +122,8 @@ const consumerRoot = mkdtempSync(join(tmpdir(), "viborm-package-golden-"));
 try {
   let archive = process.env.VIBORM_PACKAGE_TARBALL;
   if (archive === undefined) {
-    execFileSync("pnpm", ["pack", "--pack-destination", consumerRoot], {
+    runPnpm(["pack", "--pack-destination", consumerRoot], {
       cwd: repositoryRoot,
-      stdio: "pipe",
     });
     const archives = readdirSync(consumerRoot).filter((name) =>
       name.endsWith(".tgz")
@@ -128,10 +153,11 @@ try {
       },
     })
   );
-  execFileSync(
-    "pnpm",
+  runPnpm(
     ["install", "--offline", "--ignore-scripts", "--no-frozen-lockfile"],
-    { cwd: consumerRoot, stdio: "pipe" }
+    {
+      cwd: consumerRoot,
+    }
   );
 
   const installedRoot = join(consumerRoot, "node_modules", "viborm");
