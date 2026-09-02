@@ -178,8 +178,8 @@ async function runExecution(
     })()
   );
 
-  const traceMine = mine.trace();
-  const traceTheirs = theirs.trace();
+  const traceMine = mine.trace().map(stableTrace);
+  const traceTheirs = theirs.trace().map(stableTrace);
   if (JSON.stringify(traceMine) !== JSON.stringify(traceTheirs)) {
     const at = traceMine.findIndex((line, i) => line !== traceTheirs[i]);
     return {
@@ -194,6 +194,13 @@ async function runExecution(
     };
   }
   return { kind: "equal" };
+}
+
+/** Each operation names its batch scratch rows with a fresh uuid; erase it. */
+const OPERATION_ID = /operation_[0-9a-f-]{36}/g;
+
+function stableTrace(line: string): string {
+  return line.replace(OPERATION_ID, "operation_<id>");
 }
 
 /** The rows the terminal read published, as `decodeRows` consumes them. */
