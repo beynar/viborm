@@ -13,6 +13,7 @@ import { schedule } from "@src/query-engine/pattern/schedule";
 import {
   dumpOperation,
   engineFor,
+  oracleFor,
   planningDriver,
   type Substrate,
   synthesizeKnown,
@@ -53,8 +54,7 @@ function packSmoke(substrate: Substrate) {
   // first. Pass two: the writes, with the match rows the harness synthesizes.
   const planned = pack(scheduled, engine, new StepIds());
   const known = synthesizeKnown(
-    models,
-    driver,
+    oracleFor(models, "postgresql", substrate),
     { steps: planned.fragments.flatMap((fragment) => fragment.matches.flat()) },
     "found"
   );
@@ -122,8 +122,7 @@ describe("compile-level differential: K4 smoke payload", () => {
     });
     const planned = pack(scheduled, engine, new StepIds());
     const known = synthesizeKnown(
-      models,
-      driver,
+      oracleFor(models, "postgresql", substrate),
       { steps: planned.fragments.flatMap((f) => f.matches.flat()) },
       "missing"
     );
