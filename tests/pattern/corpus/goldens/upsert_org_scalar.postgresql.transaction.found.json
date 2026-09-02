@@ -1,0 +1,36 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.upsert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1",
+        "one",
+        "One",
+        "Renamed"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES ($1, $2, $3) ON CONFLICT (\"id\") DO UPDATE SET \"name\" = $4 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "org.upsert.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

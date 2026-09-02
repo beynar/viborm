@@ -1,0 +1,120 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'shelf': target record was not found.",
+        "raceable": false,
+        "relation": "shelf"
+      },
+      "id": "shelf.guard.target",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1",
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" COLLATE BINARY = ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change on the singular polymorphic member of relation 'items.clip': another owner holds the target; retry to converge.",
+        "raceable": true,
+        "relation": "items.clip"
+      },
+      "id": "shelf.slot.guard.slot",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          3,
+          2
+        ],
+        "sql": "SELECT \"shelfId\" FROM \"pc_shelves_items_clip\" WHERE \"clipId\" IN (?) LIMIT ?"
+      }
+    },
+    {
+      "expects": null,
+      "id": "clip.create",
+      "kind": "write",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        3,
+        "C"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_clips\" (\"id\", \"title\") VALUES (?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "shelf.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        3
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "INSERT  INTO \"pc_shelves_items_clip\" (\"shelfId\", \"clipId\") VALUES (?, ?) ON CONFLICT (\"shelfId\", \"clipId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "clip.select",
+      "kind": "read",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_clips\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "clip",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "clip.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "shelf.find",
+      "kind": "read",
+      "model": "shelf",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

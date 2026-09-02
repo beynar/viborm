@@ -1,0 +1,16 @@
+{
+  "dialect": "mysql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot update relation 'org': target record was not found for this parent.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "team",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

@@ -1,0 +1,52 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 delete located no 'zone' row for its unique where.",
+        "raceable": false
+      },
+      "id": "zone.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "r1",
+          "z1"
+        ],
+        "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "zone.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_zones\" WHERE (\"pc_zones\".\"region\" = $1 AND \"pc_zones\".\"code\" = $2) RETURNING \"region\" AS \"region\", \"code\" AS \"code\""
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "zone.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

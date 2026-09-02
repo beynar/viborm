@@ -1,0 +1,78 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t1",
+        "A"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES ($1, $2, NULL)"
+    },
+    {
+      "expects": null,
+      "id": "ticket.create",
+      "kind": "write",
+      "model": "ticket",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        "x",
+        "t1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_tickets\" (\"title\", \"teamId\") VALUES ($1, CAST($2 AS TEXT)) RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "ticket.select",
+      "kind": "read",
+      "model": "ticket",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "ticket.create.id"
+        }
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_tickets\" AS \"t0\" WHERE \"t0\".\"id\" = CAST($1 AS INTEGER) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "ticket.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

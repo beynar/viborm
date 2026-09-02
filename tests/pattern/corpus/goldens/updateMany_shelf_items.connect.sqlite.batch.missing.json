@@ -1,0 +1,33 @@
+{
+  "capturedRoots": 1,
+  "dialect": "sqlite",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 0,
+  "members": [],
+  "model": "shelf",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "shelf.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "L"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"label\" COLLATE BINARY = ?"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "batch",
+  "world": "missing"
+}

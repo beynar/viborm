@@ -1,0 +1,104 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_orgs` (`id`, `slug`, `name`) VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t1",
+        "A",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": {
+        "columns": [
+          "id"
+        ],
+        "constraints": [
+          "pc_teams_pkey",
+          "PRIMARY"
+        ],
+        "fields": [
+          "id"
+        ],
+        "table": "pc_teams"
+      },
+      "sql": "INSERT INTO `pc_teams` (`id`, `label`, `orgId`) VALUES (?, ?, CAST(? AS CHAR))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select",
+      "kind": "read",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_orgs` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "team.find",
+      "kind": "read",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "t1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id`, `t0`.`orgId` AS `orgId` FROM `pc_teams` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "missing"
+}

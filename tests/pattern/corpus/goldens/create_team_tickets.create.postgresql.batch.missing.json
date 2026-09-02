@@ -1,0 +1,79 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t1",
+        "A"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES ($1, $2, NULL)"
+    },
+    {
+      "expects": null,
+      "id": "ticket.create",
+      "kind": "write",
+      "model": "ticket",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "x",
+        "t1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_tickets\" (\"title\", \"teamId\") VALUES ($1, CAST($2 AS TEXT))"
+    },
+    {
+      "expects": null,
+      "id": "ticket.create#1",
+      "kind": "write",
+      "model": "ticket",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "y",
+        "t1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_tickets\" (\"title\", \"teamId\") VALUES ($1, CAST($2 AS TEXT))"
+    },
+    {
+      "expects": null,
+      "id": "team.select",
+      "kind": "read",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "t1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_teams\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "team",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "team.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

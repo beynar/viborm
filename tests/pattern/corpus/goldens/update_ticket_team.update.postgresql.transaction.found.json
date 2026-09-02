@@ -1,0 +1,117 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'team' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "team.update",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "B",
+        "team.find.id"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_teams\" SET \"label\" = $1 WHERE \"pc_teams\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "ticket.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        7
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_tickets\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "ticket.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'ticket' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "ticket.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        },
+        "teamId": {
+          "field": "teamId",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        7
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"teamId\" AS \"teamId\" FROM \"public\".\"pc_tickets\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "team.find",
+      "kind": "read",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "ticket.locate.teamId"
+        },
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_teams\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

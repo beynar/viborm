@@ -1,0 +1,84 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "shelf.updateMany",
+      "kind": "write",
+      "model": "shelf",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "Swept",
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE `pc_shelves` SET `label` = ? WHERE `pc_shelves`.`id` IN (SELECT `shelfId` FROM `pc_shelves_items_post` WHERE `postId` = ?)"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "post.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_posts` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "post",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "post.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'post' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "post.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_posts` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

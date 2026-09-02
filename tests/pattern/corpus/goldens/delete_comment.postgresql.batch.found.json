@@ -1,0 +1,50 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 delete located no 'comment' row for its unique where.",
+        "raceable": false
+      },
+      "id": "comment.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          5
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "comment.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        5
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_comments\" WHERE \"pc_comments\".\"id\" = $1 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "comment.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

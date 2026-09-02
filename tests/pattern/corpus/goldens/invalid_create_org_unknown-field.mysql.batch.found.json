@@ -1,0 +1,16 @@
+{
+  "dialect": "mysql",
+  "error": {
+    "code": "V4001",
+    "message": "Validation failed for create: Unknown key: nope",
+    "name": "ValidationError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

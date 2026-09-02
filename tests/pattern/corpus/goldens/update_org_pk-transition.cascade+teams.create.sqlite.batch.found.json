@@ -1,0 +1,110 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'org' row for its unique where.",
+        "raceable": false
+      },
+      "id": "org.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "o1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t9",
+        "Z",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES (?, ?, CAST(? AS TEXT))"
+    },
+    {
+      "expects": null,
+      "id": "org.update",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o2",
+        "o1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_orgs\" SET \"id\" = ? WHERE \"pc_orgs\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "org.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o2"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'org' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

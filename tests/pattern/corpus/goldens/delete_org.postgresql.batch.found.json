@@ -1,0 +1,50 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 delete located no 'org' row for its unique where.",
+        "raceable": false
+      },
+      "id": "org.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "o1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "org.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_orgs\" WHERE \"pc_orgs\".\"id\" = $1 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "org.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

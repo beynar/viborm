@@ -1,0 +1,43 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'zone' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "zone.update",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "z2",
+        "r1",
+        "z1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_zones\" SET \"code\" = $1 WHERE (\"pc_zones\".\"region\" = $2 AND \"pc_zones\".\"code\" = $3) RETURNING \"region\" AS \"region\", \"code\" AS \"code\""
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "zone.update.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

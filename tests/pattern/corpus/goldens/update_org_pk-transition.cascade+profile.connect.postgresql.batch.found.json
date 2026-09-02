@@ -1,0 +1,183 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'org' row for its unique where.",
+        "raceable": false
+      },
+      "id": "org.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "o1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot update relation 'profile' with onUpdate('restrict') while the current relation is occupied.",
+        "raceable": true,
+        "relation": "profile"
+      },
+      "id": "profile.guard.occupied",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          "o1",
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"orgId\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'profile': target record was not found.",
+        "raceable": false,
+        "relation": "profile"
+      },
+      "id": "profile.guard.exists",
+      "kind": "guard",
+      "position": 2,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "p1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "org.update",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o2",
+        "o1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_orgs\" SET \"id\" = $1 WHERE \"pc_orgs\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "profile.connect",
+      "kind": "write",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o2",
+        "p1"
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_profiles\" SET \"orgId\" = CAST($1 AS TEXT) WHERE \"pc_profiles\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "org.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o2"
+      ],
+      "position": 5,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'org' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "profile.transition.find",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1",
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"orgId\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+    },
+    {
+      "expects": null,
+      "id": "profile.find",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "p1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

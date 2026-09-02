@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot connect relation 'subject': target record was not found.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "spotlight",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

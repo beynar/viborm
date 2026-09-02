@@ -1,0 +1,9 @@
+// The goldens are compared byte-for-byte to `serializeDump` output
+// (oracle.core.test.ts); a formatter pass over them is drift. Nested config:
+// Biome leaves this directory alone.
+{
+  "root": false,
+  "formatter": { "enabled": false },
+  "linter": { "enabled": false },
+  "assist": { "enabled": false }
+}

@@ -1,0 +1,135 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'commentable': target record was not found.",
+        "raceable": false,
+        "relation": "commentable"
+      },
+      "id": "post.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'commentable': target record was not found.",
+        "raceable": false,
+        "relation": "commentable"
+      },
+      "id": "video.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          2,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_videos\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "expects": null,
+      "id": "comment.createMany",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [
+        "a",
+        "pc.post.v1",
+        1,
+        "b",
+        "pc.video.v1",
+        2
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_comments\" (\"body\", \"commentable_type\", \"commentable_id\") VALUES ($1, $2, $3), ($4, $5, $6)"
+    },
+    {
+      "expects": null,
+      "id": "comment.createMany#1",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [
+        "c"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_comments\" (\"body\") VALUES ($1)"
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "createMany",
+  "outputs": {
+    "count": [
+      {
+        "ref": "comment.createMany.count"
+      },
+      {
+        "ref": "comment.createMany#1.count"
+      }
+    ]
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "post.find",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1"
+    },
+    {
+      "expects": null,
+      "id": "video.find",
+      "kind": "read",
+      "model": "video",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        2
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_videos\" AS \"t0\" WHERE \"t0\".\"id\" = $1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

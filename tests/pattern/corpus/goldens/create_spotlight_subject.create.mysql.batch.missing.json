@@ -1,0 +1,72 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "post.create",
+      "kind": "write",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "kind": "insertId"
+        }
+      },
+      "params": [
+        "one",
+        "P"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_posts` (`slug`, `title`) VALUES (?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "spotlight.create",
+      "kind": "write",
+      "model": "spotlight",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sl1",
+        "c",
+        "pc.spot.post.v1",
+        {
+          "ref": "post.create.id"
+        }
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_spotlights` (`id`, `caption`, `subject_type`, `subject_id`) VALUES (?, ?, ?, CAST(? AS SIGNED))"
+    },
+    {
+      "expects": null,
+      "id": "spotlight.select",
+      "kind": "read",
+      "model": "spotlight",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sl1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_spotlights` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "spotlight",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "spotlight.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

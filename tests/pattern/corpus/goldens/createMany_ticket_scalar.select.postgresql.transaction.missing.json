@@ -1,0 +1,36 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "ticket.createManyReturn",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x",
+        "t1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_tickets\" (\"title\", \"teamId\") VALUES ($1, $2) RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "createMany",
+  "outputs": {
+    "result": [
+      {
+        "ref": "ticket.createManyReturn.result"
+      }
+    ]
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

@@ -1,0 +1,143 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'post' row for its unique where.",
+        "raceable": false
+      },
+      "id": "post.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot set relation 'shelves': target record was not found.",
+        "raceable": false,
+        "relation": "shelves"
+      },
+      "id": "shelf.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1",
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "expects": null,
+      "id": "shelf.set.clear",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        1
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_shelves_items_post\" WHERE \"postId\" = $1"
+    },
+    {
+      "expects": null,
+      "id": "shelf.set.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        1,
+        "sh1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"pc_shelves_items_post\" (\"postId\", \"shelfId\") VALUES ($1, $2) ON CONFLICT (\"postId\", \"shelfId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "post.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "post",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "post.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'post' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "post.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "shelf.find",
+      "kind": "read",
+      "model": "shelf",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

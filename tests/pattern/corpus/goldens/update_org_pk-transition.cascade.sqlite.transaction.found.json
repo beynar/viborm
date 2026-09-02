@@ -1,0 +1,42 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'org' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "org.update",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o2",
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"pc_orgs\" SET \"id\" = ? WHERE \"pc_orgs\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "org.update.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

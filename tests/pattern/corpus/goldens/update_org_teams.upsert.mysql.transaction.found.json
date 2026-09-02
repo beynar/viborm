@@ -1,0 +1,16 @@
+{
+  "dialect": "mysql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot upsert relation 'teams': target record was not found for this parent.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

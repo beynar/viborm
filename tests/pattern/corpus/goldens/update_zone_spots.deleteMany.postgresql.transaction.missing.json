@@ -1,0 +1,91 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "spot.deleteMany",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "r1",
+        "z1",
+        "one"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_spots\" WHERE ((\"pc_spots\".\"zoneRegion\" = $1 AND \"pc_spots\".\"zoneCode\" = $2) AND \"pc_spots\".\"name\" = $3)"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "zone.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "zone.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'zone' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "zone.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "code": {
+          "field": "code",
+          "kind": "firstRowField"
+        },
+        "region": {
+          "field": "region",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "missing"
+}

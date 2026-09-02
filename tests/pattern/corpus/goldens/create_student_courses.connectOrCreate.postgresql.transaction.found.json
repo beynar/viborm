@@ -1,0 +1,90 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "student.create",
+      "kind": "write",
+      "model": "student",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "S",
+        "s@x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_students\" (\"id\", \"name\", \"email\") VALUES ($1, $2, $3)"
+    },
+    {
+      "expects": null,
+      "id": "course.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "course.find.id"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"course_student\" (\"studentId\", \"courseId\") VALUES ($1, $2) ON CONFLICT (\"studentId\", \"courseId\") DO NOTHING"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.select",
+      "kind": "read",
+      "model": "student",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "student.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "course.find",
+      "kind": "read",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "C1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_courses\" AS \"t0\" WHERE \"t0\".\"code\" = $1 LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

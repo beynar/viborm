@@ -1,0 +1,80 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "student.create",
+      "kind": "write",
+      "model": "student",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "S",
+        "s@x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_students\" (\"id\", \"name\", \"email\") VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "course.create",
+      "kind": "write",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "c1",
+        "C",
+        "C1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT  INTO \"pc_courses\" (\"id\", \"title\", \"code\") VALUES (?, ?, ?) ON CONFLICT DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "course.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "c1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "INSERT  INTO \"course_student\" (\"studentId\", \"courseId\") SELECT ?, \"pc_courses\".\"id\" FROM \"pc_courses\" WHERE \"pc_courses\".\"id\" = ? ON CONFLICT (\"studentId\", \"courseId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "student.select",
+      "kind": "read",
+      "model": "student",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "student.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

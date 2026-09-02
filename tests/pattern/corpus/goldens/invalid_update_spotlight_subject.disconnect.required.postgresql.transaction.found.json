@@ -1,0 +1,16 @@
+{
+  "dialect": "postgresql",
+  "error": {
+    "code": "V4001",
+    "message": "Validation failed for update: Unknown key: disconnect",
+    "name": "ValidationError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "spotlight",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

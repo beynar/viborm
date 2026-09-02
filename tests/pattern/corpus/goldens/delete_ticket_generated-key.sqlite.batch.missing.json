@@ -1,0 +1,50 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 delete located no 'ticket' row for its unique where.",
+        "raceable": false
+      },
+      "id": "ticket.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          7
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_tickets\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "ticket.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        7
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_tickets\" WHERE \"pc_tickets\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "ticket.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

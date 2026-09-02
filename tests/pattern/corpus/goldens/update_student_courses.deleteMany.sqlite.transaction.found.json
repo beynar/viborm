@@ -1,0 +1,117 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "course.junction.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "course.members.id"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"course_student\" WHERE \"courseId\" IN (?)"
+    },
+    {
+      "expects": null,
+      "id": "course.deleteMany",
+      "kind": "write",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "course.members.id"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_courses\" WHERE \"pc_courses\".\"id\" COLLATE BINARY IN (?)"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "student.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'student' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "course.members",
+      "kind": "read",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "student.locate.id"
+        },
+        "C"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"pc_courses\".\"id\" AS \"id\" FROM \"pc_courses\" WHERE (\"pc_courses\".\"id\" IN (SELECT \"courseId\" FROM \"course_student\" WHERE \"studentId\" = ?) AND \"pc_courses\".\"title\" COLLATE BINARY = ?)"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

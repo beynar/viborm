@@ -1,0 +1,134 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "course.set.clear",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"course_student\" WHERE \"studentId\" = $1"
+    },
+    {
+      "expects": null,
+      "id": "course.set.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "c1",
+        "s1",
+        "course.find#1.id"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"course_student\" (\"studentId\", \"courseId\") VALUES ($1, $2), ($3, $4) ON CONFLICT (\"studentId\", \"courseId\") DO NOTHING"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "student.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'student' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "course.find",
+      "kind": "read",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "c1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_courses\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "course.find#1",
+      "kind": "read",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "C2"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_courses\" AS \"t0\" WHERE \"t0\".\"code\" = $1 LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

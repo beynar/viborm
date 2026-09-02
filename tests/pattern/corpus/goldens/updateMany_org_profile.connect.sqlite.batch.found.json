@@ -1,0 +1,159 @@
+{
+  "capturedRoots": 1,
+  "dialect": "sqlite",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 1,
+  "members": [
+    {
+      "final": [
+        {
+          "failure": {
+            "kind": "notFound",
+            "message": "query-engine-v2 update located no 'org' row for its unique where.",
+            "raceable": false
+          },
+          "id": "org.guard.exists",
+          "kind": "guard",
+          "position": 0,
+          "premise": {
+            "kind": "exists",
+            "params": [
+              "org.updateManySeries.capture.id"
+            ],
+            "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+          }
+        },
+        {
+          "failure": {
+            "kind": "nestedWrite",
+            "message": "Cannot connect relation 'profile': target record was not found.",
+            "raceable": false,
+            "relation": "profile"
+          },
+          "id": "profile.guard.exists",
+          "kind": "guard",
+          "position": 1,
+          "premise": {
+            "kind": "exists",
+            "params": [
+              "p1"
+            ],
+            "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+          }
+        },
+        {
+          "expects": null,
+          "id": "profile.connect",
+          "kind": "write",
+          "model": "profile",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "org.updateManySeries.capture.id",
+            "p1"
+          ],
+          "position": 2,
+          "racePin": null,
+          "sql": "UPDATE \"pc_profiles\" SET \"orgId\" = CAST(? AS TEXT) WHERE \"pc_profiles\".\"id\" = ? RETURNING \"id\" AS \"id\""
+        },
+        {
+          "expects": null,
+          "id": "org.select",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id"
+          ],
+          "position": 3,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        }
+      ],
+      "index": 0,
+      "outputs": {
+        "result": {
+          "ref": "org.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": {
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'org' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "org.locate",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "id": {
+              "field": "id",
+              "kind": "firstRowField"
+            },
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        },
+        {
+          "expects": null,
+          "id": "profile.find",
+          "kind": "read",
+          "model": "profile",
+          "onUniqueConflict": null,
+          "outputs": {
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "p1"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        }
+      ]
+    }
+  ],
+  "model": "org",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE instr(\"t0\".\"name\", ?) > 0"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "batch",
+  "world": "found"
+}

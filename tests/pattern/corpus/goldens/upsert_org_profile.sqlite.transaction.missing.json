@@ -1,0 +1,164 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create#1",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": {
+        "columns": [
+          "id"
+        ],
+        "constraints": [
+          "pc_orgs_pkey",
+          "PRIMARY"
+        ],
+        "fields": [
+          "id"
+        ],
+        "table": "pc_orgs"
+      },
+      "sql": "INSERT INTO \"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "profile.create",
+      "kind": "write",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "p1",
+        "bio",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": {
+        "columns": [
+          "id"
+        ],
+        "constraints": [
+          "pc_profiles_pkey",
+          "PRIMARY"
+        ],
+        "fields": [
+          "id"
+        ],
+        "table": "pc_profiles"
+      },
+      "sql": "INSERT INTO \"pc_profiles\" (\"id\", \"bio\", \"orgId\") VALUES (?, ?, CAST(? AS TEXT))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select#1",
+      "kind": "read",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "org.select#1.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "profile.find#1",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "org.locate.id"
+        },
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_profiles\" AS \"t0\" WHERE \"t0\".\"orgId\" COLLATE BINARY = ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    },
+    {
+      "expects": null,
+      "id": "profile.find",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "p1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"orgId\" AS \"orgId\" FROM \"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "missing"
+}

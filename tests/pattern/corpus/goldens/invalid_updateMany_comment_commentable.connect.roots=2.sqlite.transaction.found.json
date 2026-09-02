@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V8003",
+    "message": "updateMany matched 2 rows, so it cannot apply 'connect' to relation 'commentable': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.",
+    "name": "UnsupportedOperationError"
+  },
+  "final": [],
+  "kind": "recordSeries",
+  "model": "comment",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

@@ -1,0 +1,73 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "settings.create",
+      "kind": "write",
+      "model": "settings",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "s1",
+        "dark",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_settings\" (\"id\", \"theme\", \"orgId\") VALUES (?, ?, CAST(? AS TEXT))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select",
+      "kind": "read",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

@@ -1,0 +1,66 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_orgs` (`id`, `slug`, `name`) VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t1",
+        "A",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_teams` (`id`, `label`, `orgId`) VALUES (?, ?, CAST(? AS CHAR))"
+    },
+    {
+      "expects": null,
+      "id": "team.select",
+      "kind": "read",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "t1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_teams` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "team",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "team.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

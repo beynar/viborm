@@ -1,0 +1,135 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'spot' row for its unique where.",
+        "raceable": false
+      },
+      "id": "spot.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sp1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'zone': target record was not found.",
+        "raceable": false,
+        "relation": "zone"
+      },
+      "id": "zone.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "r1",
+          "z2"
+        ],
+        "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = ? AND \"t0\".\"code\" = ?) LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "spot.update",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "r1",
+        "z2",
+        "r1",
+        "z2",
+        "sp1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_spots\" SET \"zoneRegion\" = CAST((SELECT \"t1\".\"region\" FROM \"pc_zones\" t1 WHERE (\"t1\".\"region\" = ? AND \"t1\".\"code\" = ?)) AS TEXT), \"zoneCode\" = CAST((SELECT \"t2\".\"code\" FROM \"pc_zones\" t2 WHERE (\"t2\".\"region\" = ? AND \"t2\".\"code\" = ?)) AS TEXT) WHERE \"pc_spots\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "spot.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sp1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "spot",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "spot.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'spot' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "spot.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sp1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "zone.find",
+      "kind": "read",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z2"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = ? AND \"t0\".\"code\" = ?) LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

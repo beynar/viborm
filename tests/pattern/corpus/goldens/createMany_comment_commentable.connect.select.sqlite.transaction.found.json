@@ -1,0 +1,56 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "comment.createManyReturn",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "a",
+        "pc.post.v1",
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_comments\" (\"body\", \"commentable_type\", \"commentable_id\") VALUES (?, ?, ?) RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "createMany",
+  "outputs": {
+    "result": [
+      {
+        "ref": "comment.createManyReturn.result"
+      }
+    ]
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "post.find",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = ?"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

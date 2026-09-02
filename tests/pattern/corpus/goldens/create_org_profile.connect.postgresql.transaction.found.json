@@ -1,0 +1,91 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES ($1, $2, $3)"
+    },
+    {
+      "expects": null,
+      "id": "profile.connect",
+      "kind": "write",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "p1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_profiles\" SET \"orgId\" = CAST($1 AS TEXT) WHERE \"pc_profiles\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select",
+      "kind": "read",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "profile.find",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "p1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

@@ -1,0 +1,130 @@
+{
+  "capturedRoots": 1,
+  "dialect": "sqlite",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 1,
+  "members": [
+    {
+      "final": [
+        {
+          "expects": null,
+          "id": "post.connect",
+          "kind": "write",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "shelf.updateManySeries.capture.id",
+            1
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "INSERT  INTO \"pc_shelves_items_post\" (\"shelfId\", \"postId\") VALUES (?, ?) ON CONFLICT (\"shelfId\", \"postId\") DO NOTHING"
+        },
+        {
+          "expects": {
+            "failure": {
+              "kind": "query",
+              "message": "query-engine-v2 update terminal read expected exactly one row.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "shelf.select",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "shelf.updateManySeries.capture.id"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        }
+      ],
+      "index": 0,
+      "outputs": {
+        "result": {
+          "ref": "shelf.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": {
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "shelf.locate",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "id": {
+              "field": "id",
+              "kind": "firstRowField"
+            },
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "shelf.updateManySeries.capture.id"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        },
+        {
+          "expects": null,
+          "id": "post.find",
+          "kind": "read",
+          "model": "post",
+          "onUniqueConflict": null,
+          "outputs": {
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            1
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+        }
+      ]
+    }
+  ],
+  "model": "shelf",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "shelf.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "L"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"label\" COLLATE BINARY = ?"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "transaction",
+  "world": "found"
+}

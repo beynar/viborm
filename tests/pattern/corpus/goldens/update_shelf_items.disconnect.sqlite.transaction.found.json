@@ -1,0 +1,97 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "post.disconnect",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        1
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_shelves_items_post\" WHERE (\"shelfId\" = ? AND \"postId\" IN (SELECT \"pc_posts\".\"id\" FROM \"pc_posts\" WHERE \"pc_posts\".\"id\" = ?))"
+    },
+    {
+      "expects": null,
+      "id": "clip.disconnect",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        3
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_shelves_items_clip\" WHERE (\"shelfId\" = ? AND \"clipId\" IN (SELECT \"pc_clips\".\"id\" FROM \"pc_clips\" WHERE \"pc_clips\".\"id\" = ?))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

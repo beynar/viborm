@@ -1,0 +1,31 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "deleteMany",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_orgs\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "deleteMany",
+  "outputs": {
+    "count": {
+      "ref": "deleteMany.count"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

@@ -1,0 +1,185 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "clip.create",
+      "kind": "write",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        3,
+        "C"
+      ],
+      "position": 0,
+      "racePin": {
+        "columns": [
+          "id"
+        ],
+        "constraints": [
+          "pc_clips_pkey",
+          "PRIMARY"
+        ],
+        "fields": [
+          "id"
+        ],
+        "table": "pc_clips"
+      },
+      "sql": "INSERT INTO `pc_clips` (`id`, `title`) VALUES (?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "clip.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        3
+      ],
+      "position": 1,
+      "racePin": {
+        "columns": [
+          "shelfId",
+          "clipId"
+        ],
+        "constraints": [
+          "pc_shelves_items_clip_pkey",
+          "PRIMARY"
+        ],
+        "fields": [
+          "shelfId",
+          "clipId"
+        ],
+        "table": "pc_shelves_items_clip"
+      },
+      "sql": "INSERT INTO `pc_shelves_items_clip` (`shelfId`, `clipId`) VALUES (?, ?)"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_shelves` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_shelves` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "clip.member",
+      "kind": "read",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "shelf.locate.id"
+        },
+        3
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT `pc_clips`.`id` AS `id` FROM `pc_clips` WHERE (`pc_clips`.`id` IN (SELECT `clipId` FROM `pc_shelves_items_clip` WHERE `shelfId` = ?) AND `pc_clips`.`id` = ?) LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "clip.find",
+      "kind": "read",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_clips` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.owners",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT `shelfId` FROM `pc_shelves_items_clip` WHERE `clipId` IN ((SELECT `pc_clips`.`id` FROM `pc_clips` WHERE `pc_clips`.`id` = ?)) LIMIT 2 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "missing"
+}

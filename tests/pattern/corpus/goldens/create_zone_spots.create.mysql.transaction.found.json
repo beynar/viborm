@@ -1,0 +1,75 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "zone.create",
+      "kind": "write",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "r1",
+        "z1",
+        "Z"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_zones` (`region`, `code`, `label`) VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "spot.create",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sp1",
+        "one",
+        "r1",
+        "z1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_spots` (`id`, `name`, `zoneRegion`, `zoneCode`) VALUES (?, ?, CAST(? AS CHAR), CAST(? AS CHAR))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "zone.select",
+      "kind": "read",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT `t0`.`region` AS `region`, `t0`.`code` AS `code` FROM `pc_zones` AS `t0` WHERE (`t0`.`region` = ? AND `t0`.`code` = ?) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "zone.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

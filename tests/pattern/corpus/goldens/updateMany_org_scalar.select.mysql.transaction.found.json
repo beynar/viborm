@@ -1,0 +1,67 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.updateManyReturn.write",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "Renamed",
+        "org.updateManyReturn.capture.id",
+        "org.updateManyReturn.capture.id"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE `pc_orgs` SET `name` = ? WHERE (`pc_orgs`.`id` = ? AND BINARY `pc_orgs`.`id` = ?)"
+    },
+    {
+      "expects": null,
+      "id": "org.updateManyReturn.read",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "org.updateManyReturn.capture.id",
+        "org.updateManyReturn.capture.id"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id`, `t0`.`name` AS `name` FROM `pc_orgs` AS `t0` WHERE (`t0`.`id` = ? AND BINARY `t0`.`id` = ?)"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "updateMany",
+  "outputs": {
+    "result": {
+      "ref": "org.updateManyReturn.read.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.updateManyReturn.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_orgs` AS `t0` WHERE LOCATE(BINARY ?, BINARY `t0`.`name`) > 0 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

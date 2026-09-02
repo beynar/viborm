@@ -1,0 +1,125 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'profile' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "profile.update",
+      "kind": "write",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "new",
+        "profile.find.id"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_profiles\" SET \"bio\" = $1 WHERE \"pc_profiles\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'org' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "nestedWrite",
+          "message": "Cannot update relation 'profile': target record was not found for this parent.",
+          "raceable": false,
+          "relation": "profile"
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "profile.find",
+      "kind": "read",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "org.locate.id"
+        },
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_profiles\" AS \"t0\" WHERE \"t0\".\"orgId\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

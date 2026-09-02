@@ -1,0 +1,211 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+        "raceable": false
+      },
+      "id": "shelf.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change on the singular polymorphic member of relation 'items.clip': another owner holds the target; retry to converge.",
+        "raceable": true,
+        "relation": "items.clip"
+      },
+      "id": "clip.slot.guard.slot",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          3,
+          2
+        ],
+        "sql": "SELECT \"shelfId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"clipId\" IN ($1) LIMIT $2"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change on the singular polymorphic member of relation 'items.clip': another owner holds the target; retry to converge.",
+        "raceable": true,
+        "relation": "items.clip"
+      },
+      "id": "clip.slot.guard.slot#1",
+      "kind": "guard",
+      "position": 2,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          4,
+          2
+        ],
+        "sql": "SELECT \"shelfId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"clipId\" IN ($1) LIMIT $2"
+      }
+    },
+    {
+      "expects": null,
+      "id": "clip.create",
+      "kind": "write",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        3,
+        "C"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_clips\" (\"id\", \"title\") VALUES ($1, $2)"
+    },
+    {
+      "expects": null,
+      "id": "clip.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        3
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"pc_shelves_items_clip\" (\"shelfId\", \"clipId\") VALUES ($1, $2) ON CONFLICT (\"shelfId\", \"clipId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "clip.create#1",
+      "kind": "write",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        4,
+        "D"
+      ],
+      "position": 5,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_clips\" (\"id\", \"title\") VALUES ($1, $2)"
+    },
+    {
+      "expects": null,
+      "id": "clip.junction.insert#1",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        4
+      ],
+      "position": 6,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"pc_shelves_items_clip\" (\"shelfId\", \"clipId\") VALUES ($1, $2) ON CONFLICT (\"shelfId\", \"clipId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 7,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.owners",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3,
+        2
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"shelfId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"clipId\" IN ($1) LIMIT $2"
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.owners#1",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        4,
+        2
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"shelfId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"clipId\" IN ($1) LIMIT $2"
+    }
+  ],
+  "substrate": "batch",
+  "world": "missing"
+}

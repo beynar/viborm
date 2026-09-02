@@ -1,0 +1,51 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'org' row for its unique where.",
+        "raceable": false
+      },
+      "id": "org.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "o1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "org.update",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o2",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_orgs\" SET \"id\" = $1 WHERE \"pc_orgs\".\"id\" = $2 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "org.update.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

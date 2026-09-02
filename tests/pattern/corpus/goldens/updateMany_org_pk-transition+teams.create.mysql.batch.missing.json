@@ -1,0 +1,33 @@
+{
+  "capturedRoots": 1,
+  "dialect": "mysql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 0,
+  "members": [],
+  "model": "org",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_orgs` AS `t0` WHERE LOCATE(BINARY ?, BINARY `t0`.`name`) > 0 FOR UPDATE"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "batch",
+  "world": "missing"
+}

@@ -1,0 +1,124 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 upsert located no 'org' row for its unique where before the atomic batch.",
+        "raceable": false
+      },
+      "id": "org.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "o1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'teams': target record was not found.",
+        "raceable": false,
+        "relation": "teams"
+      },
+      "id": "team.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "t2"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_teams\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "team.connect",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "t2"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_teams\" SET \"orgId\" = CAST(? AS TEXT) WHERE \"pc_teams\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "org.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "team.find",
+      "kind": "read",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "t2"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_teams\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

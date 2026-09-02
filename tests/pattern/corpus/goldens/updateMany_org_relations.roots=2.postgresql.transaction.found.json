@@ -1,0 +1,194 @@
+{
+  "capturedRoots": 2,
+  "dialect": "postgresql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 2,
+  "members": [
+    {
+      "final": [
+        {
+          "expects": null,
+          "id": "team.create",
+          "kind": "write",
+          "model": "team",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "t9",
+            "Z",
+            "org.updateManySeries.capture.id"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "INSERT INTO \"public\".\"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES ($1, $2, CAST($3 AS TEXT))"
+        },
+        {
+          "expects": {
+            "failure": {
+              "kind": "query",
+              "message": "query-engine-v2 update terminal read expected exactly one row.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "org.select",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+        }
+      ],
+      "index": 0,
+      "outputs": {
+        "result": {
+          "ref": "org.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": {
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'org' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "org.locate",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "id": {
+              "field": "id",
+              "kind": "firstRowField"
+            },
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+        }
+      ]
+    },
+    {
+      "final": [
+        {
+          "expects": null,
+          "id": "team.create",
+          "kind": "write",
+          "model": "team",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "t9",
+            "Z",
+            "org.updateManySeries.capture.id#1"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "INSERT INTO \"public\".\"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES ($1, $2, CAST($3 AS TEXT))"
+        },
+        {
+          "expects": {
+            "failure": {
+              "kind": "query",
+              "message": "query-engine-v2 update terminal read expected exactly one row.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "org.select",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id#1"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+        }
+      ],
+      "index": 1,
+      "outputs": {
+        "result": {
+          "ref": "org.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": {
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'org' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "org.locate",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "id": {
+              "field": "id",
+              "kind": "firstRowField"
+            },
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "org.updateManySeries.capture.id#1"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+        }
+      ]
+    }
+  ],
+  "model": "org",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "org.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_orgs\" AS \"t0\" WHERE POSITION($1 IN \"t0\".\"name\") > 0 FOR UPDATE"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "transaction",
+  "world": "found"
+}

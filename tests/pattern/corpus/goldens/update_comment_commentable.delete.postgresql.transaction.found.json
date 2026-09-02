@@ -1,0 +1,113 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "comment.update",
+      "kind": "write",
+      "model": "comment",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        5
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_comments\" SET \"commentable_type\" = NULL, \"commentable_id\" = NULL WHERE \"pc_comments\".\"id\" = $1 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "post.delete",
+      "kind": "write",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_posts\" WHERE \"pc_posts\".\"id\" = $1"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "comment.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        5
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "comment.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "comment.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "commentable_id": {
+          "field": "commentable_id",
+          "kind": "firstRowField"
+        },
+        "commentable_type": {
+          "field": "commentable_type",
+          "kind": "firstRowField"
+        },
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        5
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"commentable_type\" AS \"commentable_type\", \"t0\".\"commentable_id\" AS \"commentable_id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "found"
+}

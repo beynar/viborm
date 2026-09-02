@@ -1,0 +1,41 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 delete located no 'student' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "student.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_students\" WHERE \"pc_students\".\"id\" = $1 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "student.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

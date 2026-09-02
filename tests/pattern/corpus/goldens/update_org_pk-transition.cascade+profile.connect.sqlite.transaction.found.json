@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot update relation 'profile' with onUpdate('restrict') while the current relation is occupied.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

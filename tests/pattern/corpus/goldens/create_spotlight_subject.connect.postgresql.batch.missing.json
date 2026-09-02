@@ -1,0 +1,16 @@
+{
+  "dialect": "postgresql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot connect relation 'subject': target record was not found.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "spotlight",
+  "operation": "create",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

@@ -1,0 +1,36 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "ticket.createManyReturn",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "x",
+        "t1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_tickets\" (\"title\", \"teamId\") VALUES (?, ?) RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "createMany",
+  "outputs": {
+    "result": [
+      {
+        "ref": "ticket.createManyReturn.result"
+      }
+    ]
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

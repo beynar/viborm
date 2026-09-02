@@ -1,0 +1,43 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.create",
+      "kind": "write",
+      "model": "student",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1",
+        "S",
+        "s@x"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_students\" (\"id\", \"name\", \"email\") VALUES ($1, $2, $3) RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "student.create.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

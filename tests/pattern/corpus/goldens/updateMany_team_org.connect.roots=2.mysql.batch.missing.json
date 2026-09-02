@@ -1,0 +1,34 @@
+{
+  "capturedRoots": 2,
+  "dialect": "mysql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 0,
+  "members": [],
+  "model": "team",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "team.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "A",
+        "A"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id` FROM `pc_teams` AS `t0` WHERE (`t0`.`label` = ? AND BINARY `t0`.`label` = ?) FOR UPDATE"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "batch",
+  "world": "missing"
+}

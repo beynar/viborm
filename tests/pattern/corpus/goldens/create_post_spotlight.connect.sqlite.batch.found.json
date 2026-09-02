@@ -1,0 +1,110 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'spotlight': target record was not found.",
+        "raceable": false,
+        "relation": "spotlight"
+      },
+      "id": "spotlight.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sl1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_spotlights\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "post.create",
+      "kind": "write",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "kind": "insertId"
+        }
+      },
+      "params": [
+        "one",
+        "P"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_posts\" (\"slug\", \"title\") VALUES (?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "spotlight.connect",
+      "kind": "write",
+      "model": "spotlight",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "pc.spot.post.v1",
+        {
+          "ref": "post.create.id"
+        },
+        "sl1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_spotlights\" SET \"subject_type\" = ?, \"subject_id\" = CAST(? AS INTEGER) WHERE \"pc_spotlights\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "post.select",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "post.create.id"
+        }
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = CAST(? AS INTEGER) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "post",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "post.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "spotlight.find",
+      "kind": "read",
+      "model": "spotlight",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sl1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_spotlights\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

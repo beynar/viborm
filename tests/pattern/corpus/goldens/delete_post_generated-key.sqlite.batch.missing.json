@@ -1,0 +1,50 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 delete located no 'post' row for its unique where.",
+        "raceable": false
+      },
+      "id": "post.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "one"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"slug\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "post.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "one"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_posts\" WHERE \"pc_posts\".\"slug\" = ? RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "post",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "post.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

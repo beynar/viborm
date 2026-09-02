@@ -1,0 +1,33 @@
+{
+  "capturedRoots": 1,
+  "dialect": "sqlite",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 0,
+  "members": [],
+  "model": "comment",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "comment.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "a"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_comments\" AS \"t0\" WHERE instr(\"t0\".\"body\", ?) > 0"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

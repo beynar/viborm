@@ -1,0 +1,16 @@
+{
+  "dialect": "mysql",
+  "error": {
+    "code": "V5001",
+    "message": "Driver 'planning-mysql' cannot execute 'delete' because public result parsing cannot be rolled back.",
+    "name": "TransactionError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "post",
+  "operation": "delete",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

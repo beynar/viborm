@@ -1,0 +1,186 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 upsert located no 'shelf' row for its unique where before the atomic batch.",
+        "raceable": false
+      },
+      "id": "shelf.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot connect relation 'items.post': target record was not found.",
+        "raceable": false,
+        "relation": "items.post"
+      },
+      "id": "post.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          1,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      }
+    },
+    {
+      "expects": null,
+      "id": "post.set.clear",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_shelves_items_post\" WHERE \"shelfId\" = ?"
+    },
+    {
+      "expects": null,
+      "id": "clip.set.clear",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "DELETE FROM \"pc_shelves_items_clip\" WHERE \"shelfId\" = ?"
+    },
+    {
+      "expects": null,
+      "id": "post.connect",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        1
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "INSERT  INTO \"pc_shelves_items_post\" (\"shelfId\", \"postId\") VALUES (?, ?) ON CONFLICT (\"shelfId\", \"postId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 5,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "post.find",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "clip.find",
+      "kind": "read",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_clips\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.owners",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3,
+        2
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"shelfId\" FROM \"pc_shelves_items_clip\" WHERE \"clipId\" IN ((SELECT \"pc_clips\".\"id\" FROM \"pc_clips\" WHERE \"pc_clips\".\"id\" = ?)) LIMIT ?"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

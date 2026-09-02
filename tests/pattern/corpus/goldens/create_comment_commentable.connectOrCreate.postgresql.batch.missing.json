@@ -1,0 +1,109 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "post.create",
+      "kind": "write",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        "one",
+        "P"
+      ],
+      "position": 0,
+      "racePin": {
+        "columns": [
+          "slug"
+        ],
+        "constraints": [
+          "pc_posts_slug_key"
+        ],
+        "fields": [
+          "slug"
+        ],
+        "table": "pc_posts"
+      },
+      "sql": "INSERT INTO \"public\".\"pc_posts\" (\"slug\", \"title\") VALUES ($1, $2) RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "comment.create",
+      "kind": "write",
+      "model": "comment",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        "b",
+        "pc.post.v1",
+        {
+          "ref": "post.create.id"
+        }
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO \"public\".\"pc_comments\" (\"body\", \"commentable_type\", \"commentable_id\") VALUES ($1, $2, CAST($3 AS INTEGER)) RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "comment.select",
+      "kind": "read",
+      "model": "comment",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "comment.create.id"
+        }
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = CAST($1 AS INTEGER) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "comment.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "post.find",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "one"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"slug\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "missing"
+}

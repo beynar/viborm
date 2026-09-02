@@ -1,0 +1,182 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+        "raceable": false
+      },
+      "id": "shelf.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Record was replaced by another transaction during nested connectOrCreate",
+        "raceable": false,
+        "relation": "items.clip"
+      },
+      "id": "clip.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          3,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_clips\" AS \"t0\" WHERE \"t0\".\"id\" = $1 ORDER BY \"t0\".\"id\" ASC LIMIT $2"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change on the singular polymorphic member of relation 'items.clip': the captured membership is gone; retry to converge.",
+        "raceable": false,
+        "relation": "items.clip"
+      },
+      "id": "clip.slot.guard.held",
+      "kind": "guard",
+      "position": 2,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "clip.slot.owners.shelfId",
+          3,
+          1
+        ],
+        "sql": "SELECT \"pc_clips\".\"id\" AS \"id\" FROM \"public\".\"pc_clips\" WHERE (\"pc_clips\".\"id\" IN (SELECT \"clipId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"shelfId\" = $1) AND \"pc_clips\".\"id\" = $2) LIMIT $3"
+      }
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.vacate",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "clip.slot.owners.shelfId",
+        3
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_shelves_items_clip\" WHERE (\"shelfId\" = $1 AND \"clipId\" IN ($2))"
+    },
+    {
+      "expects": null,
+      "id": "clip.junction.insert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "sh1",
+        3
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "INSERT  INTO \"public\".\"pc_shelves_items_clip\" (\"shelfId\", \"clipId\") VALUES ($1, $2) ON CONFLICT (\"shelfId\", \"clipId\") DO NOTHING"
+    },
+    {
+      "expects": null,
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 5,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "clip.find",
+      "kind": "read",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_clips\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "clip.slot.owners",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        3,
+        2
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "SELECT \"shelfId\" FROM \"public\".\"pc_shelves_items_clip\" WHERE \"clipId\" IN ((SELECT \"pc_clips\".\"id\" FROM \"public\".\"pc_clips\" WHERE \"pc_clips\".\"id\" = $1)) LIMIT $2"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

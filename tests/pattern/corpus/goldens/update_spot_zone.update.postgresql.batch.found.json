@@ -1,0 +1,149 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'spot' row for its unique where.",
+        "raceable": false
+      },
+      "id": "spot.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sp1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot update relation 'zone': target record was not found for this parent.",
+        "raceable": false,
+        "relation": "zone"
+      },
+      "id": "zone.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "spot.locate.zoneRegion",
+          "spot.locate.zoneCode",
+          "zone.find.region",
+          "zone.find.code",
+          1
+        ],
+        "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2 AND \"t0\".\"region\" = $3 AND \"t0\".\"code\" = $4) ORDER BY \"t0\".\"region\" ASC, \"t0\".\"code\" ASC LIMIT $5"
+      }
+    },
+    {
+      "expects": null,
+      "id": "zone.update",
+      "kind": "write",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "relabelled",
+        "zone.find.region",
+        "zone.find.code"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_zones\" SET \"label\" = $1 WHERE (\"pc_zones\".\"region\" = $2 AND \"pc_zones\".\"code\" = $3) RETURNING \"region\" AS \"region\", \"code\" AS \"code\""
+    },
+    {
+      "expects": null,
+      "id": "spot.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sp1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "spot",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "spot.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'spot' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "spot.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        },
+        "zoneCode": {
+          "field": "zoneCode",
+          "kind": "firstRowField"
+        },
+        "zoneRegion": {
+          "field": "zoneRegion",
+          "kind": "firstRowField"
+        }
+      },
+      "params": [
+        "sp1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"zoneRegion\" AS \"zoneRegion\", \"t0\".\"zoneCode\" AS \"zoneCode\" FROM \"public\".\"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "zone.find",
+      "kind": "read",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "spot.locate.zoneRegion"
+        },
+        {
+          "ref": "spot.locate.zoneCode"
+        },
+        1
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) ORDER BY \"t0\".\"region\" ASC, \"t0\".\"code\" ASC LIMIT $3"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

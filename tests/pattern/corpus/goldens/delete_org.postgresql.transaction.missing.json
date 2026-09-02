@@ -1,0 +1,41 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 delete located no 'org' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "org.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_orgs\" WHERE \"pc_orgs\".\"id\" = $1 RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "delete",
+  "outputs": {
+    "result": {
+      "ref": "org.delete.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

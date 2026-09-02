@@ -1,0 +1,42 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": {
+        "expected": 1,
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'student' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "affectedRows"
+      },
+      "id": "student.update",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s2",
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE \"pc_students\" SET \"id\" = ? WHERE \"pc_students\".\"id\" = ? RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "student.update.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

@@ -1,0 +1,140 @@
+{
+  "capturedRoots": 1,
+  "dialect": "postgresql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 1,
+  "members": [
+    {
+      "final": [
+        {
+          "expects": {
+            "expected": 1,
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "affectedRows"
+          },
+          "id": "comment.update",
+          "kind": "write",
+          "model": "comment",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "pc.post.v1",
+            1,
+            1
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "UPDATE \"public\".\"pc_comments\" SET \"commentable_type\" = $1, \"commentable_id\" = CAST($2 AS INTEGER) WHERE \"pc_comments\".\"id\" = $3 RETURNING \"id\" AS \"id\""
+        },
+        {
+          "expects": {
+            "failure": {
+              "kind": "query",
+              "message": "query-engine-v2 update terminal read expected exactly one row.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "comment.select",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            1
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+        }
+      ],
+      "index": 0,
+      "outputs": {
+        "result": {
+          "ref": "comment.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": {
+            "failure": {
+              "kind": "notFound",
+              "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "comment.locate",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "id": {
+              "field": "id",
+              "kind": "firstRowField"
+            },
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            1
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+        },
+        {
+          "expects": null,
+          "id": "post.find",
+          "kind": "read",
+          "model": "post",
+          "onUniqueConflict": null,
+          "outputs": {
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            1
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1 FOR UPDATE"
+        }
+      ]
+    }
+  ],
+  "model": "comment",
+  "operation": "updateMany",
+  "outputs": null,
+  "planning": [
+    {
+      "expects": null,
+      "id": "comment.updateManySeries.capture",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "a"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE POSITION($1 IN \"t0\".\"body\") > 0 FOR UPDATE"
+    }
+  ],
+  "resultReads": [],
+  "substrate": "transaction",
+  "world": "found"
+}

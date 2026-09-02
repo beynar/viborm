@@ -1,0 +1,95 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "spot.updateMany",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "uno",
+        "r1",
+        "r1",
+        "z1",
+        "z1",
+        "one",
+        "one"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE `pc_spots` SET `name` = ? WHERE (((`pc_spots`.`zoneRegion` = ? AND BINARY `pc_spots`.`zoneRegion` = ?) AND (`pc_spots`.`zoneCode` = ? AND BINARY `pc_spots`.`zoneCode` = ?)) AND (`pc_spots`.`name` = ? AND BINARY `pc_spots`.`name` = ?))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 update terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "zone.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT `t0`.`region` AS `region`, `t0`.`code` AS `code` FROM `pc_zones` AS `t0` WHERE (`t0`.`region` = ? AND `t0`.`code` = ?) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "zone.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'zone' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "zone.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "code": {
+          "field": "code",
+          "kind": "firstRowField"
+        },
+        "region": {
+          "field": "region",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT `t0`.`region` AS `region`, `t0`.`code` AS `code` FROM `pc_zones` AS `t0` WHERE (`t0`.`region` = ? AND `t0`.`code` = ?) LIMIT 1 FOR UPDATE"
+    }
+  ],
+  "substrate": "transaction",
+  "world": "missing"
+}

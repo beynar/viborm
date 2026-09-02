@@ -1,0 +1,33 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "deleteMany",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [
+        "A"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_orgs\" WHERE EXISTS (SELECT 1 FROM \"public\".\"pc_teams\" AS \"t1\" WHERE (\"pc_orgs\".\"id\" = \"t1\".\"orgId\" AND \"t1\".\"label\" = $1))"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "deleteMany",
+  "outputs": {
+    "count": {
+      "ref": "deleteMany.count"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

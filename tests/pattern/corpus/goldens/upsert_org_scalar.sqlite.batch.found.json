@@ -1,0 +1,36 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.upsert",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1",
+        "one",
+        "One",
+        "Renamed"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES (?, ?, ?) ON CONFLICT (\"id\") DO UPDATE SET \"name\" = ? RETURNING \"id\" AS \"id\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "org.upsert.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

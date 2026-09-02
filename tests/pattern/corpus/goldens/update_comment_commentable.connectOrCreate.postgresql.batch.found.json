@@ -1,0 +1,133 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+        "raceable": false
+      },
+      "id": "comment.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          5
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Record was replaced by another transaction during nested connectOrCreate",
+        "raceable": false,
+        "relation": "commentable"
+      },
+      "id": "post.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "one",
+          1,
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE (\"t0\".\"slug\" = $1 AND \"t0\".\"id\" = $2) ORDER BY \"t0\".\"id\" ASC LIMIT $3"
+      }
+    },
+    {
+      "expects": null,
+      "id": "comment.update",
+      "kind": "write",
+      "model": "comment",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "pc.post.v1",
+        1,
+        5
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_comments\" SET \"commentable_type\" = $1, \"commentable_id\" = CAST($2 AS INTEGER) WHERE \"pc_comments\".\"id\" = $3 RETURNING \"id\" AS \"id\""
+    },
+    {
+      "expects": null,
+      "id": "comment.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        5
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "comment",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "comment.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'comment' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "comment.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        5
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_comments\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "post.find",
+      "kind": "read",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "one"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_posts\" AS \"t0\" WHERE \"t0\".\"slug\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

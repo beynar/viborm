@@ -1,0 +1,16 @@
+{
+  "dialect": "mysql",
+  "error": {
+    "code": "V4001",
+    "message": "Validation failed for update: Value did not match any union member: Expected object, Object cannot be empty",
+    "name": "ValidationError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "org",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

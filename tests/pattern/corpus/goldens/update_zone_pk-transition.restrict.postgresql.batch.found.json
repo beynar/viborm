@@ -1,0 +1,53 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'zone' row for its unique where.",
+        "raceable": false
+      },
+      "id": "zone.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "r1",
+          "z1"
+        ],
+        "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "zone.update",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "z2",
+        "r1",
+        "z1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_zones\" SET \"code\" = $1 WHERE (\"pc_zones\".\"region\" = $2 AND \"pc_zones\".\"code\" = $3) RETURNING \"region\" AS \"region\", \"code\" AS \"code\""
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "zone.update.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

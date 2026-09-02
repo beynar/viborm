@@ -1,0 +1,35 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "updateMany",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [
+        "Relabelled",
+        "r1",
+        "r1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "UPDATE `pc_zones` SET `label` = ? WHERE (`pc_zones`.`region` = ? AND BINARY `pc_zones`.`region` = ?)"
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "updateMany",
+  "outputs": {
+    "count": {
+      "ref": "updateMany.count"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

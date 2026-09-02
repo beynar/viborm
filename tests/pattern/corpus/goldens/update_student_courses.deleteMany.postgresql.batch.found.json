@@ -1,0 +1,171 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'student' row for its unique where.",
+        "raceable": false
+      },
+      "id": "student.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "s1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change during 'deleteMany' on many-to-many relation 'courses': retry to converge.",
+        "raceable": true,
+        "relation": "courses"
+      },
+      "id": "course.guard.added",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          1,
+          "s1",
+          "C",
+          "course.members.id",
+          1
+        ],
+        "sql": "SELECT $1 FROM \"public\".\"pc_courses\" WHERE ((\"pc_courses\".\"id\" IN (SELECT \"courseId\" FROM \"public\".\"course_student\" WHERE \"studentId\" = $2) AND \"pc_courses\".\"title\" = $3) AND \"pc_courses\".\"id\" NOT IN ($4)) LIMIT $5"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Concurrent membership change during 'deleteMany' on many-to-many relation 'courses': retry to converge.",
+        "raceable": true,
+        "relation": "courses"
+      },
+      "id": "course.guard.removed",
+      "kind": "guard",
+      "position": 2,
+      "premise": {
+        "kind": "notExists",
+        "params": [
+          1,
+          "course.members.id",
+          "s1",
+          "C",
+          1
+        ],
+        "sql": "SELECT $1 FROM \"public\".\"pc_courses\" WHERE (\"pc_courses\".\"id\" IN ($2) AND NOT ((\"pc_courses\".\"id\" IN (SELECT \"courseId\" FROM \"public\".\"course_student\" WHERE \"studentId\" = $3) AND \"pc_courses\".\"title\" = $4))) LIMIT $5"
+      }
+    },
+    {
+      "expects": null,
+      "id": "course.junction.delete",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "course.members.id"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"course_student\" WHERE \"courseId\" IN ($1)"
+    },
+    {
+      "expects": null,
+      "id": "course.deleteMany",
+      "kind": "write",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "course.members.id"
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "DELETE FROM \"public\".\"pc_courses\" WHERE \"pc_courses\".\"id\" IN ($1)"
+    },
+    {
+      "expects": null,
+      "id": "student.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 5,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "student",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "student.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'student' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "student.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "s1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_students\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "course.members",
+      "kind": "read",
+      "model": "course",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        {
+          "ref": "student.locate.id"
+        },
+        "C"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"pc_courses\".\"id\" AS \"id\" FROM \"public\".\"pc_courses\" WHERE (\"pc_courses\".\"id\" IN (SELECT \"courseId\" FROM \"public\".\"course_student\" WHERE \"studentId\" = $1) AND \"pc_courses\".\"title\" = $2)"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

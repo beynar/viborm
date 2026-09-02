@@ -1,0 +1,42 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1",
+        "one",
+        "One",
+        "t1",
+        "A",
+        "o1",
+        "t2",
+        "B",
+        "o1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "WITH \"__viborm_mutation\" AS (INSERT INTO \"public\".\"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES ($1, $2, $3) RETURNING \"id\", \"slug\", \"name\"), \"__viborm_write_0\" AS (INSERT INTO \"public\".\"pc_teams\" (\"id\", \"label\", \"orgId\") VALUES ($4, $5, CAST($6 AS TEXT)), ($7, $8, CAST($9 AS TEXT))) SELECT \"t0\".\"id\" AS \"id\" FROM \"__viborm_mutation\" AS \"t0\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "org.create.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

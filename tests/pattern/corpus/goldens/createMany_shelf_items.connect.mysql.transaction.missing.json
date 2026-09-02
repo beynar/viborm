@@ -1,0 +1,78 @@
+{
+  "capturedRoots": 1,
+  "dialect": "mysql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 2,
+  "members": [
+    {
+      "error": {
+        "code": "V7001",
+        "message": "Cannot connect relation 'items.clip': target record was not found.",
+        "name": "NestedWriteError"
+      },
+      "final": [],
+      "index": 0,
+      "outputs": null,
+      "planning": []
+    },
+    {
+      "final": [
+        {
+          "expects": null,
+          "id": "shelf.create",
+          "kind": "write",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "sh2",
+            "M"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "INSERT INTO `pc_shelves` (`id`, `label`) VALUES (?, ?)"
+        },
+        {
+          "expects": {
+            "failure": {
+              "kind": "query",
+              "message": "query-engine-v2 create terminal read expected exactly one row.",
+              "raceable": false
+            },
+            "kind": "exactlyOneRow"
+          },
+          "id": "shelf.select",
+          "kind": "read",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "sh2"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT `t0`.`id` AS `id` FROM `pc_shelves` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+        }
+      ],
+      "index": 1,
+      "outputs": {
+        "result": {
+          "ref": "shelf.select.result"
+        }
+      },
+      "planning": []
+    }
+  ],
+  "model": "shelf",
+  "operation": "createMany",
+  "outputs": null,
+  "planning": [],
+  "resultReads": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

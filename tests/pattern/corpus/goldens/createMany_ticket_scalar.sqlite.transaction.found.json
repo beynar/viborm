@@ -1,0 +1,38 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "ticket.createMany",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "count": {
+          "kind": "rowCount"
+        }
+      },
+      "params": [
+        "x",
+        "t1",
+        "y",
+        "t1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_tickets\" (\"title\", \"teamId\") VALUES (?, ?), (?, ?)"
+    }
+  ],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "createMany",
+  "outputs": {
+    "count": [
+      {
+        "ref": "ticket.createMany.count"
+      }
+    ]
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "found"
+}

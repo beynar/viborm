@@ -1,0 +1,105 @@
+{
+  "dialect": "mysql",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.create",
+      "kind": "write",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "o1",
+        "one",
+        "One"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_orgs` (`id`, `slug`, `name`) VALUES (?, ?, ?)"
+    },
+    {
+      "expects": null,
+      "id": "team.create",
+      "kind": "write",
+      "model": "team",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "t1",
+        "A",
+        "o1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_teams` (`id`, `label`, `orgId`) VALUES (?, ?, CAST(? AS CHAR))"
+    },
+    {
+      "expects": null,
+      "id": "ticket.create",
+      "kind": "write",
+      "model": "ticket",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "x",
+        "t1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_tickets` (`title`, `teamId`) VALUES (?, CAST(? AS CHAR))"
+    },
+    {
+      "expects": null,
+      "id": "profile.create",
+      "kind": "write",
+      "model": "profile",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "p1",
+        "bio",
+        "o1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "INSERT INTO `pc_profiles` (`id`, `bio`, `orgId`) VALUES (?, ?, CAST(? AS CHAR))"
+    },
+    {
+      "expects": {
+        "failure": {
+          "kind": "query",
+          "message": "query-engine-v2 create terminal read expected exactly one row.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "org.select",
+      "kind": "read",
+      "model": "org",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "id",
+        "o1"
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "SELECT `t0`.`id` AS `id`, `t2`.`_result` AS `teams` FROM `pc_orgs` AS `t0` LEFT JOIN LATERAL (SELECT COALESCE(JSON_ARRAYAGG(`t3`.`_json`), JSON_ARRAY()) AS `_result` FROM (SELECT JSON_OBJECT(?, `t1`.`id`) AS `_json` FROM `pc_teams` AS `t1` WHERE `t0`.`id` = `t1`.`orgId`) `t3`) AS `t2` ON TRUE WHERE `t0`.`id` = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "org.select.result"
+    }
+  },
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

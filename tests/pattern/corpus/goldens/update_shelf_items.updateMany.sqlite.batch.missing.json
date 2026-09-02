@@ -1,0 +1,110 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+        "raceable": false
+      },
+      "id": "shelf.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sh1"
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      }
+    },
+    {
+      "expects": null,
+      "id": "post.updateMany",
+      "kind": "write",
+      "model": "post",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "Q",
+        "sh1",
+        "P"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "UPDATE \"pc_posts\" SET \"title\" = ? WHERE (\"pc_posts\".\"id\" IN (SELECT \"postId\" FROM \"pc_shelves_items_post\" WHERE \"shelfId\" = ?) AND \"pc_posts\".\"title\" COLLATE BINARY = ?)"
+    },
+    {
+      "expects": null,
+      "id": "clip.updateMany",
+      "kind": "write",
+      "model": "clip",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "D",
+        "sh1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"pc_clips\" SET \"title\" = ? WHERE \"pc_clips\".\"id\" IN (SELECT \"clipId\" FROM \"pc_shelves_items_clip\" WHERE \"shelfId\" = ?)"
+    },
+    {
+      "expects": null,
+      "id": "shelf.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "shelf",
+  "operation": "update",
+  "outputs": {
+    "result": {
+      "ref": "shelf.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": {
+        "failure": {
+          "kind": "notFound",
+          "message": "query-engine-v2 update located no 'shelf' row for its unique where.",
+          "raceable": false
+        },
+        "kind": "exactlyOneRow"
+      },
+      "id": "shelf.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "id": {
+          "field": "id",
+          "kind": "firstRowField"
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sh1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"pc_shelves\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "missing"
+}

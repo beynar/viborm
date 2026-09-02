@@ -1,0 +1,16 @@
+{
+  "dialect": "postgresql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot disconnect relation 'comments': target record was not found for this parent.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "post",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

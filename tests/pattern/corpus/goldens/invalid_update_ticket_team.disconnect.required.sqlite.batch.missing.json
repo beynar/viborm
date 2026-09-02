@@ -1,0 +1,16 @@
+{
+  "dialect": "sqlite",
+  "error": {
+    "code": "V4001",
+    "message": "Validation failed for update: Unknown key: disconnect",
+    "name": "ValidationError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}

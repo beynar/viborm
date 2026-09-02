@@ -1,0 +1,151 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "failure": {
+        "kind": "notFound",
+        "message": "query-engine-v2 upsert located no 'zone' row for its unique where before the atomic batch.",
+        "raceable": false
+      },
+      "id": "zone.guard.exists",
+      "kind": "guard",
+      "position": 0,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "r1",
+          "z1"
+        ],
+        "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+      }
+    },
+    {
+      "failure": {
+        "kind": "nestedWrite",
+        "message": "Cannot set relation 'spots': target record was not found.",
+        "raceable": false,
+        "relation": "spots"
+      },
+      "id": "spot.guard.exists",
+      "kind": "guard",
+      "position": 1,
+      "premise": {
+        "kind": "exists",
+        "params": [
+          "sp1",
+          "sp1",
+          1
+        ],
+        "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_spots\" AS \"t0\" WHERE (\"t0\".\"id\" = $1 AND \"t0\".\"id\" = $2) ORDER BY \"t0\".\"id\" ASC LIMIT $3"
+      }
+    },
+    {
+      "expects": null,
+      "id": "spot.orphan",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "r1",
+        "z1",
+        "sp1"
+      ],
+      "position": 2,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_spots\" SET \"zoneRegion\" = NULL, \"zoneCode\" = NULL WHERE (\"pc_spots\".\"zoneRegion\" = $1 AND \"pc_spots\".\"zoneCode\" = $2 AND NOT (\"pc_spots\".\"id\" = $3))"
+    },
+    {
+      "expects": null,
+      "id": "spot.set",
+      "kind": "write",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {},
+      "params": [
+        "r1",
+        "z1",
+        "sp1"
+      ],
+      "position": 3,
+      "racePin": null,
+      "sql": "UPDATE \"public\".\"pc_spots\" SET \"zoneRegion\" = CAST($1 AS TEXT), \"zoneCode\" = CAST($2 AS TEXT) WHERE \"pc_spots\".\"id\" IN ($3)"
+    },
+    {
+      "expects": null,
+      "id": "zone.select",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 4,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "upsert",
+  "outputs": {
+    "result": {
+      "ref": "zone.select.result"
+    }
+  },
+  "planning": [
+    {
+      "expects": null,
+      "id": "zone.locate",
+      "kind": "read",
+      "onUniqueConflict": null,
+      "outputs": {
+        "code": {
+          "field": "code",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "region": {
+          "field": "region",
+          "kind": "firstRowField",
+          "optional": true
+        },
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"public\".\"pc_zones\" AS \"t0\" WHERE (\"t0\".\"region\" = $1 AND \"t0\".\"code\" = $2) LIMIT 1"
+    },
+    {
+      "expects": null,
+      "id": "spot.find",
+      "kind": "read",
+      "model": "spot",
+      "onUniqueConflict": null,
+      "outputs": {
+        "rows": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "sp1"
+      ],
+      "position": 1,
+      "racePin": null,
+      "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"public\".\"pc_spots\" AS \"t0\" WHERE \"t0\".\"id\" = $1 LIMIT 1"
+    }
+  ],
+  "substrate": "batch",
+  "world": "found"
+}

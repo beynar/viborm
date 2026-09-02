@@ -1,0 +1,16 @@
+{
+  "dialect": "postgresql",
+  "error": {
+    "code": "V7001",
+    "message": "Cannot connect relation 'team': target record was not found.",
+    "name": "NestedWriteError"
+  },
+  "final": [],
+  "kind": "operation",
+  "model": "ticket",
+  "operation": "update",
+  "outputs": null,
+  "planning": [],
+  "substrate": "transaction",
+  "world": "missing"
+}

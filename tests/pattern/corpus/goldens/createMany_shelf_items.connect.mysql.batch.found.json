@@ -1,0 +1,219 @@
+{
+  "capturedRoots": 1,
+  "dialect": "mysql",
+  "final": [],
+  "kind": "recordSeries",
+  "memberCount": 2,
+  "members": [
+    {
+      "final": [
+        {
+          "failure": {
+            "kind": "nestedWrite",
+            "message": "Cannot connect relation 'items.clip': target record was not found.",
+            "raceable": false,
+            "relation": "items.clip"
+          },
+          "id": "clip.guard.exists",
+          "kind": "guard",
+          "position": 0,
+          "premise": {
+            "kind": "exists",
+            "params": [
+              3
+            ],
+            "sql": "SELECT `t0`.`id` AS `id` FROM `pc_clips` AS `t0` WHERE `t0`.`id` = ? ORDER BY `t0`.`id` ASC LIMIT 1"
+          }
+        },
+        {
+          "failure": {
+            "kind": "nestedWrite",
+            "message": "Concurrent membership change on the singular polymorphic member of relation 'items.clip': the captured membership is gone; retry to converge.",
+            "raceable": false,
+            "relation": "items.clip"
+          },
+          "id": "clip.slot.guard.held",
+          "kind": "guard",
+          "position": 1,
+          "premise": {
+            "kind": "exists",
+            "params": [
+              "clip.slot.owners.shelfId",
+              3
+            ],
+            "sql": "SELECT `pc_clips`.`id` AS `id` FROM `pc_clips` WHERE (`pc_clips`.`id` IN (SELECT `clipId` FROM `pc_shelves_items_clip` WHERE `shelfId` = ?) AND `pc_clips`.`id` = ?) LIMIT 1"
+          }
+        },
+        {
+          "expects": null,
+          "id": "shelf.create",
+          "kind": "write",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "sh1",
+            "L"
+          ],
+          "position": 2,
+          "racePin": null,
+          "sql": "INSERT INTO `pc_shelves` (`id`, `label`) VALUES (?, ?)"
+        },
+        {
+          "expects": null,
+          "id": "clip.slot.vacate",
+          "kind": "write",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "clip.slot.owners.shelfId",
+            3
+          ],
+          "position": 3,
+          "racePin": null,
+          "sql": "DELETE FROM `pc_shelves_items_clip` WHERE (`shelfId` = ? AND `clipId` IN (?))"
+        },
+        {
+          "expects": null,
+          "id": "clip.connect",
+          "kind": "write",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "sh1",
+            3
+          ],
+          "position": 4,
+          "racePin": {
+            "columns": [
+              "shelfId",
+              "clipId"
+            ],
+            "constraints": [
+              "pc_shelves_items_clip_pkey",
+              "PRIMARY"
+            ],
+            "fields": [
+              "shelfId",
+              "clipId"
+            ],
+            "table": "pc_shelves_items_clip"
+          },
+          "sql": "INSERT INTO `pc_shelves_items_clip` (`shelfId`, `clipId`) VALUES (?, ?)"
+        },
+        {
+          "expects": null,
+          "id": "shelf.select",
+          "kind": "read",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "sh1"
+          ],
+          "position": 5,
+          "racePin": null,
+          "sql": "SELECT `t0`.`id` AS `id` FROM `pc_shelves` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+        }
+      ],
+      "index": 0,
+      "outputs": {
+        "result": {
+          "ref": "shelf.select.result"
+        }
+      },
+      "planning": [
+        {
+          "expects": null,
+          "id": "clip.find",
+          "kind": "read",
+          "model": "clip",
+          "onUniqueConflict": null,
+          "outputs": {
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            3
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "SELECT `t0`.`id` AS `id` FROM `pc_clips` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+        },
+        {
+          "expects": null,
+          "id": "clip.slot.owners",
+          "kind": "read",
+          "onUniqueConflict": null,
+          "outputs": {
+            "rows": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            3
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT `shelfId` FROM `pc_shelves_items_clip` WHERE `clipId` IN ((SELECT `pc_clips`.`id` FROM `pc_clips` WHERE `pc_clips`.`id` = ?)) LIMIT 2"
+        }
+      ]
+    },
+    {
+      "final": [
+        {
+          "expects": null,
+          "id": "shelf.create",
+          "kind": "write",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {},
+          "params": [
+            "sh2",
+            "M"
+          ],
+          "position": 0,
+          "racePin": null,
+          "sql": "INSERT INTO `pc_shelves` (`id`, `label`) VALUES (?, ?)"
+        },
+        {
+          "expects": null,
+          "id": "shelf.select",
+          "kind": "read",
+          "model": "shelf",
+          "onUniqueConflict": null,
+          "outputs": {
+            "result": {
+              "kind": "rows"
+            }
+          },
+          "params": [
+            "sh2"
+          ],
+          "position": 1,
+          "racePin": null,
+          "sql": "SELECT `t0`.`id` AS `id` FROM `pc_shelves` AS `t0` WHERE `t0`.`id` = ? LIMIT 1"
+        }
+      ],
+      "index": 1,
+      "outputs": {
+        "result": {
+          "ref": "shelf.select.result"
+        }
+      },
+      "planning": []
+    }
+  ],
+  "model": "shelf",
+  "operation": "createMany",
+  "outputs": null,
+  "planning": [],
+  "resultReads": [],
+  "substrate": "batch",
+  "world": "found"
+}

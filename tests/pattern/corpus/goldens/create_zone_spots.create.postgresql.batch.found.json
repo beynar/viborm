@@ -1,0 +1,40 @@
+{
+  "dialect": "postgresql",
+  "final": [
+    {
+      "expects": null,
+      "id": "zone.create",
+      "kind": "write",
+      "model": "zone",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "r1",
+        "z1",
+        "Z",
+        "sp1",
+        "one",
+        "r1",
+        "z1"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "WITH \"__viborm_mutation\" AS (INSERT INTO \"public\".\"pc_zones\" (\"region\", \"code\", \"label\") VALUES ($1, $2, $3) RETURNING \"region\", \"code\", \"label\"), \"__viborm_write_0\" AS (INSERT INTO \"public\".\"pc_spots\" (\"id\", \"name\", \"zoneRegion\", \"zoneCode\") VALUES ($4, $5, CAST($6 AS TEXT), CAST($7 AS TEXT))) SELECT \"t0\".\"region\" AS \"region\", \"t0\".\"code\" AS \"code\" FROM \"__viborm_mutation\" AS \"t0\""
+    }
+  ],
+  "kind": "operation",
+  "model": "zone",
+  "operation": "create",
+  "outputs": {
+    "result": {
+      "ref": "zone.create.result"
+    }
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "found"
+}

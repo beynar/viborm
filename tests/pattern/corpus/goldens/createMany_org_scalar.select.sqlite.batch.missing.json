@@ -1,0 +1,40 @@
+{
+  "dialect": "sqlite",
+  "final": [
+    {
+      "expects": null,
+      "id": "org.createManyReturn",
+      "kind": "write",
+      "onUniqueConflict": null,
+      "outputs": {
+        "result": {
+          "kind": "rows"
+        }
+      },
+      "params": [
+        "o1",
+        "one",
+        "One",
+        "o2",
+        "two",
+        "Two"
+      ],
+      "position": 0,
+      "racePin": null,
+      "sql": "INSERT INTO \"pc_orgs\" (\"id\", \"slug\", \"name\") VALUES (?, ?, ?), (?, ?, ?) RETURNING \"id\" AS \"id\", \"name\" AS \"name\""
+    }
+  ],
+  "kind": "operation",
+  "model": "org",
+  "operation": "createMany",
+  "outputs": {
+    "result": [
+      {
+        "ref": "org.createManyReturn.result"
+      }
+    ]
+  },
+  "planning": [],
+  "substrate": "batch",
+  "world": "missing"
+}
