@@ -858,41 +858,22 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 8d628bae | Correlation direction taken from construction order (the enclosing row's match publishes the column) rather than re-derived; matched-then-retracted rows keep a match node; a located row is re-addressed by the key its own match captured. Three packer tables become contract facts: `Row.located`, `Row.label`, `BoundPremise.shape`. **M1 1,475 equal, order mismatches 224 → 122; fuzz 291; M2 1,225 equal, 208 trace, 12 outcome.** |
 | 2026-09-02 | 97d59970 | `decodeRows` gains the bulk count arm, which today's engine never routes through the parser at all; the write-result fuzz proves the terminal projection over 4,384 cells (555 payloads × 3 dialects × 2 substrates, series result reads included) with one allowed difference. **M2 1,237 equal, 208 trace, 0 outcome.** |
 | 2026-09-02 | 8827aa7d | A calibration corpus schema (float primary key, numeric foreign key, an edge whose foreign key is the row key) with 84 goldens, so three semantic refusal strategies become exercisable; no existing golden moved. Corpus 3,204 cells. **M1 1,531 equal, fuzz 371, M2 1,293 equal, 208 trace, 0 outcome; read fuzz 3,600 cells and write-result fuzz 5,179, both fully equal.** |
+| 2026-09-02 | d51843aa | One sentence retires a family of false refusals: *a reference row writes nothing about the rows it names* (overlap 112 → 61). Variant members bound from the resolved edge rather than the carrier name; the private `(type, id)` pair lowers as a predicate instead of leaking into a public filter; a database-bound variable is published by whichever packed match carries it; the guard shape is read from row facts. **M1 1,723 equal, M2 1,436 equal, 251 trace, 0 outcome.** |
 
-Open divergence classes, by owner (cell counts from the 8d628bae run):
+Open divergence classes, by owner (cell counts from the d51843aa run):
 
-- Packer (D+E): overlap classification, which grew to 112 over-refusals as a
-  side effect of matched rows keeping their match nodes; variant families
-  (123 + 93); selectors built as public filter objects (90 + 45); parent id
-  inlining (84); member fragments for series (70). Match emission is down to
-  258 missing matches and 122 order mismatches, dominated by the series
-  payloads.
-- Match and decode (G): closed for reads, write projections and counts. Next
-  is the wave-2 layer move: today's select builders take a `Projection`, which
-  retires the 379-line args inverse the pattern engine only needs because
-  those builders still speak the public request's grammar.
-- Construction (C): `Row.located` and `Row.label` stamped from the verb plans;
-  arm-scoped deferred refusals; a refusal today raises and the engine does not;
-  a schema gap that leaves three semantic strategies unexercised.
-
-### 13.10 The pinned-byte term, measured
-
-§11 budgets packing at 2.5k lines plus up to 5k of special cases that exist
-only to reproduce today's bytes. That term is now measured rather than
-guessed. Of `pack.ts`'s 3,207 lines: about 1,290 are the design — one rule over
-cells and edges, value and key resolution, predicate and assignment lowering,
-premises, the terminal pattern, junction lowering, write dispatch — and about
-1,720 are byte-pinning: id labels per family, guard shapes, per-verb probe and
-write shapes, root-operation shapes, fold gates, emission predicates, message
-families.
-
-The measurement's value is that it names which special cases are avoidable.
-Three were: which rows send a probe is a property of the verb's plan, the step
-label belongs where the public verb is spelled, and there are only three guard
-shapes, decided by the match rather than the verb. All three are now contract
-facts. The rest of the term is what the design predicted: today's bytes are
-pinned somewhere, and the engine keeps them in one file rather than spread
-across a verb table.
+- Packer (D+E): member fragments for series, one missing capability worth
+  about 180 cells (94 crashes, 42 refusals raised at compile that today raises
+  only after the capture counts its roots, 22 nested upsert, 22 bulk spelled
+  as a single create); an ordinary match row read through the record-series
+  capture parser (100); untaken-arm reads (142, some of them the documented
+  allowed difference); the polymorphic storage assignment channel (66);
+  `whereUnique` selectors (60); postcondition and guard-shape bytes (44).
+- Construction (C): `Row.located` and `Row.label`, which unblock 227 lines of
+  packer tables; arm-scoped deferred refusals; the shared-key construction
+  change left unfinished at the session limit.
+- Match and decode (G): the projection emitter's relocation (P1); the read
+  swap itself is M5.
 - Contracts (coordinator): `Projection.relations[].variant` duplicates
   `Extension.variant` for projected arms; one could derive from the other.
 
