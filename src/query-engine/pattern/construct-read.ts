@@ -27,6 +27,7 @@ import {
   isRelation,
   isScalarField,
 } from "../context";
+import { getGroupByFields } from "../operations/groupby-fields";
 import { DISTANCE_RESULT_KEY } from "../result-aliases";
 import { QueryEngineError } from "../types";
 import {
@@ -139,6 +140,13 @@ export class PatternBuilder {
       fresh: false,
     });
     return id;
+  }
+
+  withKey(row: RowId, key: readonly Variable[]): void {
+    const at = this.rows.findIndex((r) => r.id === row);
+    const current = this.rows[at];
+    if (!current) return;
+    this.rows[at] = { ...current, key };
   }
 
   withPredicate(row: RowId, predicate: Predicate | undefined): void {
@@ -265,21 +273,11 @@ function cellsFor(
   return cells;
 }
 
-/**
- * The own row's columns that hold the ASKING side's key: whichever endpoint
- * pairing is not the one `cells` already names for the referenced side.
- */
+/** The own row's columns that hold the ASKING side's key — a pairing the cell map publishes. */
 function askingSidePairs(
   cells: ReferenceCells
 ): readonly { holderColumn: string; referencedColumn: string }[] {
-  const own = cells.viaJunction;
-  if (!own) return [];
-  const targetIsReferenced =
-    own.targetCells.length === cells.cells.length &&
-    own.targetCells.every(
-      (pair, i) => pair.holderColumn === cells.cells[i]?.holderColumn
-    );
-  return targetIsReferenced ? own.sourceCells : own.targetCells;
+  return cells.viaJunction?.askingCells ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -312,12 +310,15 @@ export function constructRead(
   const b = new PatternBuilder(ids, index);
   const read = args as ReadArgs;
 
+  // Refusal precedence follows today's builders: a findUnique projects before
+  // it addresses (the select refusal wins over a where refusal), and a groupBy
+  // normalizes `by` before anything else.
   if (operation === "findUnique") {
-    const where = read.where ?? {};
-    const { key, filters } = uniqueKey(b, model, where);
-    const root = b.row(model, "one", { key });
-    b.withPredicate(root, predicateOf(b, root, model, filters));
+    const root = b.row(model, "one", { key: [] });
     const projection = projectionOf(b, root, model, read.select, read.include);
+    const { key, filters } = uniqueKey(b, model, read.where ?? {});
+    b.withKey(root, key);
+    b.withPredicate(root, predicateOf(b, root, model, filters));
     return b.finish(root, operation, projection);
   }
 
@@ -329,28 +330,29 @@ export function constructRead(
     return b.finish(root, operation, { ...base, window });
   }
 
+  const groupBy =
+    operation === "groupBy" ? getGroupByFields(args.by) : undefined;
   const root = b.row(model, "set");
   b.withPredicate(root, predicateOf(b, root, model, read.where));
-  const window =
-    operation === "groupBy"
-      ? {
-          ...windowOf(b, root, model, { ...read, orderBy: undefined }, false),
-          orderBy: groupByOrderTermsOf(
-            b,
-            model,
-            read.orderBy,
-            groupByFields(args.by)
-          ) as readonly OrderTerm[],
-        }
-      : windowOf(b, root, model, read, false);
+  const window = groupBy
+    ? {
+        ...windowOf(b, root, model, { ...read, orderBy: undefined }, false),
+        orderBy: groupByOrderTermsOf(
+          b,
+          model,
+          read.orderBy,
+          groupBy
+        ) as readonly OrderTerm[],
+      }
+    : windowOf(b, root, model, read, false);
   const projection: Projection = {
     scalars: [],
     relations: [],
     relationCounts: [],
     aggregates: aggregatesOf(operation, args),
-    ...(operation === "groupBy"
+    ...(groupBy
       ? {
-          groupBy: groupByFields(args.by),
+          groupBy,
           ...(isRecord(args.having)
             ? { having: havingOf(b, model, args.having) }
             : {}),
@@ -1486,13 +1488,6 @@ function groupByOrderTermsOf(
     }
   }
   return terms;
-}
-
-function groupByFields(by: unknown): readonly string[] {
-  if (typeof by === "string") return [by];
-  return Array.isArray(by)
-    ? by.filter((v): v is string => typeof v === "string")
-    : [];
 }
 
 /** HAVING keeps the public grammar as structural leaves; the packer spells it through the having owner. */
