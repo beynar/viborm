@@ -14,6 +14,7 @@ import {
 } from "@tests/pattern/sim/simulated-driver";
 import { describe, expect, test } from "vitest";
 import {
+  BATCH,
   connectProgram,
   levelledProgram,
   packedMergeProgram,
@@ -32,7 +33,7 @@ function batchDriver(script?: SimulatedScript) {
 describe("atomic-batch enforcer", () => {
   test("the match runs in a preceding round trip; the unit is [guard, write]", async () => {
     const driver = batchDriver();
-    await expect(execute(connectProgram(), driver)).resolves.toEqual({
+    await expect(execute(connectProgram(BATCH), driver)).resolves.toEqual({
       result: 1,
     });
     expect(driver.trace()).toEqual([
@@ -51,14 +52,14 @@ describe("atomic-batch enforcer", () => {
     });
     // A zero-row UPDATE would fail the `affectedRows: 1` postcondition on the
     // transaction substrate; the batch cannot check it and does not pretend to.
-    await expect(execute(connectProgram(), driver)).resolves.toEqual({
+    await expect(execute(connectProgram(BATCH), driver)).resolves.toEqual({
       result: 0,
     });
   });
 
   test("the match's postcondition is enforced before the unit is dispatched", async () => {
     const driver = batchDriver({});
-    await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
+    await expect(execute(connectProgram(BATCH), driver)).rejects.toMatchObject({
       name: "NestedWriteError",
     });
     expect(driver.log.some((entry) => entry.entry === "lifecycle")).toBe(false);
@@ -75,7 +76,7 @@ describe("atomic-batch enforcer", () => {
       failure: { kind: "query", message: "author changed", raceable: false },
     };
     const driver = batchDriver();
-    await execute(connectProgram({ explicitGuard: guard }), driver);
+    await execute(connectProgram({ ...BATCH, explicitGuard: guard }), driver);
     expect(driver.statements[1]?.sql).toBe(
       'SELECT 1 / CASE WHEN EXISTS (SELECT 1 FROM "sim_users" WHERE "id" = $1 AND "active" = $2) THEN 1 ELSE 0 END AS "__viborm_assert__"'
     );
@@ -88,7 +89,7 @@ describe("atomic-batch enforcer", () => {
           ? rows({ id: `${statement.index}` })
           : undefined,
     });
-    await expect(execute(levelledProgram(), driver)).resolves.toEqual({
+    await expect(execute(levelledProgram(BATCH), driver)).resolves.toEqual({
       result: 1,
       links: 1,
     });
@@ -124,7 +125,7 @@ describe("atomic-batch enforcer", () => {
       },
     });
     // The premise's own failure — today's exact class, message and relation.
-    await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
+    await expect(execute(connectProgram(BATCH), driver)).rejects.toMatchObject({
       name: "NestedWriteError",
       message: "connect target 'author' no longer exists",
       meta: { relation: "author" },
@@ -138,7 +139,7 @@ describe("atomic-batch enforcer", () => {
 
   test("statements carry their own model; engine-owned failures keep the operation's", async () => {
     const driver = batchDriver();
-    await execute(connectProgram(), driver);
+    await execute(connectProgram(BATCH), driver);
     expect(driver.statements.map((entry) => entry.model)).toEqual([
       "user",
       "post",
@@ -148,7 +149,7 @@ describe("atomic-batch enforcer", () => {
 
   test("pack re-packs the taken arm from the match results: found → update under an exists guard", async () => {
     const driver = batchDriver();
-    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+    await expect(execute(packedMergeProgram(BATCH), driver)).resolves.toEqual({
       result: 1,
     });
     expect(driver.statements.map((entry) => entry.sql)).toEqual([
@@ -161,7 +162,7 @@ describe("atomic-batch enforcer", () => {
 
   test("pack re-packs the taken arm from the match results: missing → pinned insert, no guard", async () => {
     const driver = batchDriver({});
-    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+    await expect(execute(packedMergeProgram(BATCH), driver)).resolves.toEqual({
       result: 1,
     });
     expect(driver.statements.map((entry) => entry.sql)).toEqual([
@@ -182,7 +183,7 @@ describe("atomic-batch enforcer", () => {
               })
             : undefined,
     });
-    await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
+    await expect(execute(connectProgram(BATCH), driver)).rejects.toMatchObject({
       name: "UniqueConstraintError",
       meta: { model: "post", constraint: "sim_posts_pkey" },
     });

@@ -17,7 +17,6 @@ import { hydrateSchemaNames, s } from "@schema";
 import { type Sql, sql } from "@sql";
 import { execute } from "@src/query-engine/pattern/execute";
 import { guardSteps } from "@src/query-engine/pattern/execute/batch";
-import { lockForUpdate } from "@src/query-engine/pattern/execute/transaction";
 import type { Program } from "@src/query-engine/pattern/fragment";
 import {
   type ExecutableOperation,
@@ -47,6 +46,7 @@ import {
   levelledProgram,
   mergeOutcomeProgram,
   mergeProgram,
+  type Shape,
   singleStatementProgram,
 } from "./fixtures";
 
@@ -125,8 +125,7 @@ function substituteStep(
 
 function convert(
   program: Program,
-  mode: "transaction" | "batch",
-  driver: SimulatedDriver
+  mode: "transaction" | "batch"
 ): ExecutableOperation {
   const [fragment] = program.fragments;
   if (!fragment || program.fragments.length !== 1) {
@@ -143,14 +142,8 @@ function convert(
       "differential: occupant/unreferenced premises have no OperationFragment spelling"
     );
   }
-  const decisions = new Set(fragment.premises.map((bound) => bound.match.id));
-  const planningSteps = fragment.matches
-    .flat()
-    .map((match) =>
-      mode === "transaction" && decisions.has(match.id)
-        ? { ...match, statement: lockForUpdate(driver, match.statement) }
-        : match
-    );
+  // The lock is the packer's: a transaction-shaped fixture already carries it.
+  const planningSteps = fragment.matches.flat();
   const local = new Set(fragment.writes.map((step) => step.id));
   return {
     mode,
@@ -185,7 +178,7 @@ function convert(
 
 interface Case {
   readonly name: string;
-  readonly program: () => Program;
+  readonly program: (shape: Shape) => Program;
   readonly capabilities: SimulatedCapabilities;
   readonly dialect: "postgresql" | "mysql" | "sqlite";
   readonly script: SimulatedScript;
@@ -202,14 +195,17 @@ async function both(testCase: Case) {
     capabilities: testCase.capabilities,
     script: testCase.script,
   });
-  const program = testCase.program();
+  const mode = testCase.capabilities.supportsTransactions
+    ? "transaction"
+    : "batch";
+  const program = testCase.program({
+    substrate: mode,
+    dialect: testCase.dialect,
+  });
   const context = createOperationExecutionContext(
     program.model,
     program.operation
   );
-  const mode = testCase.capabilities.supportsTransactions
-    ? "transaction"
-    : "batch";
   const settle = <T>(promise: Promise<T>) =>
     promise.then(
       (value) => ({ status: "ok" as const, value }),
@@ -223,7 +219,7 @@ async function both(testCase: Case) {
   );
   const todays = await settle(
     todaysExecutor(theirs).execute<Readonly<Record<string, unknown>>>(
-      convert(program, mode, theirs),
+      convert(program, mode),
       context
     )
   );
@@ -262,13 +258,9 @@ const cases: Case[] = [
     dialect: "postgresql",
     script: authorFound,
   },
-  {
-    name: "connect on planetscale / batch",
-    program: connectProgram,
-    capabilities: CAPABILITY_PRESETS.planetscale,
-    dialect: "mysql",
-    script: authorFound,
-  },
+  // No planetscale (mysql / batch-only) case: `update` is refused there by
+  // routing-time admission, which today's OperationExecutor alone never
+  // reaches; the corpus M2 runner covers that cell through `routing.ts`.
   {
     name: "connect target missing / transaction",
     program: connectProgram,
@@ -333,7 +325,7 @@ const cases: Case[] = [
   },
   {
     name: "merge missing arm, pinned insert loses / transaction",
-    program: () => mergeProgram("missing"),
+    program: (shape) => mergeProgram("missing", shape),
     capabilities: CAPABILITY_PRESETS.postgres,
     dialect: "postgresql",
     script: {
@@ -351,7 +343,7 @@ const cases: Case[] = [
   },
   {
     name: "merge found arm / batch",
-    program: () => mergeProgram("found"),
+    program: (shape) => mergeProgram("found", shape),
     capabilities: CAPABILITY_PRESETS.neonHttp,
     dialect: "postgresql",
     script: authorFound,
@@ -382,8 +374,7 @@ describe("execution-level differential (one-fragment programs)", () => {
   });
 
   test("a merge-outcome (multi-fragment) program has no OperationFragment spelling here", () => {
-    const driver = new SimulatedDriver();
-    expect(() => convert(mergeOutcomeProgram(), "transaction", driver)).toThrow(
+    expect(() => convert(mergeOutcomeProgram(), "transaction")).toThrow(
       "only one-fragment programs convert"
     );
   });
@@ -415,7 +406,7 @@ describe("execution-level differential (one-fragment programs)", () => {
         },
       ],
     };
-    expect(() => convert(occupant, "batch", new SimulatedDriver())).toThrow(
+    expect(() => convert(occupant, "batch")).toThrow(
       "no OperationFragment spelling"
     );
     expect(mentions({ sql: sql`x`.strings.join("") } as never, "x")).toBe(true);

@@ -12,6 +12,7 @@ import {
   type DeferredRefusal,
   type WriteOperation,
 } from "@src/query-engine/pattern/construct";
+import { refuseUnsupportedSubstrate } from "@src/query-engine/pattern/execute/admission";
 import type { Program } from "@src/query-engine/pattern/fragment";
 import { StepIds } from "@src/query-engine/pattern/ids";
 import { pack } from "@src/query-engine/pattern/pack";
@@ -61,6 +62,13 @@ export function scheduleCell(
   substrate: Substrate
 ): Scheduled {
   const { schema, model } = schemaOf(payload);
+  // Today refuses an unresolvable substrate BEFORE the parse boundary
+  // (routing.ts), so the chain does too.
+  refuseUnsupportedSubstrate(
+    engine.driver,
+    payload.operation,
+    "select" in payload.args || "include" in payload.args
+  );
   const registry = createSchemaRegistry(schema);
   const args = parseValidated(
     Reflect.get(registry.getModelSchemas(model).args, payload.operation),

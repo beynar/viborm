@@ -29,6 +29,7 @@ import { statementHasReferences } from "../../write-engine/OperationFragment";
 import { markRaceIfPinned } from "../../write-engine/race-retry";
 import { noAtomicSubstrateError } from "../../write-engine/shared";
 import type { Program } from "../fragment";
+import { publishesRows, refuseUnsupportedSubstrate } from "./admission";
 import { executeInBatch } from "./batch";
 import { withRaceRetry } from "./retry";
 import { executeInSegments } from "./segments";
@@ -81,6 +82,7 @@ async function executeOnce(
   const context =
     options.execution ??
     createOperationExecutionContext(program.model, program.operation);
+  refuseUnsupportedSubstrate(driver, program.operation, publishesRows(program));
   const rows = rowsBoundary(driver, program.operation, options.expectedRows);
   const direct = statementAtomicProgram(program);
   if (direct) {
@@ -175,7 +177,8 @@ async function runStatementAtomic(
   return resolveProgramOutputs(program, values, rows);
 }
 
+export { refuseUnsupportedSubstrate } from "./admission";
 export { executeInBatch } from "./batch";
 export { withRaceRetry } from "./retry";
 export { executeInSegments } from "./segments";
-export { executeInTransaction, lockForUpdate } from "./transaction";
+export { executeInTransaction } from "./transaction";

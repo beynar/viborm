@@ -35,7 +35,9 @@ function racingWorld(dialect: "postgresql" | "mysql" | "sqlite") {
     },
   });
   const construct = () => {
-    const program = mergeProgram(attempt === 0 ? "missing" : "found");
+    const program = mergeProgram(attempt === 0 ? "missing" : "found", {
+      dialect,
+    });
     attempt += 1;
     return program;
   };
@@ -85,7 +87,9 @@ describe("race retry", () => {
           : undefined;
       },
     });
-    await expect(execute(packedMergeProgram(), driver)).resolves.toEqual({
+    await expect(
+      execute(packedMergeProgram({ dialect: "postgresql" }), driver)
+    ).resolves.toEqual({
       result: 1,
     });
     expect(

@@ -2,12 +2,13 @@
  * Unit F — the transaction enforcer (pattern-engine-ideal-state.md §8.2).
  *
  * Per fragment: the matches run first, one round trip each in dependency
- * order (today's `executeLinear` over the planning fragment), decision matches
- * locked with the dialect's `FOR UPDATE`; then the asserts and retracts, one
- * round trip each, every postcondition checked in JS before the transaction
- * commits. The lock IS the premise: a guard step packing supplied for the
- * batch substrate is not executed here, exactly as today's transaction-mode
- * compilers emit none.
+ * order (today's `executeLinear` over the planning fragment); then the asserts
+ * and retracts, one round trip each, every postcondition checked in JS before
+ * the transaction commits. The lock IS the premise, and the packer owns it: a
+ * match packed for this substrate already carries its `FOR UPDATE` (K3
+ * `Fragment.matches`), so nothing is added here. A guard step packing supplied
+ * for the batch substrate is not executed here, exactly as today's
+ * transaction-mode compilers emit none.
  *
  * A merge-outcome boundary (a skippable root whose row count decides whether
  * its dependents run) is a SAVEPOINT around the root and its dependents: a
@@ -20,7 +21,7 @@ import {
   normalizedBindParameterLimit,
 } from "@drivers/bind-parameter-capacity";
 import { QueryEngineError } from "@errors";
-import { type Sql, sql } from "@sql";
+import type { Sql } from "@sql";
 import { executeSkippableWrite } from "../../skippable-write";
 import type {
   OperationStep,
@@ -126,15 +127,11 @@ async function runFragmentLinear(
   attribution: Attribution,
   mergeRoot?: string
 ): Promise<void> {
-  const decisions = decisionMatches(fragment);
   for (const level of fragment.matches) {
     for (const match of level) {
-      const statement = decisions.has(match.id)
-        ? lockForUpdate(driver, match.statement)
-        : match.statement;
       await runStatement(
         match,
-        statement,
+        match.statement,
         driver,
         values,
         run.context,
@@ -219,28 +216,4 @@ async function runStatement(
   }
   values.set(step.id, extractOutputs(step, result, values));
   return result;
-}
-
-/**
- * The matches whose bindings a premise protects — the decision reads. A
- * fragment that re-packs after its match phase (`pack`) is one whose matches
- * decide an arm, so every one of them is a decision read (today's probe-first
- * upsert locks its probe).
- */
-export function decisionMatches(fragment: Fragment): ReadonlySet<string> {
-  if (fragment.pack) {
-    return new Set(fragment.matches.flat().map((match) => match.id));
-  }
-  return new Set(fragment.premises.map((bound) => bound.match.id));
-}
-
-/**
- * The dialect's row lock, appended to a packed match. SQLite has no row lock
- * (its adapter omits `FOR UPDATE`); PostgreSQL and MySQL append it. The report
- * proposes an adapter method (`locks.forUpdate(statement)`) so this dialect
- * fact leaves the executor.
- */
-export function lockForUpdate(driver: AnyDriver, statement: Sql): Sql {
-  if (driver.dialect === "sqlite") return statement;
-  return sql`${statement} FOR UPDATE`;
 }

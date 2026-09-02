@@ -9,7 +9,7 @@ import {
   SimulatedDriver,
 } from "@tests/pattern/sim/simulated-driver";
 import { describe, expect, test } from "vitest";
-import { connectProgram, memberedProgram } from "./fixtures";
+import { BATCH, connectProgram, memberedProgram } from "./fixtures";
 
 /**
  * A store-backed script: the author read and the guard both consult the cell
@@ -38,7 +38,7 @@ describe("premise invalidation between the match and assert phases", () => {
     driver.between(0, (store) => {
       store.delete("sim_users", "u1");
     });
-    await expect(execute(connectProgram(), driver)).rejects.toMatchObject({
+    await expect(execute(connectProgram(BATCH), driver)).rejects.toMatchObject({
       name: "NestedWriteError",
       message: "connect target 'author' no longer exists",
     });

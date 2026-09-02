@@ -6,8 +6,11 @@
  * The SQL here is deliberately plain: the executors treat statements as
  * opaque, and the simulated driver never interprets them. What matters is the
  * structure — matches, premises (with the failure a violated premise raises),
- * writes, boundaries, outputs.
+ * writes, boundaries, outputs. A program is packed for a substrate and a
+ * dialect (`Shape`): on the transaction substrate its matches carry the row
+ * lock, exactly as the packer emits them (K3 `Fragment.matches`).
  */
+import type { Dialect } from "@drivers/types";
 import { sql } from "@sql";
 import type {
   BoundPremise,
@@ -22,6 +25,22 @@ import {
   type TargetConstraintPin,
   type WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
+
+/** The substrate and dialect a fixture program is packed for. */
+export interface Shape {
+  readonly substrate?: "transaction" | "batch";
+  readonly dialect?: Dialect;
+}
+
+export const BATCH: Shape = { substrate: "batch" };
+
+/** The packer's lock: a transaction-substrate match on a dialect with a row lock. */
+export function locked(shape: Shape | undefined, step: ReadStep): ReadStep {
+  const substrate = shape?.substrate ?? "transaction";
+  const dialect = shape?.dialect ?? "postgresql";
+  if (substrate !== "transaction" || dialect === "sqlite") return step;
+  return { ...step, statement: sql`${step.statement} FOR UPDATE` };
+}
 
 export const AUTHOR_PIN: TargetConstraintPin = {
   fields: ["email"],
@@ -134,9 +153,9 @@ export function program(
 
 /** `post.update({ where: {id}, data: { author: { connect: {id} } } })`. */
 export function connectProgram(
-  options: { explicitGuard?: GuardStep } = {}
+  options: Shape & { explicitGuard?: GuardStep } = {}
 ): Program {
-  const match = findAuthor();
+  const match = locked(options, findAuthor());
   return program(
     [
       {
@@ -152,22 +171,22 @@ export function connectProgram(
 }
 
 /** Two independent matches at one level, a third depending on the first. */
-export function levelledProgram(): Program {
-  const author = findAuthor();
-  const tag: ReadStep = {
+export function levelledProgram(shape: Shape = {}): Program {
+  const author = locked(shape, findAuthor());
+  const tag = locked(shape, {
     id: "tag.find",
     kind: "read",
     model: "tag",
     statement: sql`SELECT "id" FROM "sim_tags" WHERE "label" = ${"news"}`,
     outputs: { id: { kind: "firstRowField", field: "id" } },
-  };
-  const profile: ReadStep = {
+  });
+  const profile = locked(shape, {
     id: "profile.find",
     kind: "read",
     model: "profile",
     statement: sql`SELECT "id" FROM "sim_profiles" WHERE "user_id" = ${ref("author.find", "id")}`,
     outputs: { id: { kind: "firstRowField", field: "id" } },
-  };
+  });
   const link: WriteStep = {
     id: "post.tag",
     kind: "write",
@@ -248,8 +267,11 @@ function mergeArms(stepId: string): {
  * decided (as a fresh construction would pack it): the missing arm inserts
  * with the pin riding the write; the found arm updates the matched row.
  */
-export function mergeProgram(arm: "missing" | "found"): Program {
-  const probe = findAuthor("u1", false);
+export function mergeProgram(
+  arm: "missing" | "found",
+  shape: Shape = {}
+): Program {
+  const probe = locked(shape, findAuthor("u1", false));
   const arms = mergeArms(arm === "missing" ? "author.create" : "author.update");
   return program(
     [
@@ -280,8 +302,8 @@ export function mergeProgram(arm: "missing" | "found"): Program {
  * `pack` re-packs the taken arm from the probe's result. Both arms publish
  * under one step id so the program's outputs are static.
  */
-export function packedMergeProgram(): Program {
-  const probe = findAuthor("u1", false);
+export function packedMergeProgram(shape: Shape = {}): Program {
+  const probe = locked(shape, findAuthor("u1", false));
   const arms = mergeArms("author.merge");
   return program(
     [
@@ -366,10 +388,11 @@ export function mergeOutcomeProgram(): Program {
 /**
  * A bulk write with relation payloads: a capture, then three members each
  * observing the previous one, every member re-asserting the parent's liveness
- * (the inherited premise). The parent's key is bound by the capture.
+ * (the inherited premise). The parent's key is bound by the capture. A
+ * segments fixture: packed for the batch substrate unless told otherwise.
  */
-export function memberedProgram(members = 3): Program {
-  const capture: ReadStep = {
+export function memberedProgram(members = 3, shape: Shape = BATCH): Program {
+  const capture = locked(shape, {
     id: "parent.capture",
     kind: "read",
     model: "user",
@@ -379,7 +402,7 @@ export function memberedProgram(members = 3): Program {
       kind: "exactlyOneRow",
       failure: { kind: "notFound", message: "parent gone", raceable: false },
     },
-  };
+  });
   const liveness: BoundPremise = {
     premise: { kind: "exists", row: 0, raceable: false },
     match: capture,
@@ -427,8 +450,12 @@ export function memberedProgram(members = 3): Program {
  * A member program whose member `raceAt` inserts under a pin: the race test
  * for the current-member retry after a committed prefix.
  */
-export function pinnedMemberProgram(raceAt: number, members = 2): Program {
-  const base = memberedProgram(members);
+export function pinnedMemberProgram(
+  raceAt: number,
+  members = 2,
+  shape: Shape = BATCH
+): Program {
+  const base = memberedProgram(members, shape);
   const fragments = base.fragments.map((fragment, index) => {
     if (index !== raceAt + 1) return fragment;
     const [write] = fragment.writes;
@@ -436,4 +463,40 @@ export function pinnedMemberProgram(raceAt: number, members = 2): Program {
     return { ...fragment, writes: [{ ...write, racePin: AUTHOR_PIN }] };
   });
   return { ...base, fragments };
+}
+
+/**
+ * A bulk write on a batch-only substrate, with or without a terminal read
+ * (the `select` arm) — the admission refusal's two forms.
+ */
+export function bulkProgram(withSelect: boolean): Program {
+  const write: WriteStep = {
+    id: "post.createMany",
+    kind: "write",
+    model: "post",
+    statement: sql`INSERT INTO "sim_posts" ("id") VALUES (${"p1"}), (${"p2"})`,
+    outputs: { count: { kind: "rowCount" } },
+  };
+  const select: ReadStep = {
+    id: "post.select",
+    kind: "read",
+    model: "post",
+    statement: sql`SELECT "id" FROM "sim_posts" WHERE "id" IN (${"p1"}, ${"p2"})`,
+    outputs: { rows: { kind: "rows" } },
+  };
+  return program(
+    [
+      {
+        matches: [],
+        writes: withSelect ? [write, select] : [write],
+        premises: [],
+        inherited: [],
+        boundary: { kind: "end" },
+      },
+    ],
+    withSelect
+      ? { result: ref("post.select", "rows") }
+      : { result: ref("post.createMany", "count") },
+    { model: "post", operation: "createMany" }
+  );
 }

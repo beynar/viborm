@@ -115,7 +115,14 @@ export type FragmentBoundary =
  * supplied an explicit guard (see {@link BoundPremise.guard}).
  */
 export interface Fragment {
-  /** Matches, grouped by dependency level; each level is one round trip. */
+  /**
+   * Matches, grouped by dependency level; each level is one round trip. They
+   * are packed for the substrate the program was scheduled for: on the
+   * transaction substrate a match already carries its row lock (the adapter's
+   * `FOR UPDATE` where the dialect has one). The packer is the lock's single
+   * owner — an executor never adds one (a packed statement cannot be asked
+   * whether it is locked without reading its text).
+   */
   readonly matches: readonly (readonly StatementStep[])[];
   /**
    * Asserts and retracts in dataflow order (already respecting the

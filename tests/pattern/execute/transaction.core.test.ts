@@ -41,7 +41,7 @@ describe("transaction enforcer", () => {
       dialect: "sqlite",
       script: authorFound,
     });
-    await execute(connectProgram(), driver);
+    await execute(connectProgram({ dialect: "sqlite" }), driver);
     expect(driver.statements.map((entry) => entry.sql)).toEqual([
       'SELECT "id" FROM "sim_users" WHERE "id" = ?',
       'UPDATE "sim_posts" SET "author_id" = ? WHERE "id" = ?',
