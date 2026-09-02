@@ -136,6 +136,22 @@ function parseConsumableResult<T>(
 }
 
 describe("consumable root row contracts", () => {
+  test("reuses one consumable single-record row for same-key conversion", () => {
+    const row = { id: "root-1", enabled: 1 };
+    const raw = [row];
+
+    const parsed = parseConsumableResult<{ id: string; enabled: boolean }>(
+      sqliteParser(),
+      "findUnique",
+      raw,
+      {},
+      raw
+    );
+
+    expect(parsed).toBe(row);
+    expect(parsed.enabled).toBe(true);
+  });
+
   test("reuses consumable roots for same-key conversion and returns a fresh array", () => {
     const first = { id: "root-1", enabled: 1 };
     const second = { id: "root-2", enabled: 0 };

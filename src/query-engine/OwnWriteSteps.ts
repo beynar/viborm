@@ -158,50 +158,19 @@ export class OwnWriteSteps {
     }
   }
 
-  process(entry: RelationMutationEntry): void {
+  private process(
+    entry: Exclude<
+      RelationMutationEntry,
+      | { kind: "connectOrCreate" }
+      | { kind: "create" }
+      | { kind: "createMany" }
+      | { kind: "upsert" }
+    >
+  ): void {
     switch (entry.kind) {
-      case "create":
-        for (const data of entry.items) {
-          this.relation.appendCreateSummary("create", data.parsed);
-        }
-        return;
-      case "createMany":
-        for (const data of entry.rows) {
-          this.relation.appendCreateSummary("createMany", data.parsed);
-        }
-        return;
       case "connect":
         this.processConnect(entry);
         return;
-      case "connectOrCreate": {
-        const entryLedger = this.relation.ledger.fork();
-        const priorItems: ConnectOrCreateAnalysis[] = [];
-        for (const {
-          input,
-          target,
-          repeatedSelector,
-        } of prepareConnectOrCreateItems(this.relation, entry.items)) {
-          const selector = assertConnectOrCreateDecision(
-            this.relation,
-            entryLedger,
-            priorItems,
-            input,
-            target,
-            repeatedSelector
-          );
-          const checkpoint = this.relation.ledger.checkpoint();
-          this.relation.appendCreateSummary(
-            "connectOrCreate",
-            input.create.parsed
-          );
-          this.relation.appendMembership("connectOrCreate", selector);
-          priorItems.push({
-            target,
-            writes: this.relation.ledger.deltaSince(checkpoint),
-          });
-        }
-        return;
-      }
       case "disconnect":
         this.processDisconnect(entry);
         return;
@@ -214,16 +183,6 @@ export class OwnWriteSteps {
       case "update":
         this.processUpdate(entry);
         return;
-      case "upsert":
-        for (const input of entry.items) {
-          const decision = this.relation.assertUpsertDecision(
-            input.target.kind === "unique" ? input.target.where : undefined
-          );
-          this.relation.appendUpsertUpdateSummary(input, decision);
-          this.relation.appendCreateSummary("upsert", input.create.parsed);
-          this.relation.appendMembership("upsert", decision);
-        }
-        return;
       case "updateMany": {
         const unknown = unknownConstraint(this.relation.target);
         this.relation.appendTarget("updateMany", unknown);
@@ -233,12 +192,8 @@ export class OwnWriteSteps {
       case "deleteMany":
         this.processDeleteMany(entry);
         return;
-      default: {
-        const exhaustive: never = entry;
-        throw new TypeError(
-          `Unsupported own-write step: ${String(exhaustive)}`
-        );
-      }
+      default:
+        break;
     }
   }
 
@@ -492,7 +447,10 @@ export class OwnWriteSteps {
 function processOwnWriteBranchEntry(
   relation: OwnWriteRelation,
   entry: RelationMutationEntry
-): boolean {
+): entry is Extract<
+  RelationMutationEntry,
+  { kind: "connectOrCreate" } | { kind: "upsert" }
+> {
   if (entry.kind === "connectOrCreate") {
     processConnectOrCreateBranches(relation, entry);
     return true;

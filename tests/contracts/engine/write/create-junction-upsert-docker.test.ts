@@ -6,8 +6,8 @@ import {
   createJunctionUpsertSchema,
   registerCreateJunctionUpsertBehavior,
 } from "@tests/contracts/engine/write/create-junction-upsert-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * E5-U1 on the live servers.

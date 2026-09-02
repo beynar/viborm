@@ -2,10 +2,11 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -25,38 +26,6 @@ import { beforeAll, describe, expect, test } from "vitest";
  * Execution-backed behavior lives in
  * {@link file://../drivers/json-null-sentinel-behavior.ts} (every driver).
  */
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `json-null-sql-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // No external client is allocated by this SQL-only driver.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const Doc = s
   .model({
@@ -115,7 +84,7 @@ function createEngine(dialectCase: DialectCase): QueryEngine {
   const adapter = dialectCase.createAdapter();
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
   return new QueryEngine(
-    new MockDriver(adapter, dialectCase.dialect),
+    new SqlOnlyDriver(adapter, dialectCase.dialect),
     registry
   );
 }

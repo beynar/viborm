@@ -803,7 +803,7 @@ raw operations, and statement-transform chains bypass cached reads.
    site must name a distinct first-knowable invariant and have one unique
    reachable falsifier. Before adding, moving or deleting one, read
    `docs/architecture/guard-ownership-ledger.md` — it owns the reasoning for
-   every surviving site — and `tests/contracts/engine/write/operation-construction-inventory.test.ts`,
+   every surviving site — and `tests/contracts/engine/write/operation-construction-inventory.core.test.ts`,
    which owns the count and re-resolves every coordinate. A guard whose unique
    coverage cannot be named does not go in.
 9. Use direct owner imports; do not recreate a query-engine barrel.
@@ -825,7 +825,8 @@ Run focused behavior tests for the changed operation, then:
 
 ```bash
 pnpm test:types
-pnpm test:layer:query-engine
+pnpm test:layer:query-engine   # read half: runtime core + the engine type core
+pnpm test:layer:write-engine   # write half: runtime core only (no type core of its own)
 pnpm package:build
 pnpm test
 ```
@@ -840,6 +841,67 @@ disconnect. Keep a fresh database only for DDL, lifecycle, destructive-schema,
 independently committed concurrency, staleness/race, or rollback-isolation
 contracts. Structural fragment proofs do not boot PGlite.
 
-`pnpm test:coverage:write-engine` is the authoritative credential-free write
-estate. It includes core query/architecture sentinels and every local write
-behavior; `pnpm test:layer:query-engine` remains the representative fast gate.
+Structural SQL contracts use the shared
+`tests/fixtures/drivers/sql-only.ts` fixture. Keep a local recording driver only
+when the contract observes execution behavior that the shared empty-result
+fixture does not own.
+Provider parity files, including the decimal scalar and list surfaces, stay in
+the extended `.test.ts` estate even when they are credential-free; starting an
+embedded provider is not a core sentinel.
+
+`pnpm test:coverage:query-engine-core` and `pnpm test:coverage:write-engine`
+are the two exact query-engine ownership reports, and they do NOT share one
+floor. Both are approved exceptions whose evidence is recorded in
+`scripts/coverage-policy.mjs`:
+
+| Report | Statements | Branches | Functions | Lines |
+|---|---|---|---|---|
+| `test:coverage:query-engine-core` | 98 | 97.9 | 98 | 98 |
+| `test:coverage:write-engine` | 82 | 80.5 | 92 | 82 |
+
+Query-core stops two branch arms short of 98 because the `if (!row)` guards in
+`result-count-parser.ts` and `result-row-parser.ts` are required for the code to
+typecheck - `normalizeResultRows()[0]` is `T | undefined` - while both call sites
+have already proved `raw.length === 1`. The write floors are lower because that
+lane is provider-free by design: the live-provider write suites are what exercise
+`OperationExecutor`, `RecordUpdateCompiler`, `CreateOperation` and
+`RelationJunctionPart`, and every one of them executes, and passes, in
+`pnpm test:all`. Admitting them here would duplicate suites that already exist
+rather than test anything new. The floors stay ratchets, and
+`scripts/merge-coverage.mjs` prints each measured metric beside the floor it
+enforces, so the enforced number is never inferred from a nominal target.
+
+The query-core report owns the non-`write-engine` source and merges coverage
+from the disjoint read and write projects because operation shells and builders
+are shared. The write report owns `src/query-engine/write-engine/`. Its focused
+selection is the 56-file provider-free write core plus one audited contract that
+replaces the Neon transport with an in-process fake, run as the sequential parts
+its manifest declares inside one single-thread `coverage-write-engine` project.
+`test:all` retains every credential-free PGlite combination. The merged coverage
+map is the report authority; do not admit embedded-provider estates into this
+diagnostic lane.
+`scripts/query-engine-test-manifest.mjs` is the fail-closed registration owner
+for all of these projects. It lists every admitted deterministic file literally,
+and the coverage policy rejects a missing or duplicate architecture, query, or
+write core assignment. Do not replace it with a recursive glob: a core suffix
+does not prove that a future fixture is provider-free.
+
+The engine has TWO fast layer commands, one per half.
+`pnpm test:layer:query-engine` selects `QUERY_ENGINE_CORE_TESTS`, the 77
+architecture and `tests/contracts/engine/query` core contracts it names.
+`pnpm test:layer:write-engine` selects `WRITE_ENGINE_CORE_TESTS`, the 56 write
+core contracts — 55 under `tests/contracts/engine/write` plus
+`engine/query/nested-create-many.core.test.ts`, which the manifest assigns to the
+write half. `vitest.workspace.ts` declares both as `layer-*` projects, so
+`pnpm test:core` and `pnpm test:all` execute both halves. The write core is a
+runnable layer, not a coverage-only registration: `coverage-write-engine-core`
+still re-reads those same 56 files, but only so the query-core report can merge
+them.
+
+The split is a RUNTIME split. There is no `tests/types/write-engine/`: the write
+engine's compile-only probes live in the query-engine type core, so
+`pnpm test:layer:write-engine` runs a runtime stage and prints that its type
+stage was skipped, while `pnpm test:layer:query-engine` runs both. Add a write
+compile-only probe to `tests/types/query-engine/`, not to a new directory — the
+taxonomy census requires every `.core.types.ts` to sit under a declared test
+layer, and `write-engine` is not one.

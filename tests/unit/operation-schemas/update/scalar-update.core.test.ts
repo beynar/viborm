@@ -5,9 +5,12 @@
  * with their update schemas (all optional, with set/increment operations).
  */
 
+import {
+  compoundIdSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { compoundIdSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
@@ -25,6 +28,7 @@ describe("Scalar Update - Types (Simple Model)", () => {
   });
 
   test("type: all fields are optional (empty object matches)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 });

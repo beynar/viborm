@@ -189,8 +189,15 @@ class BeforeAtomicBatchNonReturningPGliteDriver extends BatchOnlyPGliteDriver {
   override readonly supportsOrderedCommittedSegments = true;
   private beforeBatch: (() => Promise<void>) | undefined;
 
-  constructor(database: PGlite, beforeBatch: () => Promise<void>) {
-    super({ client: database });
+  constructor(
+    database: PGlite,
+    namespace: string,
+    beforeBatch: () => Promise<void>
+  ) {
+    // A SECOND driver over the family's SHARED database, so it must name the
+    // same Postgres schema the family provisioned; without it this driver would
+    // address `public`, where the suite has no tables.
+    super({ client: database, namespace });
     this.adapter.capabilities.supportsReturning = false;
     this.adapter.capabilities.supportsCteWithMutations = false;
     this.beforeBatch = beforeBatch;
@@ -405,6 +412,7 @@ describe("residual refusal falsifiers", () => {
     let injected = false;
     const driver = new BeforeAtomicBatchNonReturningPGliteDriver(
       family.database,
+      family.namespace,
       async () => {
         injected = true;
         await family.client.twin.create({

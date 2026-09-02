@@ -70,6 +70,8 @@ const FIXED_DECIMAL_BASELINE_PATTERN =
   /requires baseline 1d796d4e01841becfbb2f6805668ef11d270aa0e/;
 const CANDIDATE_PROTOCOL_COMMIT_PATTERN =
   /must run from candidate protocol commit/;
+const MISSING_ROW_1000_FIXED_DECIMAL_EVIDENCE_PATTERN =
+  /provider-fixed-decimal-row-1000\/provider-execute\/cpu is missing fixed-decimal evidence/;
 const COMPARE_SCRIPT = fileURLToPath(
   new URL("./operation-pipeline-compare.mjs", import.meta.url)
 );
@@ -1226,10 +1228,7 @@ test("fixed-decimal candidate evidence gates attribution and row scaling without
     (metric) =>
       metric.cardinality === 1 && metric.metric === "releasedBytesPerOperation"
   );
-  assert.equal(
-    released.formula,
-    "decimal - text-control - constructor-floor"
-  );
+  assert.equal(released.formula, "decimal - text-control - constructor-floor");
   assert.equal(released.providerDelta, undefined);
   assert.ok(
     gate.attribution.some((metric) => metric.metric === "peakRssBytes")
@@ -1239,8 +1238,7 @@ test("fixed-decimal candidate evidence gates attribution and row scaling without
   );
   const allocation = gate.attribution.find(
     (metric) =>
-      metric.cardinality === 1 &&
-      metric.metric === "allocatedBytesPerOperation"
+      metric.cardinality === 1 && metric.metric === "allocatedBytesPerOperation"
   );
   assert.equal(
     allocation.formula,
@@ -1347,7 +1345,7 @@ test("fixed-decimal candidate evidence gates attribution and row scaling without
   assert.equal(missingProviderGate.eligible, false);
   assert.match(
     missingProviderGate.reasons.join("\n"),
-    /provider-fixed-decimal-row-1000\/provider-execute\/cpu is missing fixed-decimal evidence/
+    MISSING_ROW_1000_FIXED_DECIMAL_EVIDENCE_PATTERN
   );
 
   const scalarOnly = measurements.filter(

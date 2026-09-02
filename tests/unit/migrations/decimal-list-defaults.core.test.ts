@@ -1,29 +1,21 @@
 /**
  * Literal fixed-decimal list defaults cross the migration boundary.
  *
- * Runtime writes already encode these values through the decimal codec. The
- * migration serializer must retain the same physical value so an omitted
- * column receives it in raw SQL too, and every provider's introspection must
- * return the exact expression the serializer wrote or a second push churns.
+ * Core coverage owns deterministic serialization, DDL, and catalog parsing.
+ * Live default application and convergence live in
+ * `decimal-list-defaults.test.ts`.
  */
 
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { getMigrationDriver, type MigrationDriver } from "@migrations/drivers";
 import { libsqlMigrationDriver } from "@migrations/drivers/libsql";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import { introspect } from "@migrations/push";
 import { serializeModels } from "@migrations/serializer";
 import type { ColumnDef, SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import v from "@validation";
 import { getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
 import { d1EstateDriver, ddlContextFor, mysqlEstateDriver } from "./_estate";
 
@@ -56,48 +48,6 @@ function defaultSchema() {
           .decimal({ precision: 16, scale: 2 })
           .nullable()
           .default(null),
-      })
-      .map(TABLE),
-  };
-}
-
-function storageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(LOGICAL_DEFAULT),
-        empty: s.decimal({ precision: 16, scale: 2 }).array().default([]),
-      })
-      .map(TABLE),
-  };
-}
-
-function changedStorageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s
-          .decimal({ precision: 16, scale: 2 })
-          .array()
-          .default(["4.20"]),
-        empty: s.decimal({ precision: 16, scale: 2 }).array().default([]),
-      })
-      .map(TABLE),
-  };
-}
-
-function noDefaultStorageSchema() {
-  return {
-    ledger: s
-      .model({
-        id: s.string().id(),
-        amounts: s.decimal({ precision: 16, scale: 2 }).array(),
-        empty: s.decimal({ precision: 16, scale: 2 }).array(),
       })
       .map(TABLE),
   };
@@ -309,216 +259,5 @@ describe("provider default introspection", () => {
     expect(respelledSnapshot.tables[0]?.columns[0]?.default).toBe(
       `_utf8mb4\\'[ "120", "-340" ]\\'`
     );
-  });
-});
-
-describe("literal decimal-list defaults converge and populate old rows", () => {
-  it("applies transformed scalar and list literals once for ORM and raw omission", async () => {
-    let scalarRuns = 0;
-    let listRuns = 0;
-    const shift = (observe: () => void) => ({
-      "~standard": {
-        version: 1 as const,
-        vendor: "decimal-list-default-test",
-        validate(value: unknown) {
-          observe();
-          return value instanceof Decimal
-            ? { value: value.plus(1) }
-            : { issues: [{ message: "Expected Decimal" }] };
-        },
-      },
-    });
-    const schema = {
-      ledger: s
-        .model({
-          id: s.string().id(),
-          amount: s
-            .decimal({ precision: 16, scale: 2 })
-            .schema(
-              shift(() => {
-                scalarRuns += 1;
-              })
-            )
-            .default("1.00"),
-          amounts: s
-            .decimal({ precision: 16, scale: 2 })
-            .schema(
-              shift(() => {
-                listRuns += 1;
-              })
-            )
-            .array()
-            .default(["1.00", "-3.00"]),
-        })
-        .map(TABLE),
-    };
-    expect({ scalarRuns, listRuns }).toEqual({ scalarRuns: 1, listRuns: 2 });
-
-    const driver = createInMemorySQLite3Driver();
-    const client = createClient({ schema, driver });
-    expect({ scalarRuns, listRuns }).toEqual({ scalarRuns: 1, listRuns: 2 });
-    await push(client, { force: true });
-    expect({ scalarRuns, listRuns }).toEqual({ scalarRuns: 1, listRuns: 2 });
-    await client.ledger.create({ data: { id: "orm" } });
-    expect({ scalarRuns, listRuns }).toEqual({ scalarRuns: 1, listRuns: 2 });
-    await client.ledger.create({
-      data: { id: "explicit", amount: "4.00", amounts: ["4.00", "-4.00"] },
-    });
-    expect({ scalarRuns, listRuns }).toEqual({ scalarRuns: 2, listRuns: 4 });
-
-    await driver._executeRaw(`INSERT INTO "${TABLE}" ("id") VALUES ('raw')`);
-    const physical = await driver._executeRaw<{
-      id: string;
-      amount: number;
-      amounts: string;
-    }>(`SELECT "id", "amount", "amounts" FROM "${TABLE}" ORDER BY "id"`);
-    expect(physical.rows).toEqual([
-      { id: "explicit", amount: 500, amounts: '["500","-300"]' },
-      { id: "orm", amount: 200, amounts: '["200","-200"]' },
-      { id: "raw", amount: 200, amounts: '["200","-200"]' },
-    ]);
-    await client.$disconnect();
-  });
-
-  it("SQLite applies the default to a populated table and then converges", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const before = createClient({
-      schema: {
-        ledger: s.model({ id: s.string().id() }).map(TABLE),
-      },
-      driver,
-    });
-    await push(before, { force: true });
-    await driver._executeRaw(`INSERT INTO "${TABLE}" ("id") VALUES ('old')`);
-
-    const after = createClient({ schema: storageSchema(), driver });
-    await push(after, { force: true });
-    await after.ledger.create({ data: { id: "orm" } });
-    await driver._executeRaw(`INSERT INTO "${TABLE}" ("id") VALUES ('raw')`);
-    const physical = await driver._executeRaw<{
-      id: string;
-      amounts: string;
-      empty: string;
-    }>(`SELECT "id", "amounts", "empty" FROM "${TABLE}" ORDER BY "id"`);
-    expect(physical.rows).toEqual([
-      {
-        id: "old",
-        amounts: JSON_DEFAULT.slice(1, -1),
-        empty: "[]",
-      },
-      {
-        id: "orm",
-        amounts: JSON_DEFAULT.slice(1, -1),
-        empty: "[]",
-      },
-      {
-        id: "raw",
-        amounts: JSON_DEFAULT.slice(1, -1),
-        empty: "[]",
-      },
-    ]);
-    expect((await push(after, { force: true })).operations).toEqual([]);
-    await after.$disconnect();
-  });
-
-  it("SQLite changes and removes a list default without churn", async () => {
-    const driver = createInMemorySQLite3Driver();
-    const initial = createClient({ schema: storageSchema(), driver });
-    await push(initial, { force: true });
-
-    const changed = createClient({ schema: changedStorageSchema(), driver });
-    await push(changed, { force: true });
-    await driver._executeRaw(
-      `INSERT INTO "${TABLE}" ("id") VALUES ('changed')`
-    );
-    const physical = await driver._executeRaw<{ amounts: string }>(
-      `SELECT "amounts" FROM "${TABLE}" WHERE "id" = 'changed'`
-    );
-    expect(physical.rows).toEqual([{ amounts: '["420"]' }]);
-    expect((await push(changed, { force: true })).operations).toEqual([]);
-
-    const removed = createClient({ schema: noDefaultStorageSchema(), driver });
-    await push(removed, { force: true });
-    expect((await push(removed, { force: true })).operations).toEqual([]);
-    const snapshot = await introspect(removed);
-    expect(
-      snapshot.tables
-        .find((table) => table.name === TABLE)
-        ?.columns.find((column) => column.name === "amounts")?.default
-    ).toBeUndefined();
-    await removed.$disconnect();
-  });
-
-  it("PostgreSQL ORM and raw omitted-column inserts agree and converge", async () => {
-    const database = new PGlite();
-    const client = createClient({
-      schema: storageSchema(),
-      driver: new PGliteDriver({ client: database }),
-    });
-    try {
-      await push(client, { force: true });
-      await client.ledger.create({ data: { id: "orm" } });
-      await database.exec(`INSERT INTO "${TABLE}" ("id") VALUES ('raw')`);
-      const physical = await database.query<{
-        id: string;
-        amounts: string;
-        empty: string;
-      }>(
-        `SELECT "id", "amounts"::text AS "amounts", "empty"::text AS "empty" FROM "${TABLE}" ORDER BY "id"`
-      );
-      expect(physical.rows).toEqual([
-        {
-          id: "orm",
-          amounts: "{1.20,-3.40,0.00,90071992547409.93}",
-          empty: "{}",
-        },
-        {
-          id: "raw",
-          amounts: "{1.20,-3.40,0.00,90071992547409.93}",
-          empty: "{}",
-        },
-      ]);
-      expect((await push(client, { force: true })).operations).toEqual([]);
-    } finally {
-      await client.$disconnect();
-    }
-  });
-
-  it("PostgreSQL changes and removes a list default without churn", async () => {
-    const database = new PGlite();
-    const initial = createClient({
-      schema: storageSchema(),
-      driver: new PGliteDriver({ client: database }),
-    });
-    try {
-      await push(initial, { force: true });
-
-      const changed = createClient({
-        schema: changedStorageSchema(),
-        driver: new PGliteDriver({ client: database }),
-      });
-      await push(changed, { force: true });
-      await database.exec(`INSERT INTO "${TABLE}" ("id") VALUES ('changed')`);
-      const physical = await database.query<{ amounts: string }>(
-        `SELECT "amounts"::text AS "amounts" FROM "${TABLE}" WHERE "id" = 'changed'`
-      );
-      expect(physical.rows).toEqual([{ amounts: "{4.20}" }]);
-      expect((await push(changed, { force: true })).operations).toEqual([]);
-
-      const removed = createClient({
-        schema: noDefaultStorageSchema(),
-        driver: new PGliteDriver({ client: database }),
-      });
-      await push(removed, { force: true });
-      expect((await push(removed, { force: true })).operations).toEqual([]);
-      const snapshot = await introspect(removed);
-      expect(
-        snapshot.tables
-          .find((table) => table.name === TABLE)
-          ?.columns.find((column) => column.name === "amounts")?.default
-      ).toBeUndefined();
-    } finally {
-      await initial.$disconnect();
-    }
   });
 });

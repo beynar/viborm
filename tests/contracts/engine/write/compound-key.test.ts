@@ -1,15 +1,14 @@
+import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import { compoundKeyBehaviorSchema } from "@tests/fixtures/compound-key-behavior-schema";
 import {
   BatchOnlyPGliteDriver,
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { describe, expect, test } from "vitest";
-import { compoundKeyBehaviorSchema } from "@tests/fixtures/compound-key-behavior-schema";
-import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
 
@@ -26,10 +25,10 @@ interface Scenario {
   expectReject?: boolean;
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace: string) {
   return createClient({
     schema: compoundKeyBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -61,7 +60,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed?.(client);
 
   let result: unknown;
@@ -75,8 +74,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: compoundKeyBehaviorSchema,
         driver,

@@ -13,13 +13,13 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import type { Database as SQLite3Database } from "better-sqlite3";
 import Database from "better-sqlite3";
 import { beforeAll, describe, expect, test } from "vitest";
-import { UpsertOperation } from "@src/query-engine/write-engine/UpsertOperation";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PHASE 7 / Decision 7.1 — the scalar-upsert ON CONFLICT door (query-performance-plan).
@@ -143,8 +143,14 @@ async function boot(batch = false) {
   const family = getFamily();
   await family.reset();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   const client = createClient({ schema, driver });
   await client.account.create({
     data: { id: 1, email: "a1@x", handle: "h1", label: "L1", score: 10 },
@@ -584,7 +590,10 @@ describe("the ON CONFLICT fold — the accepted divergences", () => {
     const burn = async (folded: boolean) => {
       const family = getFamily();
       await family.reset();
-      const driver = new RecordingPGliteDriver({ client: family.database });
+      const driver = new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
       if (!folded) closeTheDoor(driver);
       // A seed with NO literal primary keys, so the sequence and the rows agree.
       const client = createClient({ schema, driver });
@@ -649,32 +658,39 @@ describe("the ON CONFLICT fold — the accepted divergences", () => {
       await syncLiveSchema(client);
 
       const competitor = new Database(file);
-      driver.onWindow = () => {
-        // The competitor commits the very key the operation is about to write.
-        competitor
-          .prepare(
-            'INSERT INTO "p71_accounts" ("id","email","handle","label","score") VALUES (80, ?, ?, ?, 0)'
-          )
-          .run("rival@x", "rival", "RIVAL");
-      };
+      try {
+        driver.onWindow = () => {
+          // The competitor commits the very key the operation is about to write.
+          competitor
+            .prepare(
+              'INSERT INTO "p71_accounts" ("id","email","handle","label","score") VALUES (80, ?, ?, ?, 0)'
+            )
+            .run("rival@x", "rival", "RIVAL");
+        };
 
-      driver.recording = true;
-      const answer = await client.account.upsert({
-        where: { id: 80 },
-        create: {
-          id: 80,
-          email: "mine@x",
-          handle: "mine",
-          label: "MINE",
-          score: 0,
-        },
-        update: { label: "ADOPTED" },
-      });
-      const statements = drain(driver);
-      driver.recording = false;
-      competitor.close();
-      await client.$disconnect();
-      return { answer, statements };
+        driver.recording = true;
+        const answer = await client.account.upsert({
+          where: { id: 80 },
+          create: {
+            id: 80,
+            email: "mine@x",
+            handle: "mine",
+            label: "MINE",
+            score: 0,
+          },
+          update: { label: "ADOPTED" },
+        });
+        const statements = drain(driver);
+        return { answer, statements };
+      } finally {
+        driver.recording = false;
+        driver.onWindow = undefined;
+        try {
+          competitor.close();
+        } finally {
+          await client.$disconnect();
+        }
+      }
     };
 
     // Probe-first: the locate proved the row absent, the competitor then took the

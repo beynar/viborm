@@ -25,12 +25,14 @@ describe("Relation Update - Types (Author Model)", () => {
   });
 
   test("type: all relations are optional", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 
   test("type: createMany requires data", () => {
     expectTypeOf<{
       posts?: {
+        // biome-ignore lint/complexity/noBannedTypes: the empty object type is the rejected payload under test.
         createMany: {};
       };
     }>().not.toMatchTypeOf<Input>();
@@ -88,6 +90,7 @@ describe("Relation Update - Types (Post Model)", () => {
   test("type: to-one connectOrCreate requires where and create", () => {
     expectTypeOf<{
       author?: {
+        // biome-ignore lint/complexity/noBannedTypes: the empty object type is the rejected payload under test.
         connectOrCreate: {};
       };
     }>().not.toMatchTypeOf<Input>();
@@ -239,15 +242,12 @@ describe("Relation Update - Author Model Runtime (oneToMany)", () => {
         },
       },
     ],
-  ] as const)(
-    "runtime: rejects malformed planned to-many %s",
-    (_, envelope) => {
-      const result = parse(schema, {
-        posts: envelope,
-      });
-      expect(result.issues).toBeDefined();
-    }
-  );
+  ] as const)("runtime: rejects malformed planned to-many %s", (_, envelope) => {
+    const result = parse(schema, {
+      posts: envelope,
+    });
+    expect(result.issues).toBeDefined();
+  });
 
   test("runtime: accepts set to replace all", () => {
     const result = parse(schema, {
@@ -325,17 +325,17 @@ describe("Relation Update - Post Model Runtime (manyToOne)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test.each(["updateMany", "deleteMany"] as const)(
-    "runtime: rejects to-many-only '%s' on to-one",
-    (operation) => {
-      const result = parse(schema, {
-        author: {
-          [operation]: {},
-        },
-      });
-      expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
-    }
-  );
+  test.each([
+    "updateMany",
+    "deleteMany",
+  ] as const)("runtime: rejects to-many-only '%s' on to-one", (operation) => {
+    const result = parse(schema, {
+      author: {
+        [operation]: {},
+      },
+    });
+    expect(result.issues?.[0]?.message).toBe(`Unknown key: ${operation}`);
+  });
 
   test("runtime: accepts create nested write", () => {
     const result = parse(schema, {

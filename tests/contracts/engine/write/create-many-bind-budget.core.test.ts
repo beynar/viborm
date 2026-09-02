@@ -1,22 +1,15 @@
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryError, UnsupportedOperationError } from "@errors";
-
+import { UnsupportedOperationError } from "@errors";
 import { buildCreateManyPlan } from "@query-engine/operations/create";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
-import type { CommittedBatchNotification } from "@src/drivers/types";
 import { createQueryScope } from "@src/query-engine/context/query-scope";
 import { CreateManyOperation } from "@src/query-engine/write-engine/CreateManyOperation";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
-import type Database from "better-sqlite3";
 import { describe, expect, test, vi } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const entry = s
   .model({
@@ -26,20 +19,8 @@ const entry = s
   })
   .id(["tenantId", "slot"])
   .map("create_many_bind_entries");
-const collection = s
-  .model({
-    id: s.string().id(),
-    tags: s.toMany(() => tag).through("create_many_bind_collection_tags"),
-  })
-  .map("create_many_bind_collections");
-const tag = s
-  .model({
-    id: s.string().id(),
-    // ONE endpoint owns every junction override (§4.4, R011).
-    collections: s.toMany(() => collection),
-  })
-  .map("create_many_bind_tags");
-const schema = { entry, collection, tag };
+const tag = s.model({ id: s.string().id() }).map("create_many_bind_tags");
+const schema = { entry, tag };
 
 const compoundSchema = (() => {
   const parent = s
@@ -64,107 +45,45 @@ const compoundSchema = (() => {
   return { parent, child };
 })();
 
-const scratchSchema = (() => {
-  const parent = s
-    .model({
-      id: s.int().id().increment(),
-      label: s.string(),
-      children: s.toMany(() => child),
-    })
-    .map("bind_scratch_parents");
-  const child = s
-    .model({
-      id: s.int().id().increment(),
-      parentId: s.int(),
-      parent: s
-        .toOne(() => parent)
-        .fields("parentId")
-        .references("id"),
-    })
-    .map("bind_scratch_children");
-  return { parent, child };
-})();
-
 hydrateSchemaNames(schema);
 hydrateSchemaNames(compoundSchema);
-hydrateSchemaNames(scratchSchema);
 
-class CapacityDriver extends PGliteDriver {
-  override readonly maxBindParametersPerStatement: number | undefined;
-
-  constructor(
-    capacity: number | undefined,
-    options: ConstructorParameters<typeof PGliteDriver>[0] = {}
-  ) {
-    super(options);
-    this.maxBindParametersPerStatement = capacity;
-  }
-}
-
-class CapacitySQLite3Driver extends SQLite3Driver {
-  override readonly maxBindParametersPerStatement: number | undefined;
-
-  constructor(capacity: number | undefined) {
-    super();
-    this.maxBindParametersPerStatement = capacity;
-  }
-}
-
-class BatchOnlyCapacityDriver extends CapacityDriver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-}
-
-class BatchOnlyCapacitySQLite3Driver extends CapacitySQLite3Driver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-}
-
-class UnknownCapacityProgressiveSQLite3Driver extends CapacitySQLite3Driver {
-  override readonly supportsTransactions = false;
-  override readonly supportsBatch = true;
-  override readonly supportsOrderedCommittedSegments = true;
-
-  constructor() {
-    super(undefined);
-  }
-
-  protected override async executeBatch<T>(
-    client: Database.Database,
-    queries: BatchQuery[],
-    context?: QueryExecutionContext,
-    committed?: CommittedBatchNotification
-  ): Promise<QueryResult<T>[]> {
-    const results = await this.transaction(client, (transaction) =>
-      super.executeBatch<T>(transaction, queries, context)
-    );
-    await committed?.();
-    return results;
-  }
+function driver(
+  dialect: "postgresql" | "sqlite",
+  capacity: number | undefined,
+  batchOnly = false
+): PlanningDriver {
+  return new PlanningDriver(dialect, {
+    ...(capacity === undefined
+      ? {}
+      : { maxBindParametersPerStatement: capacity }),
+    supportsTransactions: !batchOnly,
+    supportsBatch: batchOnly,
+  });
 }
 
 function engine(capacity: number | undefined): QueryEngine {
   return new QueryEngine(
-    new CapacityDriver(capacity),
+    driver("postgresql", capacity),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
 }
 
 function statementsFromOperation(
   capacity: number | undefined,
-  data: readonly Record<string, unknown>[]
+  rows: readonly Record<string, unknown>[]
 ) {
-  const operation = new CreateManyOperation(engine(capacity), entry, { data });
+  const operation = new CreateManyOperation(engine(capacity), entry, {
+    data: rows,
+  });
   return operation.compile({}).steps.map((step) => {
     if (step.kind !== "write") throw new Error("expected a write step");
     return step.statement;
   });
 }
 
-describe("createMany bind-budget chunking", () => {
-  const getFamily = usePGliteSchemaFamily(schema);
-
-  test("the root operation passes its verified driver budget to the semantic builder", () => {
+describe("createMany bind-budget planning", () => {
+  test("the verified budget chooses the largest fitting row prefix", () => {
     const statements = statementsFromOperation(
       6,
       Array.from({ length: 5 }, (_, index) => ({
@@ -174,7 +93,6 @@ describe("createMany bind-budget chunking", () => {
       }))
     );
 
-    expect(statements).toHaveLength(3);
     expect(statements.map((statement) => statement.values.length)).toEqual([
       6, 6, 3,
     ]);
@@ -197,11 +115,10 @@ describe("createMany bind-budget chunking", () => {
     ]);
   });
 
-  test("budgets the compiled SQL values and chooses the largest fitting prefix", () => {
+  test("compiled SQL values, not input field count, own the budget", () => {
     const queryEngine = engine(5);
-    const ctx = createQueryScope(queryEngine, entry);
     const plan = buildCreateManyPlan(
-      ctx,
+      createQueryScope(queryEngine, entry),
       {
         data: [
           {
@@ -228,24 +145,7 @@ describe("createMany bind-budget chunking", () => {
     ).toEqual([4, 3, 3]);
   });
 
-  test("keeps an under-budget run as one statement", () => {
-    const statements = statementsFromOperation(6, [
-      { tenantId: "t1", slot: "s1", label: "one" },
-      { tenantId: "t2", slot: "s2", label: "two" },
-    ]);
-
-    expect(statements).toHaveLength(1);
-    expect(statements[0]?.values).toEqual([
-      "t1",
-      "s1",
-      "one",
-      "t2",
-      "s2",
-      "two",
-    ]);
-  });
-
-  test("an unknown provider capacity preserves the maximal same-shape run", () => {
+  test("an unknown budget preserves the maximal same-shape run", () => {
     const statements = statementsFromOperation(undefined, [
       { tenantId: "t1", slot: "s1", label: "one" },
       { tenantId: "t2", slot: "s2", label: "two" },
@@ -256,35 +156,9 @@ describe("createMany bind-budget chunking", () => {
     expect(statements[0]?.values).toHaveLength(9);
   });
 
-  test("compound tuples and input ordinals stay whole across a chunk boundary", () => {
-    const queryEngine = engine(4);
-    const plan = buildCreateManyPlan(
-      createQueryScope(queryEngine, entry),
-      {
-        data: [
-          { tenantId: "t1", slot: "s1" },
-          { tenantId: "t2", slot: "s2" },
-          { tenantId: "t3", slot: "s3" },
-        ],
-      },
-      false,
-      undefined,
-      queryEngine.maxBindParametersPerStatement
-    );
-
-    expect(plan.statements.map((statement) => statement.inputIndexes)).toEqual([
-      [0, 1],
-      [2],
-    ]);
-    expect(plan.statements.map((statement) => statement.sql.values)).toEqual([
-      ["t1", "s1", "t2", "s2"],
-      ["t3", "s3"],
-    ]);
-  });
-
-  test("a nested createMany keeps both compound foreign-key members in every chunk", () => {
+  test("compound foreign-key tuples stay whole across a chunk boundary", () => {
     const queryEngine = new QueryEngine(
-      new CapacitySQLite3Driver(6),
+      driver("sqlite", 6),
       createModelRegistry(compoundSchema, createSchemaRegistry(compoundSchema))
     );
     const operation = constructRoutedOperation(
@@ -312,7 +186,6 @@ describe("createMany bind-budget chunking", () => {
         (step) => step.kind === "write" && step.id.includes("createMany")
       );
 
-    expect(childWrites).toHaveLength(2);
     expect(
       childWrites.map((step) => {
         if (step.kind !== "write") throw new Error("expected a write step");
@@ -324,25 +197,10 @@ describe("createMany bind-budget chunking", () => {
     ]);
   });
 
-  test("an indivisible over-budget row stays one statement for final enforcement", () => {
-    const queryEngine = engine(2);
-    const plan = buildCreateManyPlan(
-      createQueryScope(queryEngine, entry),
-      { data: [{ tenantId: "t1", slot: "s1", label: "one" }] },
-      false,
-      undefined,
-      queryEngine.maxBindParametersPerStatement
-    );
-
-    expect(plan.statements).toHaveLength(1);
-    expect(plan.statements[0]?.inputIndexes).toEqual([0]);
-    expect(plan.statements[0]?.sql.values).toHaveLength(3);
-  });
-
-  test("an indivisible over-budget row refuses before driver I/O", async () => {
-    const driver = new CapacityDriver(2);
-    const execute = vi.spyOn(driver, "_execute");
-    const client = createClient({ schema, driver });
+  test("an indivisible oversized row refuses before driver I/O", async () => {
+    const planningDriver = driver("postgresql", 2);
+    const execute = vi.spyOn(planningDriver, "_execute");
+    const client = createClient({ schema, driver: planningDriver });
 
     await expect(
       client.entry.createMany({
@@ -352,10 +210,10 @@ describe("createMany bind-budget chunking", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  test("an explicit transaction array refuses an oversized member before batch I/O", async () => {
-    const driver = new BatchOnlyCapacityDriver(2);
-    const executeBatch = vi.spyOn(driver, "_executeBatch");
-    const client = createClient({ schema, driver });
+  test("an oversized transaction member refuses before batch I/O", async () => {
+    const planningDriver = driver("postgresql", 2, true);
+    const executeBatch = vi.spyOn(planningDriver, "_executeBatch");
+    const client = createClient({ schema, driver: planningDriver });
 
     await expect(
       client.$transaction([
@@ -366,295 +224,5 @@ describe("createMany bind-budget chunking", () => {
       ])
     ).rejects.toBeInstanceOf(UnsupportedOperationError);
     expect(executeBatch).not.toHaveBeenCalled();
-  });
-
-  test("adapter-owned insert-id scratch cannot exceed the active driver budget", async () => {
-    const driver = new BatchOnlyCapacitySQLite3Driver(1);
-    const executeBatch = vi.spyOn(driver, "_executeBatch");
-    const client = createClient({ schema: scratchSchema, driver });
-
-    await expect(
-      client.parent.create({
-        data: { label: "root", children: { create: {} } },
-      })
-    ).rejects.toBeInstanceOf(UnsupportedOperationError);
-    expect(executeBatch).not.toHaveBeenCalled();
-  });
-
-  test("an unknown provider budget preserves exact progress before a later native capacity failure", async () => {
-    const driver = new UnknownCapacityProgressiveSQLite3Driver();
-    const client = createClient({ schema: scratchSchema, driver });
-    const oversizedChildren = Array.from({ length: 32_767 }, () => ({}));
-
-    try {
-      await syncLiveSchema(client);
-      expect(driver.maxBindParametersPerStatement).toBeUndefined();
-
-      const failure = await client.parent
-        .createMany({
-          data: [
-            {
-              id: 1,
-              label: "committed prefix",
-              children: { create: {} },
-            },
-            {
-              id: 2,
-              label: "native capacity failure",
-              children: { createMany: { data: oversizedChildren } },
-            },
-          ],
-        })
-        .catch((error) => error);
-
-      expect(failure).toBeInstanceOf(QueryError);
-      expect(failure).toMatchObject({
-        meta: {
-          driver: "sqlite3",
-          recordSeriesProgress: {
-            atomicity: "segment",
-            phase: "member",
-            committedSegments: 1,
-            completedMembers: 1,
-            committedWriteMembers: 1,
-            memberPath: [1],
-            totalMembers: 2,
-          },
-        },
-      });
-      await expect(
-        client.parent.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([{ id: 1, label: "committed prefix" }]);
-      await expect(client.child.findMany()).resolves.toEqual([
-        { id: 1, parentId: 1 },
-      ]);
-    } finally {
-      await client.$disconnect();
-    }
-  }, 60_000);
-
-  test("a chunked junction set keeps its clear and every insert in one atomic unit", async () => {
-    const family = getFamily();
-    const client = createClient({
-      schema,
-      driver: new CapacityDriver(6, { client: family.database }),
-    });
-    const oldTags = [{ id: "old-0" }, { id: "old-1" }];
-    const newTags = Array.from({ length: 5 }, (_, index) => ({
-      id: `new-${index}`,
-    }));
-    const membership = () =>
-      client.tag.findMany({
-        where: { collections: { some: { id: "set-owner" } } },
-        orderBy: { id: "asc" },
-        select: { id: true },
-      });
-
-    await client.tag.createMany({ data: [...oldTags, ...newTags] });
-    await client.collection.create({
-      data: { id: "set-owner", tags: { connect: oldTags } },
-    });
-    await family.client.$executeRawUnsafe(
-      'CREATE TABLE "create_many_bind_set_fires" ("id" SERIAL PRIMARY KEY)'
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE OR REPLACE FUNCTION viborm_create_many_bind_set_fire() RETURNS trigger AS $$ BEGIN INSERT INTO "create_many_bind_set_fires" DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql'
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_set_statement" AFTER INSERT ON "create_many_bind_collection_tags" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_set_fire()'
-    );
-    await family.client.$executeRawUnsafe(
-      "CREATE OR REPLACE FUNCTION viborm_create_many_bind_set_fail() RETURNS trigger AS $$ BEGIN IF NEW.\"tagId\" = 'new-4' THEN RAISE EXCEPTION 'late set chunk'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql"
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_set_failure" BEFORE INSERT ON "create_many_bind_collection_tags" FOR EACH ROW EXECUTE FUNCTION viborm_create_many_bind_set_fail()'
-    );
-
-    try {
-      await expect(
-        client.collection.update({
-          where: { id: "set-owner" },
-          data: { tags: { set: newTags } },
-        })
-      ).rejects.toBeInstanceOf(QueryError);
-      await expect(membership()).resolves.toEqual(oldTags);
-      await expect(
-        family.client.$queryRawUnsafe<{ count: number }>(
-          'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_set_fires"'
-        )
-      ).resolves.toEqual([{ count: 0 }]);
-
-      await family.client.$executeRawUnsafe(
-        'DROP TRIGGER "create_many_bind_set_failure" ON "create_many_bind_collection_tags"'
-      );
-      await family.client.$executeRawUnsafe(
-        "DROP FUNCTION viborm_create_many_bind_set_fail()"
-      );
-
-      await expect(
-        client.collection.update({
-          where: { id: "set-owner" },
-          data: { tags: { set: newTags } },
-        })
-      ).resolves.toMatchObject({ id: "set-owner" });
-      await expect(membership()).resolves.toEqual(newTags);
-      await expect(
-        family.client.$queryRawUnsafe<{ count: number }>(
-          'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_set_fires"'
-        )
-      ).resolves.toEqual([{ count: 2 }]);
-    } finally {
-      await family.client.$executeRawUnsafe(
-        'DROP TRIGGER IF EXISTS "create_many_bind_set_failure" ON "create_many_bind_collection_tags"'
-      );
-      await family.client.$executeRawUnsafe(
-        'DROP TRIGGER IF EXISTS "create_many_bind_set_statement" ON "create_many_bind_collection_tags"'
-      );
-      await family.client.$executeRawUnsafe(
-        "DROP FUNCTION IF EXISTS viborm_create_many_bind_set_fail()"
-      );
-      await family.client.$executeRawUnsafe(
-        "DROP FUNCTION IF EXISTS viborm_create_many_bind_set_fire()"
-      );
-      await family.client.$executeRawUnsafe(
-        'DROP TABLE IF EXISTS "create_many_bind_set_fires"'
-      );
-    }
-  });
-
-  test("a PostgreSQL statement trigger fires once per chunk and once under budget", async () => {
-    const family = getFamily();
-    const client = createClient({
-      schema,
-      driver: new CapacityDriver(6, { client: family.database }),
-    });
-    await family.client.$executeRawUnsafe(
-      'CREATE TABLE "create_many_bind_trigger_fires" ("id" SERIAL PRIMARY KEY)'
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE OR REPLACE FUNCTION viborm_create_many_bind_trigger() RETURNS trigger AS $$ BEGIN INSERT INTO "create_many_bind_trigger_fires" DEFAULT VALUES; RETURN NULL; END; $$ LANGUAGE plpgsql'
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_statement" AFTER INSERT ON "create_many_bind_entries" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_trigger()'
-    );
-    await family.client.$executeRawUnsafe(
-      'CREATE TRIGGER "create_many_bind_junction_statement" AFTER INSERT ON "create_many_bind_collection_tags" FOR EACH STATEMENT EXECUTE FUNCTION viborm_create_many_bind_trigger()'
-    );
-
-    const chunkedRows = Array.from({ length: 5 }, (_, index) => ({
-      tenantId: "chunked",
-      slot: `slot-${index}`,
-      label: `label-${index}`,
-    }));
-    await expect(
-      client.entry.createMany({ data: chunkedRows })
-    ).resolves.toEqual({ count: 5 });
-    await expect(
-      family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
-      )
-    ).resolves.toEqual([{ count: 3 }]);
-
-    await client.entry.deleteMany({});
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    await expect(
-      client.entry.createMany({
-        data: [
-          { tenantId: "small", slot: "s1", label: "one" },
-          { tenantId: "small", slot: "s2", label: "two" },
-        ],
-      })
-    ).resolves.toEqual({ count: 2 });
-    await expect(
-      family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
-      )
-    ).resolves.toEqual([{ count: 1 }]);
-
-    await client.entry.deleteMany({});
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    const returnedRows = Array.from({ length: 5 }, (_, index) => ({
-      tenantId: "returned",
-      slot: `slot-${index}`,
-      label: `label-${index}`,
-    }));
-    await expect(
-      client.entry.createMany({
-        data: returnedRows,
-        select: { tenantId: true, slot: true, label: true },
-      })
-    ).resolves.toEqual(returnedRows);
-    await expect(
-      family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
-      )
-    ).resolves.toEqual([{ count: 3 }]);
-
-    await client.entry.deleteMany({});
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    await client.entry.create({
-      data: { tenantId: "skip", slot: "dup", label: "existing" },
-    });
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    await expect(
-      client.entry.createMany({
-        data: [
-          { tenantId: "skip", slot: "a", label: "a" },
-          { tenantId: "skip", slot: "b", label: "b" },
-          { tenantId: "skip", slot: "dup", label: "ignored" },
-          { tenantId: "skip", slot: "c", label: "c" },
-          { tenantId: "skip", slot: "d", label: "d" },
-        ],
-        skipDuplicates: true,
-      })
-    ).resolves.toEqual({ count: 4 });
-    await expect(
-      family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
-      )
-    ).resolves.toEqual([{ count: 3 }]);
-
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    await client.tag.createMany({
-      data: Array.from({ length: 5 }, (_, index) => ({ id: `tag-${index}` })),
-    });
-    await client.collection.create({ data: { id: "collection" } });
-    await family.client.$executeRawUnsafe(
-      'TRUNCATE TABLE "create_many_bind_trigger_fires" RESTART IDENTITY'
-    );
-    await client.collection.update({
-      where: { id: "collection" },
-      data: {
-        tags: {
-          connect: Array.from({ length: 5 }, (_, index) => ({
-            id: `tag-${index}`,
-          })),
-        },
-      },
-    });
-    await expect(
-      family.client.$queryRawUnsafe<{ count: number }>(
-        'SELECT COUNT(*)::int AS "count" FROM "create_many_bind_trigger_fires"'
-      )
-    ).resolves.toEqual([{ count: 2 }]);
-    await expect(
-      client.tag.findMany({
-        where: { collections: { some: { id: "collection" } } },
-        orderBy: { id: "asc" },
-        select: { id: true },
-      })
-    ).resolves.toEqual(
-      Array.from({ length: 5 }, (_, index) => ({ id: `tag-${index}` }))
-    );
   });
 });

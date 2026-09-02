@@ -2,15 +2,15 @@ import type { AnyDriver } from "@drivers";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateManyOperation } from "@src/query-engine/write-engine/CreateManyOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
-import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
+import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
 
 /**
  * Root `createMany` (PLAN P2c) across the driver matrix: single-statement where

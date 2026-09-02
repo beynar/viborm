@@ -6,13 +6,13 @@
  */
 
 import { s } from "@schema";
-import { createSchemaRegistry, parse } from "@validation";
-import { describe, expect, test } from "vitest";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
+import { createSchemaRegistry, parse } from "@validation";
+import { describe, expect, test } from "vitest";
 
 // Test-only view over compound where-unique output keys.
 type CompoundOutput = any;

@@ -1,12 +1,12 @@
-import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * X1b — the TS ceiling is the COMPILER's, not the boundary's.
@@ -65,13 +65,8 @@ const schema = (() => {
   return { tag, label, node };
 })();
 
-function makeClient(db: PGlite) {
-  return createClient({
-    schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
-  });
-}
-type AnyClient = ReturnType<typeof makeClient>;
+const getFamily = usePGliteSchemaFamily(schema);
+type AnyClient = Record<string, any>;
 
 // A rich create chain of `depth` fresh nodes, each spelling a parent-held tag create
 // and an M2M label create — the same per-level shape the TS-ceiling probe measured,
@@ -117,14 +112,17 @@ describe("X1b — the boundary executes beyond the TS literal-inference ceiling"
 
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: a ${DEPTH}-level rich create chain folds and persists, native Observed`, async () => {
-      const db = new PGlite();
-      const base = makeClient(db);
-      await syncLiveSchema(base as never);
+      const family = getFamily();
+      const base = family.client as AnyClient;
       await seed(base);
+      // The observed client is a SECOND driver over the same database, so it must
+      // name the same Postgres schema the family provisioned; otherwise it would
+      // address `public`, where this suite has no tables.
+      const namespace = family.driver.adapter.namespace;
       const driver =
         substrate === "batch"
-          ? new BatchOnlyPGliteDriver({ client: db })
-          : new PGliteDriver({ client: db });
+          ? new BatchOnlyPGliteDriver({ client: family.database, namespace })
+          : new PGliteDriver({ client: family.database, namespace });
       const observed = observeClientOperations({
         schema: schema as never,
         driver,
@@ -144,7 +142,6 @@ describe("X1b — the boundary executes beyond the TS literal-inference ceiling"
         expect(byId.get(`n${i}`)?.parentId).toBe(`n${i - 1}`);
         expect(byId.get(`n${i}`)?.tagId).not.toBeNull();
       }
-      await base.$disconnect();
     });
   }
 });

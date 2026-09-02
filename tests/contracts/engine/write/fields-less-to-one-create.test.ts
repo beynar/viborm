@@ -1,12 +1,9 @@
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
 
 import { s } from "@schema";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A fields-less `toOne` is child-held topology: the target's physical
@@ -144,20 +141,17 @@ const book = s
 
 const schema = { desk, tag, pin, bay, slot, author, book };
 
-async function setup(driver: PGliteDriver) {
-  const client = createClient({ schema, driver });
-  await syncLiveSchema(client);
-  return client;
-}
+const getTransactionFamily = usePGliteSchemaFamily(schema);
+const getAtomicBatchFamily = usePGliteSchemaFamily(schema, "atomicBatch");
 
 const substrates = [
   {
     name: "transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
+    getFamily: getTransactionFamily,
   },
   {
     name: "atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    getFamily: getAtomicBatchFamily,
   },
 ] as const;
 
@@ -168,94 +162,86 @@ const substrates = [
 for (const substrate of substrates) {
   describe(`E4-U1 fields-less toOne under a create root (${substrate.name})`, () => {
     test("create / connect / connectOrCreate each write exactly their own row", async () => {
-      const client = await setup(substrate.make());
-      try {
-        // DECOYS, seeded first: rows that share the child table and the FK column but
-        // must be untouched by any of the three kinds. `decoy-taken` already points at
-        // a DIFFERENT desk, which is the row a cross-matched correlation would steal.
-        await client.desk.create({ data: { id: 90, label: "other" } });
-        await client.tag.create({ data: { id: 900, code: "decoy-free" } });
-        await client.tag.create({
-          data: { id: 901, code: "decoy-taken", desk: { connect: { id: 90 } } },
-        });
-        await client.tag.create({ data: { id: 11, code: "adoptable" } });
+      const { client } = substrate.getFamily();
+      // DECOYS, seeded first: rows that share the child table and the FK column but
+      // must be untouched by any of the three kinds. `decoy-taken` already points at
+      // a DIFFERENT desk, which is the row a cross-matched correlation would steal.
+      await client.desk.create({ data: { id: 90, label: "other" } });
+      await client.tag.create({ data: { id: 900, code: "decoy-free" } });
+      await client.tag.create({
+        data: { id: 901, code: "decoy-taken", desk: { connect: { id: 90 } } },
+      });
+      await client.tag.create({ data: { id: 11, code: "adoptable" } });
 
-        // 1. create — the child INSERTs after the parent with the parent's fresh id.
-        await client.desk.create({
-          data: {
-            id: 1,
-            label: "a",
-            tag: { create: { id: 10, code: "made" } },
-          },
-        });
-        // 2. connect — the existing row is re-pointed at the fresh parent.
-        await client.desk.create({
-          data: { id: 2, label: "b", tag: { connect: { id: 11 } } },
-        });
-        // 3. connectOrCreate, create branch — nothing matches, so a row is minted.
-        await client.desk.create({
-          data: {
-            id: 3,
-            label: "c",
-            tag: {
-              connectOrCreate: {
-                where: { id: 12 },
-                create: { id: 12, code: "coc-made" },
-              },
+      // 1. create — the child INSERTs after the parent with the parent's fresh id.
+      await client.desk.create({
+        data: {
+          id: 1,
+          label: "a",
+          tag: { create: { id: 10, code: "made" } },
+        },
+      });
+      // 2. connect — the existing row is re-pointed at the fresh parent.
+      await client.desk.create({
+        data: { id: 2, label: "b", tag: { connect: { id: 11 } } },
+      });
+      // 3. connectOrCreate, create branch — nothing matches, so a row is minted.
+      await client.desk.create({
+        data: {
+          id: 3,
+          label: "c",
+          tag: {
+            connectOrCreate: {
+              where: { id: 12 },
+              create: { id: 12, code: "coc-made" },
             },
           },
-        });
-        // 4. connectOrCreate, found branch — the free decoy is adopted, not duplicated.
-        await client.desk.create({
-          data: {
-            id: 4,
-            label: "d",
-            tag: {
-              connectOrCreate: {
-                where: { id: 900 },
-                create: { id: 900, code: "never-minted" },
-              },
+        },
+      });
+      // 4. connectOrCreate, found branch — the free decoy is adopted, not duplicated.
+      await client.desk.create({
+        data: {
+          id: 4,
+          label: "d",
+          tag: {
+            connectOrCreate: {
+              where: { id: 900 },
+              create: { id: 900, code: "never-minted" },
             },
           },
-        });
+        },
+      });
 
-        // EXACTLY these rows exist, and each carries exactly the parent that claimed it.
-        await expect(
-          client.tag.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: 10, code: "made", deskId: 1 },
-          { id: 11, code: "adoptable", deskId: 2 },
-          { id: 12, code: "coc-made", deskId: 3 },
-          { id: 900, code: "decoy-free", deskId: 4 },
-          // The taken decoy never moved: no kind above named it.
-          { id: 901, code: "decoy-taken", deskId: 90 },
-        ]);
-        // And the found branch minted nothing — `never-minted` is not a row.
-        await expect(
-          client.tag.findMany({ where: { code: "never-minted" } })
-        ).resolves.toEqual([]);
-      } finally {
-        await client.$disconnect();
-      }
+      // EXACTLY these rows exist, and each carries exactly the parent that claimed it.
+      await expect(
+        client.tag.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: 10, code: "made", deskId: 1 },
+        { id: 11, code: "adoptable", deskId: 2 },
+        { id: 12, code: "coc-made", deskId: 3 },
+        { id: 900, code: "decoy-free", deskId: 4 },
+        // The taken decoy never moved: no kind above named it.
+        { id: 901, code: "decoy-taken", deskId: 90 },
+      ]);
+      // And the found branch minted nothing — `never-minted` is not a row.
+      await expect(
+        client.tag.findMany({ where: { code: "never-minted" } })
+      ).resolves.toEqual([]);
     }, 30_000);
 
     test("the to-many control on the same parent still composes several kinds", async () => {
-      const client = await setup(substrate.make());
-      try {
-        await client.pin.create({ data: { id: 80, body: "adopted" } });
-        await client.desk.create({
-          data: {
-            id: 8,
-            label: "h",
-            pins: { create: { id: 81, body: "made" }, connect: { id: 80 } },
-          },
-        });
-        await expect(
-          client.pin.findMany({ where: { deskId: 8 }, orderBy: { id: "asc" } })
-        ).resolves.toMatchObject([{ id: 80 }, { id: 81 }]);
-      } finally {
-        await client.$disconnect();
-      }
+      const { client } = substrate.getFamily();
+      await client.pin.create({ data: { id: 80, body: "adopted" } });
+      await client.desk.create({
+        data: {
+          id: 8,
+          label: "h",
+          pins: { create: { id: 81, body: "made" }, connect: { id: 80 } },
+        },
+      });
+      await expect(
+        client.pin.findMany({ where: { deskId: 8 }, orderBy: { id: "asc" } })
+      ).resolves.toMatchObject([{ id: 80 }, { id: 81 }]);
     }, 30_000);
   });
 }
@@ -266,87 +252,79 @@ for (const substrate of substrates) {
 
 describe("fields-less to-one validation", () => {
   test("a multi-kind payload fails at the to-one schema boundary", async () => {
-    const client = await setup(new PGliteDriver({ client: new PGlite() }));
-    try {
-      await client.tag.create({ data: { id: 11, code: "free" } });
-      await expect(
-        client.desk.create({
-          data: {
-            id: 4,
-            label: "d",
-            tag: {
-              create: { id: 13, code: "x" },
-              // @ts-expect-error - to-one payloads accept one active operation
-              connect: { id: 11 },
-            },
+    const { client } = getTransactionFamily();
+    await client.tag.create({ data: { id: 11, code: "free" } });
+    await expect(
+      client.desk.create({
+        data: {
+          id: 4,
+          label: "d",
+          tag: {
+            create: { id: 13, code: "x" },
+            // @ts-expect-error - to-one payloads accept one active operation
+            connect: { id: 11 },
           },
-        })
-      ).rejects.toThrow(ValidationError);
-      await expect(
-        client.desk.create({
-          data: {
-            id: 4,
-            label: "d",
-            tag: {
-              create: { id: 13, code: "x" },
-              // @ts-expect-error - to-one payloads accept one active operation
-              connect: { id: 11 },
-            },
+        },
+      })
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      client.desk.create({
+        data: {
+          id: 4,
+          label: "d",
+          tag: {
+            create: { id: 13, code: "x" },
+            // @ts-expect-error - to-one payloads accept one active operation
+            connect: { id: 11 },
           },
-        })
-      ).rejects.toThrow(
-        "Unsupported to-one operation combination: create, connect"
-      );
-      // Validation refuses both arms, and the free row stays free.
-      await expect(
-        client.desk.findUnique({ where: { id: 4 } })
-      ).resolves.toBeNull();
-      await expect(
-        client.tag.findUnique({ where: { id: 11 } })
-      ).resolves.toMatchObject({ deskId: null });
-    } finally {
-      await client.$disconnect();
-    }
+        },
+      })
+    ).rejects.toThrow(
+      "Unsupported to-one operation combination: create, connect"
+    );
+    // Validation refuses both arms, and the free row stays free.
+    await expect(
+      client.desk.findUnique({ where: { id: 4 } })
+    ).resolves.toBeNull();
+    await expect(
+      client.tag.findUnique({ where: { id: 11 } })
+    ).resolves.toMatchObject({ deskId: null });
   }, 30_000);
 
   test("the engine-owned foreign key is refused by the PARSE, per the aligned scanners", async () => {
-    const client = await setup(new PGliteDriver({ client: new PGlite() }));
-    try {
-      // On the fields-less edge the engine owns `deskId`, so the nested create schema
-      // omits it — spelling it is a parse error, never a silent overwrite of the
-      // correlation the engine folds in. (The GENERATED input type still admits the
-      // key; the runtime refusal is the one that holds today, and narrowing the type
-      // is unit TH's business, not this wave's.)
-      await expect(
-        client.desk.create({
-          data: {
-            id: 5,
-            label: "e",
-            tag: { create: { id: 14, code: "x", deskId: 999 } },
-          },
-        })
-      ).rejects.toThrow(ValidationError);
+    const { client } = getTransactionFamily();
+    // On the fields-less edge the engine owns `deskId`, so the nested create schema
+    // omits it — spelling it is a parse error, never a silent overwrite of the
+    // correlation the engine folds in. (The GENERATED input type still admits the
+    // key; the runtime refusal is the one that holds today, and narrowing the type
+    // is unit TH's business, not this wave's.)
+    await expect(
+      client.desk.create({
+        data: {
+          id: 5,
+          label: "e",
+          tag: { create: { id: 14, code: "x", deskId: 999 } },
+        },
+      })
+    ).rejects.toThrow(ValidationError);
 
-      // The same refusal on the NAMED pair: `author.books` and `book.author` both
-      // claim "writer", the edge works, and its owned key is still not spellable.
-      await client.author.create({
-        data: { id: 1, name: "w", books: { create: { id: 1, title: "t" } } },
-      });
-      await expect(
-        client.book.findUnique({ where: { id: 1 } })
-      ).resolves.toMatchObject({ authorId: 1 });
-      await expect(
-        client.author.create({
-          data: {
-            id: 2,
-            name: "w2",
-            books: { create: { id: 2, title: "t2", authorId: 99 } },
-          },
-        })
-      ).rejects.toThrow(ValidationError);
-    } finally {
-      await client.$disconnect();
-    }
+    // The same refusal on the NAMED pair: `author.books` and `book.author` both
+    // claim "writer", the edge works, and its owned key is still not spellable.
+    await client.author.create({
+      data: { id: 1, name: "w", books: { create: { id: 1, title: "t" } } },
+    });
+    await expect(
+      client.book.findUnique({ where: { id: 1 } })
+    ).resolves.toMatchObject({ authorId: 1 });
+    await expect(
+      client.author.create({
+        data: {
+          id: 2,
+          name: "w2",
+          books: { create: { id: 2, title: "t2", authorId: 99 } },
+        },
+      })
+    ).rejects.toThrow(ValidationError);
   }, 30_000);
 });
 
@@ -359,7 +337,7 @@ describe("E4-U1 what still refuses", () => {
     expect(() =>
       createClient({
         schema: { crate, holder },
-        driver: new PGliteDriver({ client: new PGlite() }),
+        driver: getTransactionFamily().driver,
       })
     ).toThrow("[FK004]");
   });
@@ -372,44 +350,40 @@ describe("E4-U1 what still refuses", () => {
   // witness the discharge owes. The per-field decoy coverage for the mechanism lives
   // in compound-relation-adoption-behavior.ts; this witness pins the fields-less spelling.
   test("the COMPOUND fields-less edge rides E4-U2's per-field source on the adopt kinds", async () => {
-    const client = await setup(new PGliteDriver({ client: new PGlite() }));
-    try {
-      await client.bay.create({
-        data: {
-          id: 1,
-          region: "eu",
-          zone: "z",
-          slot: {
-            connectOrCreate: {
-              where: { id: 200 },
-              create: { id: 200, name: "s" },
-            },
+    const { client } = getTransactionFamily();
+    await client.bay.create({
+      data: {
+        id: 1,
+        region: "eu",
+        zone: "z",
+        slot: {
+          connectOrCreate: {
+            where: { id: 200 },
+            create: { id: 200, name: "s" },
           },
         },
-      });
-      // Each FK column carries its OWN referenced value — a single-value collapse
-      // would write "eu" into both.
-      await expect(client.slot.findMany()).resolves.toEqual([
-        { id: 200, name: "s", bayRegion: "eu", bayZone: "z" },
-      ]);
+      },
+    });
+    // Each FK column carries its OWN referenced value — a single-value collapse
+    // would write "eu" into both.
+    await expect(client.slot.findMany()).resolves.toEqual([
+      { id: 200, name: "s", bayRegion: "eu", bayZone: "z" },
+    ]);
 
-      // The kinds that never ask `edgeParentId` for a single parent value — `create`
-      // writes every FK column per-field through `childFkAssign` — already work on the
-      // same compound edge, which is why the refusal is about the SOURCE and not about
-      // compound keys as such.
-      await client.bay.create({
-        data: {
-          id: 2,
-          region: "eu",
-          zone: "y",
-          slot: { create: { id: 201, name: "s2" } },
-        },
-      });
-      await expect(
-        client.slot.findUnique({ where: { id: 201 } })
-      ).resolves.toMatchObject({ bayRegion: "eu", bayZone: "y" });
-    } finally {
-      await client.$disconnect();
-    }
+    // The kinds that never ask `edgeParentId` for a single parent value — `create`
+    // writes every FK column per-field through `childFkAssign` — already work on the
+    // same compound edge, which is why the refusal is about the SOURCE and not about
+    // compound keys as such.
+    await client.bay.create({
+      data: {
+        id: 2,
+        region: "eu",
+        zone: "y",
+        slot: { create: { id: 201, name: "s2" } },
+      },
+    });
+    await expect(
+      client.slot.findUnique({ where: { id: 201 } })
+    ).resolves.toMatchObject({ bayRegion: "eu", bayZone: "y" });
   }, 30_000);
 });

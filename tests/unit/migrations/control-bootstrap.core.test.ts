@@ -464,3 +464,48 @@ describe("live SQLite control bootstrap", () => {
     await driver._disconnect();
   });
 });
+
+/**
+ * The singleton CHECK is proven from the catalog's own text. A catalog row that
+ * answers with something other than text proves nothing, and an unproven check
+ * is an unexpected definition — never an accepted one.
+ */
+describe.each([
+  ["PostgreSQL", () => pgEstateDriver("tenant")],
+  ["MySQL", () => mysqlEstateDriver({ namespace: "tenant", attested: true })],
+] as const)("%s singleton check admission", (_name, createDriver) => {
+  test("refuses a constraint the catalog does not report as text", async () => {
+    const driver = createDriver();
+    const migrationDriver = commandWithStateDefinition(
+      getMigrationDriver(driver),
+      false,
+      () => true
+    );
+    driver.respond = (sql, params) => {
+      if (sql.includes("AS attached")) return [{ attached: 0 }];
+      const catalog = controlCatalogAnswer(sql, params, {
+        state: true,
+        log: true,
+      });
+      if (catalog) return catalog;
+      if (
+        sql.includes("pg_get_constraintdef") ||
+        sql.includes("information_schema.CHECK_CONSTRAINTS")
+      ) {
+        return [{ definition: null }];
+      }
+      return [];
+    };
+
+    await expect(
+      assertControlTablesAuthentic(
+        driver,
+        migrationDriver,
+        DEFAULT_CONTROL_BASE
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("unexpected definition"),
+    });
+  });
+});

@@ -117,10 +117,7 @@ const folder = s.model({
 const folderEntry = s.model({
   id: s.string().id(),
   folder: s
-    .toOne(
-      { folder: () => folder },
-      { values: { folder: "folder.entry.v1" } }
-    )
+    .toOne({ folder: () => folder }, { values: { folder: "folder.entry.v1" } })
     .name("folderEntry"),
   audit: s.toOne(
     { auditLog: () => auditLog },
@@ -134,9 +131,7 @@ const article = s.model({
 const remark = s.model({
   id: s.string().id(),
   body: s.string(),
-  commentable: s
-    .toOne({ article: () => article })
-    .name("commentable"),
+  commentable: s.toOne({ article: () => article }).name("commentable"),
 });
 const optionalArticle = s.model({
   id: s.string().id(),
@@ -723,15 +718,11 @@ const ordinaryToManyCapabilitySurface = () => {
 
 const featuredPost = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .toOne(() => featuredComment)
-    .name("featuredCommentable"),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredVideo = s.model({
   id: s.string().id(),
-  featuredComment: s
-    .toOne(() => featuredComment)
-    .name("featuredCommentable"),
+  featuredComment: s.toOne(() => featuredComment).name("featuredCommentable"),
 });
 const featuredComment = s.model({
   id: s.string().id(),

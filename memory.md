@@ -15,6 +15,23 @@
   the Node heap. Launch the test process in its own process group, and terminate
   that whole group on timeout, interruption, or parent exit so worker processes
   cannot survive and exhaust the development machine.
+- Do not validate a shared worktree while a subagent is editing any source that
+  the selected tests can import. Directory ownership does not isolate the
+  runtime graph: a write test can transform a result module mid-edit. Wait for
+  a stable tree, then run every bounded check serially.
+- A process-group teardown falsifier must actually let its group leader exit.
+  When that leader spawns the descendant under test, call `unref()` on the
+  child; otherwise the witness measures the wall timeout instead of orphan
+  cleanup. Verify the stop reason and the empty process group after return.
+- On macOS, `kill(-pgid, 0)` or a second group signal can return `EPERM` after
+  the leader and workers have already exited. Verify live group membership from
+  `ps` state, ignore zombie-only groups, and tolerate `EPERM` only when a second
+  `ps` check proves that no live member remains. Keep a low-memory RSS witness
+  with a leader and worker exiting together so this safety race stays pinned.
+- A non-configurable JavaScript data property can be redefined when every
+  descriptor field and its value stay identical. To prove that an installed
+  seam cannot be replaced, retry with a distinct value and verify the refusal;
+  reinstalling the same object is not a replacement witness.
 - Before starting another Node verification, inspect the process table for all
   Vitest, layer-runner, and TypeScript processes. Waiting for one observed PID
   is insufficient because another task can start its next phase immediately;
@@ -23,6 +40,14 @@
   verify the process table again before trusting its completion. In a Vitest
   workspace, pin focused file runs to one project or overlapping projects can
   execute the same file twice.
+- Do not place an observational `ps` command before a test in the same shell
+  sequence. Either inspect in a separate tool call or make the shell exit when
+  any test process is found; otherwise an occupied machine falls through into
+  the new run before the output can be evaluated.
+- Do not reclaim a stale lock by checking a PID and then unlinking the shared
+  path. Another contender can replace the file between those operations. Fail
+  closed on stale or unreadable ownership, prove the process estate is empty,
+  and require explicit removal.
 - Before a focused Vitest run, read `vitest.workspace.ts` and use the declared
   project name exactly. Do not infer a project name from a package or directory
   label; a misspelled filter fails before collecting the intended witness.
@@ -34,6 +59,19 @@
   files selected by the coverage project with the full owning-layer inventory
   before adding tests. Measure the full safe selection first; fix coverage
   routing when tested behavior was omitted from the report.
+- A shared subsystem must not obtain coverage by running every suite that
+  happens to import it. Select its owner contracts first, then add only the
+  exact integration witness a missing boundary requires. Broad incidental
+  selections duplicate work, obscure ownership, and can breach the RSS cap.
+- A focused orchestration suite must not boot a lower layer only to prove
+  parsing or routing. Replace the lower owner at its module boundary with a
+  deterministic contract fake, and leave graph, storage, DDL, and provider
+  behavior in their owning suites. Keep an end-to-end witness only when the
+  cross-layer seam has a unique failure that neither owner can prove alone.
+- When an integration test is replaced by a deterministic command-boundary
+  test, inventory every observable output field first. A faster fake must still
+  pin reviewed SQL parameters, exit status, cleanup, and other public command
+  behavior; coverage improvement does not authorize silent output removal.
 - When a strict coverage gate fails during branch validation, compare every
   uncovered source, owning test, and coverage configuration with the base
   revision. Test reachable branch behavior and remove branch-introduced dead
@@ -43,9 +81,15 @@
   not only shut down the registered object. Verify the fixture in the complete
   shared-worker order because isolated-file success cannot expose a stale global
   provider.
-- Size memory limits by workload instead of reusing the Vitest limit. In this
-  repository the complete TypeScript graph exhausts 2 GB but passes with a
-  4 GB ceiling; keep Vitest at 768 MB and record both caps in the command.
+- Size memory limits by workload and split a type graph instead of raising one
+  monolithic heap. Keep Vitest at 768 MB, TypeScript shards at 1280 MB, and
+  sample every complete process group against the shared 1536 MiB RSS ceiling.
+  One allowlisted departure: an isolated live-PGlite provider stage may take
+  2560 MiB, selected by importing a frozen named export rather than by any flag.
+  It is a runaway detector, not a budget - PGlite's floor is 1294 MiB and it
+  grows into whatever headroom it is given, so sizing the bar from observed
+  maxima is circular.
+  Describe a polling threshold as sampled, not as an OS-enforced hard limit.
 - A green full type-check can hide a layer-specific type-memory regression
   because its heap is larger. Run the owning layer after adding a recursive
   mapped union. If the same structural type is instantiated throughout a model

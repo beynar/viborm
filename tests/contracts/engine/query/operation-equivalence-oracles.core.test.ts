@@ -1,45 +1,12 @@
-import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
-import { sqlGenerationUserPostSchema } from "@tests/fixtures/user-post-schema";
-
-class OracleDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `oracle-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient(): Promise<null> {
-    return null;
-  }
-
-  protected async closeClient(): Promise<void> {
-    // The oracle never opens a provider connection.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    execute: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return execute(null);
-  }
-}
 
 const schema = sqlGenerationUserPostSchema;
 hydrateSchemaNames(schema);
@@ -82,7 +49,7 @@ describe("operation SQL and parameter equivalence oracles", () => {
     dialects
   )("freezes representative %s read SQL", (dialect, adapter, placeholder) => {
     const engine = new QueryEngine(
-      new OracleDriver(adapter, dialect),
+      new SqlOnlyDriver(adapter, dialect),
       registry
     );
     const read = engine.build(schema.Post, "findMany", {

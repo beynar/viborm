@@ -1,5 +1,5 @@
-import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { s } from "@schema";
+import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { sql } from "@sql";
 import { parse, v } from "@validation";
 import { runInOperandScope } from "@validation/primitives/operand";
@@ -83,6 +83,7 @@ describe("comparison operands", () => {
     );
     const thrownValue = runInOperandScope(model, () =>
       parse(operand, () => {
+        // biome-ignore lint/style/useThrowOnlyError: the test drives the non-Error throw path on purpose.
         throw "callback refused";
       })
     );

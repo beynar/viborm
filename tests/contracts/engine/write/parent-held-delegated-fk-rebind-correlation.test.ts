@@ -1,12 +1,13 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
+import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { s } from "@schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M1 — a literal FK rebind beside a DELEGATED parent-held to-one update correlates on
@@ -68,6 +69,20 @@ const rebindSchema = (() => {
     .map("m1_avatar");
   return { user, profile, avatar };
 })();
+
+/**
+ * Every witness here rides ONE shared PGlite in this file's own Postgres schema, so
+ * each driver built over that database carries the family's namespace — without it a
+ * driver addresses `public`, where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(rebindSchema);
+
+type SchemaFamily = ReturnType<typeof getFamily>;
+
+const driverOptions = (family: SchemaFamily) => ({
+  client: family.database,
+  namespace: family.namespace,
+});
 
 /** Records every statement AND its parameters, in order — the batch guard witness needs
  *  the literal on the wire, not just the statement shape. Hooks the protected
@@ -216,11 +231,13 @@ const inPlacePayload = {
 const SUBSTRATES = [
   {
     name: "transaction",
-    createDriver: (db: PGlite) => new PGliteDriver({ client: db }),
+    createDriver: (family: SchemaFamily) =>
+      new PGliteDriver(driverOptions(family)),
   },
   {
     name: "atomic batch",
-    createDriver: (db: PGlite) => new BatchOnlyPGliteDriver({ client: db }),
+    createDriver: (family: SchemaFamily) =>
+      new BatchOnlyPGliteDriver(driverOptions(family)),
   },
 ] as const;
 
@@ -233,28 +250,23 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   for (const substrate of SUBSTRATES) {
     for (const spelling of SPELLINGS) {
       test(`${substrate.name}, ${spelling.name}: the delegated write lands on the FINAL target`, async () => {
-        const db = new PGlite();
-        const stateClient = makeClient(new PGliteDriver({ client: db }));
-        await syncLiveSchema(stateClient);
+        const family = getFamily();
+        const stateClient = makeClient(new PGliteDriver(driverOptions(family)));
         await seed(stateClient);
-        const opClient = makeClient(substrate.createDriver(db));
-        try {
-          await (opClient as AnyClient).user.update(
-            delegatedPayload(spelling.rebind)
-          );
-          const after = await snapshot(stateClient);
-          // The parent moved to pB …
-          expect(after.user.profileId).toBe("pB");
-          // … and the delegated sub-op acted on pB, not on the row the parent left.
-          expect(after.profiles).toEqual([
-            { id: "pA", tag: "PA-ORIG", avatarId: null },
-            { id: "pB", tag: "TOUCHED", avatarId: "av1" },
-            { id: "pC", tag: "PC-ORIG", avatarId: null },
-          ]);
-          expect(after.avatars).toEqual([{ id: "av1", url: "https://x/av1" }]);
-        } finally {
-          await stateClient.$disconnect();
-        }
+        const opClient = makeClient(substrate.createDriver(family));
+        await (opClient as AnyClient).user.update(
+          delegatedPayload(spelling.rebind)
+        );
+        const after = await snapshot(stateClient);
+        // The parent moved to pB …
+        expect(after.user.profileId).toBe("pB");
+        // … and the delegated sub-op acted on pB, not on the row the parent left.
+        expect(after.profiles).toEqual([
+          { id: "pA", tag: "PA-ORIG", avatarId: null },
+          { id: "pB", tag: "TOUCHED", avatarId: "av1" },
+          { id: "pC", tag: "PC-ORIG", avatarId: null },
+        ]);
+        expect(after.avatars).toEqual([{ id: "av1", url: "https://x/av1" }]);
       });
     }
   }
@@ -262,21 +274,19 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   test("delegated and in-place paths agree on WHICH row they touch", async () => {
     const touched: Record<string, string[]> = {};
     for (const arm of ["delegated", "in-place"] as const) {
-      const db = new PGlite();
-      const client = makeClient(new PGliteDriver({ client: db }));
-      await syncLiveSchema(client);
+      const family = getFamily();
+      // The two arms run in the SAME schema, one after the other, so the second one
+      // starts from the empty tables the first one was given.
+      await family.reset();
+      const client = makeClient(new PGliteDriver(driverOptions(family)));
       await seed(client);
-      try {
-        await (client as AnyClient).user.update(
-          arm === "delegated" ? delegatedPayload("pB") : inPlacePayload
-        );
-        const after = await snapshot(client);
-        touched[arm] = after.profiles
-          .filter((profile) => profile.tag === "TOUCHED")
-          .map((profile) => profile.id);
-      } finally {
-        await client.$disconnect();
-      }
+      await (client as AnyClient).user.update(
+        arm === "delegated" ? delegatedPayload("pB") : inPlacePayload
+      );
+      const after = await snapshot(client);
+      touched[arm] = after.profiles
+        .filter((profile) => profile.tag === "TOUCHED")
+        .map((profile) => profile.id);
     }
     // The divergence pin: before M1 the delegated arm answered ["pA"] and the in-place
     // arm ["pB"] — one payload shape difference (a nested avatar create) silently moved
@@ -286,99 +296,86 @@ describe("M1 — delegated parent-held update beside a literal FK rebind", () =>
   });
 
   test("PROVENANCE (no rebind): the delegated correlation reads the LOCATED row", async () => {
-    const db = new PGlite();
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await syncLiveSchema(stateClient);
+    const family = getFamily();
+    const stateClient = makeClient(new PGliteDriver(driverOptions(family)));
     await seed(stateClient);
     // No `profileId` write in this payload, so no override: the correlation must read
     // the located user row. Corrupting that row's published `profileId` to `pC` must
     // move the write to `pC` — if it did not, the value would be coming from somewhere
     // other than the row the locate acted on (a re-consulted `where`, a cached seed).
     const opClient = makeClient(
-      new CorruptLocatePGliteDriver(
-        { client: db },
-        { table: "m1_user", column: "profileId", wrongValue: "pC" }
-      )
+      new CorruptLocatePGliteDriver(driverOptions(family), {
+        table: "m1_user",
+        column: "profileId",
+        wrongValue: "pC",
+      })
     );
-    try {
-      await (opClient as AnyClient).user.update({
-        where: { id: "u1" },
-        data: {
-          profile: {
-            update: {
-              tag: "TOUCHED",
-              avatar: { create: { id: "av1", url: "https://x/av1" } },
-            },
+    await (opClient as AnyClient).user.update({
+      where: { id: "u1" },
+      data: {
+        profile: {
+          update: {
+            tag: "TOUCHED",
+            avatar: { create: { id: "av1", url: "https://x/av1" } },
           },
         },
-        select: { id: true },
-      });
-      const after = await snapshot(stateClient);
-      expect(
-        after.profiles.filter((profile) => profile.tag === "TOUCHED")
-      ).toEqual([{ id: "pC", tag: "TOUCHED", avatarId: "av1" }]);
-    } finally {
-      await stateClient.$disconnect();
-    }
+      },
+      select: { id: true },
+    });
+    const after = await snapshot(stateClient);
+    expect(
+      after.profiles.filter((profile) => profile.tag === "TOUCHED")
+    ).toEqual([{ id: "pC", tag: "TOUCHED", avatarId: "av1" }]);
   });
 
   test("PROVENANCE (rebind): the override wins over the located row", async () => {
-    const db = new PGlite();
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await syncLiveSchema(stateClient);
+    const family = getFamily();
+    const stateClient = makeClient(new PGliteDriver(driverOptions(family)));
     await seed(stateClient);
     // Same corruption, now with the rebind present. The override's provenance is the
     // PAYLOAD, so the located row's `profileId` — corrupt or not — must not be consulted
     // for this column: the write lands on `pB` and `pC` stays untouched. Drop the
     // override and this lands on `pC`.
     const opClient = makeClient(
-      new CorruptLocatePGliteDriver(
-        { client: db },
-        { table: "m1_user", column: "profileId", wrongValue: "pC" }
-      )
+      new CorruptLocatePGliteDriver(driverOptions(family), {
+        table: "m1_user",
+        column: "profileId",
+        wrongValue: "pC",
+      })
     );
-    try {
-      await (opClient as AnyClient).user.update(delegatedPayload("pB"));
-      const after = await snapshot(stateClient);
-      expect(after.profiles).toEqual([
-        { id: "pA", tag: "PA-ORIG", avatarId: null },
-        { id: "pB", tag: "TOUCHED", avatarId: "av1" },
-        { id: "pC", tag: "PC-ORIG", avatarId: null },
-      ]);
-    } finally {
-      await stateClient.$disconnect();
-    }
+    await (opClient as AnyClient).user.update(delegatedPayload("pB"));
+    const after = await snapshot(stateClient);
+    expect(after.profiles).toEqual([
+      { id: "pA", tag: "PA-ORIG", avatarId: null },
+      { id: "pB", tag: "TOUCHED", avatarId: "av1" },
+      { id: "pC", tag: "PC-ORIG", avatarId: null },
+    ]);
   });
 
   test("the batch presence guard pins the FINAL value", async () => {
-    const db = new PGlite();
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
-    await syncLiveSchema(stateClient);
+    const family = getFamily();
+    const stateClient = makeClient(new PGliteDriver(driverOptions(family)));
     await seed(stateClient);
-    const driver = new RecordingBatchPGliteDriver({ client: db });
+    const driver = new RecordingBatchPGliteDriver(driverOptions(family));
     const opClient = makeClient(driver);
-    try {
-      driver.recording = true;
-      await (opClient as AnyClient).user.update(delegatedPayload("pB"));
-      driver.recording = false;
-      // Every statement addressing the profile table — the delegated locate, the batch
-      // presence guard, the UPDATE — carries the FINAL id. `pA` appears nowhere on the
-      // wire: the guard that "confirmed" the stale row is what made this defect silent.
-      const profileTraffic = driver.traffic.filter((entry) =>
-        entry.sql.includes("m1_profile")
-      );
-      expect(profileTraffic.length).toBeGreaterThan(0);
-      const guard = profileTraffic.find(
-        (entry) =>
-          entry.sql.startsWith("SELECT") && !entry.sql.includes("FOR UPDATE")
-      );
-      expect(guard).toBeDefined();
-      expect(guard?.params).toContain("pB");
-      expect(
-        driver.traffic.filter((entry) => entry.params.includes("pA"))
-      ).toEqual([]);
-    } finally {
-      await stateClient.$disconnect();
-    }
+    driver.recording = true;
+    await (opClient as AnyClient).user.update(delegatedPayload("pB"));
+    driver.recording = false;
+    // Every statement addressing the profile table — the delegated locate, the batch
+    // presence guard, the UPDATE — carries the FINAL id. `pA` appears nowhere on the
+    // wire: the guard that "confirmed" the stale row is what made this defect silent.
+    const profileTraffic = driver.traffic.filter((entry) =>
+      entry.sql.includes("m1_profile")
+    );
+    expect(profileTraffic.length).toBeGreaterThan(0);
+    const guard = profileTraffic.find(
+      (entry) =>
+        entry.sql.startsWith("SELECT") && !entry.sql.includes("FOR UPDATE")
+    );
+    expect(guard).toBeDefined();
+    expect(guard?.params).toContain("pB");
+    expect(
+      driver.traffic.filter((entry) => entry.params.includes("pA"))
+    ).toEqual([]);
   });
 });

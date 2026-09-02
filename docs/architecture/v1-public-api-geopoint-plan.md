@@ -899,7 +899,7 @@ Run coordinators sequentially because the workspace lock forbids overlap.
 1. Focused GeoPoint/GeoArea codec, scalar, operation-schema, SQL, result,
    cache, migration, public-type, census, and package-golden tests.
 2. `pnpm test:layer:validation`
-3. `pnpm test:coverage:scalars`
+3. `pnpm test:coverage:schema`
 4. `pnpm test:layer:schema-validation`
 5. `pnpm test:layer:query-engine`
 6. `pnpm test:layer:adapters`

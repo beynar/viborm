@@ -590,8 +590,12 @@ export function registerCreateManySeriesBehavior(
         ],
       });
 
+      // A suite on the shared PGlite owns a private schema, so this raw read must
+      // name it; an own-instance client reports "public", which is where its
+      // tables are.
+      const namespace: string = client.$driver.adapter.namespace;
       const stored: StoredAttachment[] = await client.$queryRawUnsafe(
-        "SELECT id, media_type, media_id FROM jseries_attachments ORDER BY id"
+        `SELECT id, media_type, media_id FROM "${namespace}"."jseries_attachments" ORDER BY id`
       );
       // Byte-identical private columns: the route changed, the stored pair did not.
       expect(stored.map((row) => [row.media_type, row.media_id])).toEqual([

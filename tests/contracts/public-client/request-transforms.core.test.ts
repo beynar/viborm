@@ -391,6 +391,43 @@ describe("the operation-specific result-shape projector", () => {
     expect(readInclude).toHaveBeenCalledOnce();
   });
 
+  test("preserves symbol descriptors across handler snapshots and patches", () => {
+    const symbol = Symbol("request metadata");
+    const callerInput = { where: { published: true }, [symbol]: "caller" };
+    const transformed = requireTransformedInput(
+      applyRequestTransforms("post", "findMany", callerInput, [
+        {
+          extension: "symbol-patch",
+          handler({ input }) {
+            expect(Reflect.get(input, symbol)).toBe("caller");
+            return { [symbol]: "patched" };
+          },
+        },
+      ])
+    );
+
+    expect(Reflect.get(transformed, symbol)).toBe("patched");
+  });
+
+  test("leaves result-like keys ordinary for exist", () => {
+    const transformed = applyRequestTransforms(
+      "post",
+      "exist",
+      { select: "ordinary" },
+      [
+        {
+          extension: "exist-input",
+          handler({ input }) {
+            expect(input).toEqual({ select: "ordinary" });
+            return { select: "patched" };
+          },
+        },
+      ]
+    );
+
+    expect(transformed).toEqual({ select: "patched" });
+  });
+
   test("hostile input descriptor enumeration fails at the named boundary", () => {
     const cause = new Error("ownKeys exploded");
     const input = new Proxy(
@@ -522,6 +559,47 @@ describe("request-transform failures", () => {
     expect(nonRecordError.message).toContain('Extension "primitive-request"');
     expect(nonRecordError.message).toContain("returned a non-record patch");
     expect(nonRecordError.originalCause).toBeInstanceOf(Error);
+  });
+
+  test("contains unreadable thenable and patch reflection", () => {
+    const unreadableThenable = new Proxy(
+      {},
+      {
+        has(_target, key) {
+          if (key === "then") throw new Error("then membership failed");
+          return false;
+        },
+      }
+    );
+    const thenableError = captureQueryError(() =>
+      applyRequestTransforms("post", "findMany", {}, [
+        {
+          extension: "unreadable-thenable",
+          handler: () => unreadableThenable,
+        },
+      ])
+    );
+    expect(thenableError.message).toContain("returned an unreadable patch");
+    expect(thenableError.originalCause).toBeInstanceOf(Error);
+
+    const unreadablePatch = new Proxy(
+      {},
+      {
+        ownKeys() {
+          throw new Error("patch keys failed");
+        },
+      }
+    );
+    const patchError = captureQueryError(() =>
+      applyRequestTransforms("post", "findMany", {}, [
+        {
+          extension: "unreadable-patch",
+          handler: () => unreadablePatch,
+        },
+      ])
+    );
+    expect(patchError.message).toContain("returned an unreadable patch");
+    expect(patchError.originalCause).toBeInstanceOf(Error);
   });
 });
 
@@ -963,5 +1041,52 @@ describe("public request-transform integration", () => {
 
     expect(base.entry.findMany(args).getArgs()).toBe(args);
     expect(extended.entry.findMany(args).getArgs()).toBe(args);
+  });
+});
+
+describe("coverage low value", () => {
+  test("ignores a proxy key whose descriptor vanished during inspection", () => {
+    const callerInput = new Proxy(
+      { where: { published: true } },
+      {
+        ownKeys(target) {
+          return [...Reflect.ownKeys(target), "vanished"];
+        },
+        getOwnPropertyDescriptor(target, key) {
+          if (key === "vanished") return undefined;
+          return Reflect.getOwnPropertyDescriptor(target, key);
+        },
+      }
+    );
+
+    const transformed = requireTransformedInput(
+      applyRequestTransforms("post", "findMany", callerInput, [
+        { extension: "vanishing-key", handler: () => ({}) },
+      ])
+    );
+
+    expect(Object.hasOwn(transformed, "vanished")).toBe(false);
+  });
+
+  test("ignores a transform patch key whose descriptor vanished", () => {
+    const patch = new Proxy(
+      {},
+      {
+        ownKeys() {
+          return ["vanished"];
+        },
+        getOwnPropertyDescriptor() {
+          return undefined;
+        },
+      }
+    );
+
+    const transformed = requireTransformedInput(
+      applyRequestTransforms("post", "findMany", {}, [
+        { extension: "vanishing-patch-key", handler: () => patch },
+      ])
+    );
+
+    expect(Object.hasOwn(transformed, "vanished")).toBe(false);
   });
 });

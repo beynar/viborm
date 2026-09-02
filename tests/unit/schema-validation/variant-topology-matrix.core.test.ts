@@ -81,36 +81,30 @@ describe("the four carrier/inverse cells (§11.3.1)", () => {
   it.each([
     ["one", "one", true],
     ["one", "many", false],
-  ] as const)(
-    "toOne(map) with a to-%s inverse is row-held storage, unique=%s",
-    (_carrier, inverse, unique) => {
-      const schema = cell("one", inverse);
-      const edge = edgeAt(schema, "comment", "subject");
+  ] as const)("toOne(map) with a to-%s inverse is row-held storage, unique=%s", (_carrier, inverse, unique) => {
+    const schema = cell("one", inverse);
+    const edge = edgeAt(schema, "comment", "subject");
 
-      expect(edge.kind).toBe("variantRowCarrier");
-      if (edge.kind !== "variantRowCarrier") return;
-      expect(edge.uniqueTarget).toBe(unique);
-      expect(edge.storage.typeColumn.name).toBe("subject_type");
-      expect(edge.storage.idColumn.name).toBe("subject_id");
-      expect(edge.storage.indexName).toBe("comment_subject_poly_idx");
-    }
-  );
+    expect(edge.kind).toBe("variantRowCarrier");
+    if (edge.kind !== "variantRowCarrier") return;
+    expect(edge.uniqueTarget).toBe(unique);
+    expect(edge.storage.typeColumn.name).toBe("subject_type");
+    expect(edge.storage.idColumn.name).toBe("subject_id");
+    expect(edge.storage.indexName).toBe("comment_subject_poly_idx");
+  });
 
   it.each([
     ["one", true],
     ["many", false],
-  ] as const)(
-    "toMany(map) with a to-%s inverse is a member junction, uniqueTarget=%s",
-    (inverse, unique) => {
-      const schema = cell("many", inverse);
-      const edge = edgeAt(schema, "comment", "subject");
+  ] as const)("toMany(map) with a to-%s inverse is a member junction, uniqueTarget=%s", (inverse, unique) => {
+    const schema = cell("many", inverse);
+    const edge = edgeAt(schema, "comment", "subject");
 
-      expect(edge.kind).toBe("variantJunctionCarrier");
-      if (edge.kind !== "variantJunctionCarrier") return;
-      expect(edge.members[0].uniqueTarget).toBe(unique);
-      expect(edge.members[0].topology.table).toBe("comment_subject_post");
-    }
-  );
+    expect(edge.kind).toBe("variantJunctionCarrier");
+    if (edge.kind !== "variantJunctionCarrier") return;
+    expect(edge.members[0].uniqueTarget).toBe(unique);
+    expect(edge.members[0].topology.table).toBe("comment_subject_post");
+  });
 });
 
 describe("direct-only members (§11.3.2)", () => {

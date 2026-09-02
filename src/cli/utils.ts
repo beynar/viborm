@@ -175,7 +175,7 @@ export async function loadConfig(
   const schemaInput = config.client.$schema;
 
   // Extract models from schema (filter out non-model exports)
-  const models = extractModels(schemaInput as Record<string, unknown>);
+  const models = extractModels(schemaInput);
 
   if (Object.keys(models).length === 0) {
     throw new Error(
@@ -236,7 +236,7 @@ function extractModels(
 
   for (const [key, value] of Object.entries(schema)) {
     if (isModel(value)) {
-      models[key] = value as AnyModel;
+      models[key] = value;
     }
   }
 
@@ -246,17 +246,14 @@ function extractModels(
 /**
  * Checks if a value is a VibORM Model instance.
  */
-function isModel(value: unknown): boolean {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "~" in value &&
-    typeof (value as any)["~"] === "object" &&
-    "state" in (value as any)["~"] &&
-    // Model state exposes `scalars`/`relations` (never `fields`); the rest of
-    // the codebase discriminates models the same way (see serializer).
-    "scalars" in (value as any)["~"].state
-  );
+function isModel(value: unknown): value is AnyModel {
+  if (value === null || typeof value !== "object") return false;
+  const metadata = Reflect.get(value, "~");
+  if (metadata === null || typeof metadata !== "object") return false;
+  const state = Reflect.get(metadata, "state");
+  // Model state exposes `scalars`/`relations` (never `fields`); the rest of
+  // the codebase discriminates models the same way (see serializer).
+  return state !== null && typeof state === "object" && "scalars" in state;
 }
 
 /**
@@ -266,11 +263,17 @@ function isValidClient(value: unknown): boolean {
   // The client is a Proxy whose only trap is `get`, so `"$driver" in value`
   // (which triggers the `has` trap / falls back to the bare target) is always
   // false. Probe via property access instead.
+  // `typeof null === "object"`, so null has to be refused here: Reflect.get
+  // throws on it rather than answering undefined.
+  if (
+    value === null ||
+    (typeof value !== "object" && typeof value !== "function")
+  ) {
+    return false;
+  }
   return (
-    value !== null &&
-    (typeof value === "object" || typeof value === "function") &&
-    (value as any).$driver !== undefined &&
-    (value as any).$schema !== undefined
+    Reflect.get(value, "$driver") !== undefined &&
+    Reflect.get(value, "$schema") !== undefined
   );
 }
 
@@ -294,34 +297,4 @@ function isValidClient(value: unknown): boolean {
  */
 export function defineConfig(config: VibORMConfig): VibORMConfig {
   return config;
-}
-
-// =============================================================================
-// FORMATTING
-// =============================================================================
-
-/**
- * Formats bytes into human-readable size.
- */
-export function formatBytes(bytes: number): string {
-  if (bytes === 0) {
-    return "0 B";
-  }
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${Number.parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
-}
-
-/**
- * Formats milliseconds into human-readable duration.
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-  return `${(ms / 60_000).toFixed(1)}m`;
 }

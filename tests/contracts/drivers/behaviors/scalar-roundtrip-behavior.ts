@@ -9,10 +9,10 @@ import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { InputJsonValue } from "@validation";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * The shared decimal domain for this suite: SQLite-legal

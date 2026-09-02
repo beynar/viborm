@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: the test asserts on the whole barrel namespace object.
 import * as internalInstrumentation from "@src/instrumentation";
+// biome-ignore lint/performance/noNamespaceImport: the test asserts on the whole barrel namespace object.
 import * as publicInstrumentation from "@src/instrumentation/exports";
+import { describe, expect, it } from "vitest";
 
 describe("instrumentation source entries", () => {
   it("executes both barrels and exposes their owned runtime surface", () => {

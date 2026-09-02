@@ -1,10 +1,6 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-
 import { sharedPkUpdateRootSchema } from "@tests/contracts/engine/write/shared-pk-update-root-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE H, the PACKAGE E PRECONDITION — **a supplier beside a modify, on the edge
@@ -44,20 +40,18 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  * agreement between them is the claim: the modify rides along without changing what the
  * supplier means.
  */
-describe("Package H — shared-primary-key supplier + modify", () => {
-  const client = () =>
-    createClient({
-      schema: sharedPkUpdateRootSchema,
-      driver: new PGliteDriver({ client: new PGlite() }),
-    }) as any;
+const getFamily = usePGliteSchemaFamily(sharedPkUpdateRootSchema);
 
+describe("Package H — shared-primary-key supplier + modify", () => {
+  /** A test seeds twice where it needs two beds, so each seed empties the tables. */
   async function seeded({
     note = true,
   }: {
     note?: boolean;
   } = {}): Promise<any> {
-    const db = client();
-    await syncLiveSchema(db);
+    const family = getFamily();
+    await family.reset();
+    const db = family.client as any;
     await db.account.createMany({
       data: [
         { id: "a1", email: "a1@x", name: "one" },
@@ -125,7 +119,6 @@ describe("Package H — shared-primary-key supplier + modify", () => {
         names: ["one", "moved"],
       },
     });
-    await db.$disconnect();
   }, 60_000);
 
   test("a dependent row blocks the shared-key move — exactly as a lone `connect` does", async () => {
@@ -161,7 +154,6 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       supplierAlone: "Foreign key constraint violation",
       state: UNTOUCHED,
     });
-    await db.$disconnect();
   }, 60_000);
 
   test("disconnect + connect on the shared key is not a spellable pair", async () => {
@@ -196,6 +188,5 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       // A refusal that fires after a write is not a refusal: the row never moved.
       stubs: [{ accountId: "a1", memo: "m" }],
     });
-    await db.$disconnect();
   }, 60_000);
 });

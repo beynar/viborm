@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import {
   buildParsedRelationPrograms,
@@ -35,6 +35,10 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
@@ -331,7 +335,7 @@ describe("K2 — select keeps its typed refusal while count uses default batch",
   });
 
   test("the { count } arm executes as ordered batches with exact state", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: updateManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -370,6 +374,7 @@ describe("K2 — select keeps its typed refusal while count uses default batch",
       batchOnly.shelf.findMany({ select: { id: true, room: true } })
     ).resolves.toEqual([{ id: 1, room: "north" }]);
     await batchOnly.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -994,7 +999,8 @@ describe("D — polymorphic writes inside nested updateMany", () => {
   const polyFamily = usePGliteSchemaFamily(polySchema);
 
   test("a targetless disconnect clears every matched member's storage pair", async () => {
-    const client = polyFamily().client as any;
+    const family = polyFamily();
+    const client = family.client as any;
     await client.image.create({ data: { id: 1, url: "one" } });
     await client.board.create({ data: { id: 1, name: "board" } });
     await client.slot.create({
@@ -1018,8 +1024,11 @@ describe("D — polymorphic writes inside nested updateMany", () => {
       },
     });
 
+    // Verbatim SQL is not qualified by the driver's namespace, so this
+    // hand-written statement must name the suite's schema itself.
+    const slots = `"${family.namespace}"."kpoly_slots"`;
     const stored = await client.$queryRawUnsafe(
-      "SELECT caption, media_type, media_id FROM kpoly_slots WHERE id = 1"
+      `SELECT caption, media_type, media_id FROM ${slots} WHERE id = 1`
     );
     expect(stored).toEqual([
       { caption: "after", media_type: null, media_id: null },

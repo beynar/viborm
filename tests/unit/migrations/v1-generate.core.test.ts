@@ -7,7 +7,7 @@ import { type GenerateV1Result, generateV1 } from "@src/migrations/generate-v1";
 import { loadMigrationGraph } from "@src/migrations/graph";
 import { isSha256 } from "@src/migrations/identity";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { pgEstateDriver } from "./_estate";
 
@@ -19,7 +19,7 @@ const user = s.model({
 function clientWith(schema: Record<string, typeof user>) {
   return createClient({
     schema,
-    driver: createInMemorySQLite3Driver(),
+    driver: new PlanningDriver("sqlite"),
   });
 }
 
@@ -470,7 +470,7 @@ describe("migration v1 generate", () => {
     });
     const next = createClient({
       schema: { user: nextUser },
-      driver: createInMemorySQLite3Driver(),
+      driver: new PlanningDriver("sqlite"),
     });
     const preview = await generateV1(next, storage, {
       dryRun: true,

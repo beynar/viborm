@@ -1,6 +1,6 @@
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import v from "@validation/primitives/v";
 import type { JsonValue } from "@validation";
+import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,

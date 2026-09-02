@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { UniqueConstraintError } from "@errors";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -13,32 +13,20 @@ import {
   producedCompoundSchema,
   registerProducedCompoundBehavior,
 } from "@tests/contracts/engine/write/produced-compound-identity-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import v from "@validation/primitives/v";
 import { expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-const substrates = [
-  {
-    name: "PGlite transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
-  },
-] as const;
+const getProducedFamily = usePGliteSchemaFamily(producedCompoundSchema);
 
-for (const substrate of substrates) {
-  let shared: any;
-  registerProducedCompoundBehavior(substrate.name, async () => {
-    if (!shared) {
-      shared = createClient({
-        schema: producedCompoundSchema,
-        driver: substrate.make(),
-      }) as any;
-      await syncLiveSchema(shared);
-    }
-    return shared;
-  });
-}
+registerProducedCompoundBehavior(
+  "PGlite transaction",
+  async () => getProducedFamily().client
+);
 
 // ---------------------------------------------------------------------------
 // The compile-level pins: WHICH identity the arm takes, and — the batch capture
@@ -85,6 +73,22 @@ const pinSchema = (() => {
 })();
 hydrateSchemaNames(pinSchema);
 
+const getPinFamily = usePGliteSchemaFamily(pinSchema);
+
+/**
+ * A SECOND driver over the family's database must name the schema the family
+ * provisioned; otherwise it would address `public`, where this suite has no tables.
+ */
+function batchOnlyDriverFor(family: {
+  readonly database: PGlite;
+  readonly driver: PGliteDriver;
+}): BatchOnlyPGliteDriver {
+  return new BatchOnlyPGliteDriver({
+    client: family.database,
+    namespace: family.driver.adapter.namespace,
+  });
+}
+
 const transformedSchema = (() => {
   const transformed = v.string({ transform: (value) => `${value}!` });
   const owner = s
@@ -119,7 +123,7 @@ function compileCreateArm(
   const engine = new QueryEngine(
     mode === "transaction"
       ? new PGliteDriver()
-      : new BatchOnlyPGliteDriver({ client: new PGlite() }),
+      : batchOnlyDriverFor(getProducedFamily()),
     createModelRegistry(schema, schemas)
   );
   const operation = new UpsertOperation(engine, model, {
@@ -208,28 +212,23 @@ test("a single-column generated PK compiles the SAME shape it always did", () =>
 test("an indivisible shared batch returns produced compound identity atomically", async () => {
   const client = createClient({
     schema: producedCompoundSchema,
-    driver: new BatchOnlyPGliteDriver({ client: new PGlite() }),
+    driver: batchOnlyDriverFor(getProducedFamily()),
   }) as any;
-  await syncLiveSchema(client);
-  try {
-    const [created] = await client.$transaction([
-      client.ticket.upsert({
-        where: { a_b: { a: 9999, b: "asked" } },
-        create: { b: "written", label: "made" },
-        update: { label: "must not run" },
-        select: { a: true, b: true, label: true },
-      }),
-    ]);
-    expect(created).toMatchObject({ b: "written", label: "made" });
-    expect(created.a).not.toBe(9999);
-    await expect(
-      client.ticket.findUnique({
-        where: { a_b: { a: created.a, b: created.b } },
-      })
-    ).resolves.toEqual(created);
-  } finally {
-    await client.$disconnect();
-  }
+  const [created] = await client.$transaction([
+    client.ticket.upsert({
+      where: { a_b: { a: 9999, b: "asked" } },
+      create: { b: "written", label: "made" },
+      update: { label: "must not run" },
+      select: { a: true, b: true, label: true },
+    }),
+  ]);
+  expect(created).toMatchObject({ b: "written", label: "made" });
+  expect(created.a).not.toBe(9999);
+  await expect(
+    client.ticket.findUnique({
+      where: { a_b: { a: created.a, b: created.b } },
+    })
+  ).resolves.toEqual(created);
 });
 
 test("two absent generated members use field-keyed outputs with no privileged id", () => {
@@ -248,34 +247,28 @@ test("two absent generated members use field-keyed outputs with no privileged id
 });
 
 test("an untaken relation-bearing plural create is inert on an atomic batch", async () => {
-  const database = new PGlite();
   const client = createClient({
     schema: pinSchema,
-    driver: new BatchOnlyPGliteDriver({ client: database }),
+    driver: batchOnlyDriverFor(getPinFamily()),
   });
-  await syncLiveSchema(client);
-  try {
-    await client.parent.create({ data: { id: "parent" } });
-    await client.child.createMany({
-      data: [{ label: "before", parentId: "parent" }],
-    });
-    const existing = await client.child.findFirstOrThrow({
-      select: { a: true, b: true },
-    });
-    await expect(
-      client.child.upsert({
-        where: { a_b: existing },
-        create: {
-          label: "must-not-run",
-          parent: { connect: { id: "parent" } },
-        },
-        update: { label: "after" },
-        select: { label: true },
-      })
-    ).resolves.toEqual({ label: "after" });
-  } finally {
-    await client.$disconnect();
-  }
+  await client.parent.create({ data: { id: "parent" } });
+  await client.child.createMany({
+    data: [{ label: "before", parentId: "parent" }],
+  });
+  const existing = await client.child.findFirstOrThrow({
+    select: { a: true, b: true },
+  });
+  await expect(
+    client.child.upsert({
+      where: { a_b: existing },
+      create: {
+        label: "must-not-run",
+        parent: { connect: { id: "parent" } },
+      },
+      update: { label: "after" },
+      select: { label: true },
+    })
+  ).resolves.toEqual({ label: "after" });
 });
 
 test("a relation-bearing race pin compares the once-parsed transformed value", () => {
@@ -307,71 +300,55 @@ test("a relation-bearing race pin compares the once-parsed transformed value", (
 });
 
 test("the two-generated-member table is valid PostgreSQL DDL and returns its exact row", async () => {
-  const client = createClient({
-    schema: pinSchema,
-    driver: new PGliteDriver({ client: new PGlite() }),
+  const client = getPinFamily().client;
+  const rootCreated = await client.twin.create({
+    data: { label: "root-create" },
+    select: { a: true, b: true, label: true },
   });
-  await syncLiveSchema(client);
-  try {
-    const rootCreated = await client.twin.create({
-      data: { label: "root-create" },
-      select: { a: true, b: true, label: true },
-    });
-    expect(rootCreated.label).toBe("root-create");
+  expect(rootCreated.label).toBe("root-create");
 
-    const nested = await client.parent.create({
-      data: {
-        id: "parent",
-        children: { create: { label: "nested-create" } },
-      },
-      include: { children: true },
-    });
-    expect(nested.children).toHaveLength(1);
-    expect(nested.children[0]?.label).toBe("nested-create");
+  const nested = await client.parent.create({
+    data: {
+      id: "parent",
+      children: { create: { label: "nested-create" } },
+    },
+    include: { children: true },
+  });
+  expect(nested.children).toHaveLength(1);
+  expect(nested.children[0]?.label).toBe("nested-create");
 
-    const created = await client.twin.upsert({
-      where: { a_b: { a: 10_000, b: 20_000 } },
-      create: { label: "made" },
-      update: { label: "must not run" },
-      select: { a: true, b: true, label: true },
-    });
-    expect(created.label).toBe("made");
-    expect(created.a).not.toBe(10_000);
-    expect(created.b).not.toBe(20_000);
-    await expect(
-      client.twin.findUnique({
-        where: { a_b: { a: created.a, b: created.b } },
-      })
-    ).resolves.toEqual(created);
-  } finally {
-    await client.$disconnect();
-  }
+  const created = await client.twin.upsert({
+    where: { a_b: { a: 10_000, b: 20_000 } },
+    create: { label: "made" },
+    update: { label: "must not run" },
+    select: { a: true, b: true, label: true },
+  });
+  expect(created.label).toBe("made");
+  expect(created.a).not.toBe(10_000);
+  expect(created.b).not.toBe(20_000);
+  await expect(
+    client.twin.findUnique({
+      where: { a_b: { a: created.a, b: created.b } },
+    })
+  ).resolves.toEqual(created);
 });
 
 test("a different create key cannot borrow the missing where's race pin", async () => {
-  const client = createClient({
-    schema: pinSchema,
-    driver: new PGliteDriver({ client: new PGlite() }),
-  });
-  await syncLiveSchema(client);
-  try {
-    await client.twin.create({ data: { a: 77, b: 88, label: "occupied" } });
-    const rejection = await client.twin
-      .upsert({
-        where: { a_b: { a: 1, b: 2 } },
-        create: { a: 77, b: 88, label: "loser" },
-        update: { label: "must not run" },
-      })
-      .then(
-        () => undefined,
-        (error: unknown) => error
-      );
-    expect(rejection).toBeInstanceOf(UniqueConstraintError);
-    await expect(
-      client.twin.findUnique({ where: { a_b: { a: 77, b: 88 } } })
-    ).resolves.toEqual({ a: 77, b: 88, label: "occupied" });
-    expect(await client.twin.count()).toBe(1);
-  } finally {
-    await client.$disconnect();
-  }
+  const client = getPinFamily().client;
+  await client.twin.create({ data: { a: 77, b: 88, label: "occupied" } });
+  const rejection = await client.twin
+    .upsert({
+      where: { a_b: { a: 1, b: 2 } },
+      create: { a: 77, b: 88, label: "loser" },
+      update: { label: "must not run" },
+    })
+    .then(
+      () => undefined,
+      (error: unknown) => error
+    );
+  expect(rejection).toBeInstanceOf(UniqueConstraintError);
+  await expect(
+    client.twin.findUnique({ where: { a_b: { a: 77, b: 88 } } })
+  ).resolves.toEqual({ a: 77, b: 88, label: "occupied" });
+  expect(await client.twin.count()).toBe(1);
 });

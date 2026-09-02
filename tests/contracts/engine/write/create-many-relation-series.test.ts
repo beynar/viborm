@@ -2,7 +2,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
@@ -20,6 +20,10 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
@@ -315,7 +319,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     // prepared batch, so the merge falls through to the client's own sentence); this
     // is the first payload that actually reaches it. No new machinery: the message is
     // the client's pre-existing one, word for word.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -337,6 +341,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     );
     await expect(batchOnly.post.count({})).resolves.toBe(0);
     await batchOnly.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 
   test("PACKAGE E §10.3 — a COLLECTION-bearing member reaches the same array refusal, before any write", async () => {
@@ -346,7 +351,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     // record series — so the refusal is the same client sentence, reached one
     // payload shape wider. The pin is that E did NOT open a path where a
     // collection member is prepared as a merged fragment and half-lands.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -374,6 +379,7 @@ describe("J2 — select keeps its typed refusal while default batch routes", () 
     );
     await expect(batchOnly.author.count({})).resolves.toBe(0);
     await batchOnly.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -434,7 +440,7 @@ describe("child-held relation-bearing skip on default batch execution", () => {
   };
 
   test("a duplicate root suppresses its subtree and a fresh sibling lands", async () => {
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -486,6 +492,7 @@ describe("child-held relation-bearing skip on default batch execution", () => {
       batchOnly.tag.findMany({ select: { id: true, name: true } })
     ).resolves.toEqual([{ id: 1, name: "t" }]);
     await batchOnly.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 });
 
@@ -603,7 +610,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
   test("…and on a batch-only substrate the empty payload still ANSWERS", async () => {
     // No row means no relation-bearing member and no batch to submit. The common
     // spread-a-possibly-empty-array call stays on the no-op arm and answers zero.
-    const database = new PGlite();
+    const database = openBorrowedPGlite();
     const setup = createClient({
       schema: createManySeriesSchema,
       driver: new PGliteDriver({ client: database }),
@@ -618,6 +625,7 @@ describe("J3/J4 — the statement list the series actually issues", () => {
       count: 0,
     });
     await setup.$disconnect();
+    await closeTestPGlite(database);
   }, 60_000);
 
   test("members run left to right and the returning read comes after all of them", async () => {

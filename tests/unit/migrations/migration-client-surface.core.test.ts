@@ -132,4 +132,54 @@ describe("createMigrationClient capability surface", () => {
       })
     );
   });
+
+  it("projects one authenticated estate through immutable list, show, and graph views", async () => {
+    const driver = pgEstateDriver("alpha");
+    const storage = new MemoryStorage();
+    const migrations = createMigrationClient(clientFor(driver), { storage });
+    const generated = await migrations.generate({ name: "initial" });
+    if (generated.stateId === null)
+      throw new Error("expected an initial state");
+
+    const list = await migrations.list();
+    const shown = await migrations.show({ id: generated.stateId });
+    const graph = await migrations.graph();
+
+    expect(list).toEqual([{ stateId: generated.stateId, name: "initial" }]);
+    expect(shown).toMatchObject({
+      stateId: generated.stateId,
+      name: "initial",
+      root: true,
+      leaf: true,
+      incoming: [
+        {
+          fromState: null,
+          toState: generated.stateId,
+          requestedBoundary: null,
+          origins: ["generated"],
+          risks: ["safe"],
+          rollback: { kind: "schema" },
+        },
+      ],
+      outgoing: [],
+    });
+    expect(graph).toMatchObject({
+      estateHash: generated.estateHash,
+      target: { dialect: "postgresql", namespace: "alpha" },
+      roots: [generated.stateId],
+      leaves: [generated.stateId],
+      states: [{ stateId: generated.stateId, root: true, leaf: true }],
+      edges: [{ fromState: null, toState: generated.stateId }],
+    });
+    expect(Object.isFrozen(list)).toBe(true);
+    expect(Object.isFrozen(list[0])).toBe(true);
+    expect(Object.isFrozen(shown)).toBe(true);
+    expect(Object.isFrozen(shown.incoming)).toBe(true);
+    expect(Object.isFrozen(shown.incoming[0])).toBe(true);
+    expect(Object.isFrozen(graph)).toBe(true);
+    expect(Object.isFrozen(graph.target)).toBe(true);
+    expect(Object.isFrozen(graph.states)).toBe(true);
+    expect(Object.isFrozen(graph.edges)).toBe(true);
+    expect(driver.statements).toEqual([]);
+  });
 });

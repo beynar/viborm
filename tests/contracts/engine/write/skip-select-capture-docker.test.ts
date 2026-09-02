@@ -2,15 +2,14 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 import { TransactionError } from "@errors";
-
-import { describe, expect, test } from "vitest";
 import {
   runSkipSelectCaptureBehavior,
   skipSelectCaptureSchema,
   skipSelectCaptureTables,
 } from "@tests/contracts/engine/write/skip-select-capture-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
+
 /**
  * E6.9 on the live servers.
  *

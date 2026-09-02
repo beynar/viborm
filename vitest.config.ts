@@ -2,6 +2,17 @@ import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
+import {
+  coverageOptionsForAll,
+  coverageOptionsForSubsystem,
+} from "./scripts/coverage-policy.mjs";
+
+const coverage = process.env.VIBORM_COVERAGE_SUBSYSTEM
+  ? coverageOptionsForSubsystem(process.env.VIBORM_COVERAGE_SUBSYSTEM, {
+      mode: process.env.VIBORM_COVERAGE_MODE ?? "focused",
+      reportsDirectory: process.env.VIBORM_COVERAGE_DIRECTORY,
+    })
+  : coverageOptionsForAll();
 
 export default defineConfig({
   server: {
@@ -20,6 +31,9 @@ export default defineConfig({
         singleFork: true,
       },
     },
+    // File-local teardown must release clients before imported lifecycle
+    // fixtures close the borrowed provider handles they own.
+    sequence: { hooks: "stack" },
     // The CLI suite mocks @clack/prompts. It lives in a setupFile (not an inline
     // vi.mock) because that external ESM module is not reliably re-intercepted
     // when the forks pool reuses a worker across files — the real prompt would
@@ -33,30 +47,7 @@ export default defineConfig({
     // fails at this bound.
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    coverage: {
-      provider: "v8",
-      include: ["src/**/*.ts"],
-      exclude: ["src/**/*.d.ts"],
-      reporter: ["text", "json-summary", "lcov", "html"],
-      processingConcurrency: 1,
-      thresholds: {
-        "src/instrumentation/**/*.ts": { 100: true },
-        "src/query-engine/write-engine/**/*.ts": {
-          branches: 85,
-          functions: 95,
-          lines: 90,
-          statements: 90,
-        },
-        "src/schema/relation/**/*.ts": { 100: true },
-        "src/schema/scalars/**/*.ts": { 100: true },
-        "src/schema/validation/**/*.ts": { 100: true },
-        "src/schema/field-ref.ts": { 100: true },
-        "src/schema/json/**/*.ts": { 100: true },
-        "src/schema/hydration.ts": { 100: true },
-        "src/sql/sql.ts": { 100: true },
-        "src/validation/**/*.ts": { 100: true },
-      },
-    },
+    coverage,
     benchmark: {
       include: ["benchmarks/**/*.bench.ts"],
     },

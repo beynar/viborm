@@ -1,14 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-
-import { afterAll, describe } from "vitest";
 import {
   registerSqlOperandWallBehavior,
   sqlOperandWallSchema,
 } from "@tests/contracts/engine/write/sql-operand-boundary-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
+
 /**
  * E6.6 on the live servers.
  *

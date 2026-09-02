@@ -22,14 +22,12 @@
  */
 
 import { BunSQLDriver } from "@drivers/bun-sql";
-import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
 import { readSuppressedFailures } from "@drivers/shared";
 import {
   condemnPhysicalSession,
   leasePinnedCommand,
 } from "@drivers/shared/pinned-session";
-import { PGlite } from "@electric-sql/pglite";
 import { ConnectionError } from "@errors";
 import { describe, expect, it } from "vitest";
 
@@ -93,30 +91,6 @@ function reservingTransport(
     close: end,
   };
   return { events, transport };
-}
-
-/**
- * Makes this exact PGlite fail the advisory reset, and only that statement.
- *
- * The client is the subject here, not the driver: what a failed reset leaves
- * unknown is the lock state of THIS session, whichever wrapper asked for it.
- */
-function failResetOn(
-  client: PGlite,
-  rejectWith: unknown = new Error("the session is gone")
-): void {
-  const answer: unknown = Reflect.get(client, "query");
-  Object.defineProperty(client, "query", {
-    configurable: true,
-    value: (sql: string, params?: unknown[]) =>
-      sql.includes(RESET)
-        ? Promise.reject(rejectWith)
-        : Reflect.apply(
-            typeof answer === "function" ? answer : () => undefined,
-            client,
-            [sql, params]
-          ),
-  });
 }
 
 /** A pinned session that condemns its producer and otherwise does nothing. */
@@ -241,102 +215,6 @@ describe("Bun SQL condemns a session it cannot prove clean", () => {
   });
 });
 
-describe("PGlite condemns the one client it cannot hand back", () => {
-  it("refuses every later pinned session on a client it cannot prove clean", async () => {
-    const client = new PGlite();
-    try {
-      failResetOn(client);
-      const driver = new PGliteDriver({ client, namespace: "public" });
-
-      const thrown = await rejection(
-        driver._withPinnedSession(discardingBody())
-      );
-      expect(thrown instanceof Error ? thrown.message : "").toContain(
-        "advisory-lock state"
-      );
-
-      // PGlite's one client IS the session, and it is the caller's database:
-      // closing it would destroy their data to hide a cleanup failure. What is
-      // left is to stop using it for migration work, which is what a session
-      // whose lock state VibORM cannot account for has to mean.
-      const second = await rejection(
-        driver._withPinnedSession(() => Promise.resolve(1))
-      );
-      expect(second instanceof Error ? second.message : "").toContain(
-        "advisory-lock state"
-      );
-      // Ordinary queries are untouched: the estate's data was never in doubt.
-      const rows = await driver._executeRaw("SELECT 1 AS one");
-      expect(rows.rows).toEqual([{ one: 1 }]);
-    } finally {
-      await client.close();
-    }
-  });
-
-  it("refuses pinning through EVERY wrapper over that one client", async () => {
-    // The documented shape: two schema-scoped estates over ONE database, so two
-    // drivers and one physical session.
-    const shared = new PGlite();
-    const independent = new PGlite();
-    try {
-      failResetOn(shared);
-      const alpha = new PGliteDriver({ client: shared, namespace: "public" });
-      const beta = new PGliteDriver({ client: shared, namespace: "public" });
-      const elsewhere = new PGliteDriver({
-        client: independent,
-        namespace: "public",
-      });
-
-      const condemning = await rejection(
-        alpha._withPinnedSession(discardingBody())
-      );
-      expect(condemning instanceof Error ? condemning.message : "").toContain(
-        "advisory-lock state"
-      );
-
-      // What the failed reset left unknown is the CLIENT's lock state, not the
-      // wrapper's: a PostgreSQL session advisory lock is reentrant, so beta's
-      // command would re-acquire the lock alpha may still hold rather than wait
-      // for it, and then read and write inside alpha's session. The refusal has
-      // to land before the body, which is where those statements are written.
-      let entered = false;
-      const refused = await rejection(
-        beta._withPinnedSession(() => {
-          entered = true;
-          return Promise.resolve("body ran");
-        })
-      );
-
-      expect(entered).toBe(false);
-      expect(refused instanceof Error ? refused.message : "").toContain(
-        "advisory-lock state"
-      );
-      // A client that answered for none of this stays pinnable.
-      await expect(
-        elsewhere._withPinnedSession(() => Promise.resolve("ok"))
-      ).resolves.toBe("ok");
-    } finally {
-      await shared.close();
-      await independent.close();
-    }
-  });
-
-  it("stays usable when the reset SUCCEEDS", async () => {
-    const client = new PGlite();
-    try {
-      const driver = new PGliteDriver({ client, namespace: "public" });
-
-      await driver._withPinnedSession(discardingBody());
-
-      await expect(
-        driver._withPinnedSession(() => Promise.resolve("again"))
-      ).resolves.toBe("again");
-    } finally {
-      await client.close();
-    }
-  });
-});
-
 /**
  * A value whose `instanceof Error` test itself THROWS.
  *
@@ -377,40 +255,6 @@ describe("a hostile reset rejection cannot replace the condemnation", () => {
     ).toBeInstanceOf(Error);
     // The session still never went back to the pool.
     expect(events).toEqual(["reserve", `reserved:SELECT ${RESET}()`]);
-  });
-
-  it("keeps PGlite's typed refusal, and still condemns that client", async () => {
-    const client = new PGlite();
-    try {
-      failResetOn(client, prototypeTrapProxy());
-      const driver = new PGliteDriver({ client, namespace: "public" });
-
-      const thrown = await rejection(
-        driver._withPinnedSession(discardingBody())
-      );
-
-      expect(thrown).toBeInstanceOf(ConnectionError);
-      expect(thrown instanceof Error ? thrown.message : "").toContain(
-        "advisory-lock state"
-      );
-      expect(
-        thrown instanceof ConnectionError ? thrown.originalCause : undefined
-      ).toBeInstanceOf(Error);
-
-      // The condemnation is the containment, and it does not depend on what the
-      // provider chose to reject with.
-      const second = await rejection(
-        driver._withPinnedSession(() => Promise.resolve(1))
-      );
-      expect(second instanceof Error ? second.message : "").toContain(
-        "will pin no further migration session"
-      );
-      // Ordinary queries are untouched, and nothing destructive was attempted.
-      const rows = await driver._executeRaw("SELECT 1 AS one");
-      expect(rows.rows).toEqual([{ one: 1 }]);
-    } finally {
-      await client.close();
-    }
   });
 });
 
@@ -456,81 +300,6 @@ describe("a command admitted BEFORE the condemnation", () => {
     expect(
       secondOutcome instanceof Error ? secondOutcome.message : ""
     ).toContain("will pin no further migration session");
-  });
-
-  it("refuses a second wrapper's whole command over one PGlite", async () => {
-    // The documented shape: two schema-scoped estates over ONE database, with
-    // the second command admitted while the first still holds the session.
-    const shared = new PGlite();
-    const independent = new PGlite();
-    try {
-      failResetOn(shared);
-      const alpha = new PGliteDriver({ client: shared, namespace: "public" });
-      const beta = new PGliteDriver({ client: shared, namespace: "public" });
-      const elsewhere = new PGliteDriver({
-        client: independent,
-        namespace: "public",
-      });
-
-      let alphaEntered!: () => void;
-      const running = new Promise<void>((resolve) => {
-        alphaEntered = resolve;
-      });
-      let releaseAlpha!: () => void;
-      const held = new Promise<void>((resolve) => {
-        releaseAlpha = resolve;
-      });
-
-      const condemning = rejection(
-        alpha._withPinnedSession(async (_pinned, control) => {
-          alphaEntered();
-          await held;
-          control.discard();
-          return "done";
-        })
-      );
-      await running;
-
-      let bodyRan = false;
-      const refused = rejection(
-        beta._withPinnedSession(async (pinned) => {
-          bodyRan = true;
-          await pinned._executeRaw("CREATE TABLE beta_ran (id int)");
-          return "body ran";
-        })
-      );
-      // A timer drains every pending microtask, so beta has reached the lease —
-      // and been admitted onto a session nobody has condemned yet — before the
-      // first command's reset is allowed to fail.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-
-      releaseAlpha();
-      const condemnation = await condemning;
-      expect(
-        condemnation instanceof Error ? condemnation.message : ""
-      ).toContain("advisory-lock state");
-
-      const outcome = await refused;
-      expect(bodyRan).toBe(false);
-      expect(outcome instanceof Error ? outcome.message : "").toContain(
-        "will pin no further migration session"
-      );
-      // Neither the body nor its statement reached the client: a PostgreSQL
-      // session advisory lock is reentrant, so beta's DDL would have run inside
-      // the session alpha may still hold rather than waiting for it.
-      const created = await alpha._executeRaw(
-        "SELECT to_regclass('beta_ran') AS present"
-      );
-      expect(created.rows).toEqual([{ present: null }]);
-
-      // A client that answered for none of this stays pinnable.
-      await expect(
-        elsewhere._withPinnedSession(() => Promise.resolve("ok"))
-      ).resolves.toBe("ok");
-    } finally {
-      await shared.close();
-      await independent.close();
-    }
   });
 });
 

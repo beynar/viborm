@@ -36,6 +36,7 @@ export function compileScalarCodec(
     item = enumCodec(new Set(scalar.enumValues));
   } else {
     const state = scalar["~"].state;
+    // biome-ignore lint/style/useDefaultSwitchClause: the scalar state union is exhaustive; a default would be dead code.
     switch (state.type) {
       case "string":
         item = stringCodec();
@@ -76,10 +77,6 @@ export function compileScalarCodec(
       case "point":
         item = pointCodec();
         break;
-      default: {
-        const exhaustive: never = state;
-        return exhaustive;
-      }
     }
   }
   const state = scalar["~"].state;

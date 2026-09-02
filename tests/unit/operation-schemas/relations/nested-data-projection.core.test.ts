@@ -146,31 +146,27 @@ describe("the derived keys a nested payload may not spell", () => {
       "holders",
       "stickerHolder",
     ],
-  ] as const)(
-    "%s omits the EXACT carrier relation key",
-    (_label, schema, model, field, targetKey) => {
-      const projection = projectionFor(
-        schema as Record<string, AnyModel>,
-        model,
-        field,
-        targetKey
-      );
-      const carrier = targetKey === "owner" ? "items" : "mark";
-      expect(omittedKeys(projection.getCreateSchema())).toEqual([carrier]);
-      expect(omittedKeys(projection.getUpdateSchema())).toEqual([carrier]);
-      // The consequence: the enclosing step already fixes this membership, so a
-      // spelled carrier key is a second provenance and is refused as unknown.
-      expect(
-        parse(projection.getCreateSchema(), { id: "seed", [carrier]: {} })
-          .issues
-      ).toEqual([{ message: `Unknown key: ${carrier}`, path: [carrier] }]);
-      // Scoped to the bound key, never the whole model: the target's own
-      // scalars stay spellable.
-      expect(
-        parse(projection.getCreateSchema(), { id: "kept" }).issues
-      ).toBeUndefined();
-    }
-  );
+  ] as const)("%s omits the EXACT carrier relation key", (_label, schema, model, field, targetKey) => {
+    const projection = projectionFor(
+      schema as Record<string, AnyModel>,
+      model,
+      field,
+      targetKey
+    );
+    const carrier = targetKey === "owner" ? "items" : "mark";
+    expect(omittedKeys(projection.getCreateSchema())).toEqual([carrier]);
+    expect(omittedKeys(projection.getUpdateSchema())).toEqual([carrier]);
+    // The consequence: the enclosing step already fixes this membership, so a
+    // spelled carrier key is a second provenance and is refused as unknown.
+    expect(
+      parse(projection.getCreateSchema(), { id: "seed", [carrier]: {} }).issues
+    ).toEqual([{ message: `Unknown key: ${carrier}`, path: [carrier] }]);
+    // Scoped to the bound key, never the whole model: the target's own
+    // scalars stay spellable.
+    expect(
+      parse(projection.getCreateSchema(), { id: "kept" }).issues
+    ).toBeUndefined();
+  });
 
   test("an inverse of a stored reference omits the exact foreign-key columns", () => {
     const projection = projectionFor(ordinarySchema, author, "books", "book");

@@ -145,8 +145,14 @@ async function boot(batch = false) {
   const family = getFamily();
   await family.reset();
   const driver = batch
-    ? new BatchOnlyRecordingDriver({ client: family.database })
-    : new RecordingPGliteDriver({ client: family.database });
+    ? new BatchOnlyRecordingDriver({
+        client: family.database,
+        namespace: family.namespace,
+      })
+    : new RecordingPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
   const client = createClient({ schema, driver });
   await client.author.create({ data: { id: 1, name: "A" } });
   await client.author.create({ data: { id: 2, name: "B" } });
@@ -453,7 +459,7 @@ describe("the link IN-list fold — statement traffic", () => {
   });
 
   test("the folded M2M connect is still idempotent", async () => {
-    const { driver, client } = await boot();
+    const { client } = await boot();
     await client.author.update({
       where: { id: 1 },
       data: { labels: { connect: [{ id: 30 }, { id: 31 }] } },

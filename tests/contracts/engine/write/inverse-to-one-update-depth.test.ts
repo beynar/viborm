@@ -290,14 +290,20 @@ async function state(client: Client) {
 }
 
 for (const substrate of ["transaction", "atomic batch"] as const) {
-  const makeDriver = (database: PGlite) =>
+  const makeDriver = (family: ReturnType<typeof getFamily>) =>
     substrate === "transaction"
-      ? new PGliteDriver({ client: database })
-      : new BatchOnlyPGliteDriver({ client: database });
+      ? new PGliteDriver({
+          client: family.database,
+          namespace: family.namespace,
+        })
+      : new BatchOnlyPGliteDriver({
+          client: family.database,
+          namespace: family.namespace,
+        });
 
   describe(`E2-U1 inverse-side to-one update with relations (${substrate})`, () => {
     test("folds a deeper create against the located target", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: {
@@ -324,7 +330,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("folds a junction edge one level deeper", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: { profile: { update: { labels: { connect: { id: "l1" } } } } },
@@ -343,7 +349,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("folds a four-level tree (the created note carries its own attachment)", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: {
@@ -373,7 +379,11 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a relation-only payload writes no target row", async () => {
-      const driver = new RecordingBatchDriver({ client: getFamily().database });
+      const family = getFamily();
+      const driver = new RecordingBatchDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
       const client = await setup(driver);
       driver.recording = true;
       await client.user.update({
@@ -398,7 +408,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a deeper targeted update reaches only this parent's rows", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: {
@@ -423,7 +433,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a deeper targeted update naming the DECOY's row aborts", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await expect(
         client.user.update({
           where: { id: "owner" },
@@ -456,7 +466,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a parent with no connected target aborts before any deeper write", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.create({ data: { id: "lonely", name: "lonely" } });
       await expect(
         client.user.update({
@@ -483,7 +493,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
    */
   describe(`PACKAGE G inverse-side to-one UPSERT arm with relations (${substrate})`, () => {
     test("the FOUND arm folds a deeper create against the located target", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: {
@@ -513,7 +523,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a grandchild edge on the FOUND arm lands under the located note", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.update({
         where: { id: "owner" },
         data: {
@@ -553,7 +563,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
      * creating.
      */
     test("the MISSING arm creates and runs none of the update subtree", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await client.user.create({ data: { id: "lonely", name: "lonely" } });
       await client.user.update({
         where: { id: "lonely" },
@@ -587,7 +597,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("the missing arm leaves nested updateMany inert and the found arm executes it on both substrates", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       const nestedSeriesUpdate = {
         notes: {
           updateMany: {
@@ -643,7 +653,11 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("an empty found update writes nothing at all", async () => {
-      const driver = new RecordingBatchDriver({ client: getFamily().database });
+      const family = getFamily();
+      const driver = new RecordingBatchDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
       const client = await setup(driver);
       driver.recording = true;
       await client.user.update({
@@ -655,11 +669,12 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         },
       });
       driver.recording = false;
+      const profiles = `"${family.namespace}"."e2u1_profiles"`;
       expect(
         driver.statements.filter(
           (sql) =>
-            sql.startsWith('UPDATE "public"."e2u1_profiles"') ||
-            sql.startsWith('INSERT INTO "public"."e2u1_profiles"')
+            sql.startsWith(`UPDATE ${profiles}`) ||
+            sql.startsWith(`INSERT INTO ${profiles}`)
         )
       ).toEqual([]);
       await expect(state(client)).resolves.toMatchObject({
@@ -671,7 +686,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
     }, 30_000);
 
     test("a deeper targeted update on the FOUND arm naming the DECOY's row aborts", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(makeDriver(getFamily()));
       await expect(
         client.user.update({
           where: { id: "owner" },
@@ -710,7 +725,11 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
 
 describe("E2-U1 batch ordering: the child Parts compile under the presence guard", () => {
   test("the located-target guard precedes every deeper write in the unit", async () => {
-    const driver = new RecordingBatchDriver({ client: getFamily().database });
+    const family = getFamily();
+    const driver = new RecordingBatchDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = await setup(driver);
     driver.recording = true;
     await client.user.update({
@@ -734,10 +753,10 @@ describe("E2-U1 batch ordering: the child Parts compile under the presence guard
         sql.includes("__viborm_assert__") && sql.includes("e2u1_profiles")
     );
     const selfUpdate = driver.statements.findIndex((sql) =>
-      sql.startsWith('UPDATE "public"."e2u1_profiles"')
+      sql.startsWith(`UPDATE "${family.namespace}"."e2u1_profiles"`)
     );
     const deeperInsert = driver.statements.findIndex((sql) =>
-      sql.startsWith('INSERT INTO "public"."e2u1_notes"')
+      sql.startsWith(`INSERT INTO "${family.namespace}"."e2u1_notes"`)
     );
     expect(guard).toBeGreaterThanOrEqual(0);
     expect(selfUpdate).toBeGreaterThan(guard);
@@ -759,8 +778,8 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
   } as const;
 
   test("the transaction leg follows the PROBE's returned key, not the correlation", async () => {
-    const db = getFamily().database;
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
+    const { database: db, namespace } = getFamily();
+    const stateClient = makeClient(new PGliteDriver({ client: db, namespace }));
     await seed(stateClient);
     // The probe hands back the DECOY profile's key — a live value, so no constraint can
     // catch it, and one no correlation would ever produce (`p-decoy` carries
@@ -768,7 +787,7 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
     // re-derived from the correlation rather than consumed from the located row.
     const client = makeClient(
       new CorruptProbePGliteDriver(
-        { client: db },
+        { client: db, namespace },
         {
           table: "e2u1_profiles",
           column: "id",
@@ -791,8 +810,8 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
   }, 30_000);
 
   test("the atomic batch re-checks the located key against the correlation and aborts", async () => {
-    const db = getFamily().database;
-    const stateClient = makeClient(new PGliteDriver({ client: db }));
+    const { database: db, namespace } = getFamily();
+    const stateClient = makeClient(new PGliteDriver({ client: db, namespace }));
     await seed(stateClient);
     // Same corruption, other substrate. The presence guard re-asserts
     // `fk = parent AND pk = <located>` on ONE row, so a located key belonging to another
@@ -800,7 +819,7 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
     // reason blind to provenance, which is why the claim above is measured there.
     const client = makeClient(
       new CorruptProbeBatchDriver(
-        { client: db },
+        { client: db, namespace },
         {
           table: "e2u1_profiles",
           column: "id",
@@ -825,8 +844,10 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
 
   for (const substrate of ["transaction", "atomic batch"] as const) {
     test(`a probe row without the located key fails closed at planning (${substrate})`, async () => {
-      const db = getFamily().database;
-      const stateClient = makeClient(new PGliteDriver({ client: db }));
+      const { database: db, namespace } = getFamily();
+      const stateClient = makeClient(
+        new PGliteDriver({ client: db, namespace })
+      );
       await seed(stateClient);
       // The deeper edges Ref a DECLARED `firstRowField` output of the probe, not a raw
       // row read — which is what makes an absent value a typed planning failure before
@@ -838,8 +859,8 @@ describe("E2-U1 provenance: the deeper key comes from the row the probe locked",
       };
       const client = makeClient(
         substrate === "transaction"
-          ? new CorruptProbePGliteDriver({ client: db }, config)
-          : new CorruptProbeBatchDriver({ client: db }, config)
+          ? new CorruptProbePGliteDriver({ client: db, namespace }, config)
+          : new CorruptProbeBatchDriver({ client: db, namespace }, config)
       );
       await expect(client.user.update(deepCreate)).rejects.toThrow(
         UNRESOLVED_LOCATED_PK
@@ -866,7 +887,11 @@ describe("E2-U1 the carve-outs that stay refused", () => {
    * runs on both substrates. What remains here is the second carve-out's two halves.
    */
   test("a primary-key transition with an OCCUPIED old slot is refused by the occupied guard", async () => {
-    const driver = new RecordingBatchDriver({ client: getFamily().database });
+    const family = getFamily();
+    const driver = new RecordingBatchDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = await setup(driver);
     driver.recording = true;
     // RETARGETED BY PACKAGE D2. This payload used to be refused at CONSTRUCTION by
@@ -912,7 +937,11 @@ describe("E2-U1 the carve-outs that stay refused", () => {
   }, 30_000);
 
   test("D2 LIFT: with the old slot empty, the transition compiles and the deeper create takes the NEW key", async () => {
-    const driver = new RecordingBatchDriver({ client: getFamily().database });
+    const family = getFamily();
+    const driver = new RecordingBatchDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = await setup(driver);
     // The half the deleted construction-time refusal could never reach: the profile
     // has no notes, so nothing is stranded, and the payload is exactly compilable.

@@ -25,12 +25,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import { createClientOmitResolver } from "@client/omit";
-import { PGliteDriver } from "@drivers/pglite";
 import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { describe, expect, test } from "vitest";
 
@@ -104,7 +104,10 @@ describe("one resolution, one index", () => {
   });
 
   test("the same composition answers a relation-bearing query", async () => {
-    const plain = createClient({ schema, driver: new PGliteDriver() });
+    const plain = createClient({
+      schema,
+      driver: new PlanningDriver("postgresql"),
+    });
     const sql = plain.post
       .findMany({ include: { author: true } })
       .buildStatement()
@@ -115,7 +118,7 @@ describe("one resolution, one index", () => {
     // the same read now projects the author without its hidden column.
     const hidden = createClient({
       schema,
-      driver: new PGliteDriver(),
+      driver: new PlanningDriver("postgresql"),
     }).$extends(defaultOmit<typeof schema>()({ author: { secret: true } }));
     const hiddenSql = hidden.post
       .findMany({ include: { author: true } })

@@ -1,15 +1,14 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { windowUserPostSchema } from "@tests/fixtures/user-post-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 // Enum-carrying model for in/notIn parity checks (the shared user/post
 // fixture has no enum column).

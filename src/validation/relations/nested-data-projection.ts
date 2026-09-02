@@ -39,17 +39,20 @@ import type { GetTargetSchemas, SchemaGetter } from "./helpers";
  *  - `none` — the asking slot holds the membership itself, or the graph is
  *    unproven. Nothing on the target row is derived, so nothing is omitted.
  */
-type OwnershipKind<Source extends AnyModel, Key, S extends RelationState> =
-  StaticResolvedMembership<Source, Key, S> extends infer Membership
-    ? Membership extends {
-        readonly kind: "foreignKey";
-        readonly owner: "inverse";
-      }
-      ? "columns"
-      : Membership extends { readonly kind: "variantInverse" }
-        ? "carrier"
-        : "none"
-    : never;
+type OwnershipKind<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = StaticResolvedMembership<Source, Key, S> extends infer Membership
+  ? Membership extends {
+      readonly kind: "foreignKey";
+      readonly owner: "inverse";
+    }
+    ? "columns"
+    : Membership extends { readonly kind: "variantInverse" }
+      ? "carrier"
+      : "none"
+  : never;
 
 /**
  * The keys of the TARGET's schemas that the enclosing step already owns.
@@ -125,16 +128,18 @@ type SelectedUpsertUpdate<
   Source extends AnyModel,
   Key,
   S extends RelationState,
-> =
-  OwnershipKind<Source, Key, S> extends "carrier"
-    ? GetTargetSchemas<S>["core"]["update"]
-    : UpdateWithOwnedKeysOmitted<Source, Key, S>;
+> = OwnershipKind<Source, Key, S> extends "carrier"
+  ? GetTargetSchemas<S>["core"]["update"]
+  : UpdateWithOwnedKeysOmitted<Source, Key, S>;
 
 /** The update arm of a to-many `upsert` under a CREATE root. */
-type CreateUpsertUpdate<Source extends AnyModel, Key, S extends RelationState> =
-  OwnershipKind<Source, Key, S> extends "columns"
-    ? GetTargetSchemas<S>["core"]["update"]
-    : UpdateWithOwnedKeysOmitted<Source, Key, S>;
+type CreateUpsertUpdate<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = OwnershipKind<Source, Key, S> extends "columns"
+  ? GetTargetSchemas<S>["core"]["update"]
+  : UpdateWithOwnedKeysOmitted<Source, Key, S>;
 
 // =============================================================================
 // THE PROJECTION — one alias, one instantiation per relation

@@ -35,44 +35,13 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `decimal-having-sql-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // SQL-only driver: no external client is allocated.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const ledger = s
   .model({
@@ -146,7 +115,7 @@ const build = (
   args: Record<string, unknown>
 ): Built => {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  const engine = new QueryEngine(new MockDriver(adapter, dialect), registry);
+  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
   const query = engine.build(ledger, operation, args);
   return { statement: query.toStatement("$n"), values: query.values };
 };

@@ -31,7 +31,7 @@ type DirectionOrderBy = Pick<DatabaseAdapter["orderBy"], "asc" | "desc">;
 
 type NumericSetOperations = Pick<
   DatabaseAdapter["set"],
-  "assign" | "increment" | "decrement" | "multiply" | "divide"
+  "assign" | "increment" | "decrement"
 >;
 
 type MutationCommands = Pick<DatabaseAdapter["mutations"], "update" | "delete">;
@@ -197,8 +197,6 @@ export const createNumericSetOperations = (): NumericSetOperations => ({
   assign: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
   increment: (column: Sql, by: Sql): Sql => sql`${column} = ${column} + ${by}`,
   decrement: (column: Sql, by: Sql): Sql => sql`${column} = ${column} - ${by}`,
-  multiply: (column: Sql, by: Sql): Sql => sql`${column} = ${column} * ${by}`,
-  divide: (column: Sql, by: Sql): Sql => sql`${column} = ${column} / ${by}`,
 });
 
 export const createRelationFilters = (): DatabaseAdapter["filters"] => ({

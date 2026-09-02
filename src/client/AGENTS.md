@@ -401,7 +401,8 @@ contract in `transactionOptionSupport()`; the resolver in
 `src/drivers/shared/transaction-options.ts` turns that into either an executable
 plan or a typed refusal — `UnsupportedOperationError` (V8003) for an option this
 driver cannot honor, `TransactionError` (V5005) for a malformed options object.
-`tests/drivers/transaction-portability.test.ts` pins every driver × option cell.
+`tests/contracts/drivers/transaction-portability.core.test.ts` pins every
+driver × option cell.
 See [Transactions](../../docs/content/docs/client/transactions.mdx) for the
 per-driver table.
 
@@ -445,6 +446,35 @@ The legacy, observe-only, and intercepted shells keep their preparation and
 result-window loops local: extracting those measured hot loops adds per-member
 CPU and per-array allocation. Keep the unextended legacy shell monomorphic and
 free of extension slots, outcome collectors, and async helper frames.
+
+## Coverage Gate
+
+`pnpm test:coverage:client` is the exact client-subsystem report. Its enforced
+floors are 96% statements, 94% branches, 96% functions and 96% lines, and it
+writes `coverage/client/index.html`.
+
+Those floors are an APPROVED EXCEPTION with recorded evidence, not a silent
+shortfall from 100 and not some lane-wide 98. The residual is capped by
+unreachable defensive code rather than by missing tests: it is dominated by
+`default:` arms over closed unions and by seven functions with no public
+caller - `client.ts`'s
+`get clientId()` among them, since the `VibORM` class is not exported from
+`src/index.ts` - and each was verified against its upstream invariant.
+`scripts/coverage-policy.mjs` holds that reasoning and enforces the floors, and
+`scripts/merge-coverage.mjs` prints every measured metric beside the floor it
+enforces. Each floor is a ratchet: a real regression still fails.
+
+`scripts/client-test-manifest.mjs` admits every flat public-client core contract
+and only audited extended contracts that do not connect or own provider
+resources. Provider execution remains in the extended and provider projects.
+
+`pnpm test:layer:client` is the fast gate, and it is the one layer command with a
+45-second wall budget rather than 30. The client compile-only estate cannot be a
+single tsc program at the 1280 MB shard heap, so `scripts/run-layer-core.mjs`
+chunks it into three, and three tsc startups plus the runtime stage do not fit in
+30 seconds. The exception buys wall time only: the 768 / 1280 / 1536 MiB memory
+contract is unchanged, which is exactly why time was the lever. Trim the estate
+back under two programs and this returns to 30.
 
 ---
 

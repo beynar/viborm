@@ -1,13 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * X1 — THE DEPTH LIFT. A nested `create` under a LOCATED target may now carry its
@@ -48,13 +46,8 @@ const tree = (() => {
   return { node };
 })();
 
-function makeClient(db: PGlite) {
-  return createClient({
-    schema: tree as never,
-    driver: new PGliteDriver({ client: db }),
-  });
-}
-type AnyClient = ReturnType<typeof makeClient>;
+const getTreeFamily = usePGliteSchemaFamily(tree);
+type AnyClient = Record<string, any>;
 
 async function runObserved(
   substrate: "tx" | "batch",
@@ -62,21 +55,23 @@ async function runObserved(
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
-  const base = makeClient(db);
-  await syncLiveSchema(base as never);
+  const family = getTreeFamily();
+  const base = family.client as AnyClient;
   await seed(base);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the same Postgres schema the family provisioned; otherwise it would
+  // address `public`, where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema: tree as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(base);
-  await base.$disconnect();
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),

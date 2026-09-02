@@ -1,9 +1,9 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { describe, expect, test } from "vitest";
 import { Driver, TransactionBoundDriver } from "@src/drivers/driver";
 import { SavepointQueue } from "@src/drivers/savepoint-queue";
 import type { QueryResult } from "@src/drivers/types";
+import { describe, expect, test } from "vitest";
 
 describe("SavepointQueue", () => {
   test("executes single operation immediately", async () => {

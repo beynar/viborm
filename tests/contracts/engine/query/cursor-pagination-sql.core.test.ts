@@ -2,9 +2,12 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
+import { buildFindPagination } from "@query-engine/operations/find-pagination";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { hydrateSchemaNames, s } from "@schema";
+import { s } from "@schema";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -13,46 +16,6 @@ const CURSOR_ZERO_REGEX = /__viborm_cursor_0/g;
 const CURSOR_ONE_REGEX = /__viborm_cursor_1/g;
 const CURSOR_TWO_REGEX = /__viborm_cursor_2/g;
 const CURSOR_ALIAS_DECLARATION_REGEX = /AS ["`]__viborm_cursor_\d+["`]/g;
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(adapter: DatabaseAdapter, dialect: Dialect) {
-    super(dialect, `cursor-sql-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // No external client is allocated by this SQL-only driver.
-  }
-
-  protected async execute<T>(
-    _client: null,
-    _statement: string,
-    _params: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(
-    _client: null,
-    _statement: string,
-    _params?: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const User = s
   .model({
@@ -111,7 +74,7 @@ const dialectCases: DialectCase[] = [
   },
 ];
 
-beforeAll(() => hydrateSchemaNames(schema));
+beforeAll(() => prepareSchema(schema));
 
 describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
   test("one normalized order drives ORDER BY and one derived cursor row", () => {
@@ -367,11 +330,60 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
   });
 });
 
+describe("find pagination fallback planning", () => {
+  test("reverses every nested fallback item without interpreting its shape", () => {
+    const plan = buildFindPagination(
+      scopeFor(new PostgresAdapter(), User),
+      {
+        orderBy: [
+          { posts: { _count: "asc" } },
+          {
+            posts: {
+              rank: { sort: "desc", nulls: "first" },
+              opaque: 7,
+            },
+          },
+        ],
+      },
+      -2,
+      "t0"
+    );
+
+    expect(plan.normalizedOrder).toBeUndefined();
+    expect(plan.cursorCondition).toBeUndefined();
+    expect(plan.orderBy).toEqual([
+      { posts: { _count: "desc" } },
+      {
+        posts: {
+          rank: { sort: "asc", nulls: "last" },
+          opaque: 7,
+        },
+      },
+    ]);
+  });
+
+  describe("coverage low value: validated pagination numbers", () => {
+    test("fails closed when called below the public validation boundary", () => {
+      const scope = scopeFor(new PostgresAdapter(), User);
+
+      expect(() => buildFindPagination(scope, {}, 1.5, "t0")).toThrow(
+        "Pagination take must be an integer"
+      );
+      expect(() =>
+        buildFindPagination(scope, { skip: 1.5 }, undefined, "t0")
+      ).toThrow("Pagination skip must be an integer");
+      expect(() =>
+        buildFindPagination(scope, { skip: -1 }, undefined, "t0")
+      ).toThrow("Pagination skip must be greater than or equal to 0");
+    });
+  });
+});
+
 function createEngine(dialectCase: DialectCase): QueryEngine {
   const adapter = dialectCase.createAdapter();
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
   return new QueryEngine(
-    new MockDriver(adapter, dialectCase.dialect),
+    new SqlOnlyDriver(adapter, dialectCase.dialect),
     registry
   );
 }

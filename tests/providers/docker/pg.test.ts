@@ -1,7 +1,17 @@
 /**
  * pg Driver Tests (node-postgres)
  *
- * Tests the pg driver implementation.
+ * The real-driver boundary: driver construction, raw SQL, pooled transactions,
+ * client integration, batch failure attribution, real parameter serialization
+ * for scalars, decimals, blobs and arrays, GeoPoint geometry with its PostGIS
+ * index, and the pgvector leg.
+ *
+ * One program per file has to fit the 1280 MB TypeScript shard heap, and the
+ * type inference a behavior module's schemas force is what that heap holds, so
+ * this suite is split by schema across `pg*.test.ts`. Every piece keeps the
+ * `pg Driver` describe and its drop-everything `beforeEach`, so test names and
+ * per-test lifecycle are unchanged.
+ *
  * NOTE: These tests require a running PostgreSQL database.
  * Skip in CI unless PostgreSQL is available.
  */
@@ -9,77 +19,25 @@
 import { VibORM } from "@client/client";
 import { createClient as PgCreateClient, PgDriver } from "@drivers/pg";
 import { UniqueConstraintError } from "@errors";
-
 import { s } from "@schema";
-import { batchPrimaryKeyDataflowContract } from "@tests/contracts/drivers/behaviors/batch-primary-key-dataflow-behavior";
 import { blobFilterContract } from "@tests/contracts/drivers/behaviors/blob-filter-behavior";
-import { bulkWriteLimitContract } from "@tests/contracts/drivers/behaviors/bulk-write-limit-behavior";
-import { clientRawContract } from "@tests/contracts/drivers/behaviors/client-raw-behavior";
-import { compoundJunctionContract } from "@tests/contracts/drivers/behaviors/compound-junction-behavior";
-import { createManyReturnFoldContract } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
 import { decimalExactnessContract } from "@tests/contracts/drivers/behaviors/decimal-exactness-behavior";
 import { fieldReferenceContract } from "@tests/contracts/drivers/behaviors/field-reference-behavior";
-import { fkIndexContract } from "@tests/contracts/drivers/behaviors/fk-index-behavior";
-import { forwardFkOrderingContract } from "@tests/contracts/drivers/behaviors/forward-fk-ordering-behavior";
 import { geoPointContract } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
 import { geoPointMigrationLifecycleContract } from "@tests/contracts/drivers/behaviors/geopoint-migration-lifecycle-behavior";
 import { geoPointPostgresIndexContract } from "@tests/contracts/drivers/behaviors/geopoint-postgres-index-behavior";
-import {
-  mappedIndexContract,
-  partialIndexPredicateChurnContract,
-} from "@tests/contracts/drivers/behaviors/index-ddl-behavior";
 import { jsonNullSentinelContract } from "@tests/contracts/drivers/behaviors/json-null-sentinel-behavior";
 import { listJsonFilterContract } from "@tests/contracts/drivers/behaviors/list-json-filter-behavior";
-import { m2mDeleteManyStalenessContract } from "@tests/contracts/drivers/behaviors/m2m-deletemany-staleness-behavior";
-import { nestedOrderByContract } from "@tests/contracts/drivers/behaviors/nested-orderby-behavior";
-import { nestedWriteAdvancedContract } from "@tests/contracts/drivers/behaviors/nested-write-advanced-behavior";
-import { nestedWriteContract } from "@tests/contracts/drivers/behaviors/nested-write-behavior";
-import { nestedWriteConcurrencyContract } from "@tests/contracts/drivers/behaviors/nested-write-concurrency-behavior";
-import { omitContract } from "@tests/contracts/drivers/behaviors/omit-behavior";
-import { polymorphicCollectionReadContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior";
-import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior";
-import { polymorphicMemberJunctionContract } from "@tests/contracts/drivers/behaviors/polymorphic-member-junction-behavior";
-import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
-import { rawArrayTransactionContract } from "@tests/contracts/drivers/behaviors/raw-array-transaction-behavior";
-import { relationReadAggregateContract } from "@tests/contracts/drivers/behaviors/relation-read-aggregate-behavior";
 import {
   fullScalarRoundtripContract,
   scalarRoundtripContract,
 } from "@tests/contracts/drivers/behaviors/scalar-roundtrip-behavior";
-import { upsertAtomicityContract } from "@tests/contracts/drivers/behaviors/upsert-atomicity-behavior";
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
-import { runBooleanNoOpArmBehavior } from "@tests/contracts/engine/write/boolean-noop-arm-behavior";
-import { runBulkWriteBehavior } from "@tests/contracts/engine/write/bulk-write-behavior";
-import { runCreateManyBehavior } from "@tests/contracts/engine/write/create-many-behavior";
-import { runCreateNestedUpsertBehavior } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { runDepthSeamBehavior } from "@tests/contracts/engine/write/depth-seam-behavior";
-import { runExtendedWhereUniqueBehavior } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { runInverseToOneCreateBehavior } from "@tests/contracts/engine/write/inverse-to-one-create-behavior";
-import { runJunctionCreateManyBehavior } from "@tests/contracts/engine/write/junction-create-many-behavior";
-import { runLocatedParentRefBehavior } from "@tests/contracts/engine/write/located-parent-ref-behavior";
-import { runNestedMutationBehavior } from "@tests/contracts/engine/write/nested-mutation-behavior";
-import { runOwnWriteLinearizationBehavior } from "@tests/contracts/engine/write/own-write-linearization-behavior";
-import {
-  runBeforeRootSubtreeBehavior,
-  runNonPkReferenceBehavior,
-  runParentHeldLookupBehavior,
-  runUpsertArmRelationBehavior,
-} from "@tests/contracts/engine/write/parent-held-lookup-behavior";
-import { runPostTransitionAdoptBehavior } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
-import { runProducedIdentityBehavior } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { runReadBehavior } from "@tests/contracts/engine/write/read-behavior";
-import { runToOneUpdateWhereBehavior } from "@tests/contracts/engine/write/to-one-update-where-behavior";
-import { runUpdateFamilyBehavior } from "@tests/contracts/engine/write/update-family-behavior";
-import { runUpdateNestedUpsertBehavior } from "@tests/contracts/engine/write/update-nested-upsert-behavior";
-import { runUpsertFamilyBehavior } from "@tests/contracts/engine/write/upsert-family-behavior";
-import {
-  PgBatchForcedDriver,
-  PgBeforeFirstBatchDriver,
-  PgBeforeFirstWriteBatchDriver,
-  PgRacePlantingBatchDriver,
-} from "@tests/fixtures/drivers/batch-forced-pg";
-
+import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 // =============================================================================
 // SCHEMA DEFINITION
@@ -128,16 +86,8 @@ async function setupDatabase(driver: PgDriver) {
   await driver._executeRaw(`DELETE FROM "pg_test_users"`);
 }
 
-// =============================================================================
-// TESTS
-// =============================================================================
-
-// Skip tests if no PostgreSQL connection is available
-const TEST_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
 const PGVECTOR_TEST_CONNECTION_STRING =
   process.env.PGVECTOR_TEST_CONNECTION_STRING;
-const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
-
 function requirePgvectorConnectionString(): string {
   if (!PGVECTOR_TEST_CONNECTION_STRING) {
     throw new Error("PGVECTOR_TEST_CONNECTION_STRING is required.");
@@ -150,15 +100,7 @@ describeIf("pg Driver", () => {
   // database. PostgreSQL persists between tests, so drop everything first:
   // pushing an empty schema diffs to dropTable for every existing table.
   // (Same pattern as mysql2.test.ts.)
-  beforeEach(async () => {
-    const cleanupClient = PgCreateClient({
-      schema: {},
-      databaseUrl: TEST_CONNECTION_STRING,
-      postgis: true,
-    });
-    await syncLiveSchema(cleanupClient);
-    await cleanupClient.$disconnect();
-  });
+  beforeEach(dropEveryLiveTable);
 
   geoPointContract.register({
     driverName: "pg",
@@ -168,6 +110,7 @@ describeIf("pg Driver", () => {
     rawSelectSql:
       'SELECT "location" FROM "geopoint_behavior_places" WHERE "id" = \'raw\'',
   });
+
   geoPointMigrationLifecycleContract.register({
     driverName: "pg",
     createDriver: () =>
@@ -175,6 +118,7 @@ describeIf("pg Driver", () => {
     physicalType: "geography(Point,4326)",
     physicalIndexType: "gist",
   });
+
   geoPointPostgresIndexContract.register({
     driverName: "pg",
     createDriver: () =>
@@ -537,110 +481,12 @@ describeIf("pg Driver", () => {
     });
   });
 
-  // E1 — the parent-held to-one absorptions on the REAL PostgreSQL server rather
-  // than the WASM one: the lookup subquery and the produced identity both travel
-  // through the pool's own RETURNING handling here.
-  runParentHeldLookupBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runBeforeRootSubtreeBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runUpsertArmRelationBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runNonPkReferenceBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  fkIndexContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  mappedIndexContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  compoundJunctionContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  polymorphicMemberJunctionContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  // Decision 7.4 on the real server rather than the WASM one: the deparse this
-  // reconciles is PostgreSQL's, and `pg` reaches it through a POOL, where the
-  // canonicalization's session-local scratch would scatter across connections
-  // if it were not pinned to one.
-  partialIndexPredicateChurnContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  forwardFkOrderingContract.register({
-    driverName: "pg (tx)",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  forwardFkOrderingContract.register({
-    driverName: "pg (batch)",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Real multi-connection driver: the concurrent upsert tests in this suite
-  // genuinely race two transactions, unlike single-session PGlite.
-  upsertAtomicityContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // M8 (§7.4, D7): the write-race retry unified above selectMode. Two real
-  // connections genuinely race; the batch-forced sibling exercises the PlannedMode
-  // converge-on-rerun that batch-only drivers lacked. Only runnable with a real
-  // multi-connection database, hence its home here.
-  nestedWriteConcurrencyContract.register({
-    driverName: "pg",
-    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createBatchDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createRacePlantingBatchDriver: ({ plant, onBatchError }) =>
-      new PgRacePlantingBatchDriver(plant, onBatchError, {
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-    // §9.4/§13.4: the singular polymorphic slot transfer's two-adopter
-    // arbitration. The hook has to sit at the ATOMIC WRITE UNIT's boundary, not
-    // the first batch's: this plan's independent planning reads are dispatched
-    // as a batch of their own, so the earlier boundary would fire before the
-    // owner capture instead of after it.
-    createCapturedPlanBatchDriver: ({ beforeFirstWriteBatch, onBatchError }) =>
-      new PgBeforeFirstWriteBatchDriver(beforeFirstWriteBatch, onBatchError, {
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-  });
-
-  // M9 (§9, §5.5 Rule 3): the filtered-M2M-deleteMany staleness guards close the
-  // plan-time→execution window fail-closed. A member added on a real second
-  // connection after the plan-time read aborts the guard (raceable); the retry
-  // re-plans and converges. Docker-gated for the same reason as M8.
-  m2mDeleteManyStalenessContract.register({
-    driverName: "pg",
-    createTxDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-    createStalePlanBatchDriver: ({ beforeFirstBatch, onBatchError }) =>
-      new PgBeforeFirstBatchDriver(beforeFirstBatch, onBatchError, {
-        databaseUrl: TEST_CONNECTION_STRING,
-      }),
-  });
-
   // Real pg param serialization for native array columns (array_cat push etc.)
   listJsonFilterContract.register({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });
+
   jsonNullSentinelContract.register({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
@@ -672,246 +518,6 @@ describeIf("pg Driver", () => {
   });
 
   fullScalarRoundtripContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Nested writes over real pooled connections (transactions span checkouts)
-  nestedWriteContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  nestedWriteAdvancedContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Raw-string $queryRaw params and sql`` rendering go through the real pg
-  // wire protocol here ($n placeholders), unlike the PGlite in-memory run.
-  clientRawContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  rawArrayTransactionContract.register({
-    name: "Docker PostgreSQL",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Relation _count / relation orderBy / every-none read filters over the
-  // real driver (correlated-subquery results cross real result parsing).
-  relationReadAggregateContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  nestedOrderByContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  omitContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  polymorphicRelationContract.register({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  polymorphicCollectionReadContract.register({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  polymorphicCollectionWriteContract.register({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runCreateNestedUpsertBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runCreateNestedUpsertBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  batchPrimaryKeyDataflowContract.register({
-    driverName: "pg batch-only",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runUpdateNestedUpsertBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runUpdateNestedUpsertBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runUpdateFamilyBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runUpdateFamilyBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runLocatedParentRefBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runLocatedParentRefBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runInverseToOneCreateBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runInverseToOneCreateBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runDepthSeamBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runDepthSeamBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runProducedIdentityBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runProducedIdentityBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runOwnWriteLinearizationBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runOwnWriteLinearizationBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runBooleanNoOpArmBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runBooleanNoOpArmBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runPostTransitionAdoptBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runPostTransitionAdoptBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runJunctionCreateManyBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runJunctionCreateManyBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runExtendedWhereUniqueBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runExtendedWhereUniqueBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runToOneUpdateWhereBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runToOneUpdateWhereBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runUpsertFamilyBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runUpsertFamilyBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runNestedMutationBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runNestedMutationBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  runReadBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runBulkWriteBehavior({
-    name: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runCreateManyBehavior({
-    name: "pg transaction",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  // Phase 7.2: the multi-row `INSERT … RETURNING` fold, on the real PostgreSQL
-  // whose implementation order the fold trusts (PGlite is the same engine in
-  // WASM; this is the leg that runs it over the wire).
-  createManyReturnFoldContract.register({
-    driverName: "pg",
-    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-  runCreateManyBehavior({
-    name: "pg atomic batch",
-    createDriver: () =>
-      new PgBatchForcedDriver({ databaseUrl: TEST_CONNECTION_STRING }),
-  });
-
-  // Bulk-write `limit` IS wired here, unlike the adapter-level suites below:
-  // its PostgreSQL form nests a bound `LIMIT` inside a subquery inside an
-  // UPDATE's WHERE, after the SET's own bound values — a parameter ORDERING
-  // this file's charter (param serialization on the real driver) covers and
-  // PGlite's in-process binding does not fully stand in for.
-  bulkWriteLimitContract.register({
     driverName: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

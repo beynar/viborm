@@ -78,7 +78,7 @@ export const withCacheSchema = v.object(
     ttl: v.coerce(
       v.optional(v.union([v.string(), v.number()]), DEFAULT_CACHE_TTL),
       (value: string | number) => {
-        return parseTTL(value ?? DEFAULT_CACHE_TTL);
+        return parseTTL(value);
       }
     ),
     /**

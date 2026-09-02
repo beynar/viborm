@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import type { Model } from "@schema/model";
@@ -19,7 +19,6 @@ import {
 import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // A batch-only driver that runs a mutation on the same DB just before the atomic
 // batch commits — the staleness injection (a concurrent writer moved committed
@@ -126,17 +125,24 @@ interface Scenario {
 }
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
+  // The suite's private schema on the worker-shared database — every driver
+  // built over `db` must be given it or it addresses an empty `public`.
+  const namespace = family.namespace;
   // The seed/dump client is a plain default client on the same DB. State is
   // state; which boundary reads/seeds does not change the persisted rows.
   const base = createClient({
     schema: scenario.schema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await scenario.seed(base);
 
@@ -149,14 +155,14 @@ async function runArm(
       // tx/batch arms wrap the same boundary in the routing proxy).
       const reference = createClient({
         schema: scenario.schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       result = await scenario.act(reference);
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       const observed = observeClientOperations({
         schema: scenario.schema,
         driver,
@@ -583,12 +589,13 @@ const extensionScenarios: Scenario[] = [
   },
 ];
 
+const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
+const getDeepFamily = usePGliteSchemaFamily(deepSchema);
+const getManyToManyFamily = usePGliteSchemaFamily(m2m);
+const getCompoundFamily = usePGliteSchemaFamily(compound);
+const getNestedWriteFamily = usePGliteSchemaFamily(nb);
+
 describe("write boundary create family dual-run oracle (Direct vs Observed tx vs Observed batch)", () => {
-  const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
-  const getDeepFamily = usePGliteSchemaFamily(deepSchema);
-  const getManyToManyFamily = usePGliteSchemaFamily(m2m);
-  const getCompoundFamily = usePGliteSchemaFamily(compound);
-  const getNestedWriteFamily = usePGliteSchemaFamily(nb);
   const familyFor = (schema: Scenario["schema"]) => {
     if (schema === opf) return getOperationFragmentFamily();
     if (schema === deepSchema) return getDeepFamily();
@@ -625,10 +632,9 @@ describe("write boundary create family dual-run oracle (Direct vs Observed tx vs
 });
 
 describe("write boundary create family extension class (P−1.2 superset; the single boundary adopts)", () => {
-  const getFamily = usePGliteSchemaFamily(opf);
   for (const scenario of extensionScenarios) {
     test(scenario.name, { timeout: 45_000 }, async () => {
-      const family = getFamily();
+      const family = getOperationFragmentFamily();
       const tx = await runArm(family, "observed-tx", scenario);
       const batch = await runArm(family, "observed-batch", scenario);
 
@@ -658,12 +664,13 @@ describe("write boundary create family extension class (P−1.2 superset; the si
 
 describe("write boundary create family staleness (batch non-elided connect pins)", () => {
   test("parent-held to-one connect: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const family = getOperationFragmentFamily();
+    const db = family.database;
+    const namespace = family.namespace;
     const base = createClient({
       schema: opf,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } });
 
     const driver = new BeforeBatchPGliteDriver(
@@ -672,7 +679,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
         await (base as any).post.deleteMany({});
         await (base as any).user.deleteMany({ where: { id: 1 } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: opf,
@@ -702,12 +709,13 @@ describe("write boundary create family staleness (batch non-elided connect pins)
   }, 45_000);
 
   test("child-held connect: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const family = getOperationFragmentFamily();
+    const db = family.database;
+    const namespace = family.namespace;
     const base = createClient({
       schema: opf,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).post.create({
       data: { id: 31, title: "orphan", slug: "s31", userId: null },
     });
@@ -716,7 +724,7 @@ describe("write boundary create family staleness (batch non-elided connect pins)
       async () => {
         await (base as any).post.deleteMany({ where: { id: 31 } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: opf,

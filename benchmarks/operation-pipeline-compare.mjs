@@ -610,8 +610,7 @@ function scheduleSelfCheck() {
         },
         {
           provider,
-          workload:
-            definition.fixedDecimalAttribution.constructorFloorWorkload,
+          workload: definition.fixedDecimalAttribution.constructorFloorWorkload,
           stage: "decimal-construct",
           mode,
         }

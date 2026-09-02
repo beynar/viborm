@@ -1,7 +1,9 @@
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
+import {
+  runSkipSelectCaptureBehavior,
+  skipSelectCaptureSchema,
+} from "@tests/contracts/engine/write/skip-select-capture-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe } from "vitest";
-import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip-select-capture-behavior";
 
 /**
  * E6.9's RETURNING control, runnable without Docker.
@@ -12,10 +14,12 @@ import { runSkipSelectCaptureBehavior } from "@tests/contracts/engine/write/skip
  * always could do this still does it the fast way, and still says exactly what MySQL now
  * says. The load-bearing leg is `skip-select-capture-docker.test.ts` (MySQL).
  */
+const getFamily = usePGliteSchemaFamily(skipSelectCaptureSchema);
+
 describe("E6.9 — createMany select + skipDuplicates (PGlite control)", () => {
   runSkipSelectCaptureBehavior({
     name: "PGlite",
-    createDriver: () => new PGliteDriver({ client: new PGlite() }),
+    createDriver: () => getFamily().driver,
     supportsReturning: true,
   });
 });

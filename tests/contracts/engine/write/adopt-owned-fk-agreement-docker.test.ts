@@ -1,14 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-
-import { afterAll, describe } from "vitest";
 import {
   adoptOwnedFkSchema,
   registerAdoptOwnedFkBehavior,
 } from "@tests/contracts/engine/write/adopt-owned-fk-agreement-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
+
 /**
  * E5-U2 on the live servers. The agreement decision is made at construction, so what the
  * live legs add is the WRITE it lets through: the reparent must land the parent's own

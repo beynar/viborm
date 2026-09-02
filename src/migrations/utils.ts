@@ -5,13 +5,7 @@
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationDriver } from "./drivers";
-import type {
-  Dialect,
-  DiffOperation,
-  EnumValueRemoval,
-  EnumValueResolver,
-  SchemaSnapshot,
-} from "./types";
+import type { Dialect, DiffOperation, SchemaSnapshot } from "./types";
 
 // DIALECT UTILITIES
 // =============================================================================
@@ -354,77 +348,6 @@ export function prepareSchemaProgram(
     current,
     migrationDriver
   );
-}
-
-// =============================================================================
-// ENUM VALUE RESOLUTION
-// =============================================================================
-
-/**
- * Resolves enum value removals by calling the resolver callback (if provided)
- * and merging the resolutions into the operations.
- */
-export async function resolveEnumValueRemovals(
-  operations: DiffOperation[],
-  resolver?: EnumValueResolver
-): Promise<DiffOperation[]> {
-  // Find alterEnum operations with removeValues that need resolution
-  const removals: EnumValueRemoval[] = [];
-
-  for (const op of operations) {
-    if (
-      op.type === "alterEnum" &&
-      op.removeValues &&
-      op.removeValues.length > 0
-    ) {
-      // Check if any removed values lack replacements
-      const unresolvedValues = op.removeValues.filter((v) => {
-        const hasExplicit = op.valueReplacements && v in op.valueReplacements;
-        const hasDefault = op.defaultReplacement !== undefined;
-        return !(hasExplicit || hasDefault);
-      });
-
-      if (unresolvedValues.length > 0) {
-        removals.push({
-          enumName: op.enumName,
-          removedValues: unresolvedValues,
-          newValues: op.newValues || [],
-          dependentColumns: op.dependentColumns || [],
-        });
-      }
-    }
-  }
-
-  // If no unresolved removals or no resolver, return operations unchanged
-  if (removals.length === 0 || !resolver) {
-    return operations;
-  }
-
-  // Call the resolver
-  const resolutions = await resolver(removals);
-
-  // Merge resolutions into operations
-  return operations.map((op) => {
-    if (op.type !== "alterEnum" || !op.removeValues) {
-      return op;
-    }
-
-    const resolution = resolutions.get(op.enumName);
-    if (!resolution) {
-      return op;
-    }
-
-    // Merge the resolution into the operation
-    return {
-      ...op,
-      valueReplacements: {
-        ...op.valueReplacements,
-        ...resolution.valueReplacements,
-      },
-      defaultReplacement:
-        resolution.defaultReplacement ?? op.defaultReplacement,
-    };
-  });
 }
 
 // =============================================================================

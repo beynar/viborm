@@ -47,6 +47,58 @@ import type { PoolOptions } from "mysql2/promise";
 import { Pool, type PoolConfig } from "pg";
 import { describe, expect, it, vi } from "vitest";
 
+// The ownership contract needs constructor-option capture and EventEmitter
+// semantics, not node-postgres sockets. PgDriver sees this socket-free class as
+// its provider Pool, so its real initialization and cleanup paths still run.
+vi.mock("pg", async () => {
+  const { EventEmitter } = await import("node:events");
+
+  class SocketFreePool extends EventEmitter {
+    readonly options: Record<string, unknown>;
+
+    constructor(options: Record<string, unknown> = {}) {
+      super();
+      this.options = options;
+    }
+
+    end(): Promise<void> {
+      return Promise.resolve();
+    }
+
+    query(): Promise<never> {
+      return Promise.reject(new Error("not used"));
+    }
+
+    connect(): Promise<never> {
+      return Promise.reject(new Error("not used"));
+    }
+  }
+
+  return {
+    Pool: SocketFreePool,
+    types: {
+      getTypeParser: () => (value: string) => value,
+    },
+  };
+});
+
+// MySQL2 pools are lazy, but they are still provider-owned handles. This
+// stand-in retains the option snapshot shape inspected below and nothing else.
+vi.mock("mysql2/promise", () => ({
+  createPool: (options: unknown) => ({
+    end: () => Promise.resolve(),
+    execute: () => Promise.reject(new Error("not used")),
+    getConnection: () => Promise.reject(new Error("not used")),
+    pool: {
+      config: {
+        connectionConfig:
+          options !== null && typeof options === "object" ? options : {},
+      },
+    },
+    query: () => Promise.reject(new Error("not used")),
+  }),
+}));
+
 /** One nested value from a provider object, trusting no step of the path. */
 function readPath(root: unknown, ...keys: readonly string[]): unknown {
   let value: unknown = root;
@@ -62,7 +114,7 @@ function readPath(root: unknown, ...keys: readonly string[]): unknown {
 /** A caller's pg pool: it answers nothing, and counts what VibORM does to it. */
 function suppliedPgPool() {
   const state = { ended: 0, subscribed: 0, unsubscribed: 0 };
-  const pool = new Pool();
+  const pool = Object.create(Pool.prototype);
   Object.defineProperties(pool, {
     end: {
       value: () => {
@@ -88,7 +140,7 @@ function suppliedPgPool() {
   return { state, pool };
 }
 
-/** The real pool a pg driver built for itself, refusing anything else. */
+/** The socket-free pool a pg driver built for itself, refusing anything else. */
 function createdPgPool(driver: PgDriver): Pool {
   const client = Reflect.get(driver, "client");
   if (client instanceof Pool) return client;

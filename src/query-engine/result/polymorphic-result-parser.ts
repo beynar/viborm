@@ -46,16 +46,9 @@ export function parsePolymorphicValueDefault(
   _relation: AnyRelation,
   value: unknown,
   operation: Operation,
-  shape: ExpectedPolymorphicResultShape | undefined,
+  shape: ExpectedPolymorphicResultShape,
   parsers: RowValueParsers
 ): unknown {
-  if (!shape) {
-    return malformedResult(
-      ctx,
-      operation,
-      "a polymorphic projection has no expected result shape"
-    );
-  }
   if (value === undefined) {
     return malformedResult(
       ctx,

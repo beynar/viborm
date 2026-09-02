@@ -16,49 +16,18 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema";
 import type { Model } from "@schema/model";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import {
   NAMESPACE_SCHEMA_TABLES,
   namespaceSchema,
 } from "@tests/fixtures/namespace-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(dialect: Dialect, adapter: DatabaseAdapter) {
-    super(dialect, `namespace-mock-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // The SQL-only driver opens no provider resource.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    execute: (transaction: null) => Promise<T>
-  ): Promise<T> {
-    return execute(null);
-  }
-}
 
 hydrateSchemaNames(namespaceSchema);
 const registry = createModelRegistry(
@@ -74,7 +43,7 @@ const renderWith = (
   dialect: Dialect,
   placeholder: "$n" | "?"
 ) => {
-  const engine = new QueryEngine(new MockDriver(dialect, adapter), registry);
+  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
   return (
     model: Model<any>,
     operation: Operation,

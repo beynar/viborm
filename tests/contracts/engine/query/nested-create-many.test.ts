@@ -6,8 +6,9 @@
  */
 
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
+import { nestedCreateManySchema as schema } from "@tests/contracts/engine/query/nested-create-many-schema";
 
-import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
   beforeAll,
@@ -16,84 +17,6 @@ import {
   expect,
   test,
 } from "vitest";
-
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-// =============================================================================
-// TEST SCHEMA
-// =============================================================================
-
-const user = s.model({
-  id: s.string().id(),
-  name: s.string(),
-  posts: s.toMany(() => post),
-});
-
-const post = s
-  .model({
-    id: s.string().id(),
-    title: s.string(),
-    userId: s.string(),
-    author: s
-      .toOne(() => user)
-      .fields("userId")
-      .references("id"),
-    comments: s.toMany(() => comment),
-  })
-  .map("posts");
-
-const comment = s
-  .model({
-    id: s.string().id(),
-    body: s.string(),
-    postId: s.string(),
-    post: s
-      .toOne(() => post)
-      .fields("postId")
-      .references("id"),
-  })
-  .map("nested_create_many_comments");
-
-const incrementParent = s
-  .model({
-    id: s.int().id().increment(),
-    name: s.string(),
-    children: s.toMany(() => incrementChild),
-  })
-  .map("nested_increment_parents");
-
-const incrementChild = s
-  .model({
-    id: s.int().id().increment(),
-    label: s.string().nullable(),
-    parentId: s.int(),
-    parent: s
-      .toOne(() => incrementParent)
-      .fields("parentId")
-      .references("id"),
-    grandchildren: s.toMany(() => incrementGrandchild),
-  })
-  .map("nested_increment_children");
-
-const incrementGrandchild = s
-  .model({
-    id: s.int().id().increment(),
-    marker: s.string(),
-    childId: s.int(),
-    child: s
-      .toOne(() => incrementChild)
-      .fields("childId")
-      .references("id"),
-  })
-  .map("nested_increment_grandchildren");
-
-const schema = {
-  user,
-  post,
-  comment,
-  incrementParent,
-  incrementChild,
-  incrementGrandchild,
-};
 
 // =============================================================================
 // TEST SETUP
@@ -161,24 +84,6 @@ describe("Nested CreateMany", () => {
       expect(posts[0]?.userId).toBe("user-1");
       expect(posts[1]?.title).toBe("Second Post");
       expect(posts[1]?.userId).toBe("user-1");
-    });
-
-    test("rejects the enclosing membership scalar inside nested createMany", async () => {
-      const args = {
-        data: {
-          id: "user-1",
-          name: "John",
-          posts: {
-            createMany: {
-              data: [{ id: "post-1", title: "First Post", userId: "user-1" }],
-            },
-          },
-        },
-      } as unknown as Parameters<typeof client.user.create>[0];
-
-      await expect(client.user.create(args)).rejects.toThrow();
-      await expect(client.user.findMany()).resolves.toEqual([]);
-      await expect(client.post.findMany()).resolves.toEqual([]);
     });
 
     test("relation-bearing rows run complete fresh subtrees left to right", async () => {

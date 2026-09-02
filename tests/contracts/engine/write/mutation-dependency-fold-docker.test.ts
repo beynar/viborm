@@ -5,9 +5,9 @@ import { UniqueConstraintError } from "@errors";
 
 import { hydrateSchemaNames, s } from "@schema";
 import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { Pool, PoolClient } from "pg";
 import { afterAll, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE M on a live PostgreSQL server.

@@ -5,13 +5,13 @@
  * with their base schemas, all optional.
  */
 
-import { type InferInput, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   compoundIdSchemas,
   compoundUniqueSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
+import { type InferInput, parse } from "@validation";
+import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
 // TYPE TESTS - Simple Model
@@ -29,6 +29,7 @@ describe("Unique Filter - Types (Simple Model)", () => {
   });
 
   test("type: all fields are optional (empty object matches)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 
@@ -89,6 +90,7 @@ describe("Unique Filter - Compound ID Model Runtime", () => {
 
   test("type: does not have single field id (compound id)", () => {
     // Compound ID model has no single-field unique constraints
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 

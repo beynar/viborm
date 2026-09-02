@@ -3,7 +3,7 @@ import { defineMeta } from "blume";
 export default defineMeta({
   title: "Client",
   icon: "terminal",
-  order:2,
+  order: 2,
   pages: [
     "index",
     "create",
@@ -19,6 +19,6 @@ export default defineMeta({
     "transactions",
     "raw-sql",
     "errors",
-    "compatibility"
+    "compatibility",
   ],
 });

@@ -131,10 +131,16 @@ type Family = PGliteSchemaFamily<typeof collectionWriteSchema>;
  * on that ordering rather than on the memberships.
  */
 async function members(family: Family, table: string): Promise<string[]> {
+  // Verbatim SQL is never rewritten by the driver, so BOTH halves name the
+  // suite's own schema on the worker-shared database: the catalog predicate,
+  // because every sibling suite of this file holds a table of the same name and
+  // an unscoped read would return each column once per suite; and the row read,
+  // because an unqualified table resolves to `public`, where the suite owns
+  // nothing.
   const columns = await family.client.$queryRawUnsafe<{
     column_name: string;
   }>(
-    `SELECT column_name FROM information_schema.columns WHERE table_name = '${table}' ORDER BY ordinal_position`
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = '${family.namespace}' AND table_name = '${table}' ORDER BY ordinal_position`
   );
   const names = columns.map((column) => column.column_name);
   const ordered = [
@@ -147,7 +153,7 @@ async function members(family: Family, table: string): Promise<string[]> {
     );
   }
   const rows = await family.client.$queryRawUnsafe<Record<string, unknown>>(
-    `SELECT ${ordered.map((name) => `"${name}"`).join(", ")} FROM "${table}"`
+    `SELECT ${ordered.map((name) => `"${name}"`).join(", ")} FROM "${family.namespace}"."${table}"`
   );
   return rows
     .map((row) => ordered.map((name) => String(row[name])).join("/"))
@@ -160,14 +166,14 @@ const noteMembers = (family: Family) => members(family, "pcw_shelf_notes");
 
 async function bookTitles(family: Family): Promise<string[]> {
   const rows = await family.client.$queryRawUnsafe<{ title: string }>(
-    'SELECT "title" FROM "pcw_books" ORDER BY "title"'
+    `SELECT "title" FROM "${family.namespace}"."pcw_books" ORDER BY "title"`
   );
   return rows.map((row) => row.title);
 }
 
 async function noteIds(family: Family): Promise<string[]> {
   const rows = await family.client.$queryRawUnsafe<{ id: string }>(
-    'SELECT "id" FROM "pcw_notes" ORDER BY "id"'
+    `SELECT "id" FROM "${family.namespace}"."pcw_notes" ORDER BY "id"`
   );
   return rows.map((row) => row.id);
 }
@@ -1321,7 +1327,9 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       const rows = await family.client.$queryRawUnsafe<{
         code: string;
         label: string;
-      }>('SELECT "code", "label" FROM "pcw_shelves" ORDER BY "code"');
+      }>(
+        `SELECT "code", "label" FROM "${family.namespace}"."pcw_shelves" ORDER BY "code"`
+      );
       return rows.map((row) => `${row.code}:${row.label}`);
     };
 
@@ -1986,10 +1994,10 @@ describe("a collection nested under a junction target's create", () => {
 
     const noteRows = await family.client.$queryRawUnsafe<
       Record<string, unknown>
-    >('SELECT * FROM "ncw_crates_items_note"');
+    >(`SELECT * FROM "${family.namespace}"."ncw_crates_items_note"`);
     const memoRows = await family.client.$queryRawUnsafe<
       Record<string, unknown>
-    >('SELECT * FROM "ncw_crates_items_memo"');
+    >(`SELECT * FROM "${family.namespace}"."ncw_crates_items_memo"`);
     // BOTH member tables were written, correlated on the crate the junction
     // create just made — not on the tag, and not on nothing.
     expect(noteRows).toHaveLength(1);
@@ -2045,7 +2053,7 @@ async function crateMembers(
   family: PGliteSchemaFamily<typeof scalarInverseSchema>
 ): Promise<string[]> {
   const columns = await family.client.$queryRawUnsafe<{ column_name: string }>(
-    "SELECT column_name FROM information_schema.columns WHERE table_name = 'siw_crate_slips' ORDER BY ordinal_position"
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = '${family.namespace}' AND table_name = 'siw_crate_slips' ORDER BY ordinal_position`
   );
   const names = columns.map((column) => column.column_name);
   const ordered = [
@@ -2053,7 +2061,7 @@ async function crateMembers(
     ...names.filter((name) => name.startsWith("entry")),
   ];
   const rows = await family.client.$queryRawUnsafe<Record<string, unknown>>(
-    `SELECT ${ordered.map((name) => `"${name}"`).join(", ")} FROM "siw_crate_slips"`
+    `SELECT ${ordered.map((name) => `"${name}"`).join(", ")} FROM "${family.namespace}"."siw_crate_slips"`
   );
   return rows
     .map((row) => ordered.map((name) => String(row[name])).join("/"))
@@ -2222,13 +2230,15 @@ describe("polymorphic collection `set` refuses before the clear on a splittable 
     // program was written from the variant side.
     const shelves = await family.client.$queryRawUnsafe<
       Record<string, unknown>
-    >('SELECT "tenantId", "code", "label" FROM "pcw_shelves"');
+    >(
+      `SELECT "tenantId", "code", "label" FROM "${family.namespace}"."pcw_shelves"`
+    );
     expect(shelves).toEqual([
       { tenantId: "t1", code: "gen", label: "Generated" },
     ]);
     const members = await family.client.$queryRawUnsafe<
       Record<string, unknown>
-    >('SELECT * FROM "pcw_shelf_videos"');
+    >(`SELECT * FROM "${family.namespace}"."pcw_shelf_videos"`);
     expect(members).toHaveLength(1);
     expect(Object.values(members[0] ?? {})).toEqual(
       expect.arrayContaining(["t1", "gen", 7])

@@ -37,8 +37,6 @@ function snapshotRecord(
   input: Record<string, unknown>,
   seen: Map<object, unknown>
 ): Readonly<Record<string, unknown>> {
-  const existing = seen.get(input);
-  if (isRecord(existing)) return existing;
   const snapshot: Record<string, unknown> = Object.create(null);
   seen.set(input, snapshot);
   let keys: readonly PropertyKey[];
@@ -146,7 +144,6 @@ function snapshotArray(
     return opaqueInspectionValues.unsupported;
   }
   for (const key of keys) {
-    if (key === "length") continue;
     let descriptor: PropertyDescriptor | undefined;
     try {
       descriptor = Object.getOwnPropertyDescriptor(value, key);
@@ -154,7 +151,15 @@ function snapshotArray(
       seen.set(value, opaqueInspectionValues.unsupported);
       return opaqueInspectionValues.unsupported;
     }
-    if (!descriptor?.enumerable) continue;
+    if (descriptor === undefined) continue;
+    if (key === "length") {
+      // Array exotic-object invariants guarantee this is the non-configurable
+      // data descriptor for one valid uint32 length. A proxy that lies here is
+      // rejected by getOwnPropertyDescriptor before this point.
+      Object.defineProperty(snapshot, key, descriptor);
+      continue;
+    }
+    if (!descriptor.enumerable) continue;
     Object.defineProperty(snapshot, key, {
       configurable: false,
       enumerable: true,
@@ -174,9 +179,6 @@ function snapshotSql(value: Sql, seen: Map<object, unknown>): Sql {
   }
   const sourceStrings = Reflect.apply(sqlStringsGetter, value, []);
   const sourceValues = Reflect.apply(sqlValuesGetter, value, []);
-  if (!(Array.isArray(sourceStrings) && Array.isArray(sourceValues))) {
-    throw new TypeError("Sql inspection projection is invalid");
-  }
   const strings = new Array<string>(sourceStrings.length);
   for (let index = 0; index < sourceStrings.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(sourceStrings, index);

@@ -1,14 +1,13 @@
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-
-import { afterAll, describe } from "vitest";
 import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
 } from "@tests/contracts/engine/write/shared-pk-connect-or-create-behavior";
-
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
+
 /**
  * E6.3 on the live servers.
  *

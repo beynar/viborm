@@ -98,6 +98,10 @@ describe("migration v1 scale gates", () => {
     const graph = await loadMigrationGraph(storage);
     expect(graph.leaves).toHaveLength(20);
     expect(selectRoute(graph, null, leaves[0]!)).toEqual([leaves[0]]);
+    await expect(checkEstate(storage)).resolves.toMatchObject({
+      ok: false,
+      findings: [expect.objectContaining({ code: "unresolved-branch" })],
+    });
   });
 
   test("10,000 linear states load without quadratic refusal", async () => {
@@ -203,13 +207,32 @@ describe("migration v1 scale gates", () => {
       await storage.publishSnapshot(orphan.snapshotHash, orphan.bytes);
       orphanHashes.push(orphan.snapshotHash);
     }
+    const orphanSql = composeSqlBlob(["SELECT 'orphan'"]);
+    await storage.publishSql(orphanSql.sqlHash, orphanSql.bytes);
+    const corruptSqlHash = "f".repeat(64);
+    await storage.publishSql(
+      corruptSqlHash,
+      new TextEncoder().encode("SELECT 2")
+    );
 
     const checked = await checkEstate(storage);
     const orphans = checked.findings.filter(
       (finding) => finding.code === "orphan-snapshot"
     );
     expect(orphans).toHaveLength(1000);
-    expect(checked.ok).toBe(true);
+    expect(checked.ok).toBe(false);
+    expect(checked.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "orphan-sql",
+          message: expect.stringContaining(orphanSql.sqlHash),
+        }),
+        expect.objectContaining({
+          code: "corrupt-sql",
+          message: expect.stringContaining(corruptSqlHash),
+        }),
+      ])
+    );
     expect(
       checked.findings.some((finding) => finding.code === "invalid-estate")
     ).toBe(false);

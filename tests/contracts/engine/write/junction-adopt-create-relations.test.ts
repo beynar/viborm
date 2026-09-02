@@ -8,10 +8,12 @@ import type {
   WriteStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * E2-U2 — **relations inside a many-to-many `connectOrCreate` create arm.**
@@ -182,6 +184,21 @@ const adoptRelationsSchema = (() => {
 
 hydrateSchemaNames(adoptRelationsSchema);
 
+/**
+ * One shared PGlite and one private schema for the whole file. Both substrates run
+ * against it in turn, so every driver built below carries the family's namespace —
+ * a driver without it addresses `public`, where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(adoptRelationsSchema);
+
+function transactionDriver(): PGliteDriver {
+  const family = getFamily();
+  return new PGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+}
+
 function makeClient(driver: PGliteDriver) {
   return createClient({ schema: adoptRelationsSchema, driver });
 }
@@ -207,7 +224,6 @@ async function seed(client: Client): Promise<void> {
 
 async function setup(driver: PGliteDriver) {
   const client = makeClient(driver);
-  await syncLiveSchema(client);
   await seed(client);
   return client;
 }
@@ -220,277 +236,253 @@ async function tagsOf(client: Client, postId: string) {
 }
 
 for (const substrate of ["transaction", "atomic batch"] as const) {
-  const makeDriver = () =>
-    substrate === "transaction"
-      ? new PGliteDriver()
-      : new BatchOnlyPGliteDriver();
+  const makeDriver = () => {
+    const family = getFamily();
+    const options = {
+      client: family.database,
+      namespace: family.namespace,
+    };
+    return substrate === "transaction"
+      ? new PGliteDriver(options)
+      : new BatchOnlyPGliteDriver(options);
+  };
 
   describe(`E2-U2 connectOrCreate create-arm relations (${substrate})`, () => {
     test("the update root creates the target, joins it, and writes its children", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-fresh" },
-                create: {
-                  id: "t-fresh",
-                  name: "fresh",
-                  notes: { create: { id: "n-fresh", body: "fresh" } },
-                },
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-fresh" },
+              create: {
+                id: "t-fresh",
+                name: "fresh",
+                notes: { create: { id: "n-fresh", body: "fresh" } },
               },
             },
           },
-        });
-        await expect(tagsOf(client, "post1")).resolves.toEqual([
-          { id: "t-fresh", name: "fresh", ownerId: null },
-        ]);
-        await expect(
-          client.note.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([
-          { id: "n-decoy", body: "decoy", tagId: "t-decoy" },
-          { id: "n-fresh", body: "fresh", tagId: "t-fresh" },
-          { id: "n-loose", body: "loose", tagId: "t-loose" },
-        ]);
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      await expect(tagsOf(client, "post1")).resolves.toEqual([
+        { id: "t-fresh", name: "fresh", ownerId: null },
+      ]);
+      await expect(
+        client.note.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([
+        { id: "n-decoy", body: "decoy", tagId: "t-decoy" },
+        { id: "n-fresh", body: "fresh", tagId: "t-fresh" },
+        { id: "n-loose", body: "loose", tagId: "t-loose" },
+      ]);
     }, 30_000);
 
     test("the create root does the same under a fresh parent", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.post.create({
-          data: {
-            id: "post2",
-            title: "second",
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-root" },
-                create: {
-                  id: "t-root",
-                  name: "root",
-                  notes: { create: { id: "n-root", body: "root" } },
-                },
+      await client.post.create({
+        data: {
+          id: "post2",
+          title: "second",
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-root" },
+              create: {
+                id: "t-root",
+                name: "root",
+                notes: { create: { id: "n-root", body: "root" } },
               },
             },
           },
-        });
-        await expect(tagsOf(client, "post2")).resolves.toEqual([
-          { id: "t-root", name: "root", ownerId: null },
-        ]);
-        await expect(
-          client.note.findUnique({ where: { id: "n-root" } })
-        ).resolves.toEqual({ id: "n-root", body: "root", tagId: "t-root" });
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      await expect(tagsOf(client, "post2")).resolves.toEqual([
+        { id: "t-root", name: "root", ownerId: null },
+      ]);
+      await expect(
+        client.note.findUnique({ where: { id: "n-root" } })
+      ).resolves.toEqual({ id: "n-root", body: "root", tagId: "t-root" });
     }, 30_000);
 
     test("a fresh inline junction target globally adopts through a polymorphic inverse", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.polymorphicNote.create({
-          data: { id: "pn-loose", body: "before adoption" },
-        });
-        await client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-polymorphic" },
-                create: {
-                  id: "t-polymorphic",
-                  name: "polymorphic target",
-                  polymorphicNotes: {
-                    upsert: {
-                      where: { id: "pn-loose" },
-                      create: {
-                        id: "pn-loose",
-                        body: "must not create",
-                      },
-                      update: { body: "after adoption" },
+      await client.polymorphicNote.create({
+        data: { id: "pn-loose", body: "before adoption" },
+      });
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-polymorphic" },
+              create: {
+                id: "t-polymorphic",
+                name: "polymorphic target",
+                polymorphicNotes: {
+                  upsert: {
+                    where: { id: "pn-loose" },
+                    create: {
+                      id: "pn-loose",
+                      body: "must not create",
                     },
+                    update: { body: "after adoption" },
                   },
                 },
               },
             },
           },
-        });
+        },
+      });
 
-        await expect(
-          client.polymorphicNote.findUniqueOrThrow({
-            where: { id: "pn-loose" },
-            include: { subject: true },
-          })
-        ).resolves.toMatchObject({
-          body: "after adoption",
-          subject: {
-            type: "tag",
-            data: { id: "t-polymorphic" },
-          },
-        });
-      } finally {
-        await client.$disconnect();
-      }
+      await expect(
+        client.polymorphicNote.findUniqueOrThrow({
+          where: { id: "pn-loose" },
+          include: { subject: true },
+        })
+      ).resolves.toMatchObject({
+        body: "after adoption",
+        subject: {
+          type: "tag",
+          data: { id: "t-polymorphic" },
+        },
+      });
     }, 30_000);
 
     test("the same shape one level deeper, under a located nested target", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.board.create({ data: { id: "b1", name: "board" } });
-        await client.boardPost.create({
-          data: { id: "bp1", title: "bp", boardId: "b1" },
-        });
-        await client.board.update({
-          where: { id: "b1" },
-          data: {
-            posts: {
-              update: {
-                where: { id: "bp1" },
-                data: {
-                  marks: {
-                    connectOrCreate: {
-                      where: { id: "m-fresh" },
-                      create: {
-                        id: "m-fresh",
-                        name: "fresh",
-                        notes: { create: { id: "mn1", body: "deep" } },
-                      },
+      await client.board.create({ data: { id: "b1", name: "board" } });
+      await client.boardPost.create({
+        data: { id: "bp1", title: "bp", boardId: "b1" },
+      });
+      await client.board.update({
+        where: { id: "b1" },
+        data: {
+          posts: {
+            update: {
+              where: { id: "bp1" },
+              data: {
+                marks: {
+                  connectOrCreate: {
+                    where: { id: "m-fresh" },
+                    create: {
+                      id: "m-fresh",
+                      name: "fresh",
+                      notes: { create: { id: "mn1", body: "deep" } },
                     },
                   },
                 },
               },
             },
           },
-        });
-        await expect(
-          client.mark.findMany({
-            where: { posts: { some: { id: "bp1" } } },
-          })
-        ).resolves.toEqual([{ id: "m-fresh", name: "fresh" }]);
-        await expect(
-          client.markNote.findMany({ orderBy: { id: "asc" } })
-        ).resolves.toEqual([{ id: "mn1", body: "deep", markId: "m-fresh" }]);
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      await expect(
+        client.mark.findMany({
+          where: { posts: { some: { id: "bp1" } } },
+        })
+      ).resolves.toEqual([{ id: "m-fresh", name: "fresh" }]);
+      await expect(
+        client.markNote.findMany({ orderBy: { id: "asc" } })
+      ).resolves.toEqual([{ id: "mn1", body: "deep", markId: "m-fresh" }]);
     }, 30_000);
 
     test("a deeper CONNECT proves the arm's children plan their reads", async () => {
       const client = await setup(makeDriver());
-      try {
-        // `connect` owes a planning probe. If `planning()` did not descend into the
-        // arm's child Parts, that probe would never run and compile would find no
-        // planning key — so this payload is the planning half of the wiring, not the
-        // compile half.
-        await client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-linker" },
-                create: {
-                  id: "t-linker",
-                  name: "linker",
-                  notes: { connect: { id: "n-loose" } },
-                },
+      // `connect` owes a planning probe. If `planning()` did not descend into the
+      // arm's child Parts, that probe would never run and compile would find no
+      // planning key — so this payload is the planning half of the wiring, not the
+      // compile half.
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-linker" },
+              create: {
+                id: "t-linker",
+                name: "linker",
+                notes: { connect: { id: "n-loose" } },
               },
             },
           },
-        });
-        await expect(
-          client.note.findUnique({ where: { id: "n-loose" } })
-        ).resolves.toEqual({
-          id: "n-loose",
-          body: "loose",
-          tagId: "t-linker",
-        });
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      await expect(
+        client.note.findUnique({ where: { id: "n-loose" } })
+      ).resolves.toEqual({
+        id: "n-loose",
+        body: "loose",
+        tagId: "t-linker",
+      });
     }, 30_000);
 
     test("the FOUND arm adopts the existing row and writes none of its children", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: {
-                where: { id: "t-decoy" },
-                create: {
-                  id: "t-decoy",
-                  name: "would-be",
-                  notes: { create: { id: "n-never", body: "never" } },
-                },
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t-decoy" },
+              create: {
+                id: "t-decoy",
+                name: "would-be",
+                notes: { create: { id: "n-never", body: "never" } },
               },
             },
           },
-        });
-        // Joined, unchanged, and the create arm's child was not written: an adopted
-        // row is the row that was already there.
-        await expect(tagsOf(client, "post1")).resolves.toEqual([
-          { id: "t-decoy", name: "decoy", ownerId: null },
-        ]);
-        await expect(
-          client.note.findMany({ where: { tagId: "t-decoy" } })
-        ).resolves.toEqual([
-          { id: "n-decoy", body: "decoy", tagId: "t-decoy" },
-        ]);
-        await expect(
-          client.note.findUnique({ where: { id: "n-never" } })
-        ).resolves.toBeNull();
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      // Joined, unchanged, and the create arm's child was not written: an adopted
+      // row is the row that was already there.
+      await expect(tagsOf(client, "post1")).resolves.toEqual([
+        { id: "t-decoy", name: "decoy", ownerId: null },
+      ]);
+      await expect(
+        client.note.findMany({ where: { tagId: "t-decoy" } })
+      ).resolves.toEqual([{ id: "n-decoy", body: "decoy", tagId: "t-decoy" }]);
+      await expect(
+        client.note.findUnique({ where: { id: "n-never" } })
+      ).resolves.toBeNull();
     }, 30_000);
 
     test("first-create-wins: a duplicate item adopts and writes no second child set", async () => {
       const client = await setup(makeDriver());
-      try {
-        await client.post.update({
-          where: { id: "post1" },
-          data: {
-            tags: {
-              connectOrCreate: [
-                {
-                  where: { id: "t-dup" },
-                  create: {
-                    id: "t-dup",
-                    name: "first",
-                    notes: { create: { id: "n-first", body: "first" } },
-                  },
+      await client.post.update({
+        where: { id: "post1" },
+        data: {
+          tags: {
+            connectOrCreate: [
+              {
+                where: { id: "t-dup" },
+                create: {
+                  id: "t-dup",
+                  name: "first",
+                  notes: { create: { id: "n-first", body: "first" } },
                 },
-                {
-                  where: { id: "t-dup" },
-                  create: {
-                    id: "t-dup",
-                    name: "second",
-                    notes: { create: { id: "n-second", body: "second" } },
-                  },
+              },
+              {
+                where: { id: "t-dup" },
+                create: {
+                  id: "t-dup",
+                  name: "second",
+                  notes: { create: { id: "n-second", body: "second" } },
                 },
-              ],
-            },
+              },
+            ],
           },
-        });
-        await expect(tagsOf(client, "post1")).resolves.toEqual([
-          { id: "t-dup", name: "first", ownerId: null },
-        ]);
-        // The second item adopted the first item's row; its children did not run —
-        // the ledger's first-create-wins now covers the whole payload, not half of it.
-        await expect(
-          client.note.findMany({ where: { tagId: "t-dup" } })
-        ).resolves.toEqual([{ id: "n-first", body: "first", tagId: "t-dup" }]);
-        await expect(
-          client.note.findUnique({ where: { id: "n-second" } })
-        ).resolves.toBeNull();
-      } finally {
-        await client.$disconnect();
-      }
+        },
+      });
+      await expect(tagsOf(client, "post1")).resolves.toEqual([
+        { id: "t-dup", name: "first", ownerId: null },
+      ]);
+      // The second item adopted the first item's row; its children did not run —
+      // the ledger's first-create-wins now covers the whole payload, not half of it.
+      await expect(
+        client.note.findMany({ where: { tagId: "t-dup" } })
+      ).resolves.toEqual([{ id: "n-first", body: "first", tagId: "t-dup" }]);
+      await expect(
+        client.note.findUnique({ where: { id: "n-second" } })
+      ).resolves.toBeNull();
     }, 30_000);
   });
 }
@@ -575,54 +567,50 @@ describe("E2-U2 the carve-outs — both DISCHARGED by E4-U3", () => {
    * `junction-produced-identity(.test|-behavior|-docker.test).ts`.
    */
   test("a relation-carrying arm with a DB-generated target primary key", async () => {
-    const client = await setup(new PGliteDriver());
-    try {
-      await client.post.update({
-        where: { id: "post1" },
-        data: {
-          stamps: {
-            connectOrCreate: {
-              where: { name: "fresh-stamp" },
-              create: {
-                name: "fresh-stamp",
-                notes: { create: { id: "sn1", body: "b" } },
-              },
+    const client = await setup(transactionDriver());
+    await client.post.update({
+      where: { id: "post1" },
+      data: {
+        stamps: {
+          connectOrCreate: {
+            where: { name: "fresh-stamp" },
+            create: {
+              name: "fresh-stamp",
+              notes: { create: { id: "sn1", body: "b" } },
             },
           },
         },
-      });
-      const stamps = await client.stamp.findMany({
+      },
+    });
+    const stamps = await client.stamp.findMany({
+      where: { posts: { some: { id: "post1" } } },
+    });
+    expect(stamps).toMatchObject([{ name: "fresh-stamp" }]);
+    // The grandchild the subtree wrote carries the SAME produced id the join row does.
+    await expect(
+      client.stampNote.findUnique({ where: { id: "sn1" } })
+    ).resolves.toMatchObject({ stampId: (stamps[0] as any).id });
+    // The scalar-only spelling of the SAME arm is untouched.
+    await client.post.update({
+      where: { id: "post1" },
+      data: {
+        stamps: {
+          connectOrCreate: {
+            where: { name: "second-stamp" },
+            create: { name: "second-stamp" },
+          },
+        },
+      },
+    });
+    await expect(
+      client.stamp.findMany({
         where: { posts: { some: { id: "post1" } } },
-      });
-      expect(stamps).toMatchObject([{ name: "fresh-stamp" }]);
-      // The grandchild the subtree wrote carries the SAME produced id the join row does.
-      await expect(
-        client.stampNote.findUnique({ where: { id: "sn1" } })
-      ).resolves.toMatchObject({ stampId: (stamps[0] as any).id });
-      // The scalar-only spelling of the SAME arm is untouched.
-      await client.post.update({
-        where: { id: "post1" },
-        data: {
-          stamps: {
-            connectOrCreate: {
-              where: { name: "second-stamp" },
-              create: { name: "second-stamp" },
-            },
-          },
-        },
-      });
-      await expect(
-        client.stamp.findMany({
-          where: { posts: { some: { id: "post1" } } },
-          orderBy: { name: "asc" },
-        })
-      ).resolves.toMatchObject([
-        { name: "fresh-stamp" },
-        { name: "second-stamp" },
-      ]);
-    } finally {
-      await client.$disconnect();
-    }
+        orderBy: { name: "asc" },
+      })
+    ).resolves.toMatchObject([
+      { name: "fresh-stamp" },
+      { name: "second-stamp" },
+    ]);
   }, 30_000);
 
   /**
@@ -639,79 +627,71 @@ describe("E2-U2 the carve-outs — both DISCHARGED by E4-U3", () => {
    * to be refused, executing.
    */
   test("a create arm whose relations need the whole-create delegation", async () => {
-    const client = await setup(new PGliteDriver());
-    try {
-      await client.post.update({
-        where: { id: "post1" },
-        data: {
-          tags: {
-            connectOrCreate: {
-              where: { id: "t-owned" },
-              create: {
-                id: "t-owned",
-                name: "owned",
-                owner: { create: { id: "u1", name: "owner" } },
-              },
+    const client = await setup(transactionDriver());
+    await client.post.update({
+      where: { id: "post1" },
+      data: {
+        tags: {
+          connectOrCreate: {
+            where: { id: "t-owned" },
+            create: {
+              id: "t-owned",
+              name: "owned",
+              owner: { create: { id: "u1", name: "owner" } },
             },
           },
         },
-      });
-      await expect(
-        client.tag.findUnique({ where: { id: "t-owned" } })
-      ).resolves.toMatchObject({ ownerId: "u1" });
-      await expect(
-        client.tag.findMany({ where: { posts: { some: { id: "post1" } } } })
-      ).resolves.toMatchObject([{ id: "t-owned" }]);
-    } finally {
-      await client.$disconnect();
-    }
+      },
+    });
+    await expect(
+      client.tag.findUnique({ where: { id: "t-owned" } })
+    ).resolves.toMatchObject({ ownerId: "u1" });
+    await expect(
+      client.tag.findMany({ where: { posts: { some: { id: "post1" } } } })
+    ).resolves.toMatchObject([{ id: "t-owned" }]);
   }, 30_000);
 
   test("junction updateMany runs one selected-record subtree per connected target", async () => {
-    const client = await setup(new PGliteDriver());
-    try {
-      await client.board.create({ data: { id: "b1", name: "board" } });
-      await client.boardPost.create({
-        data: { id: "bp1", title: "bp", boardId: "b1" },
-      });
-      await client.mark.create({
-        data: {
-          id: "m1",
-          name: "mark",
-          posts: { connect: { id: "bp1" } },
-        },
-      });
+    const client = await setup(transactionDriver());
+    await client.board.create({ data: { id: "b1", name: "board" } });
+    await client.boardPost.create({
+      data: { id: "bp1", title: "bp", boardId: "b1" },
+    });
+    await client.mark.create({
+      data: {
+        id: "m1",
+        name: "mark",
+        posts: { connect: { id: "bp1" } },
+      },
+    });
 
-      await client.board.update({
-        where: { id: "b1" },
-        data: {
-          posts: {
-            update: {
-              where: { id: "bp1" },
-              data: {
-                marks: {
-                  updateMany: {
-                    where: { id: "m1" },
-                    data: {
-                      name: "updated",
-                      notes: { create: { id: "x", body: "nested" } },
-                    },
+    await client.board.update({
+      where: { id: "b1" },
+      data: {
+        posts: {
+          update: {
+            where: { id: "bp1" },
+            data: {
+              marks: {
+                updateMany: {
+                  where: { id: "m1" },
+                  data: {
+                    name: "updated",
+                    notes: { create: { id: "x", body: "nested" } },
                   },
                 },
               },
             },
           },
         },
-      });
+      },
+    });
 
-      await expect(
-        client.mark.findUnique({ where: { id: "m1" } })
-      ).resolves.toMatchObject({ name: "updated" });
-      await expect(
-        client.markNote.findUnique({ where: { id: "x" } })
-      ).resolves.toEqual({ id: "x", body: "nested", markId: "m1" });
-    } finally {
-      await client.$disconnect();
-    }
+    await expect(
+      client.mark.findUnique({ where: { id: "m1" } })
+    ).resolves.toMatchObject({ name: "updated" });
+    await expect(
+      client.markNote.findUnique({ where: { id: "x" } })
+    ).resolves.toEqual({ id: "x", body: "nested", markId: "m1" });
   }, 30_000);
 });

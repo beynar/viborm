@@ -3,7 +3,6 @@ import type { AnyDriver } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { PGlite } from "@electric-sql/pglite";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -17,10 +16,12 @@ import {
   registerTwoSequenceBehavior,
   twoSequenceSchema,
 } from "@tests/contracts/engine/write/fresh-produced-field-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * PACKAGE F — the structural half. The behavior module owns "the child holds the value
@@ -45,17 +46,6 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  *    the namespace alone catches.
  */
 
-const substrates = [
-  {
-    name: "transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
-  },
-  {
-    name: "atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
-  },
-] as const;
-
 const singleSequenceSchema = (() => {
   const owner = s
     .model({
@@ -77,24 +67,16 @@ const singleSequenceSchema = (() => {
 })();
 hydrateSchemaNames(singleSequenceSchema);
 
-function pushed(schema: Record<string, unknown>): () => Promise<any> {
-  let shared: any;
-  return async () => {
-    if (!shared) {
-      shared = createClient({
-        schema,
-        driver: substrates[0].make(),
-      } as any) as any;
-      await syncLiveSchema(shared);
-    }
-    return shared;
-  };
-}
+const getSingleSequenceFamily = usePGliteSchemaFamily(singleSequenceSchema);
 
 // ONE client over the union: PGlite is PostgreSQL, so it hosts both halves, and `push`
-// drops what the pushed schema does not declare — two clients on one database would
+// drops what the pushed schema does not declare — two clients on one schema would
 // leave whichever pushed last holding the tables.
-const connectPGlite = pushed({ ...producedFieldSchema, ...twoSequenceSchema });
+const getBehaviorFamily = usePGliteSchemaFamily({
+  ...producedFieldSchema,
+  ...twoSequenceSchema,
+});
+const connectPGlite = async () => getBehaviorFamily().client;
 registerProducedFieldBehavior("PGlite transaction", connectPGlite);
 registerTwoSequenceBehavior("PGlite transaction", connectPGlite);
 
@@ -409,30 +391,28 @@ describe("F4 — the substrate row of the value-state table", () => {
   });
 
   test("PostgreSQL batch returns and spends the generated identity", async () => {
-    const database = new PGlite();
-    const setup = createClient({
+    const family = getSingleSequenceFamily();
+    const setup = family.client;
+    // The batch client is a SECOND driver over the same database, so it must name
+    // the schema the family provisioned; otherwise it would address `public`,
+    // where this suite has no tables.
+    const batch = createClient({
       schema: singleSequenceSchema,
-      driver: new PGliteDriver({ client: database }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.driver.adapter.namespace,
+      }),
     });
-    try {
-      await syncLiveSchema(setup);
-      const batch = createClient({
-        schema: singleSequenceSchema,
-        driver: new BatchOnlyPGliteDriver({ client: database }),
-      });
-      const created = await batch.owner.create({
-        data: { children: { create: { id: "c-batch" } } },
-        select: { id: true },
-      });
-      await expect(
-        setup.child.findUnique({ where: { id: "c-batch" } })
-      ).resolves.toEqual({
-        id: "c-batch",
-        ownerId: created.id,
-      });
-    } finally {
-      await setup.$disconnect();
-    }
+    const created = await batch.owner.create({
+      data: { children: { create: { id: "c-batch" } } },
+      select: { id: true },
+    });
+    await expect(
+      setup.child.findUnique({ where: { id: "c-batch" } })
+    ).resolves.toEqual({
+      id: "c-batch",
+      ownerId: created.id,
+    });
   });
 
   test("KEEP: the nullable-unique row raises the SAME sentence it always did", () => {

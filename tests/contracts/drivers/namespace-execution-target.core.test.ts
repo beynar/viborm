@@ -77,28 +77,27 @@ describe("two drivers over one supplied pool address different namespaces", () =
 
   test("pg drivers sharing a pool never name each other's schema", async () => {
     const { Pool } = await import("pg");
-    const pool = new Pool();
-    try {
-      const a = new PgDriver({ pool, namespace: "tenant_a" });
-      const b = new PgDriver({ pool, namespace: "tenant_b" });
+    // Construction is irrelevant to this SQL-only contract. Preserve the
+    // provider prototype identity accepted by PgDriver without allocating a
+    // real pool or any provider-owned lifecycle state.
+    const pool = Object.create(Pool.prototype);
+    const a = new PgDriver({ pool, namespace: "tenant_a" });
+    const b = new PgDriver({ pool, namespace: "tenant_b" });
 
-      for (const text of statementsOf(a)) {
-        expect(namesNamespace(text, "tenant_a", '"')).toBe(true);
-        expect(namesNamespace(text, "tenant_b", '"')).toBe(false);
-      }
-      for (const text of statementsOf(b)) {
-        expect(namesNamespace(text, "tenant_b", '"')).toBe(true);
-        expect(namesNamespace(text, "tenant_a", '"')).toBe(false);
-      }
-      // One statement shape, two targets: nothing but the prefix differs.
-      expect(
-        statementsOf(a).map((text) => text.replaceAll('"tenant_a".', '"NS".'))
-      ).toEqual(
-        statementsOf(b).map((text) => text.replaceAll('"tenant_b".', '"NS".'))
-      );
-    } finally {
-      await pool.end();
+    for (const text of statementsOf(a)) {
+      expect(namesNamespace(text, "tenant_a", '"')).toBe(true);
+      expect(namesNamespace(text, "tenant_b", '"')).toBe(false);
     }
+    for (const text of statementsOf(b)) {
+      expect(namesNamespace(text, "tenant_b", '"')).toBe(true);
+      expect(namesNamespace(text, "tenant_a", '"')).toBe(false);
+    }
+    // One statement shape, two targets: nothing but the prefix differs.
+    expect(
+      statementsOf(a).map((text) => text.replaceAll('"tenant_a".', '"NS".'))
+    ).toEqual(
+      statementsOf(b).map((text) => text.replaceAll('"tenant_b".', '"NS".'))
+    );
   });
 });
 

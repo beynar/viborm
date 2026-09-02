@@ -28,15 +28,7 @@ export class ConnectionError extends VibORMError {
       code?: ConnectionErrorCode | undefined;
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, options?.code ?? VibORMErrorCode.CONNECTION_FAILED, opts);
+    super(message, options?.code ?? VibORMErrorCode.CONNECTION_FAILED, options);
   }
 }
 
@@ -66,10 +58,7 @@ export class ClientInitializationError extends VibORMError {
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.CLIENT_INITIALIZATION, opts);
+    super(message, VibORMErrorCode.CLIENT_INITIALIZATION, options);
   }
 }
 
@@ -115,15 +104,7 @@ export class QueryError extends VibORMError {
       code?: QueryErrorCode | undefined;
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, options?.code ?? VibORMErrorCode.QUERY_FAILED, opts);
+    super(message, options?.code ?? VibORMErrorCode.QUERY_FAILED, options);
   }
 }
 
@@ -188,16 +169,11 @@ export class NestedWriteError extends VibORMError {
       code?: NestedWriteErrorCode | undefined;
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {
+    super(message, options?.code ?? VibORMErrorCode.NESTED_WRITE_FAILED, {
+      cause: options?.cause,
+      diagnostics: options?.diagnostics,
       meta: { ...options?.meta, relation },
-    };
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    super(message, options?.code ?? VibORMErrorCode.NESTED_WRITE_FAILED, opts);
+    });
   }
 }
 
@@ -233,15 +209,7 @@ export class NestedWriteAssertionError extends VibORMError {
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
-    const opts: {
-      cause?: Error;
-      diagnostics?: DiagnosticDisclosure;
-      meta?: VibORMErrorMeta;
-    } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.diagnostics) opts.diagnostics = options.diagnostics;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED, opts);
+    super(message, VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED, options);
   }
 }
 
@@ -283,12 +251,13 @@ export class PendingOperationError extends VibORMError {
   /** Discriminant: one of {@link PendingOperationErrorCode}, never a code outside the family. */
   declare readonly code: PendingOperationErrorCode;
 
+  // biome-ignore lint/complexity/noUselessConstructor: not a forwarder — it narrows the public signature, restricting `code` to PendingOperationErrorCode and `options` to `{ meta }`; deleting it would widen the constructor back to the base's VibORMErrorCode plus `cause`/`diagnostics`.
   constructor(
     message: string,
     code: PendingOperationErrorCode,
     options?: { meta?: VibORMErrorMeta }
   ) {
-    super(message, code, { meta: options?.meta });
+    super(message, code, options);
   }
 
   /**
@@ -413,10 +382,7 @@ export class QueryEngineError extends VibORMError {
       code?: QueryEngineErrorCode | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, options?.code ?? VibORMErrorCode.INTERNAL_ERROR, opts);
+    super(message, options?.code ?? VibORMErrorCode.INTERNAL_ERROR, options);
   }
 }
 

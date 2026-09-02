@@ -8,14 +8,13 @@
  * - SQL output matches expected patterns
  */
 
-import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -51,52 +50,16 @@ const schema = { Author, Post };
 hydrateSchemaNames(schema);
 
 // =============================================================================
-// MOCK DRIVER FOR TESTING
-// =============================================================================
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(dialect: Dialect, adapter: DatabaseAdapter) {
-    super(dialect, `mock-${dialect}`);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // The SQL-only driver opens no provider resource.
-  }
-
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (tx: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
-
-// =============================================================================
-// ADAPTERS AND MOCK DRIVERS
+// ADAPTERS AND SQL-ONLY DRIVERS
 // =============================================================================
 
 const postgresAdapter = new PostgresAdapter();
 const mysqlAdapter = new MySQLAdapter();
 const sqliteAdapter = new SQLiteAdapter();
 
-const postgresMockDriver = new MockDriver("postgresql", postgresAdapter);
-const mysqlMockDriver = new MockDriver("mysql", mysqlAdapter);
-const sqliteMockDriver = new MockDriver("sqlite", sqliteAdapter);
+const postgresMockDriver = new SqlOnlyDriver(postgresAdapter, "postgresql");
+const mysqlMockDriver = new SqlOnlyDriver(mysqlAdapter, "mysql");
+const sqliteMockDriver = new SqlOnlyDriver(sqliteAdapter, "sqlite");
 
 // =============================================================================
 // ADAPTER CAPABILITIES TESTS

@@ -8,8 +8,8 @@ import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /**
  * §9.4 moved this verdict EARLIER. An unnamed slot facing two competing

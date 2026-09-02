@@ -44,11 +44,11 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "@errors";
-import { expectTypeOf } from "vitest";
 import {
   isRetryableRace,
   markRaceable,
 } from "@src/query-engine/write-engine/race-retry";
+import { expectTypeOf } from "vitest";
 
 /**
  * The census. Every concrete class, with the disposition the taxonomy claims for it. A class

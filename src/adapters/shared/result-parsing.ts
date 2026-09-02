@@ -129,8 +129,8 @@ export function normalizeCountResult(
   // Handle array with single row
   if (Array.isArray(raw) && raw.length === 1) {
     const firstRow = raw[0];
-    if (typeof firstRow === "object" && firstRow !== null) {
-      const countValue = extractCountValue(firstRow as Record<string, unknown>);
+    if (isRecord(firstRow)) {
+      const countValue = extractCountValue(firstRow);
       if (countValue !== undefined) {
         return [{ [COUNT_RESULT_KEY]: countValue }];
       }
@@ -158,14 +158,10 @@ function extractCountValue(row: Record<string, unknown>): unknown | undefined {
     return undefined;
   }
 
-  const [entry] = entries;
-  if (!entry) {
-    return undefined;
-  }
-
-  const [key, value] = entry;
-  if (key === COUNT_RESULT_KEY || key.toLowerCase().startsWith("count(")) {
-    return value;
+  for (const [key, value] of entries) {
+    if (key === COUNT_RESULT_KEY || key.toLowerCase().startsWith("count(")) {
+      return value;
+    }
   }
 
   return undefined;

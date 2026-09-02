@@ -9,9 +9,9 @@ import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { upsertAtomicitySchema as schema } from "@tests/fixtures/upsert-atomicity-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M8 concurrent suite (§11 M8, §7.4, D7). The write-race retry is unified above
@@ -314,10 +314,7 @@ const singularSlotSchema = (() => {
       id: s.string().id(),
       label: s.string(),
       items: s
-        .toMany(
-          { book: () => book },
-          { values: { book: "nwc.book.v1" } }
-        )
+        .toMany({ book: () => book }, { values: { book: "nwc.book.v1" } })
         .through({
           book: {
             table: "nwc_slot_members",

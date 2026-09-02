@@ -407,6 +407,7 @@ const decimalScalarOperation = <S extends V.Schema, O extends V.Schema>(
   );
 
   return exactlyOneOperation(entries, (operation, operand) => {
+    // biome-ignore lint/style/useDefaultSwitchClause: exactlyOneOperation supplies only this map's keys.
     switch (operation) {
       case "set": {
         const result = set["~standard"].validate({ set: operand });
@@ -437,10 +438,6 @@ const decimalScalarOperation = <S extends V.Schema, O extends V.Schema>(
         return result.issues
           ? standardSchemaFailure(result.issues)
           : ok(operationOutput(result.value));
-      }
-      default: {
-        const exhaustiveOperation: never = operation;
-        return exhaustiveOperation;
       }
     }
   });
@@ -495,6 +492,7 @@ const decimalListOperation = <
   );
 
   return exactlyOneOperation(entries, (operation, operand) => {
+    // biome-ignore lint/style/useDefaultSwitchClause: exactlyOneOperation supplies only this map's keys.
     switch (operation) {
       case "set": {
         const result = set["~standard"].validate({ set: operand });
@@ -522,10 +520,6 @@ const decimalListOperation = <
         return validateRefusal(entries.multiply, operand);
       case "divide":
         return validateRefusal(entries.divide, operand);
-      default: {
-        const exhaustiveOperation: never = operation;
-        return exhaustiveOperation;
-      }
     }
   });
 };

@@ -19,8 +19,7 @@ export interface RowValueParsers {
     model: Model<any>,
     row: Record<string, unknown>,
     operation: Operation,
-    shape?: ExpectedResultShape,
-    keys?: readonly string[]
+    shape: ExpectedResultShape
   ): CompiledRowParser;
   parseField(
     scalar: Scalar,
@@ -39,7 +38,7 @@ export interface RowValueParsers {
     relation: AnyRelation,
     value: unknown,
     operation: Operation,
-    shape?: ExpectedResultShape
+    shape: ExpectedResultShape
   ): unknown;
   parsePolymorphic(
     source: Model<any>,
@@ -47,7 +46,7 @@ export interface RowValueParsers {
     relation: AnyRelation,
     value: unknown,
     operation: Operation,
-    shape?: ExpectedPolymorphicResultShape
+    shape: ExpectedPolymorphicResultShape
   ): unknown;
   parseAggregate(
     operation: Operation,
@@ -103,13 +102,6 @@ export function isResultRow(value: unknown): value is Record<string, unknown> {
     value !== null &&
     Object.prototype.toString.call(value) === "[object Object]"
   );
-}
-
-export function getOwnValue<T>(
-  record: Readonly<Record<string, T>>,
-  key: string
-): T | undefined {
-  return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 export function normalizeResultRows(
@@ -180,26 +172,6 @@ function hasEveryOwnKey(
     if (!Object.hasOwn(row, key)) return false;
   }
   return true;
-}
-
-export function assertUniformRowKeys(
-  ctx: ResultParser,
-  operation: Operation,
-  rows: readonly Record<string, unknown>[],
-  keys: readonly string[]
-): void {
-  for (const row of rows) {
-    if (
-      countOwnEnumerableKeys(row, keys.length) !== keys.length ||
-      !hasEveryOwnKey(row, keys)
-    ) {
-      malformedResult(
-        ctx,
-        operation,
-        "all rows in one result set must expose the same columns"
-      );
-    }
-  }
 }
 
 export function assertExpectedRowKeys(

@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -23,9 +23,13 @@ import {
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` —
 // the crossRelationTargetSchema of nested-write-conformance, the sibling-coupling
@@ -101,15 +105,20 @@ interface Scenario {
 }
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
+  const namespace = family.namespace;
   const base = createClient({
     schema: scenario.schema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await scenario.seed(base);
 
@@ -120,14 +129,14 @@ async function runArm(
     if (kind === "direct") {
       const direct = createClient({
         schema: scenario.schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       result = await scenario.act(direct);
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       const observed = observeClientOperations({
         schema: scenario.schema,
         driver,
@@ -450,7 +459,7 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 // ---------------------------------------------------------------------------
 describe("write boundary to-one create family: T1 pin falsifications", () => {
   test("connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = createClient({
       schema: opf,
       driver: new PGliteDriver({ client: db }),
@@ -489,13 +498,14 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
     const posts = await (base as any).post.findMany({ where: { id: 40 } });
     expect(posts).toHaveLength(0);
     await (base as any).$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 
   test("connectOrCreate MISSING-arm racePin: a concurrent create converges by retry-and-adopt", async () => {
     // A provided-PK target (nb.user.id is a string PK) so a concurrent create can
     // collide on the SAME key. The missing-arm INSERT's unique violation is the
     // raceable signal; the observed retry re-plans, finds the row, and adopts it.
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const base = createClient({
       schema: nb,
       driver: new PGliteDriver({ client: db }),
@@ -541,5 +551,6 @@ describe("write boundary to-one create family: T1 pin falsifications", () => {
     const users = await (base as any).user.findMany();
     expect(users).toEqual([{ id: "u1", name: "winner" }]); // no duplicate insert
     await (base as any).$disconnect();
+    await closeTestPGlite(db);
   }, 45_000);
 });

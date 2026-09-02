@@ -199,12 +199,6 @@ function buildCompoundUniqueConditions(
     entries.push({ fieldName, value: fieldValue });
   }
 
-  if (entries.length === 0) {
-    throw new QueryEngineError(
-      `Compound whereUnique field '${key}' must include at least one field.`
-    );
-  }
-
   return entries;
 }
 

@@ -1,13 +1,11 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 /**
  * T3b-2 family C witnesses — a m2m junction create/update/upsert
@@ -56,13 +54,8 @@ const schema = (() => {
   return { workspace, project, tag };
 })();
 
-function makeClient(db: PGlite) {
-  return createClient({
-    schema,
-    driver: new PGliteDriver({ client: db }),
-  });
-}
-type AnyClient = ReturnType<typeof makeClient>;
+const getFamily = usePGliteSchemaFamily(schema);
+type AnyClient = Record<string, any>;
 
 async function seed(client: AnyClient): Promise<void> {
   // Workspace 1 with projects 1 and 2 (members); workspace 2 with project 3.
@@ -101,18 +94,23 @@ async function run(
   arm: Arm,
   act: (client: Record<string, any>) => Promise<unknown>
 ) {
-  const db = new PGlite();
-  const client = makeClient(db);
-  await syncLiveSchema(client as any);
+  const family = getFamily();
+  // Each arm starts from empty tables, the way a per-arm database used to.
+  await family.reset();
+  const client = family.client as AnyClient;
   await seed(client);
   let operations: { boundary: "direct" | "production" }[] = [];
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the same Postgres schema the family provisioned; otherwise it would
+  // address `public`, where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   if (arm === "direct") {
     await act(client as unknown as Record<string, any>);
   } else {
     const driver =
       arm === "observed-tx"
-        ? new PGliteDriver({ client: db })
-        : new BatchOnlyPGliteDriver({ client: db });
+        ? new PGliteDriver({ client: family.database, namespace })
+        : new BatchOnlyPGliteDriver({ client: family.database, namespace });
     const observed = observeClientOperations({
       schema,
       driver,
@@ -122,14 +120,13 @@ async function run(
   }
   const state = await membershipDump(client);
   const related = (
-    await db.query(
-      'SELECT "fromId", "toId" FROM "project_project" ORDER BY "fromId", "toId"'
+    await family.database.query(
+      `SELECT "fromId", "toId" FROM "${namespace}"."project_project" ORDER BY "fromId", "toId"`
     )
   ).rows;
   const routedToObserved =
     operations.length > 0 &&
     operations.every((r) => r.boundary === "production");
-  await client.$disconnect();
   return { state, related, routedToObserved };
 }
 

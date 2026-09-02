@@ -6,8 +6,8 @@ import {
   compoundAdoptSchema,
   registerCompoundAdoptBehavior,
 } from "@tests/contracts/engine/write/compound-relation-adoption-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * E4-U2 on the live servers.

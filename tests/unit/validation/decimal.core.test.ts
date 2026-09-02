@@ -903,7 +903,18 @@ describe("logical and coefficient conversion", () => {
   test("refuses any coefficient spelling this codec never wrote", () => {
     expect(coefficientToLogical("120", 2)).toBe("1.2");
     expect(coefficientToLogical("0", 2)).toBe("0");
-    for (const bad of ["+1", "-0", "01", "1.0", "1e3", "", " 1", "abc", 120]) {
+    for (const bad of [
+      "+1",
+      "-",
+      "-0",
+      "01",
+      "1.0",
+      "1e3",
+      "",
+      " 1",
+      "abc",
+      120,
+    ]) {
       expect(coefficientToLogical(bad, 2)).toBeUndefined();
     }
   });
@@ -959,6 +970,8 @@ describe("logical and coefficient conversion", () => {
       ".5",
       "1.",
       "01.2",
+      "-",
+      "1.x",
       "1e3",
       "",
       null,
@@ -1028,7 +1041,22 @@ describe("provider physical representation", () => {
       money,
       "coefficient"
     );
+    const widenedText = materializePhysicalWidenedSum(
+      "123456789012345.67",
+      money,
+      "text"
+    );
+    const integerCoefficient = materializePhysicalDecimal(
+      "-12",
+      { precision: 2, scale: 0 },
+      "coefficient"
+    );
     expect(widened?.eq("123456789012345.67")).toBe(true);
+    expect(widenedText?.eq("123456789012345.67")).toBe(true);
+    expect(integerCoefficient?.eq("-12")).toBe(true);
+    expect(
+      materializePhysicalWidenedSum("1.005", money, "text")
+    ).toBeUndefined();
   });
 
   test("encodes members and decodes the provider-specific list container", () => {

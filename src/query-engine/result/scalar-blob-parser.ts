@@ -116,7 +116,8 @@ export function parseBlobValue(
       if (!match) {
         return unsupportedBlobValue(provider, operation, "base64 string");
       }
-      return base64ToUint8Array(match[1] ?? "", provider, operation);
+      const payloadStart = value.indexOf(":", "base64:type".length) + 1;
+      return base64ToUint8Array(value.slice(payloadStart), provider, operation);
     }
     return hexToUint8Array(value, provider, operation);
   }

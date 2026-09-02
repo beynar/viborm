@@ -4,11 +4,15 @@ import type { AnyDriver } from "@drivers";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
-import { createSchemaRegistry } from "@validation";
-import { afterAll, describe, expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import {
+  type BehaviorDatabaseSource,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createSchemaRegistry } from "@validation";
+import { afterAll, describe, expect, test } from "vitest";
 
 /**
  * N7-U-B — **the arms that ask for nothing.**
@@ -150,38 +154,68 @@ function makeRunner(driver: AnyDriver) {
   };
 }
 
-export function runBooleanNoOpArmBehavior(options: {
-  readonly name: string;
-  readonly createDriver: () => AnyDriver;
-  /** A second driver for SETUP and STATE reads, where the driver under test cannot
-   *  serve them — the MySQL2 batch-forced driver refuses a plain `update` because its
-   *  public result parsing cannot be rolled back. Same database either way, so the
-   *  reads still observe what the subject wrote. */
-  readonly createStateDriver?: () => AnyDriver;
-}): void {
+/**
+ * A `pgliteMode` leg takes a private SCHEMA on the worker's ONE PGlite; a
+ * `createDriver` leg (Docker, the SQLite family) still opens the database its
+ * factory builds. `createStateDriver` is the second driver for SETUP and STATE
+ * reads, where the driver under test cannot serve them — the MySQL2 batch-forced
+ * driver refuses a plain `update` because its public result parsing cannot be
+ * rolled back. Same database either way, so the reads still observe what the
+ * subject wrote.
+ */
+export function runBooleanNoOpArmBehavior(
+  options: { readonly name: string } & BehaviorDatabaseSource
+): void {
   describe(`${options.name} boolean no-op arm + empty nested update`, () => {
+    const getFamily =
+      options.pgliteMode === undefined
+        ? undefined
+        : usePGliteSchemaFamily(booleanNoOpSchema, options.pgliteMode);
+
     // ONE driver for the whole suite, not one per test. On the Docker legs a fresh
     // driver is a fresh connection pool, and thirty of them starve the server for
     // every suite that runs after this one — measured: with per-test drivers the pg
     // and MySQL legs failed suites this file never touches. Isolation is preserved by
     // emptying the tables at the head of each test instead.
-    const driver = options.createDriver();
-    const stateDriver = options.createStateDriver?.() ?? driver;
-    const client: any = createClient({
-      schema: booleanNoOpSchema,
-      driver: stateDriver,
-    });
-    const run = makeRunner(driver);
+    const own =
+      options.pgliteMode === undefined
+        ? (() => {
+            const driver = options.createDriver();
+            const stateDriver = options.createStateDriver?.() ?? driver;
+            return {
+              client: createClient({
+                schema: booleanNoOpSchema,
+                driver: stateDriver,
+              }) as any,
+              driver,
+              stateDriver,
+            };
+          })()
+        : undefined;
 
     // The other half of the one-driver-per-suite decision above: what is opened once
     // has to be closed once. Without this the pool the comment is trying to protect
     // outlives the suite that opened it, and `tests/drivers/pg.test.ts` registers this
     // file twice. `$disconnect` closes the state driver (the client owns it), so the
-    // subject driver is closed here only when it is a second one.
-    afterAll(async () => {
-      await client.$disconnect();
-      if (driver !== stateDriver) await driver.disconnect();
-    });
+    // subject driver is closed here only when it is a second one. A shared-schema leg
+    // opens nothing of its own: the family owns that connection for every suite on the
+    // worker's database.
+    if (own) {
+      afterAll(async () => {
+        await own.client.$disconnect();
+        if (own.driver !== own.stateDriver) await own.driver.disconnect();
+      });
+    }
+
+    /** The subject driver and the client that seeds and reads state around it. */
+    const database = (): { client: any; driver: AnyDriver } => {
+      if (own) return { client: own.client, driver: own.driver };
+      const family = getFamily?.();
+      if (!family) {
+        throw new Error("the boolean no-op arm behavior has no database");
+      }
+      return { client: family.client as any, driver: family.driver };
+    };
 
     let suffix = 0;
 
@@ -192,6 +226,8 @@ export function runBooleanNoOpArmBehavior(options: {
     // both failed somewhere: a fresh driver per test starves the Docker legs of
     // connections, and re-pushing per test re-runs DDL a SQLite-family driver rejects.)
     const setup = async () => {
+      const { client, driver } = database();
+      const run = makeRunner(driver);
       // Push WHEN THE TABLES ARE NOT THERE, which is neither "once" nor "every time".
       // Measured, both failing: pushing once is not enough on the Docker legs, where a
       // sibling suite's `force` push drops these tables between two of these tests

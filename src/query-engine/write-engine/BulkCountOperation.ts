@@ -43,16 +43,12 @@ type BulkCountKind = "updateMany" | "deleteMany";
  */
 export class BulkCountOperation {
   readonly mode: ExecutionMode;
-
   /** The canonical payload validated at construction. */
-  get validatedArgs(): Record<string, unknown> {
-    return this.args;
-  }
+  readonly validatedArgs: Record<string, unknown>;
 
   private readonly engine: QueryEngine;
   private readonly model: Model<any>;
   private readonly kind: BulkCountKind;
-  private readonly args: Record<string, unknown>;
   /** `undefined` only for `limit: 0` — the write that affects nothing. */
   private readonly write: WriteStep | undefined;
 
@@ -71,7 +67,7 @@ export class BulkCountOperation {
     // (updateMany `data` is scalar-only, so a relation key rejects as an
     // unknown key) and the portable-PK-update check, so an unsupported payload
     // rejects with a typed ValidationError before any statement is built.
-    this.args = validate<Record<string, unknown>>(
+    this.validatedArgs = validate<Record<string, unknown>>(
       engine.schemaRegistry,
       model,
       kind as Operation,
@@ -116,17 +112,25 @@ export class BulkCountOperation {
       this.engine,
       this.model,
       this.engine.driver
-    ).parse<T>(this.kind as Operation, { rowCount: Number(count) }, this.args);
+    ).parse<T>(
+      this.kind as Operation,
+      { rowCount: Number(count) },
+      this.validatedArgs
+    );
   }
 
   /** The validated `limit`, or `undefined` when the caller omitted it. */
   private limit(): number | undefined {
-    return typeof this.args.limit === "number" ? this.args.limit : undefined;
+    return typeof this.validatedArgs.limit === "number"
+      ? this.validatedArgs.limit
+      : undefined;
   }
 
   private buildWriteSql(): Sql {
     const ctx = createQueryScope(this.engine, this.model);
-    const where = isRecord(this.args.where) ? this.args.where : undefined;
+    const where = isRecord(this.validatedArgs.where)
+      ? this.validatedArgs.where
+      : undefined;
     const limit = this.limit();
     const scope = {
       ...(where ? { where } : {}),
@@ -135,7 +139,7 @@ export class BulkCountOperation {
     if (this.kind === "deleteMany") {
       return buildDeleteMany(ctx, scope);
     }
-    const data = this.args.data;
+    const data = this.validatedArgs.data;
     if (!isRecord(data)) {
       throw new QueryEngineError(
         "query-engine-v2 updateMany is missing a data object."

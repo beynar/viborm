@@ -21,6 +21,7 @@ import vm from "node:vm";
 import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
+import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { PendingOperationError, VibORMErrorCode } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
@@ -28,7 +29,7 @@ import { s } from "@schema";
 import { empty, join, raw, sql } from "@sql";
 import {
   BatchOnlyPGliteDriver,
-  createInMemoryPGliteDriver,
+  usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -46,9 +47,51 @@ const item = s
 
 const schema = { item };
 
-const DIALECTS: Array<{ name: string; createDriver: () => AnyDriver }> = [
-  { name: "pglite", createDriver: createInMemoryPGliteDriver },
-  { name: "sqlite3", createDriver: createInMemorySQLite3Driver },
+/**
+ * PGlite answers from the worker's ONE database through this suite's own
+ * private schema, so every driver built here is given that namespace.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
+
+const createPGliteDriver = (): PGliteDriver => {
+  const family = getFamily();
+  return new PGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+};
+
+const createBatchOnlyDriver = (): BatchOnlyPGliteDriver => {
+  const family = getFamily();
+  return new BatchOnlyPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+};
+
+/**
+ * The item table as the RAW statements below have to name it. The driver
+ * qualifies the ORM's SQL with its namespace and never the caller's, so on
+ * PostgreSQL the suite's own schema is part of every verbatim table reference;
+ * SQLite has no schema to name.
+ */
+const pgliteVerbatimTable = () => `"${getFamily().namespace}"."raw_sql_items"`;
+
+const DIALECTS: Array<{
+  name: string;
+  createDriver: () => AnyDriver;
+  verbatimTable: () => string;
+}> = [
+  {
+    name: "pglite",
+    createDriver: createPGliteDriver,
+    verbatimTable: pgliteVerbatimTable,
+  },
+  {
+    name: "sqlite3",
+    createDriver: createInMemorySQLite3Driver,
+    verbatimTable: () => "raw_sql_items",
+  },
 ];
 
 /** A bound comparison, in either dialect's placeholder style. */
@@ -110,7 +153,7 @@ async function seed(client: ProbedClient) {
   });
 }
 
-for (const { name, createDriver } of DIALECTS) {
+for (const { name, createDriver, verbatimTable } of DIALECTS) {
   describe(`raw SQL surface (${name})`, () => {
     let disconnect: (() => Promise<void>) | undefined;
 
@@ -131,10 +174,11 @@ for (const { name, createDriver } of DIALECTS) {
     describe("tagged templates bind, never splice", () => {
       test("$queryRaw sends the value as a parameter", async () => {
         const { client, probe } = await setup();
+        const items = raw(verbatimTable());
 
         const rows = await client.$queryRaw<{
           id: string;
-        }>`SELECT id FROM raw_sql_items WHERE label = ${"Beta"}`;
+        }>`SELECT id FROM ${items} WHERE label = ${"Beta"}`;
 
         expect(rows).toEqual([{ id: "i2" }]);
         const statement = lastStatement(probe);
@@ -146,9 +190,10 @@ for (const { name, createDriver } of DIALECTS) {
 
       test("$executeRaw binds every interpolation in order", async () => {
         const { client, probe } = await setup();
+        const items = raw(verbatimTable());
 
         const affected =
-          await client.$executeRaw`UPDATE raw_sql_items SET qty = ${100} WHERE qty >= ${5}`;
+          await client.$executeRaw`UPDATE ${items} SET qty = ${100} WHERE qty >= ${5}`;
 
         expect(affected).toBe(2);
         const statement = lastStatement(probe);
@@ -160,9 +205,10 @@ for (const { name, createDriver } of DIALECTS) {
         const { client, probe } = await setup();
 
         const injection = "Beta' OR '1'='1";
+        const items = raw(verbatimTable());
         const rows = await client.$queryRaw<{
           id: string;
-        }>`SELECT id FROM raw_sql_items WHERE label = ${injection}`;
+        }>`SELECT id FROM ${items} WHERE label = ${injection}`;
 
         // Bound, so it matches nothing rather than opening the table.
         expect(rows).toEqual([]);
@@ -172,7 +218,9 @@ for (const { name, createDriver } of DIALECTS) {
       test("a prebuilt sql`` fragment is accepted and still binds", async () => {
         const { client, probe } = await setup();
 
-        const fragment = sql`SELECT id FROM raw_sql_items WHERE qty > ${4} ORDER BY id`;
+        const fragment = sql`SELECT id FROM ${raw(
+          verbatimTable()
+        )} WHERE qty > ${4} ORDER BY id`;
         const rows = await client.$queryRaw<{ id: string }>(fragment);
 
         expect(rows).toEqual([{ id: "i2" }, { id: "i3" }]);
@@ -191,18 +239,19 @@ for (const { name, createDriver } of DIALECTS) {
     describe("Unsafe variants splice verbatim", () => {
       test("$queryRawUnsafe uses the statement as written", async () => {
         const { client, probe } = await setup();
+        const items = verbatimTable();
         const placeholder =
           client.$driver.dialect === "postgresql" ? "$1" : "?";
 
         const rows = await client.$queryRawUnsafe<{ id: string }>(
-          `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
+          `SELECT id FROM ${items} WHERE label = ${placeholder}`,
           "Gamma"
         );
 
         expect(rows).toEqual([{ id: "i3" }]);
         const statement = lastStatement(probe);
         expect(statement.sql).toBe(
-          `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`
+          `SELECT id FROM ${items} WHERE label = ${placeholder}`
         );
         expect(statement.params).toEqual(["Gamma"]);
       });
@@ -211,7 +260,7 @@ for (const { name, createDriver } of DIALECTS) {
         const { client } = await setup();
 
         const affected = await client.$executeRawUnsafe(
-          "UPDATE raw_sql_items SET qty = qty + 1"
+          `UPDATE ${verbatimTable()} SET qty = qty + 1`
         );
 
         expect(affected).toBe(3);
@@ -222,7 +271,7 @@ for (const { name, createDriver } of DIALECTS) {
 
         const column = "label";
         const rows = await client.$queryRawUnsafe<{ label: string }>(
-          `SELECT ${column} FROM raw_sql_items ORDER BY id LIMIT 1`
+          `SELECT ${column} FROM ${verbatimTable()} ORDER BY id LIMIT 1`
         );
 
         expect(rows).toEqual([{ label: "Alpha" }]);
@@ -240,7 +289,7 @@ for (const { name, createDriver } of DIALECTS) {
           });
           return tx.$queryRaw<{
             id: string;
-          }>`SELECT id FROM raw_sql_items WHERE label = ${"Delta"}`;
+          }>`SELECT id FROM ${raw(verbatimTable())} WHERE label = ${"Delta"}`;
         });
 
         expect(seen).toEqual([{ id: "i4" }]);
@@ -252,7 +301,7 @@ for (const { name, createDriver } of DIALECTS) {
         await expect(
           client.$transaction(async (tx) => {
             const affected =
-              await tx.$executeRaw`UPDATE raw_sql_items SET qty = ${999}`;
+              await tx.$executeRaw`UPDATE ${raw(verbatimTable())} SET qty = ${999}`;
             expect(affected).toBe(3);
             throw new Error("abort the transaction");
           })
@@ -269,7 +318,7 @@ for (const { name, createDriver } of DIALECTS) {
 
         await client.$transaction(async (tx) => {
           await tx.$executeRawUnsafe(
-            "UPDATE raw_sql_items SET label = 'Renamed' WHERE id = 'i1'"
+            `UPDATE ${verbatimTable()} SET label = 'Renamed' WHERE id = 'i1'`
           );
           const found = await tx.item.findUniqueOrThrow({
             where: { id: "i1" },
@@ -289,7 +338,7 @@ for (const { name, createDriver } of DIALECTS) {
         await client.$transaction(async (tx) => {
           const [affected, found] = await tx.$transaction([
             tx.$executeRaw`
-              UPDATE raw_sql_items SET label = ${"Nested"} WHERE id = ${"i1"}
+              UPDATE ${raw(verbatimTable())} SET label = ${"Nested"} WHERE id = ${"i1"}
             `,
             tx.item.findUniqueOrThrow({ where: { id: "i1" } }),
           ]);
@@ -306,7 +355,7 @@ for (const { name, createDriver } of DIALECTS) {
 
         const ids = ["i1", "i3"];
         const rows = await client.$queryRaw<{ id: string }>(
-          sql`SELECT id FROM raw_sql_items WHERE id IN (${join(
+          sql`SELECT id FROM ${raw(verbatimTable())} WHERE id IN (${join(
             ids
           )}) ORDER BY id`
         );
@@ -320,7 +369,10 @@ for (const { name, createDriver } of DIALECTS) {
 
         const conditions = [sql`qty >= ${5}`, sql`label <> ${"Gamma"}`];
         const rows = await client.$queryRaw<{ id: string }>(
-          sql`SELECT id FROM raw_sql_items WHERE ${join(conditions, " AND ")}`
+          sql`SELECT id FROM ${raw(verbatimTable())} WHERE ${join(
+            conditions,
+            " AND "
+          )}`
         );
 
         expect(rows).toEqual([{ id: "i2" }]);
@@ -331,7 +383,7 @@ for (const { name, createDriver } of DIALECTS) {
         const { client, probe } = await setup();
 
         const rows = await client.$queryRaw<{ id: string }>(
-          sql`SELECT id FROM raw_sql_items ${empty} WHERE id = ${"i2"}`
+          sql`SELECT id FROM ${raw(verbatimTable())} ${empty} WHERE id = ${"i2"}`
         );
 
         expect(rows).toEqual([{ id: "i2" }]);
@@ -342,7 +394,9 @@ for (const { name, createDriver } of DIALECTS) {
         const { client, probe } = await setup();
 
         const rows = await client.$queryRaw<{ id: string }>(
-          sql`SELECT id FROM raw_sql_items ${raw("ORDER BY id DESC")} LIMIT 1`
+          sql`SELECT id FROM ${raw(verbatimTable())} ${raw(
+            "ORDER BY id DESC"
+          )} LIMIT 1`
         );
 
         expect(rows).toEqual([{ id: "i3" }]);
@@ -384,12 +438,13 @@ for (const { name, createDriver } of DIALECTS) {
 
       test("the tagged forms are refused before the driver sees them", async () => {
         const { client, probe } = await setup();
+        const items = raw(verbatimTable());
 
         await expect(
-          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${invalid()}`
+          client.$queryRaw`SELECT id FROM ${items} WHERE label = ${invalid()}`
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
         await expect(
-          client.$executeRaw`UPDATE raw_sql_items SET qty = ${1} WHERE label = ${invalid()}`
+          client.$executeRaw`UPDATE ${items} SET qty = ${1} WHERE label = ${invalid()}`
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
 
         expect(probe.events).toEqual([]);
@@ -397,18 +452,19 @@ for (const { name, createDriver } of DIALECTS) {
 
       test("the unsafe forms are refused before the driver sees them", async () => {
         const { client, probe } = await setup();
+        const items = verbatimTable();
         const placeholder =
           client.$driver.dialect === "postgresql" ? "$1" : "?";
 
         await expect(
           client.$queryRawUnsafe(
-            `SELECT id FROM raw_sql_items WHERE label = ${placeholder}`,
+            `SELECT id FROM ${items} WHERE label = ${placeholder}`,
             invalid()
           )
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
         await expect(
           client.$executeRawUnsafe(
-            `UPDATE raw_sql_items SET qty = 1 WHERE label = ${placeholder}`,
+            `UPDATE ${items} SET qty = 1 WHERE label = ${placeholder}`,
             invalid()
           )
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
@@ -421,7 +477,9 @@ for (const { name, createDriver } of DIALECTS) {
 
         await expect(
           client.$queryRaw(
-            sql`SELECT id FROM raw_sql_items WHERE ${sql`label = ${invalid()}`}`
+            sql`SELECT id FROM ${raw(
+              verbatimTable()
+            )} WHERE ${sql`label = ${invalid()}`}`
           )
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
         await expect(
@@ -450,7 +508,7 @@ for (const { name, createDriver } of DIALECTS) {
 
         await expect(
           client.$executeRaw`
-            UPDATE raw_sql_items SET label = ${"Named"} WHERE label = ${invalid()}
+            UPDATE ${raw(verbatimTable())} SET label = ${"Named"} WHERE label = ${invalid()}
           `
         ).rejects.toThrow(SECOND_BOUND_PARAMETER);
       });
@@ -463,7 +521,9 @@ for (const { name, createDriver } of DIALECTS) {
         expect(foreign instanceof Date).toBe(false);
 
         await expect(
-          client.$queryRaw`SELECT id FROM raw_sql_items WHERE label = ${foreign}`
+          client.$queryRaw`SELECT id FROM ${raw(
+            verbatimTable()
+          )} WHERE label = ${foreign}`
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
         expect(probe.events).toEqual([]);
       });
@@ -474,7 +534,7 @@ for (const { name, createDriver } of DIALECTS) {
 
         const rows = await client.$queryRaw<{
           id: string;
-        }>`SELECT id FROM raw_sql_items WHERE label = ${text}`;
+        }>`SELECT id FROM ${raw(verbatimTable())} WHERE label = ${text}`;
 
         expect(rows).toEqual([]);
         expect(lastStatement(probe).params).toEqual([text]);
@@ -497,7 +557,7 @@ for (const { name, createDriver } of DIALECTS) {
       test("keeps the complete Promise surface and one execution", async () => {
         const { client } = await setup();
         const operation = client.$queryRaw<{ id: string }>`
-          SELECT id FROM raw_sql_items ORDER BY id
+          SELECT id FROM ${raw(verbatimTable())} ORDER BY id
         `;
 
         const [direct, resolved, all] = await Promise.all([
@@ -561,7 +621,7 @@ for (const { name, createDriver } of DIALECTS) {
  */
 describe("valid Date parameters (pglite)", () => {
   test("retain their instant through provider execution", async () => {
-    const driver = createInMemoryPGliteDriver();
+    const driver = createPGliteDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
@@ -581,7 +641,11 @@ describe("valid Date parameters (pglite)", () => {
 describe("raw SQL in a native array transaction", () => {
   test("refuses a Date invalidated after transaction start before native dispatch", async () => {
     const parameter = new Date("2026-08-25T13:00:00.000Z");
-    const driver = new ProviderProbedBatchOnlyPGliteDriver();
+    const family = getFamily();
+    const driver = new ProviderProbedBatchOnlyPGliteDriver({
+      client: family.database,
+      namespace: family.namespace,
+    });
     const client = createClient({ schema, driver });
     try {
       const transaction = client.$transaction([
@@ -599,21 +663,22 @@ describe("raw SQL in a native array transaction", () => {
   });
 
   test("mixes raw and model operations in one ordered atomic batch", async () => {
-    const driver = new BatchOnlyPGliteDriver();
+    const driver = createBatchOnlyDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
       await seed(client);
       const executeBatch = vi.spyOn(driver, "_executeBatch");
 
+      const items = pgliteVerbatimTable();
       const rename = client.$executeRaw`
-        UPDATE raw_sql_items SET label = ${"Renamed"} WHERE id = ${"i1"}
+        UPDATE ${raw(items)} SET label = ${"Renamed"} WHERE id = ${"i1"}
       `;
       const [affected, modelRows, rawRows] = await client.$transaction([
         rename,
         client.item.findMany({ where: { label: "Renamed" } }),
         client.$queryRaw<{ id: string }>`
-          SELECT id FROM raw_sql_items WHERE label = ${"Renamed"}
+          SELECT id FROM ${raw(items)} WHERE label = ${"Renamed"}
         `,
       ]);
 
@@ -623,10 +688,10 @@ describe("raw SQL in a native array transaction", () => {
       expect(executeBatch).toHaveBeenCalledOnce();
       const submitted = executeBatch.mock.calls[0]?.[0] ?? [];
       expect(submitted).toHaveLength(3);
-      expect(submitted[0]?.sql).toContain("UPDATE raw_sql_items");
+      expect(submitted[0]?.sql).toContain(`UPDATE ${items}`);
       expect(submitted[0]?.params).toEqual(["Renamed", "i1"]);
       expect(submitted[1]?.sql).toContain("raw_sql_items");
-      expect(submitted[2]?.sql).toContain("SELECT id FROM raw_sql_items");
+      expect(submitted[2]?.sql).toContain(`SELECT id FROM ${items}`);
       expect(submitted[2]?.params).toEqual(["Renamed"]);
     } finally {
       await client.$disconnect();
@@ -634,13 +699,13 @@ describe("raw SQL in a native array transaction", () => {
   });
 
   test("a native batch consumes both raw and model operations exactly once", async () => {
-    const driver = new BatchOnlyPGliteDriver();
+    const driver = createBatchOnlyDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
       await seed(client);
       const rawOperation = client.$executeRaw`
-        UPDATE raw_sql_items SET qty = ${9} WHERE id = ${"i1"}
+        UPDATE ${raw(pgliteVerbatimTable())} SET qty = ${9} WHERE id = ${"i1"}
       `;
       const modelOperation = client.item.findMany({ where: { id: "i1" } });
 
@@ -664,7 +729,7 @@ describe("raw SQL in a native array transaction", () => {
   });
 
   test("prepares every raw input before dispatching any effect", async () => {
-    const driver = new BatchOnlyPGliteDriver();
+    const driver = createBatchOnlyDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
@@ -673,7 +738,7 @@ describe("raw SQL in a native array transaction", () => {
 
       await expect(
         client.$transaction([
-          client.$executeRaw`UPDATE raw_sql_items SET qty = ${77}`,
+          client.$executeRaw`UPDATE ${raw(pgliteVerbatimTable())} SET qty = ${77}`,
           client.$queryRaw(sql`SELECT 1`, "stray"),
         ])
       ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
@@ -686,7 +751,7 @@ describe("raw SQL in a native array transaction", () => {
   });
 
   test("a later raw failure rolls back an earlier raw and model write", async () => {
-    const driver = new BatchOnlyPGliteDriver();
+    const driver = createBatchOnlyDriver();
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
@@ -698,7 +763,9 @@ describe("raw SQL in a native array transaction", () => {
             where: { id: "i1" },
             data: { qty: 88 },
           }),
-          client.$executeRaw`UPDATE raw_sql_items SET qty = ${99} WHERE id = ${"i2"}`,
+          client.$executeRaw`UPDATE ${raw(
+            pgliteVerbatimTable()
+          )} SET qty = ${99} WHERE id = ${"i2"}`,
           client.$queryRawUnsafe("SELECT * FROM table_that_does_not_exist"),
         ])
       ).rejects.toThrow();
@@ -714,8 +781,8 @@ describe("raw SQL in a native array transaction", () => {
   });
 
   test("rejects a foreign-client raw operation before dispatch", async () => {
-    const driver = new BatchOnlyPGliteDriver();
-    const foreignDriver = new BatchOnlyPGliteDriver();
+    const driver = createBatchOnlyDriver();
+    const foreignDriver = createBatchOnlyDriver();
     const client = createClient({ schema, driver });
     const foreign = createClient({ schema, driver: foreignDriver });
     try {

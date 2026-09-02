@@ -444,10 +444,7 @@ export class VibORM<C extends VibORMConfig> {
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
     | undefined;
 
-  /**
-   * Unique identifier for this client instance.
-   * Used to verify operations belong to the same client in $transaction.
-   */
+  /** Stable identity shared by every transaction-bound view of this client. */
   get clientId(): symbol {
     return this.engine.clientId;
   }

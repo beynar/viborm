@@ -33,11 +33,6 @@ import {
   REVALIDATING_TTL_MS,
   scheduleBackground,
 } from "./cache-background";
-import type {
-  CacheEntry,
-  CacheExecutionOptions,
-  CacheSetOptions,
-} from "./cache-contract";
 import {
   type CacheLogEvent,
   completeOfficialCacheSetFailure,
@@ -57,6 +52,35 @@ import {
   type CacheInvalidationOptions,
   hasCacheInvalidationWork,
 } from "./schema";
+
+/** Extend a request lifetime until background cache work settles. */
+export type WaitUntilFn = (promise: Promise<unknown>) => void;
+
+/** Cache entry with freshness metadata for stale-while-revalidate. */
+export interface CacheEntry<T = unknown> {
+  value: T;
+  createdAt: number;
+  ttl: number;
+}
+
+/** Storage options for a cache write. */
+export interface CacheSetOptions {
+  /** Time to live in milliseconds. */
+  ttl: number;
+  /** Storage TTL including the stale window, when SWR is enabled. */
+  swrTtl?: number;
+}
+
+/** Parsed options for one cached ORM execution. */
+export interface CacheExecutionOptions {
+  ttlMs: number;
+  swr: number | false;
+  bypass: boolean;
+  key?: string;
+  waitUntil?: WaitUntilFn;
+  dbAttributes?: Record<string, string>;
+  executionContext?: QueryExecutionContext;
+}
 
 type ObservedCacheOperation = "get" | "set" | "revalidate" | "invalidate";
 
@@ -130,23 +154,10 @@ function refuseExternalScope(scope: unknown): void {
   );
 }
 
-type PreparedInvalidationTarget =
-  | {
-      readonly kind: "clear";
-      readonly key: string;
-      readonly prefixedKey: string;
-    }
-  | {
-      readonly kind: "delete";
-      readonly key: string;
-      readonly prefixedKey: string;
-    };
-
-export type {
-  CacheEntry,
-  CacheExecutionOptions,
-  CacheSetOptions,
-} from "./cache-contract";
+interface PreparedInvalidationTarget {
+  readonly kind: "clear" | "delete";
+  readonly prefixedKey: string;
+}
 
 /**
  * Abstract base class for cache drivers.
@@ -288,7 +299,8 @@ export abstract class CacheDriver {
           return cached.value;
         }
 
-        if (options.swr !== false) {
+        const swrTtl = options.swr;
+        if (swrTtl !== false) {
           // Stale but SWR enabled - return stale and revalidate in background
           scheduleBackground(
             this.revalidateInBackground(
@@ -297,6 +309,7 @@ export abstract class CacheDriver {
               cacheKey,
               executor,
               options,
+              swrTtl,
               codec,
               namespace
             ),
@@ -402,6 +415,7 @@ export abstract class CacheDriver {
     cacheKey: string,
     executor: () => Promise<T>,
     options: CacheExecutionOptions,
+    swrTtl: number,
     codec: DetachedCacheResultCodec<T>,
     namespace: string
   ): Promise<void> {
@@ -442,7 +456,7 @@ export abstract class CacheDriver {
           stored,
           {
             ttl: options.ttlMs,
-            swrTtl: options.swr !== false ? options.swr : undefined,
+            swrTtl,
           },
           options.executionContext,
           namespace
@@ -586,7 +600,6 @@ export abstract class CacheDriver {
    */
   private withSpan<T>(
     spanName: VibORMSpanName,
-    _key: string,
     execute: () => Promise<T>,
     extraAttributes?: Record<string, string>,
     context?: QueryExecutionContext,
@@ -669,7 +682,6 @@ export abstract class CacheDriver {
 
     return this.withSpan(
       SPAN_CACHE_GET,
-      key,
       async () => {
         const entry = await this.get<T>(prefixedKey);
         if (entry) {
@@ -735,7 +747,6 @@ export abstract class CacheDriver {
 
     return this.withSpan(
       SPAN_CACHE_SET,
-      key,
       () => this.set(prefixedKey, storageTtl, entry),
       { [ATTR_CACHE_TTL]: String(options.ttl) },
       context,
@@ -756,7 +767,7 @@ export abstract class CacheDriver {
   ): Promise<void> {
     refuseExternalScope(externalScope);
     const prefixedKey = this.prefixKey(key);
-    return this.deletePrefixed(key, prefixedKey, context);
+    return this.deletePrefixed(prefixedKey, context);
   }
 
   /**
@@ -771,7 +782,7 @@ export abstract class CacheDriver {
   ): Promise<void> {
     refuseExternalScope(externalScope);
     const prefixedPrefix = this.prefixKey(prefix ?? "");
-    return this.clearPrefixed(prefix ?? "*", prefixedPrefix, context);
+    return this.clearPrefixed(prefixedPrefix, context);
   }
 
   /**
@@ -861,7 +872,6 @@ export abstract class CacheDriver {
     if (options?.autoInvalidate) {
       targets.push({
         kind: "clear",
-        key: modelName,
         prefixedKey: this.prefixKey(`${modelName}:`, namespace),
       });
     }
@@ -871,21 +881,19 @@ export abstract class CacheDriver {
         const key = isPrefix ? entry.slice(0, -1) : entry;
         targets.push({
           kind: isPrefix ? "clear" : "delete",
-          key,
           prefixedKey: this.prefixKey(key, namespace),
         });
       }
     }
     return this.withSpan(
       SPAN_CACHE_INVALIDATE,
-      modelName,
       async () => {
         const promises: Promise<void>[] = [];
         for (const target of targets) {
           promises.push(
             target.kind === "clear"
-              ? this.clearPrefixed(target.key, target.prefixedKey, context)
-              : this.deletePrefixed(target.key, target.prefixedKey, context)
+              ? this.clearPrefixed(target.prefixedKey, context)
+              : this.deletePrefixed(target.prefixedKey, context)
           );
         }
         await Promise.all(promises);
@@ -911,14 +919,12 @@ export abstract class CacheDriver {
   // ============================================================
 
   private deletePrefixed(
-    key: string,
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
     return this.withSpan(
       SPAN_CACHE_DELETE,
-      key,
       () => this.delete(keys),
       undefined,
       context
@@ -926,13 +932,11 @@ export abstract class CacheDriver {
   }
 
   private clearPrefixed(
-    key: string,
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
     return this.withSpan(
       SPAN_CACHE_CLEAR,
-      key,
       () => this.clear(prefixedKey),
       undefined,
       context

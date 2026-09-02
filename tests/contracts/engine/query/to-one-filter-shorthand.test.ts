@@ -10,13 +10,9 @@
  * the disambiguation and collision rules.
  */
 
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 const user = s
   .model({
@@ -52,20 +48,17 @@ const post = s
   })
   .map("shorthand_posts");
 
-const createShorthandClient = () =>
-  createClient({
-    schema: { user, profile, post },
-    driver: new PGliteDriver({ client: new PGlite() }),
-  });
+const schema = { user, profile, post };
 
-let client: ReturnType<typeof createShorthandClient>;
+const getFamily = usePGliteSchemaFamily(schema);
+
+let client: ReturnType<typeof getFamily>["client"];
 
 const ids = (rows: readonly { id: string }[]): string[] =>
   rows.map((row) => row.id);
 
-beforeAll(async () => {
-  client = createShorthandClient();
-  await syncLiveSchema(client);
+beforeEach(async () => {
+  client = getFamily().client;
 
   await client.user.createMany({
     data: [
@@ -88,10 +81,6 @@ beforeAll(async () => {
       { id: "a3", title: "gamma", authorId: "u3" },
     ],
   });
-});
-
-afterAll(async () => {
-  await client.$disconnect();
 });
 
 describe("to-one filter shorthand - parent-held (post.author)", () => {

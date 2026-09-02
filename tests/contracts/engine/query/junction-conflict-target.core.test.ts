@@ -41,11 +41,20 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import {
+  buildJunctionMembership,
+  buildJunctionParentValue,
+  buildJunctionReferencedValuesSetMatch,
+  buildJunctionTargetSubqueriesMatch,
+  buildJunctionTargetValue,
+  buildJunctionTargetValuesMatch,
+} from "@query-engine/builders/many-to-many-utils";
 import { bindRelation } from "@query-engine/builders/relation-data-builder";
 import { lookupRelation } from "@query-engine/context";
 import { JunctionStatements } from "@query-engine/JunctionStatements";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
+import { sql } from "@sql";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { describe, expect, test } from "vitest";
 
@@ -128,6 +137,21 @@ function junctionInsert(
   return new JunctionStatements(scope, false)
     .materialize(relation, operation, args)
     .toStatement(placeholder);
+}
+
+function boundJunction(
+  adapter: DatabaseAdapter,
+  source: Model<any>,
+  relationName: string
+) {
+  const scope = scopeFor(adapter, source);
+  const relationRef = lookupRelation(scope, relationName);
+  if (!relationRef) throw new Error(`Expected relation '${relationName}'.`);
+  const relation = bindRelation(scope, relationRef);
+  if (relation.position !== "junction") {
+    throw new Error(`Expected '${relationName}' to use a junction.`);
+  }
+  return { scope, relation };
 }
 
 const scalarRows = { parentValue: "s1", targetValues: ["b1", "b2"] };
@@ -246,5 +270,115 @@ describe("junction insert duplicate-skip clause", () => {
         expect(CONFLICT_TARGET.exec(statement)?.[1]).toBe(inserted);
       }
     }
+  });
+});
+
+describe("compound junction predicates", () => {
+  test("preserves every endpoint member through value and membership predicates", () => {
+    const { scope, relation } = boundJunction(
+      postgres,
+      compoundPair.owner,
+      "items"
+    );
+    const parent = buildJunctionParentValue(
+      scope,
+      relation,
+      { tenantId: "tenant-1", code: "owner-1" },
+      "items"
+    );
+    const firstTarget = buildJunctionTargetValue(
+      scope,
+      relation,
+      { region: "eu", isbn: "isbn-1" },
+      "items"
+    );
+    const secondTarget = buildJunctionTargetValue(
+      scope,
+      relation,
+      { region: "us", isbn: "isbn-2" },
+      "items"
+    );
+
+    expect(parent.flatMap((value) => value.values)).toEqual([
+      "tenant-1",
+      "owner-1",
+    ]);
+    expect(firstTarget.flatMap((value) => value.values)).toEqual([
+      "eu",
+      "isbn-1",
+    ]);
+
+    const targetSet = buildJunctionTargetValuesMatch(
+      scope,
+      relation,
+      [firstTarget, secondTarget],
+      "membership"
+    ).toStatement("$n");
+    expect(targetSet).toContain('"membership"."item_1" = $1');
+    expect(targetSet).toContain('"membership"."item_2" = $2');
+    expect(targetSet).toContain('"membership"."item_1" = $3');
+    expect(targetSet).toContain('"membership"."item_2" = $4');
+
+    const referencedSet = buildJunctionReferencedValuesSetMatch(
+      scope,
+      relation.membership.target,
+      [firstTarget, secondTarget],
+      "candidate"
+    ).toStatement("$n");
+    expect(referencedSet).toContain('"candidate"."region" = $1');
+    expect(referencedSet).toContain('"candidate"."isbn" = $2');
+
+    const membership = buildJunctionMembership(
+      scope,
+      relation,
+      parent,
+      "candidate"
+    ).toStatement("$n");
+    expect(membership).toContain("EXISTS");
+    expect(membership).toContain('"candidate"."region"');
+    expect(membership).toContain('"candidate"."isbn"');
+    // The SELECT projection owns $1. The correlated owner tuple follows it.
+    expect(membership).toContain('"jct_owner_item"."owner_1" = $2');
+    expect(membership).toContain('"jct_owner_item"."owner_2" = $3');
+  });
+
+  test("matches every compound junction column to its target subquery", () => {
+    const { scope, relation } = boundJunction(
+      postgres,
+      compoundPair.owner,
+      "items"
+    );
+    const condition = buildJunctionTargetSubqueriesMatch(
+      scope,
+      relation,
+      [sql`(SELECT ${"eu"})`, sql`(SELECT ${"isbn-1"})`],
+      "membership"
+    ).toStatement("$n");
+
+    expect(condition).toBe(
+      '("membership"."item_1" = (SELECT $1) AND "membership"."item_2" = (SELECT $2))'
+    );
+  });
+});
+
+describe("coverage low value", () => {
+  test("contains junction tuples that bound topology cannot produce", () => {
+    const { scope, relation } = boundJunction(
+      postgres,
+      compoundPair.owner,
+      "items"
+    );
+
+    expect(() =>
+      buildJunctionTargetValuesMatch(scope, relation, [[sql`${"eu"}`]])
+    ).toThrow("Junction side value count does not match its stored reference.");
+    expect(() =>
+      buildJunctionParentValue(
+        scope,
+        relation,
+        { tenantId: "tenant-1" },
+        "items"
+      )
+    ).toThrow("parent record is missing primary key field 'code'");
   });
 });

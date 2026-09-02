@@ -1,4 +1,4 @@
-import type { WaitUntilFn } from "./cache-contract";
+import type { WaitUntilFn } from "./driver";
 
 export const REVALIDATING_SUFFIX = ":reval";
 export const REVALIDATING_TTL_MS = 30_000;

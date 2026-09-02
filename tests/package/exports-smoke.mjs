@@ -355,7 +355,10 @@ try {
   const consumerFile = join(consumerRoot, "consumer.ts");
   writeFileSync(consumerFile, `${typeConsumerImports.join("\n")}\n`);
   execFileSync(
-    join(repositoryRoot, "node_modules", ".bin", "tsc"),
+    // By path, not `.bin/tsc`: two TypeScripts are installed and that link is
+    // whichever won pnpm's bin collision - today the native 7.0.2, which
+    // refuses files on the command line beside a tsconfig (TS5112).
+    join(repositoryRoot, "node_modules", "typescript", "bin", "tsc"),
     [
       "--noEmit",
       "--strict",

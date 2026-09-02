@@ -1,4 +1,3 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
@@ -6,10 +5,10 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { ValidationError } from "@errors";
-
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const crate = s
   .model({

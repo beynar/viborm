@@ -465,6 +465,12 @@ forged or stale value can only cause refusal. Resolution callbacks run outside
 the lock; their normalized decisions are closed into consent and checked
 against the locked replan.
 
+`input-boundary.ts` is the one hostile JavaScript snapshot owner for migration
+option records and arrays. Generate, down, push planning, and push consent read
+each caller-owned property once, reject unknown keys, detach arrays, and
+translate unreadable values to the command's `MigrationError` code before
+trusted planning begins. Do not add command-local record or array readers.
+
 Push may inspect the database control plane only to prevent history from being
 made false. A non-empty push against a valid migration marker is refused. A
 no-op is allowed only after the marker, unfinished-attempt state, desired
@@ -607,3 +613,56 @@ Before accepting an L12 change, answer all of these:
 The design goal is not the largest migration framework. It is the smallest one
 whose estate bytes, graph, database state, execution, and operator claims cannot
 contradict each other.
+
+## Coverage Gate
+
+`pnpm test:coverage:migrations` is the exact migration-subsystem report. It
+passes the deterministic core and selected local extended list from
+`scripts/migration-test-manifest.mjs` to one bounded `coverage-migrations`
+invocation and writes `coverage/migrations/index.html`.
+
+Its enforced floors are 98% statements, 98% functions and 98% lines, with
+branches at 97.3%. Statements, lines and functions hold the full 98; the branch
+floor is an APPROVED EXCEPTION with recorded evidence in
+`scripts/coverage-policy.mjs`. The 30 residual arms are unreachable defensive
+guards, each with a named upstream invariant: all 18 in `serializer.ts`
+(hydration always assigns `names.sql`; `EnumScalar.enumValues` returns `[]`, never
+`undefined`) and all 12 in `graph.ts` (a cycle there would need a SHA-256 preimage
+cycle). `scripts/merge-coverage.mjs` prints each measured metric beside the floor
+it enforces, so the exception is visible rather than inferred, and the floor is
+still a ratchet.
+
+Its policy check rejects omitted eligible tests and resource-owning PGlite
+imports. Live DDL and external-provider behavior remain in provider projects.
+
+## Core Estate Exception
+
+`layer-migrations` runs every `.core.test.ts` under `tests/unit/migrations`,
+and core doctrine keeps that lane free of live provider processes. Five of the
+112 core contracts hold a named exception because what they assert is a
+property of a real database rather than of rendered SQL:
+
+| File | Live evidence it owns |
+|---|---|
+| `control-bootstrap.core.test.ts` | Real catalog readback of the control pair: collisions, triggers, missing primary keys, and a constraint the catalog does not report as text |
+| `read-only-tracking.core.test.ts` | Control presence read by `status` before and after `apply` |
+| `v1-apply.core.test.ts` | Marker arrival, committed state, and control-bootstrap recovery and rollback after an applied transition |
+| `v1-operators.core.test.ts` | `down`, `reset`, `status`, and `baseline` against real applied state |
+| `v1-push.core.test.ts` | Consent staleness after an external change, cross-driver consent, transactionless apply, and SQLite introspection readback |
+
+The exception is exactly one engine: an in-process `better-sqlite3` database,
+always `:memory:`, so it leaves nothing behind the worker process. No PGlite,
+MySQL, PostgreSQL, LibSQL, D1, or hosted transport; no file-backed `dataDir`;
+no filesystem, network, or subprocess module. Two further core contracts,
+`decimal-provider-limits.core.test.ts` and `v1-provider-admission.core.test.ts`,
+name a provider module to read a declared limit or capability and open no
+database at all.
+
+`scripts/coverage-policy.test.mjs` holds both lists and is the enforcement: a
+core contract that reaches a provider resource without being named fails, a
+named contract that no longer reaches one fails, and a named SQLite contract
+that adds a second engine, a file-backed database, or a host resource fails.
+Every other migration core contract drives a recording driver from
+`tests/unit/migrations/_estate.ts`. A new contract joins the exception only
+when its evidence cannot exist without a database; otherwise it belongs on a
+recording driver or in the extended or provider estate.

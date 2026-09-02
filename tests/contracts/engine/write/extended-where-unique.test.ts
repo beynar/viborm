@@ -1,4 +1,3 @@
-import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -14,10 +13,9 @@ import {
   extendedWhereUniqueSchema,
   runExtendedWhereUniqueBehavior,
 } from "@tests/contracts/engine/write/extended-where-unique-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // The whole extended-whereUnique surface on PGlite, both substrates. The driver
 // matrix legs run the same module from tests/drivers/*.test.ts.
@@ -166,6 +164,11 @@ const identitySchema = (() => {
 })();
 
 hydrateSchemaNames(identitySchema);
+
+/** The two behavior legs below run over one shared PGlite, in this file's own
+ *  schema. The compile-only helpers keep their unconnected drivers: a
+ *  `PGliteDriver` builds no database until something executes on it. */
+const getIdentityFamily = usePGliteSchemaFamily(identitySchema);
 
 /** Compile an upsert's CREATE arm (an empty locate result) and hand back its
  *  write step plus the terminal read that addresses the row it wrote. */
@@ -318,47 +321,39 @@ test(
     // created row rather than the live one the `where` names. PostgreSQL is the
     // only dialect in the matrix whose DDL accepts an AUTO-generated compound-PK
     // member, so this leg is PGlite-only by necessity, not by convenience.
-    const client = createClient({
-      schema: identitySchema,
-      driver: new PGliteDriver(),
+    const client = getIdentityFamily().client;
+    // Seed without needing the generated compound row key as an immediate result.
+    await client.seat.createMany({
+      data: [{ tenantId: 1, email: "seed@x", score: 7 }],
     });
-    await syncLiveSchema(client);
-    try {
-      // Seed without needing the generated compound row key as an immediate result.
-      await client.seat.createMany({
-        data: [{ tenantId: 1, email: "seed@x", score: 7 }],
-      });
-      // CREATE arm: the discriminator names the seeded row, the filter excludes
-      // it, and `create` writes a different unique. The created row must come back.
-      expect(
-        await client.seat.upsert({
-          where: { email: "seed@x", score: { gt: 100 } },
-          create: { tenantId: 4, email: "other@x", score: 1 },
-          update: { score: { increment: 100 } },
-          select: { tenantId: true, email: true, score: true },
-        })
-      ).toEqual({ tenantId: 4, email: "other@x", score: 1 });
-      // The row the `where` named is untouched — no update ran on it.
-      expect(
-        await client.seat.findUnique({
-          where: { email: "seed@x" },
-          select: { tenantId: true, score: true },
-        })
-      ).toEqual({ tenantId: 1, score: 7 });
-      // UPDATE arm: a matching `where` still locates and updates, so the create
-      // arm is not passing by swallowing everything.
-      expect(
-        await client.seat.upsert({
-          where: { email: "seed@x" },
-          create: { tenantId: 9, email: "seed@x", score: 0 },
-          update: { score: { increment: 5 } },
-          select: { tenantId: true, email: true, score: true },
-        })
-      ).toEqual({ tenantId: 1, email: "seed@x", score: 12 });
-      expect(await client.seat.count()).toBe(2);
-    } finally {
-      await client.$disconnect();
-    }
+    // CREATE arm: the discriminator names the seeded row, the filter excludes
+    // it, and `create` writes a different unique. The created row must come back.
+    expect(
+      await client.seat.upsert({
+        where: { email: "seed@x", score: { gt: 100 } },
+        create: { tenantId: 4, email: "other@x", score: 1 },
+        update: { score: { increment: 100 } },
+        select: { tenantId: true, email: true, score: true },
+      })
+    ).toEqual({ tenantId: 4, email: "other@x", score: 1 });
+    // The row the `where` named is untouched — no update ran on it.
+    expect(
+      await client.seat.findUnique({
+        where: { email: "seed@x" },
+        select: { tenantId: true, score: true },
+      })
+    ).toEqual({ tenantId: 1, score: 7 });
+    // UPDATE arm: a matching `where` still locates and updates, so the create
+    // arm is not passing by swallowing everything.
+    expect(
+      await client.seat.upsert({
+        where: { email: "seed@x" },
+        create: { tenantId: 9, email: "seed@x", score: 0 },
+        update: { score: { increment: 5 } },
+        select: { tenantId: true, email: true, score: true },
+      })
+    ).toEqual({ tenantId: 1, email: "seed@x", score: 12 });
+    expect(await client.seat.count()).toBe(2);
   }
 );
 
@@ -368,65 +363,57 @@ test(
   async () => {
     // Package A gives the fresh-record owner the complete ordered row key. Root
     // create and probe-first upsert therefore publish the same generated member.
-    const client = createClient({
-      schema: identitySchema,
-      driver: new PGliteDriver(),
+    const client = getIdentityFamily().client;
+    expect(
+      await client.slot.create({
+        data: { tenantId: 1, label: "a", score: 1 },
+        select: { tenantId: true, label: true },
+      })
+    ).toEqual({ tenantId: 1, label: "a" });
+    expect(
+      await client.slot.createMany({
+        data: [{ tenantId: 1, label: "b", score: 2 }],
+      })
+    ).toEqual({ count: 1 });
+    expect(
+      await client.slot.findMany({ select: { tenantId: true, label: true } })
+    ).toEqual([
+      { tenantId: 1, label: "a" },
+      { tenantId: 1, label: "b" },
+    ]);
+    // CREATE arm: the `where` names a `seq` no row holds. The seeded row shares
+    // the create's `tenantId`, so a read-back re-derived from the spelled member
+    // alone could answer with IT; the produced `seq` is what separates them.
+    const made = await client.slot.upsert({
+      where: { tenantId_seq: { tenantId: 1, seq: 99 } },
+      create: { tenantId: 1, label: "c", score: 3 },
+      update: { score: { increment: 1 } },
+      select: { tenantId: true, seq: true, label: true, score: true },
     });
-    await syncLiveSchema(client);
-    try {
-      expect(
-        await client.slot.create({
-          data: { tenantId: 1, label: "a", score: 1 },
-          select: { tenantId: true, label: true },
-        })
-      ).toEqual({ tenantId: 1, label: "a" });
-      expect(
-        await client.slot.createMany({
-          data: [{ tenantId: 1, label: "b", score: 2 }],
-        })
-      ).toEqual({ count: 1 });
-      expect(
-        await client.slot.findMany({ select: { tenantId: true, label: true } })
-      ).toEqual([
-        { tenantId: 1, label: "a" },
-        { tenantId: 1, label: "b" },
-      ]);
-      // CREATE arm: the `where` names a `seq` no row holds. The seeded row shares
-      // the create's `tenantId`, so a read-back re-derived from the spelled member
-      // alone could answer with IT; the produced `seq` is what separates them.
-      const made = await client.slot.upsert({
-        where: { tenantId_seq: { tenantId: 1, seq: 99 } },
+    expect(made.label).toBe("c");
+    expect(made.tenantId).toBe(1);
+    expect(made.seq).not.toBe(99);
+    // The seeded row is untouched — the create arm answered with its OWN row.
+    expect(
+      await client.slot.findMany({
+        orderBy: { seq: "asc" },
+        select: { label: true, score: true },
+      })
+    ).toEqual([
+      { label: "a", score: 1 },
+      { label: "b", score: 2 },
+      { label: "c", score: 3 },
+    ]);
+    // The create-arm identity is decided on the TAKEN arm only — a located row
+    // still updates on the very same model.
+    expect(
+      await client.slot.upsert({
+        where: { tenantId_seq: { tenantId: 1, seq: 2 } },
         create: { tenantId: 1, label: "c", score: 3 },
         update: { score: { increment: 1 } },
-        select: { tenantId: true, seq: true, label: true, score: true },
-      });
-      expect(made.label).toBe("c");
-      expect(made.tenantId).toBe(1);
-      expect(made.seq).not.toBe(99);
-      // The seeded row is untouched — the create arm answered with its OWN row.
-      expect(
-        await client.slot.findMany({
-          orderBy: { seq: "asc" },
-          select: { label: true, score: true },
-        })
-      ).toEqual([
-        { label: "a", score: 1 },
-        { label: "b", score: 2 },
-        { label: "c", score: 3 },
-      ]);
-      // The create-arm identity is decided on the TAKEN arm only — a located row
-      // still updates on the very same model.
-      expect(
-        await client.slot.upsert({
-          where: { tenantId_seq: { tenantId: 1, seq: 2 } },
-          create: { tenantId: 1, label: "c", score: 3 },
-          update: { score: { increment: 1 } },
-          select: { label: true, score: true },
-        })
-      ).toEqual({ label: "b", score: 3 });
-    } finally {
-      await client.$disconnect();
-    }
+        select: { label: true, score: true },
+      })
+    ).toEqual({ label: "b", score: 3 });
   }
 );
 
@@ -438,37 +425,36 @@ test(
 // later statement and the arm can merge beside a sibling operation.
 // ---------------------------------------------------------------------------
 
+/** Its own schema on the shared PGlite, in the batch-only substrate this seam is
+ *  about — the behavior legs above own the two families that carry their arms. */
+const getSharedBatchFamily = usePGliteSchemaFamily(
+  extendedWhereUniqueSchema,
+  "atomicBatch"
+);
+
 test(
   "$transaction([…]): a capture-needing create arm returns from its INSERT",
   { timeout: 30_000 },
   async () => {
-    const client = createClient({
-      schema: extendedWhereUniqueSchema,
-      driver: new BatchOnlyPGliteDriver(),
-    });
-    await syncLiveSchema(client);
-    try {
-      const [created] = await client.$transaction([
-        client.note.upsert({
-          where: { id: 999 },
-          create: { label: "captured", status: "fresh", score: 1 },
-          update: { score: { increment: 1 } },
-          select: { id: true, label: true, score: true },
-        }),
-      ]);
-      expect(created).toMatchObject({ label: "captured", score: 1 });
-      expect(created.id).not.toBe(999);
-      const [updated] = await client.$transaction([
-        client.note.upsert({
-          where: { id: created.id },
-          create: { label: "captured", status: "fresh", score: 1 },
-          update: { score: { increment: 1 } },
-          select: { label: true, score: true },
-        }),
-      ]);
-      expect(updated).toEqual({ label: "captured", score: 2 });
-    } finally {
-      await client.$disconnect();
-    }
+    const client = getSharedBatchFamily().client;
+    const [created] = await client.$transaction([
+      client.note.upsert({
+        where: { id: 999 },
+        create: { label: "captured", status: "fresh", score: 1 },
+        update: { score: { increment: 1 } },
+        select: { id: true, label: true, score: true },
+      }),
+    ]);
+    expect(created).toMatchObject({ label: "captured", score: 1 });
+    expect(created.id).not.toBe(999);
+    const [updated] = await client.$transaction([
+      client.note.upsert({
+        where: { id: created.id },
+        create: { label: "captured", status: "fresh", score: 1 },
+        update: { score: { increment: 1 } },
+        select: { label: true, score: true },
+      }),
+    ]);
+    expect(updated).toEqual({ label: "captured", score: 2 });
   }
 );

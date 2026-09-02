@@ -50,8 +50,11 @@ const nullToIsNull: NullToIsNull = createSchema("object", () =>
  * exists exactly where the membership can be absent, which for a stored
  * reference is its own nullable tuple and for every non-owner is always.
  */
-type MayBeEmpty<Source extends AnyModel, Key, S extends RelationState> =
-  SlotMayBeEmpty<Source, Key, S> extends false ? false : true;
+type MayBeEmpty<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = SlotMayBeEmpty<Source, Key, S> extends false ? false : true;
 
 type ToOneFilterObjectSchema<
   Source extends AnyModel,
@@ -90,21 +93,20 @@ export type ToOneFilterSchema<
   Source extends AnyModel,
   Key,
   S extends RelationState,
-> =
-  MayBeEmpty<Source, Key, S> extends true
-    ? V.Union<
-        readonly [
-          NullToIsNull,
-          ToOneFilterObjectSchema<Source, Key, S>,
-          ToOneShorthandFilterSchema<Source, Key, S>,
-        ]
-      >
-    : V.Union<
-        readonly [
-          ToOneFilterObjectSchema<Source, Key, S>,
-          ToOneShorthandFilterSchema<Source, Key, S>,
-        ]
-      >;
+> = MayBeEmpty<Source, Key, S> extends true
+  ? V.Union<
+      readonly [
+        NullToIsNull,
+        ToOneFilterObjectSchema<Source, Key, S>,
+        ToOneShorthandFilterSchema<Source, Key, S>,
+      ]
+    >
+  : V.Union<
+      readonly [
+        ToOneFilterObjectSchema<Source, Key, S>,
+        ToOneShorthandFilterSchema<Source, Key, S>,
+      ]
+    >;
 
 /** The keys that spell the explicit `{ is, isNot }` filter. */
 const EXPLICIT_TO_ONE_FILTER_KEYS = new Set(["is", "isNot"]);

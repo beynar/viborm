@@ -4,16 +4,13 @@ import {
   getOfficialCacheChainCapability,
   getOfficialCacheChainDefinition,
 } from "@cache/extension";
-import {
-  createClient as createPGliteClient,
-  PGliteDriver,
-} from "@drivers/pglite";
 import { CacheConfigurationError, ClientInitializationError } from "@errors";
 import {
   appendResolvedExtension,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
 import { createClient, s } from "@src/index";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { afterEach, describe, expect, it } from "vitest";
 
 const item = s.model({ id: s.string().id(), name: s.string() });
@@ -23,7 +20,7 @@ const clients: Array<{ $disconnect(): Promise<void> }> = [];
 function baseClient() {
   const client = createClient({
     schema,
-    driver: new PGliteDriver(),
+    driver: new PlanningDriver("postgresql"),
   });
   clients.push(client);
   return client;
@@ -125,9 +122,8 @@ describe("official cache extension foundation", () => {
     expect(typeof Reflect.get(official, "$invalidate")).toBe("function");
   });
 
-  it("does not read removed cache config accessors on either client entry point", () => {
+  it("does not read removed cache config accessors on the core client entry point", () => {
     const coreReads = { cache: 0, cacheVersion: 0, waitUntil: 0 };
-    const wrapperReads = { cache: 0, cacheVersion: 0, waitUntil: 0 };
     const removed = (reads: typeof coreReads) => ({
       get cache() {
         reads.cache += 1;
@@ -143,22 +139,14 @@ describe("official cache extension foundation", () => {
       },
     });
     const coreConfig = Object.defineProperties(
-      { schema, driver: new PGliteDriver() },
+      { schema, driver: new PlanningDriver("postgresql") },
       Object.getOwnPropertyDescriptors(removed(coreReads))
-    );
-    const wrapperConfig = Object.defineProperties(
-      { schema, dataDir: "memory://" },
-      Object.getOwnPropertyDescriptors(removed(wrapperReads))
     );
 
     const core = Reflect.apply(createClient, undefined, [coreConfig]);
-    const wrapper = Reflect.apply(createPGliteClient, undefined, [
-      wrapperConfig,
-    ]);
-    clients.push(core, wrapper);
+    clients.push(core);
 
     expect(coreReads).toEqual({ cache: 0, cacheVersion: 0, waitUntil: 0 });
-    expect(wrapperReads).toEqual({ cache: 0, cacheVersion: 0, waitUntil: 0 });
   });
 
   it("accepts an exact clone and preserves provenance through ordinary chains", () => {

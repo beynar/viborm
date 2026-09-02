@@ -82,10 +82,7 @@ export class MigrationError extends VibORMError {
       meta?: MigrationErrorMeta | undefined;
     }
   ) {
-    const opts: { cause?: Error; meta?: VibORMErrorMeta } = {};
-    if (options?.cause) opts.cause = options.cause;
-    if (options?.meta) opts.meta = options.meta;
-    super(message, code, opts);
+    super(message, code, options);
   }
 }
 

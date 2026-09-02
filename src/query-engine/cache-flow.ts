@@ -8,10 +8,10 @@ import {
   cacheInvalidationSchema,
   withCacheSchema,
 } from "@cache";
-import type { WaitUntilFn } from "@cache/cache-contract";
 import {
   executeCachedWithResultCodec,
   invalidateOfficialCache,
+  type WaitUntilFn,
 } from "@cache/driver";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import {
@@ -89,16 +89,13 @@ export function prepareMutationCacheInput(
   }
 
   const args: Record<string, unknown> = {};
-  try {
-    for (const [key, descriptor] of descriptors) {
-      if (key === "cache") continue;
-      Object.defineProperty(args, key, descriptor);
-    }
-  } catch (cause) {
-    throw mutationCacheInputError(
-      `Mutation input for '${operation}' could not be copied.`,
-      cause
-    );
+  for (const [key, descriptor] of descriptors) {
+    if (key === "cache") continue;
+    // `getOwnPropertyDescriptor` has already normalized and validated every
+    // descriptor. Defining that descriptor on a fresh ordinary object cannot
+    // fail, so a catch here only advertised a recovery path that JavaScript
+    // cannot reach.
+    Object.defineProperty(args, key, descriptor);
   }
   const options =
     cache === undefined
@@ -197,6 +194,22 @@ export function prepareMutationCacheWriteOutcome(
   });
 }
 
+/**
+ * Classify a `catch (cause)` binding — an `unknown` this module did not create.
+ *
+ * The `catch` is deliberately kept: `instanceof` walks the LEFT operand's
+ * prototype chain, so it is itself a throw site whenever that operand is a
+ * Proxy whose `getPrototypeOf` trap throws. A bare `instanceof` here would let
+ * that trap's exception escape `parseMutationCacheOptions`, replacing the
+ * cache-configuration failure this boundary owns with an arbitrary raw value —
+ * the caller would lose the typed `CacheConfigurationError` that names what
+ * actually went wrong, and a `catch (e) { if (e instanceof CacheConfigurationError) }`
+ * written against the documented surface would silently stop matching.
+ *
+ * Do not "simplify" this back to `value instanceof CacheConfigurationError`.
+ * `isError` in `errors/diagnostic-safety.ts` is contained for the same reason,
+ * and `mutationCacheInputError` below relies on both staying total.
+ */
 function isCacheConfigurationError(
   value: unknown
 ): value is CacheConfigurationError {

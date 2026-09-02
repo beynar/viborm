@@ -6,8 +6,8 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 
 import type { ProviderFixture } from "@tests/contracts/contract";
-import { afterAll, beforeAll, beforeEach } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, beforeAll, beforeEach } from "vitest";
 
 /**
  * Exercises the batch-only execution substrate with PostgreSQL semantics.
@@ -76,57 +76,108 @@ type SchemaClient<S extends Schema> = ReturnType<
 
 export interface PGliteSchemaFamily<S extends Schema> {
   readonly database: PGlite;
+  /**
+   * The suite's private schema. The database is SHARED with every other suite
+   * in this worker, so a driver built over `database` MUST be given this
+   * namespace - without it the driver addresses `public`, where the suite has
+   * no tables at all.
+   */
+  readonly namespace: string;
   readonly driver: PGliteDriver;
   readonly client: SchemaClient<S>;
   readonly reset: () => Promise<void>;
 }
 
-/** One database, one schema push, and one owner disconnect for a PGlite suite. */
+/**
+ * ONE PGlite per worker process, shared by every suite that uses this fixture,
+ * with a private Postgres schema per suite.
+ *
+ * A PGlite instance is a whole Postgres compiled to Wasm and costs a measured
+ * ~1.3 GiB. Creating one PER SUITE meant a process could hold only one suite,
+ * which is why the credential-free estate ran as ~209 single-file processes and
+ * took ~40 minutes. The database is the expensive thing; a schema is nearly
+ * free, and the driver already qualifies every table with its `namespace`, so
+ * suites isolate perfectly well inside one instance.
+ *
+ * A suite that must NOT share - one that condemns its session, manipulates
+ * schemas directly, or asserts cluster-global state - should keep building its
+ * own `new PGlite()` instead of using this fixture.
+ */
+let workerDatabase: PGlite | undefined;
+let suiteCounter = 0;
+
+function sharedWorkerDatabase(): PGlite {
+  workerDatabase ??= new PGlite();
+  return workerDatabase;
+}
+
+/** One shared database, one private schema, one reset per test. */
 export function usePGliteSchemaFamily<const S extends Schema>(
   schema: S,
   mode: "transaction" | "atomicBatch" = "transaction"
 ): () => PGliteSchemaFamily<S> {
   let family: PGliteSchemaFamily<S> | undefined;
 
+  let namespace: string;
+
   beforeAll(async () => {
-    const database = new PGlite();
+    const database = sharedWorkerDatabase();
+    suiteCounter += 1;
+    namespace = `suite_${suiteCounter}`;
+    await database.query(`CREATE SCHEMA ${quoteIdentifier(namespace)}`);
     const driver =
       mode === "transaction"
-        ? new PGliteDriver({ client: database })
-        : new BatchOnlyPGliteDriver({ client: database });
+        ? new PGliteDriver({ client: database, namespace })
+        : new BatchOnlyPGliteDriver({ client: database, namespace });
     const client = createClient({ schema, driver });
     try {
       await syncLiveSchema(client);
+      const tables = await client.$queryRawUnsafe<PublicTable>(
+        "SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY tablename",
+        namespace
+      );
+      const truncateStatement =
+        tables.length === 0
+          ? undefined
+          : `TRUNCATE TABLE ${tables
+              .map(
+                ({ tablename }) =>
+                  `${quoteIdentifier(namespace)}.${quoteIdentifier(tablename)}`
+              )
+              .join(", ")} RESTART IDENTITY`;
+      family = {
+        database,
+        namespace,
+        driver,
+        client,
+        reset: async () => {
+          if (truncateStatement) {
+            await client.$executeRawUnsafe(truncateStatement);
+          }
+        },
+      };
     } catch (setupError) {
+      const failures = [setupError];
       try {
         await client.$disconnect();
       } catch (disconnectError) {
+        failures.push(disconnectError);
+      }
+      try {
+        await database.query(
+          `DROP SCHEMA IF EXISTS ${quoteIdentifier(namespace)} CASCADE`
+        );
+      } catch (closeError) {
+        failures.push(closeError);
+      }
+      if (failures.length > 1) {
         throw new AggregateError(
-          [setupError, disconnectError],
+          failures,
           "PGlite behavior database setup and cleanup failed"
         );
       }
       throw setupError;
     }
-    const tables = await client.$queryRawUnsafe<PublicTable>(
-      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-    );
-    const truncateStatement =
-      tables.length === 0
-        ? undefined
-        : `TRUNCATE TABLE ${tables
-            .map(({ tablename }) => quoteIdentifier(tablename))
-            .join(", ")} RESTART IDENTITY`;
-    family = {
-      database,
-      driver,
-      client,
-      reset: async () => {
-        if (truncateStatement) {
-          await client.$executeRawUnsafe(truncateStatement);
-        }
-      },
-    };
   });
 
   beforeEach(async () => {
@@ -135,13 +186,32 @@ export function usePGliteSchemaFamily<const S extends Schema>(
   });
 
   afterAll(async () => {
-    if (family) {
-      await family.client.$disconnect();
-      // The fixture supplied this database, so the driver correctly declines
-      // to close it — the owner does, or every suite leaks one WASM instance.
-      await family.database.close();
-    }
+    const current = family;
     family = undefined;
+    if (!current) return;
+
+    const failures: unknown[] = [];
+    try {
+      await current.client.$disconnect();
+    } catch (disconnectError) {
+      failures.push(disconnectError);
+    }
+    // Drop the SCHEMA, not the database. The instance belongs to the worker and
+    // serves every later suite in this process; closing it here would put the
+    // cost straight back.
+    try {
+      await current.database.query(
+        `DROP SCHEMA IF EXISTS ${quoteIdentifier(namespace)} CASCADE`
+      );
+    } catch (closeError) {
+      failures.push(closeError);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        "PGlite behavior database cleanup failed"
+      );
+    }
   });
 
   return () => {

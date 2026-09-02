@@ -86,14 +86,11 @@ describe("relation topology verdict matrix", () => {
     );
   });
 
-  it.each(relationTopologyCorpus)(
-    "$id: $title",
-    (testCase: RelationTopologyCase) => {
-      expect(verdictOf(testCase)).toEqual(
-        relationTopologyBaseline[testCase.id]
-      );
-    }
-  );
+  it.each(
+    relationTopologyCorpus
+  )("$id: $title", (testCase: RelationTopologyCase) => {
+    expect(verdictOf(testCase)).toEqual(relationTopologyBaseline[testCase.id]);
+  });
 });
 
 describe("deliberate-break ledger", () => {

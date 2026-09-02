@@ -9,6 +9,6 @@ export default defineMeta({
     "one-to-many",
     "many-to-one",
     "many-to-many",
-    "polymorphic"
+    "polymorphic",
   ],
 });

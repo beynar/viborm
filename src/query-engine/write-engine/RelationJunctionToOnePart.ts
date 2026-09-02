@@ -309,12 +309,8 @@ export class RelationJunctionToOnePart implements Part {
       case "continuation":
       case "create":
         break;
-      default: {
-        const exhaustive: never = this.plan;
-        throw new QueryEngineError(
-          `query-engine-v2 singular junction inverse has no planning for '${String(exhaustive)}'.`
-        );
-      }
+      default:
+        break;
     }
     if (this.plan.kind === "create" || this.plan.kind === "connectOrCreate") {
       steps.push(...this.plan.owner.record.planning(scope));
@@ -327,6 +323,7 @@ export class RelationJunctionToOnePart implements Part {
   }
 
   compile(scope: StepScope, known: PlanningKnown): readonly OperationStep[] {
+    // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
     switch (this.plan.kind) {
       case "connect":
         return this.compileConnect(known, this.plan);
@@ -344,12 +341,6 @@ export class RelationJunctionToOnePart implements Part {
         return this.compileConnectOrCreate(scope, known, this.plan);
       case "upsert":
         return this.compileUpsert(scope, known, this.plan);
-      default: {
-        const exhaustive: never = this.plan;
-        throw new QueryEngineError(
-          `query-engine-v2 singular junction inverse has no compile for '${String(exhaustive)}'.`
-        );
-      }
     }
   }
 

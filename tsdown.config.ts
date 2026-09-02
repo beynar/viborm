@@ -110,7 +110,10 @@ export default defineConfig({
     "mysql2",
     "better-sqlite3",
     "postgres",
-    // Bun built-ins (only available in Bun runtime)
+    // Bun built-ins (only available in Bun runtime). "bun" itself must be
+    // listed too: the SQL driver does `await import("bun")`, and an unlisted
+    // built-in is a bundler WARNING, which the CI build turns into a failure.
+    "bun",
     "bun:sqlite",
     "bun:sql",
   ],
@@ -118,7 +121,6 @@ export default defineConfig({
   // Shims for Node.js builtins when targeting edge runtimes
   shims: true,
   minify: true,
-  bundle: true,
   dts: true,
   // Enable tree-shaking
   treeshake: true,

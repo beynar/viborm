@@ -14,6 +14,6 @@ export default defineMeta({
     "field-references",
     "relations",
     "relations-to-one",
-    "relations-to-many"
+    "relations-to-many",
   ],
 });

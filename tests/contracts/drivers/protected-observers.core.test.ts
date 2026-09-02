@@ -5,6 +5,9 @@ import {
   type LifecycleUnit,
   type ObservationCompletion,
   type ObserveHandler,
+  observeDriverLifecycle,
+  observeOperation,
+  observeStatement,
   prewarmProtectedObservers,
   registerTrustedProtectedObserver,
   runProtectedObservers,
@@ -144,7 +147,64 @@ describe("protected observer fast path", () => {
   });
 });
 
+describe("protected observer lifecycle projections", () => {
+  test("projects exact operation, statement, and driver lifecycle identities", async () => {
+    const units: LifecycleUnit[] = [];
+    const observer: ObserverEntry = {
+      extension: "identity",
+      handler(unit, proceed) {
+        units.push(unit);
+        return proceed();
+      },
+    };
+    const child = () => Promise.resolve("application");
+
+    await observeOperation([observer], "findMany", undefined, child);
+    await observeOperation([observer], "create", "post", child);
+    await observeStatement([observer], undefined, undefined, child);
+    await observeStatement([observer], "$queryRaw", "$raw", child);
+    await observeStatement([observer], "create", "post", child);
+    await observeDriverLifecycle("connection", [observer], undefined, child);
+    await observeDriverLifecycle("transaction", [observer], "commit", child);
+
+    expect(units).toEqual([
+      { kind: "operation", operation: "findMany" },
+      { kind: "operation", operation: "create", model: "post" },
+      { kind: "statement" },
+      { kind: "statement", operation: "$queryRaw" },
+      { kind: "statement", operation: "create", model: "post" },
+      { kind: "connection" },
+      { kind: "transaction", operation: "commit" },
+    ]);
+    expect(units.every(Object.isFrozen)).toBe(true);
+  });
+});
+
 describe("protected observer lifecycle", () => {
+  test("starts the child when trusted setup fulfills without proceed", async () => {
+    const handler = () => undefined;
+    registerTrustedProtectedObserver(
+      handler,
+      Object.freeze({
+        context: createInstrumentationContext({}),
+        observesLifecycle: true,
+      }),
+      () => undefined
+    );
+    const childPromise = Promise.resolve("core-result");
+    const child = vi.fn(() => childPromise);
+
+    const application = runProtectedObservers(
+      { kind: "operation", operation: "findMany" },
+      [{ extension: "trusted-no-proceed", handler }],
+      child
+    );
+
+    expect(application).not.toBe(childPromise);
+    await expect(application).resolves.toBe("core-result");
+    expect(child).toHaveBeenCalledOnce();
+  });
+
   test("falls through trusted setup rejection and preserves the exact child outcome", async () => {
     const handler = () => undefined;
     const capability = Object.freeze({
@@ -621,5 +681,84 @@ describe("protected observer lifecycle", () => {
     await expect(completionPromise).resolves.not.toHaveProperty(
       "commitCertainty"
     );
+  });
+});
+
+describe("protected observer failure isolation", () => {
+  test("falls through a synchronous trusted setup failure", async () => {
+    const handler = () => undefined;
+    registerTrustedProtectedObserver(
+      handler,
+      Object.freeze({
+        context: createInstrumentationContext({}),
+        observesLifecycle: true,
+      }),
+      () => {
+        throw new Error("trusted setup threw");
+      }
+    );
+    const child = vi.fn(() => Promise.resolve("application"));
+
+    await expect(
+      runProtectedObservers(
+        { kind: "operation", operation: "findMany" },
+        [{ extension: "trusted", handler }],
+        child
+      )
+    ).resolves.toBe("application");
+    expect(child).toHaveBeenCalledOnce();
+  });
+
+  test("contains instrumentation-fact production failure", async () => {
+    const handler = () => undefined;
+    registerTrustedProtectedObserver(
+      handler,
+      Object.freeze({
+        context: createInstrumentationContext({}),
+        observesLifecycle: true,
+      }),
+      (_unit, proceed) => proceed()
+    );
+    const readFacts = vi.fn(() => {
+      throw new Error("instrumentation facts failed");
+    });
+
+    await expect(
+      runProtectedObservers(
+        { kind: "statement", operation: "findMany" },
+        [{ extension: "trusted-facts", handler }],
+        () => Promise.resolve("application"),
+        undefined,
+        readFacts
+      )
+    ).resolves.toBe("application");
+    expect(readFacts).toHaveBeenCalledOnce();
+  });
+});
+
+describe("coverage low value", () => {
+  test("summarizes a non-Error application rejection", async () => {
+    let completionPromise: Promise<ObservationCompletion> | undefined;
+    const application = runProtectedObservers(
+      { kind: "operation", operation: "findMany" },
+      [
+        {
+          extension: "non-error-child",
+          handler(_unit, proceed) {
+            completionPromise = proceed();
+          },
+        },
+      ],
+      () => Promise.reject("non-error failure")
+    );
+
+    await expect(application).rejects.toBe("non-error failure");
+    await expect(completionPromise).resolves.toMatchObject({
+      status: "failure",
+      error: {
+        name: "Error",
+        message: "Error details redacted",
+      },
+    });
   });
 });

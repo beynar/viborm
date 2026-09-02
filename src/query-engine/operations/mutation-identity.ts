@@ -33,12 +33,6 @@ export function planNestedCreateIdentity<Value>(
   readonly databaseAssigned: readonly string[];
 } {
   const fields = getPrimaryKeyFields(model);
-  if (fields.length === 0) {
-    throw new NestedWriteError(
-      `Nested create requires model '${model["~"].names.sql ?? "unknown"}' to have a primary key.`,
-      model["~"].names.sql ?? "unknown"
-    );
-  }
   const identity: Record<string, Value> = {};
   const databaseAssigned = databaseAssignedRowKeyFields(model, data);
   for (const field of fields) {
@@ -90,6 +84,8 @@ export function getCreatedRowWhere(
   if (provided) return provided;
   assertCreateRefetchIdentity(ctx, data, modelName);
   const [primaryKey] = getPrimaryKeyFields(ctx.model);
+  // The shared accessor is total at runtime, while array destructuring remains
+  // `string | undefined` to TypeScript.
   if (!primaryKey) {
     throw new QueryEngineError(`Model '${modelName}' has no primary key.`);
   }
@@ -341,6 +337,7 @@ function calculateNumericPrimaryKey(
     if (operation === "divide" && by === 0n) {
       throw new QueryEngineError("Cannot divide a primary key by zero.");
     }
+    // biome-ignore lint/style/useDefaultSwitchClause: the operation union is exhaustive; a default would be dead code.
     switch (operation) {
       case "increment":
         return before + by;
@@ -350,10 +347,6 @@ function calculateNumericPrimaryKey(
         return before * by;
       case "divide":
         return before / by;
-      default: {
-        const exhaustive: never = operation;
-        return exhaustive;
-      }
     }
   }
 
@@ -365,6 +358,7 @@ function calculateNumericPrimaryKey(
   }
 
   let updated: number;
+  // biome-ignore lint/style/useDefaultSwitchClause: the operation union is exhaustive; a default would be dead code.
   switch (operation) {
     case "increment":
       updated = before + by;
@@ -379,10 +373,6 @@ function calculateNumericPrimaryKey(
       updated = before / by;
       if (scalarType === "int") updated = Math.trunc(updated);
       break;
-    default: {
-      const exhaustive: never = operation;
-      return exhaustive;
-    }
   }
   if (!Number.isFinite(updated)) {
     throw new QueryEngineError(

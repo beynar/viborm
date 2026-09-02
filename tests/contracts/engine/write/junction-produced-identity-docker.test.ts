@@ -6,8 +6,8 @@ import {
   producedIdentitySchema,
   registerProducedIdentityBehavior,
 } from "@tests/contracts/engine/write/junction-produced-identity-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * E4-U3 on the live servers.

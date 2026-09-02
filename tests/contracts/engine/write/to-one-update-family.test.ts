@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver, BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -25,7 +25,6 @@ import {
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 // Two parent-held to-one relations on one record, BOTH referencing `account` — the
 // sibling-coupling witness. Under an UPDATE root the coverage ledger does NOT apply
@@ -62,6 +61,9 @@ const crossSchema = (() => {
 
 const opf = operationFragmentSchema;
 const nb = nestedWriteBehaviorSchema;
+const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
+const getNestedWriteFamily = usePGliteSchemaFamily(nb);
+const getCrossFamily = usePGliteSchemaFamily(crossSchema);
 
 interface ErrorShape {
   name: string;
@@ -84,15 +86,20 @@ interface Scenario {
 }
 
 async function runArm(
-  family: { readonly database: PGlite; readonly reset: () => Promise<void> },
+  family: {
+    readonly database: PGlite;
+    readonly namespace: string;
+    readonly reset: () => Promise<void>;
+  },
   kind: ArmKind,
   scenario: Scenario
 ) {
   await family.reset();
   const db = family.database;
+  const namespace = family.namespace;
   const base = createClient({
     schema: scenario.schema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
   await scenario.seed(base);
 
@@ -103,14 +110,14 @@ async function runArm(
     if (kind === "direct") {
       const direct = createClient({
         schema: scenario.schema,
-        driver: new PGliteDriver({ client: db }),
+        driver: new PGliteDriver({ client: db, namespace }),
       });
       result = await scenario.act(direct);
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: db })
-          : new BatchOnlyPGliteDriver({ client: db });
+          ? new PGliteDriver({ client: db, namespace })
+          : new BatchOnlyPGliteDriver({ client: db, namespace });
       const observed = observeClientOperations({
         schema: scenario.schema,
         driver,
@@ -548,9 +555,6 @@ const scenarios: Scenario[] = [
 ];
 
 describe("write boundary to-one update family oracle (Direct vs Observed tx vs Observed batch)", () => {
-  const getOperationFragmentFamily = usePGliteSchemaFamily(opf);
-  const getNestedWriteFamily = usePGliteSchemaFamily(nb);
-  const getCrossFamily = usePGliteSchemaFamily(crossSchema);
   const familyFor = (schema: Scenario["schema"]) => {
     if (schema === opf) return getOperationFragmentFamily();
     if (schema === nb) return getNestedWriteFamily();
@@ -616,12 +620,11 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
 // ---------------------------------------------------------------------------
 describe("write boundary to-one update family: T2 pin falsifications", () => {
   test("parent-held connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed", async () => {
-    const db = new PGlite();
+    const { database: db, namespace } = getOperationFragmentFamily();
     const base = createClient({
       schema: opf,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { name: "owner" } }); // id=1
     await (base as any).post.create({
       data: { id: 6, title: "t", slug: "s6" },
@@ -632,7 +635,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
         // A concurrent writer removes the found target after Observed planned.
         await (base as any).user.deleteMany({ where: { id: 1 } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: opf,
@@ -665,12 +668,11 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
     // A provided-PK target (nb.user.id is a string PK) so a concurrent create can
     // collide on the SAME key. The missing-arm INSERT's unique violation is the
     // raceable signal; the observed retry re-plans, finds the row, and adopts it.
-    const db = new PGlite();
+    const { database: db, namespace } = getNestedWriteFamily();
     const base = createClient({
       schema: nb,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).profile.create({
       data: { id: "pr1", bio: "b", userId: null },
     });
@@ -680,7 +682,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
         // A concurrent writer creates the very target the missing arm was about to.
         await (base as any).user.create({ data: { id: "u1", name: "winner" } });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const schemas = createSchemaRegistry(nb);
     const boundary = new QueryEngine(
@@ -720,12 +722,11 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
     // concurrent reparent moves pr1 off u1 before the batch; the split-witness
     // guard (fk = parent ∧ pk = capturedPk) then fails closed — Observed never updates a
     // profile that no longer belongs to this parent.
-    const db = new PGlite();
+    const { database: db, namespace } = getNestedWriteFamily();
     const base = createClient({
       schema: nb,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { id: "u1", name: "a" } });
     await (base as any).user.create({ data: { id: "u2", name: "b" } });
     await (base as any).profile.create({
@@ -740,7 +741,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
           data: { userId: "u2" },
         });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: nb,
@@ -766,12 +767,11 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
     // presence guard (fk = parent ∧ pk = capturedPk) then fails closed with the
     // upsert-premise wording — Observed never updates a child that left this parent, and
     // never silently falls through to the create arm.
-    const db = new PGlite();
+    const { database: db, namespace } = getNestedWriteFamily();
     const base = createClient({
       schema: nb,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
-    await syncLiveSchema(base as never);
     await (base as any).user.create({ data: { id: "u1", name: "a" } });
     await (base as any).user.create({ data: { id: "u2", name: "b" } });
     await (base as any).profile.create({
@@ -785,7 +785,7 @@ describe("write boundary to-one update family: T2 pin falsifications", () => {
           data: { userId: "u2" },
         });
       },
-      { client: db }
+      { client: db, namespace }
     );
     const observed = observeClientOperations({
       schema: nb,

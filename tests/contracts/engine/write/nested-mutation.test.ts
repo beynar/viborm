@@ -1,18 +1,17 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-import { describe, expect, test } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   nestedMutationSchema,
   runNestedMutationBehavior,
 } from "@tests/contracts/engine/write/nested-mutation-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 // The whole nested-mutation family on PGlite, both substrates.
 runNestedMutationBehavior({
@@ -55,10 +54,10 @@ interface Scenario {
   expectReject?: boolean;
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace: string) {
   return createClient({
     schema: nestedMutationSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -91,7 +90,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed(client);
 
   let result: unknown;
@@ -105,8 +104,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: nestedMutationSchema,
         driver,

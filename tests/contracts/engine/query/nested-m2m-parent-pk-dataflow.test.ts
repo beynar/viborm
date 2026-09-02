@@ -1,20 +1,24 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
-
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { beforeEach, describe, expect, test } from "vitest";
 
 class StaleMembershipBatchDriver extends BatchOnlyPGliteDriver {
   private isArmed = false;
   private hasPlanted = false;
   private readonly plant: (client: PGlite) => Promise<void>;
 
-  constructor(client: PGlite, plant: (client: PGlite) => Promise<void>) {
-    super({ client });
+  constructor(
+    client: PGlite,
+    namespace: string,
+    plant: (client: PGlite) => Promise<void>
+  ) {
+    super({ client, namespace });
     this.plant = plant;
   }
 
@@ -61,11 +65,25 @@ const tag = s
 
 const schema = { owner, tag };
 
+/**
+ * The suite's private schema on the worker-shared PGlite. Every driver built
+ * over `family.database` must carry `family.namespace`, or it addresses an empty
+ * `public`.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
+
 describe("planned m2m delete parent-PK dataflow", () => {
   let client: ReturnType<typeof createDataflowClient>;
 
   function createDataflowClient() {
-    return createClient({ schema, driver: new BatchOnlyPGliteDriver() });
+    const family = getFamily();
+    return createClient({
+      schema,
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.namespace,
+      }),
+    });
   }
 
   async function seedConnection(
@@ -81,24 +99,21 @@ describe("planned m2m delete parent-PK dataflow", () => {
     });
   }
 
-  async function bootStaleMembershipClient(
+  function bootStaleMembershipClient(
     plant: (database: PGlite) => Promise<void>
-  ): Promise<StaleMembershipBatchDriver> {
-    await client.$disconnect();
-    const database = new PGlite();
-    const driver = new StaleMembershipBatchDriver(database, plant);
+  ): StaleMembershipBatchDriver {
+    const family = getFamily();
+    const driver = new StaleMembershipBatchDriver(
+      family.database,
+      family.namespace,
+      plant
+    );
     client = createClient({ schema, driver });
-    await syncLiveSchema(client);
     return driver;
   }
 
-  beforeEach(async () => {
+  beforeEach(() => {
     client = createDataflowClient();
-    await syncLiveSchema(client);
-  });
-
-  afterEach(async () => {
-    await client.$disconnect();
   });
 
   test("explicit m2m delete observes direct and set parent-PK changes at execution", async () => {
@@ -178,9 +193,12 @@ describe("planned m2m delete parent-PK dataflow", () => {
   });
 
   test("deleteMany retries when a member is added to a nonempty planned set", async () => {
-    const driver = await bootStaleMembershipClient(async (database) => {
+    // Verbatim SQL is not qualified by the driver's namespace, so this planted
+    // statement must name the suite's schema itself.
+    const junction = `"${getFamily().namespace}"."m2m_pk_owner_tags"`;
+    const driver = bootStaleMembershipClient(async (database) => {
       await database.query(
-        'INSERT INTO "m2m_pk_owner_tags" ("owner_ref", "tag_ref") VALUES ($1, $2)',
+        `INSERT INTO ${junction} ("owner_ref", "tag_ref") VALUES ($1, $2)`,
         [400, 8]
       );
     });
@@ -197,9 +215,12 @@ describe("planned m2m delete parent-PK dataflow", () => {
   });
 
   test("deleteMany retries when a member is added to an empty planned set", async () => {
-    const driver = await bootStaleMembershipClient(async (database) => {
+    // Verbatim SQL is not qualified by the driver's namespace, so this planted
+    // statement must name the suite's schema itself.
+    const junction = `"${getFamily().namespace}"."m2m_pk_owner_tags"`;
+    const driver = bootStaleMembershipClient(async (database) => {
       await database.query(
-        'INSERT INTO "m2m_pk_owner_tags" ("owner_ref", "tag_ref") VALUES ($1, $2)',
+        `INSERT INTO ${junction} ("owner_ref", "tag_ref") VALUES ($1, $2)`,
         [500, 9]
       );
     });
@@ -216,9 +237,12 @@ describe("planned m2m delete parent-PK dataflow", () => {
   });
 
   test("deleteMany retries without deleting a member removed after planning", async () => {
-    const driver = await bootStaleMembershipClient(async (database) => {
+    // Verbatim SQL is not qualified by the driver's namespace, so this planted
+    // statement must name the suite's schema itself.
+    const junction = `"${getFamily().namespace}"."m2m_pk_owner_tags"`;
+    const driver = bootStaleMembershipClient(async (database) => {
       await database.query(
-        'DELETE FROM "m2m_pk_owner_tags" WHERE "owner_ref" = $1 AND "tag_ref" = $2',
+        `DELETE FROM ${junction} WHERE "owner_ref" = $1 AND "tag_ref" = $2`,
         [600, 10]
       );
     });

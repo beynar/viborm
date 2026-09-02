@@ -1,0 +1,99 @@
+import type { AnyDriver } from "@drivers";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
+import type { WriteStep } from "@src/query-engine/write-engine/OperationFragment";
+import { StepScope } from "@src/query-engine/write-engine/StepScope";
+import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
+
+function createEngine(driver: AnyDriver): QueryEngine {
+  const schemas = createSchemaRegistry(producedIdentitySchema);
+  return new QueryEngine(
+    driver,
+    createModelRegistry(producedIdentitySchema, schemas)
+  );
+}
+
+function createNestedSquad(
+  driver: AnyDriver,
+  data: Record<string, unknown>
+): CreateOperation {
+  return new CreateOperation(
+    createEngine(driver),
+    producedIdentitySchema.squad,
+    {},
+    {
+      scope: new StepScope(),
+      skipOwnWrite: true,
+      nestedFresh: {
+        data: { parsed: data, source: undefined },
+        relationName: "",
+      },
+    }
+  );
+}
+
+function rootWrite(operation: CreateOperation): WriteStep {
+  const step = operation
+    .compile({})
+    .steps.find((candidate) => candidate.id === "squad.create");
+  if (step?.kind !== "write") {
+    throw new Error("Expected the nested squad root write.");
+  }
+  return step;
+}
+
+describe("generated identity capture follows real consumers in the compiled plan", () => {
+  for (const substrate of [
+    {
+      name: "transaction",
+      createDriver: () => new PlanningDriver("postgresql"),
+    },
+    {
+      name: "atomic batch",
+      createDriver: () =>
+        new PlanningDriver("postgresql", {
+          supportsTransactions: false,
+          supportsBatch: true,
+        }),
+    },
+  ]) {
+    test(`an unused nested identity emits a plain INSERT (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = createNestedSquad(driver, {
+        code: "unused",
+        title: "unused",
+        orgId: 1,
+      });
+      const write = rootWrite(operation);
+
+      expect(write.outputs).toEqual({});
+      expect(driver._prepare(write.statement).sql).not.toContain("RETURNING");
+    });
+
+    test(`an external edge keeps identity capture (${substrate.name})`, () => {
+      const driver = substrate.createDriver();
+      const operation = createNestedSquad(driver, {
+        code: "external",
+        title: "external",
+        orgId: 1,
+      });
+
+      expect(operation.freshRootReferenced("id")).toBeDefined();
+      expect(rootWrite(operation).outputs.id).toBeDefined();
+    });
+
+    test(`a descendant keeps identity capture (${substrate.name})`, () => {
+      const operation = createNestedSquad(substrate.createDriver(), {
+        code: "descendant",
+        title: "descendant",
+        orgId: 1,
+        drills: { create: { text: "child" } },
+      });
+
+      expect(rootWrite(operation).outputs.id).toBeDefined();
+    });
+  }
+});

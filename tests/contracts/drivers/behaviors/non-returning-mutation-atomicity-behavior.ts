@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import { createClient } from "@client/client";
 import type { QueryExecutionContext } from "@drivers/driver";
 import { MySQL2Driver } from "@drivers/mysql2";
@@ -6,9 +7,12 @@ import { NotFoundError } from "@errors";
 
 import { s } from "@schema";
 import { defineContract } from "@tests/contracts/contract";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+const ITEM_SELECT_PATTERN = /^SELECT\b/i;
+const FOR_UPDATE_PATTERN = /FOR UPDATE/i;
 
 interface Deferred {
   readonly promise: Promise<void>;
@@ -367,12 +371,13 @@ function isPoolConnection(
 
 function isItemSelect(statement: string): boolean {
   return (
-    /^SELECT\b/i.test(statement) && statement.includes("atomic_mysql_items")
+    ITEM_SELECT_PATTERN.test(statement) &&
+    statement.includes("atomic_mysql_items")
   );
 }
 
 function isItemLock(statement: string): boolean {
-  return isItemSelect(statement) && /FOR UPDATE/i.test(statement);
+  return isItemSelect(statement) && FOR_UPDATE_PATTERN.test(statement);
 }
 
 /**

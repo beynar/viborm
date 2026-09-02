@@ -1,7 +1,3 @@
-import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
-
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import type { StatementStep } from "@src/query-engine/write-engine/OperationFragment";
@@ -9,35 +5,24 @@ import {
   adoptOwnedFkSchema,
   registerAdoptOwnedFkBehavior,
 } from "@tests/contracts/engine/write/adopt-owned-fk-agreement-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
-const substrates = [
-  {
-    name: "transaction",
-    make: () => new PGliteDriver({ client: new PGlite() }),
-  },
-  {
-    name: "atomic batch",
-    make: () => new BatchOnlyPGliteDriver({ client: new PGlite() }),
-  },
-] as const;
+const getTransactionFamily = usePGliteSchemaFamily(adoptOwnedFkSchema);
+const getAtomicBatchFamily = usePGliteSchemaFamily(
+  adoptOwnedFkSchema,
+  "atomicBatch"
+);
 
-for (const substrate of substrates) {
-  let shared: any;
-  registerAdoptOwnedFkBehavior(substrate.name, async () => {
-    if (!shared) {
-      shared = createClient({
-        schema: adoptOwnedFkSchema,
-        driver: substrate.make(),
-      }) as any;
-      await syncLiveSchema(shared);
-    }
-    return shared;
-  });
-}
+registerAdoptOwnedFkBehavior(
+  "transaction",
+  async () => getTransactionFamily().client
+);
+registerAdoptOwnedFkBehavior(
+  "atomic batch",
+  async () => getAtomicBatchFamily().client
+);
 
 const THING_UPDATE = /UPDATE (?:"[^"]+"\.)?"e5u2_things"/;
 const THING_INSERT = /INSERT INTO (?:"[^"]+"\.)?"e5u2_things"/;
@@ -61,7 +46,7 @@ function compiledFor(
 ) {
   const schemas = createSchemaRegistry(adoptOwnedFkSchema);
   const engine = new QueryEngine(
-    new PGliteDriver({ client: new PGlite() }),
+    getTransactionFamily().driver,
     createModelRegistry(adoptOwnedFkSchema, schemas)
   );
   return new CreateOperation(engine, adoptOwnedFkSchema.owner, {
@@ -110,7 +95,7 @@ describe("E5-U2 the fold stays the single provenance", () => {
     const at = new Date("2021-06-02T03:04:05.000Z");
     const compiled = new CreateOperation(
       new QueryEngine(
-        new PGliteDriver({ client: new PGlite() }),
+        getTransactionFamily().driver,
         createModelRegistry(
           adoptOwnedFkSchema,
           createSchemaRegistry(adoptOwnedFkSchema)

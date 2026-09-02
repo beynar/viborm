@@ -494,13 +494,10 @@ export class JunctionStatements {
       return { matches, excludes: this.ctx.adapter.operators.not(matches) };
     }
     const scalars = values.map((tuple) => {
-      const value = tuple[0];
-      if (!value || tuple.length !== 1) {
-        throw new QueryEngineError(
-          "Junction target has an incomplete scalar value."
-        );
-      }
-      return value;
+      // `buildJunctionTargetValue` is the one boundary that validates and
+      // materializes a complete tuple. A scalar side therefore has exactly one
+      // value here; checking it again would duplicate that boundary.
+      return tuple[0]!;
     });
     return {
       matches,

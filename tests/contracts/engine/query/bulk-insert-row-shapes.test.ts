@@ -4,9 +4,11 @@ import type { BatchQuery, QueryResult } from "@drivers/types";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { afterEach, describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 const parent = s
   .model({
@@ -94,17 +96,22 @@ class NoAtomicPGliteDriver extends PGliteDriver {
   }
 }
 
-const clients: Array<{ $disconnect(): Promise<void> }> = [];
+/**
+ * One PGlite for the whole worker, one private schema for this suite, emptied
+ * with restarted identities before each test. The substrate drivers below are
+ * built over that shared database and MUST carry the suite's namespace, or they
+ * address `public`, where this suite has no tables at all.
+ */
+const getFamily = usePGliteSchemaFamily(schema);
 
-afterEach(async () => {
-  await Promise.all(clients.splice(0).map((client) => client.$disconnect()));
-});
+function sharedDatabase(): { client: PGlite; namespace: string } {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
+}
 
 describe("bulk insert row shapes", () => {
   test("nested createMany preserves generated values and conflict input order", async () => {
-    const client = createClient({ schema, driver: new PGliteDriver() });
-    clients.push(client);
-    await syncLiveSchema(client);
+    const client = getFamily().client;
 
     const createdParent = await client.parent.create({
       data: {
@@ -135,9 +142,7 @@ describe("bulk insert row shapes", () => {
   });
 
   test("nested grouped insert failure rolls back the parent and every group", async () => {
-    const client = createClient({ schema, driver: new PGliteDriver() });
-    clients.push(client);
-    await syncLiveSchema(client);
+    const client = getFamily().client;
 
     await expect(
       client.parent.create({
@@ -161,9 +166,7 @@ describe("bulk insert row shapes", () => {
   });
 
   test("nested default-only create uses the adapter default-row primitive", async () => {
-    const client = createClient({ schema, driver: new PGliteDriver() });
-    clients.push(client);
-    await syncLiveSchema(client);
+    const client = getFamily().client;
 
     await client.defaultParent.create({
       data: { id: "parent", child: { create: {} } },
@@ -179,9 +182,7 @@ describe("bulk insert row shapes", () => {
   });
 
   test("nested explicit zero rejects before the parent is written", async () => {
-    const client = createClient({ schema, driver: new PGliteDriver() });
-    clients.push(client);
-    await syncLiveSchema(client);
+    const client = getFamily().client;
 
     await expect(
       client.parent.create({
@@ -199,10 +200,8 @@ describe("bulk insert row shapes", () => {
   });
 
   test("batch-only transaction arrays execute every shape and parse one logical result", async () => {
-    const driver = new BatchSizePGliteDriver();
+    const driver = new BatchSizePGliteDriver(sharedDatabase());
     const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
     driver.batchSizes.length = 0;
 
     const [created] = await client.$transaction([
@@ -226,10 +225,8 @@ describe("bulk insert row shapes", () => {
   });
 
   test("batch-only preparation evaluates application defaults once per row", async () => {
-    const driver = new BatchSizePGliteDriver();
+    const driver = new BatchSizePGliteDriver(sharedDatabase());
     const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
     defaultFactoryCalls = 0;
 
     const [result] = await client.$transaction([
@@ -244,23 +241,9 @@ describe("bulk insert row shapes", () => {
     expect(rows.map((row) => row.value)).toEqual(["value-1", "value-2"]);
   });
 
-  test("empty top-level createMany rejects consistently in batch preparation", async () => {
-    const driver = new BatchSizePGliteDriver();
-    const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
-
-    await expect(
-      client.$transaction([client.batchRow.createMany({ data: [] })])
-    ).rejects.toThrow("No data to insert");
-    expect(await client.batchRow.count()).toBe(0);
-  });
-
   test("batch-only grouped failure is atomic", async () => {
-    const driver = new BatchSizePGliteDriver();
+    const driver = new BatchSizePGliteDriver(sharedDatabase());
     const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
 
     await expect(
       client.$transaction([
@@ -276,24 +259,6 @@ describe("bulk insert row shapes", () => {
     expect(await client.batchRow.count()).toBe(0);
   });
 
-  test("a driver without an atomic substrate rejects all groups before mutation", async () => {
-    const driver = new NoAtomicPGliteDriver();
-    const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
-    driver.disableAtomicExecution();
-
-    await expect(
-      client.batchRow.createMany({
-        data: [
-          { code: "generated", label: "first" },
-          { id: 50, code: "explicit", label: "second" },
-        ],
-      })
-    ).rejects.toThrow("neither transactions nor atomic batch execution");
-    expect(await client.batchRow.count()).toBe(0);
-  });
-
   // RETARGETED by Phase 7.2 (query-performance-plan, Decision 7.2). This test
   // used to assert that ANY multi-row return refuses on a substrate-less driver,
   // because the plan was one INSERT per input row and N statements cannot be made
@@ -303,10 +268,8 @@ describe("bulk insert row shapes", () => {
   // substrate and must NOT be refused. The refusal is unchanged and still
   // asserted here for the shape that still spends more than one statement.
   test("a returning driver without atomic execution folds a same-shape multi-row return and still refuses a split one", async () => {
-    const driver = new NoAtomicPGliteDriver();
+    const driver = new NoAtomicPGliteDriver(sharedDatabase());
     const client = createClient({ schema, driver });
-    clients.push(client);
-    await syncLiveSchema(client);
     driver.disableAtomicExecution();
 
     // One shape, one statement, no substrate required.

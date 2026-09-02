@@ -808,3 +808,74 @@ describe("decimal descriptor", () => {
     });
   });
 });
+
+describe("coverage low value", () => {
+  it("contains a throwing literal-list member read", () => {
+    const hostileList = new Proxy(["1.5"], {
+      get(target, property, receiver) {
+        if (property === "0") throw new Error("member read failed");
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    expect(() => decimal(domain()).array().default(hostileList)).toThrowError(
+      ValidationError
+    );
+  });
+
+  it("contains every hostile Standard Schema result probe", () => {
+    const revoked = Proxy.revocable({ value: new Decimal("1.5") }, {});
+    revoked.revoke();
+    const hostileResults: readonly unknown[] = [
+      revoked.proxy,
+      new Proxy(
+        { value: new Decimal("1.5") },
+        {
+          get(target, property, receiver) {
+            if (property === "then") throw new Error("then read failed");
+            return Reflect.get(target, property, receiver);
+          },
+        }
+      ),
+      new Proxy(
+        { value: new Decimal("1.5") },
+        {
+          get(target, property, receiver) {
+            if (property === "issues") throw new Error("issues read failed");
+            return Reflect.get(target, property, receiver);
+          },
+        }
+      ),
+      new Proxy(
+        { value: new Decimal("1.5") },
+        {
+          has(target, property) {
+            if (property === "value") throw new Error("value probe failed");
+            return Reflect.has(target, property);
+          },
+        }
+      ),
+      new Proxy(
+        { value: new Decimal("1.5") },
+        {
+          get(target, property, receiver) {
+            if (property === "value") throw new Error("value read failed");
+            return Reflect.get(target, property, receiver);
+          },
+        }
+      ),
+    ];
+
+    for (const hostileResult of hostileResults) {
+      const schema = {
+        "~standard": {
+          validate: () => hostileResult,
+        },
+      };
+
+      expect(() =>
+        normalizeDecimalDefault("1.5", schema as never, false)
+      ).toThrowError(ValidationError);
+    }
+  });
+});

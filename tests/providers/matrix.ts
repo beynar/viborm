@@ -1,3 +1,7 @@
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { ContractAssignment } from "@tests/contracts/contract";
 import { DRIVER_CONTRACT_IDS } from "@tests/contracts/drivers/contract-ids";
 
@@ -17,51 +21,70 @@ export interface ProviderDefinition {
   readonly waiverReason: string;
 }
 
+const repositoryRoot = resolve(
+  fileURLToPath(new URL("../..", import.meta.url))
+);
+
+/**
+ * Every suite belonging to one provider, read FROM DISK by filename prefix.
+ *
+ * These were hardcoded paths. When the heaviest provider suites were split so
+ * each piece could typecheck under the 1280 MB shard heap, a hardcoded list
+ * would still have named only the original file, and the contract census would
+ * have stopped seeing the registrations that moved into the pieces. Deriving
+ * them keeps the census honest as the estate is resharded.
+ */
+function providerSources(directory: string, prefix: string): string[] {
+  const relative = `tests/providers/${directory}`;
+  return readdirSync(resolve(repositoryRoot, relative))
+    .filter(
+      (file) =>
+        file.endsWith(".test.ts") &&
+        (file === `${prefix}.test.ts` || file.startsWith(`${prefix}-`))
+    )
+    .sort()
+    .map((file) => `${relative}/${file}`);
+}
+
 export const PROVIDERS = [
   {
     id: "pglite",
-    sourceFiles: [
-      "tests/providers/local/pglite.test.ts",
-      "tests/providers/local/pglite-vector.test.ts",
-    ],
+    sourceFiles: providerSources("local", "pglite"),
     availability: "always",
     waiverReason:
       "The PGlite fixture does not provide the isolation or dialect feature required by this contract.",
   },
   {
     id: "sqlite3",
-    sourceFiles: ["tests/providers/local/sqlite3.test.ts"],
+    sourceFiles: providerSources("local", "sqlite3"),
     availability: "always",
     waiverReason:
       "The SQLite3 fixture does not provide the isolation or dialect feature required by this contract.",
   },
   {
     id: "libsql",
-    sourceFiles: ["tests/providers/local/libsql.test.ts"],
+    sourceFiles: providerSources("local", "libsql"),
     availability: "always",
     waiverReason:
       "The LibSQL fixture does not provide the isolation or dialect feature required by this contract.",
   },
   {
     id: "pg",
-    sourceFiles: ["tests/providers/docker/pg.test.ts"],
+    sourceFiles: providerSources("docker", "pg"),
     availability: "docker-postgres",
     waiverReason:
       "The pg provider suite delegates this invariant to another PostgreSQL fixture or needs an unsupported fixture mode.",
   },
   {
     id: "postgres",
-    sourceFiles: [
-      "tests/providers/docker/postgres.test.ts",
-      "tests/providers/docker/postgres-pipelining.test.ts",
-    ],
+    sourceFiles: providerSources("docker", "postgres"),
     availability: "docker-postgres",
     waiverReason:
       "The postgres.js provider suite delegates this invariant to the canonical PostgreSQL fixture.",
   },
   {
     id: "mysql2",
-    sourceFiles: ["tests/providers/docker/mysql2.test.ts"],
+    sourceFiles: providerSources("docker", "mysql2"),
     availability: "docker-mysql",
     waiverReason:
       "The MySQL fixture does not provide the dialect feature required by this contract.",

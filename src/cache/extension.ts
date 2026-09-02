@@ -11,8 +11,11 @@ import {
   isString,
 } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { WaitUntilFn } from "./cache-contract";
-import { CacheDriver, createOfficialCacheScope } from "./driver";
+import {
+  CacheDriver,
+  createOfficialCacheScope,
+  type WaitUntilFn,
+} from "./driver";
 import { createOfficialCacheNamespace } from "./key";
 
 export const OFFICIAL_CACHE_NAME = "viborm.cache";

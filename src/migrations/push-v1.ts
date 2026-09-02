@@ -40,6 +40,8 @@ import {
   hasConsent,
   parseConsent,
   parsePlanningOptions,
+  parseSnapshottedPlanningOptions,
+  snapshotPushOptions,
 } from "./push-consent";
 import { fingerprintLive, freezeDeep } from "./push-fingerprint";
 import {
@@ -133,12 +135,12 @@ export async function pushV1(
   client: MigrationClient,
   options?: PushOptionsV1
 ): Promise<PushApplyResult | PushPreview> {
-  const given = options ?? {};
+  const given = snapshotPushOptions(options ?? {});
   if (hasConsent(given)) {
     return applyWithConsent(client, parseConsent(given.consent));
   }
 
-  const parsed = parsePlanningOptions(given, given.dryRun === true);
+  const parsed = parseSnapshottedPlanningOptions(given, given.dryRun === true);
   if (parsed.dryRun) {
     return previewPush(client, parsed);
   }

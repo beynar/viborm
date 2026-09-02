@@ -169,14 +169,16 @@ async function tagsOf(client: Client, postId: string): Promise<string[]> {
 }
 
 for (const substrate of ["transaction", "atomic batch"] as const) {
-  const makeDriver = (database: PGlite) =>
+  const makeDriver = (database: PGlite, namespace: string) =>
     substrate === "transaction"
-      ? new PGliteDriver({ client: database })
-      : new BatchOnlyPGliteDriver({ client: database });
+      ? new PGliteDriver({ client: database, namespace })
+      : new BatchOnlyPGliteDriver({ client: database, namespace });
 
   describe(`E2-U3 primary-key transition with a junction and a non-cascade edge (${substrate})`, () => {
     test("the junction row carries the post-transition key (the WRITE binds the located key; ON UPDATE CASCADE transitions it)", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         await client.author.update({
           where: { id: "a1" },
@@ -217,11 +219,14 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ]);
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
     test("the junction membership READ takes the pre-transition key", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         await client.author.update({
           where: { id: "a1" },
@@ -255,11 +260,14 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
           client.comment.findUnique({ where: { id: "c1" } })
         ).resolves.toMatchObject({ postId: "p9" });
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
     test("a nested child-held set reads the old key and writes the transitioned key", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         await client.note.create({
           data: { id: "n-old", body: "departing", postId: "p1" },
@@ -299,11 +307,14 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ).resolves.toMatchObject({ postId: "p9" });
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
     test("a bulk membership read reaches only this parent's members", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         await client.author.update({
           where: { id: "a1" },
@@ -328,11 +339,14 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         await expect(tagsOf(client, "p9")).resolves.toEqual(["t1"]);
         await expect(tagsOf(client, "p-decoy")).resolves.toEqual(["t1"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
     test("a disconnect removes the membership the cascade just carried", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         await client.author.update({
           where: { id: "a1" },
@@ -358,11 +372,14 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
           { id: "t2", name: "second" },
         ]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
 
     test("the occupied-slot guard still rejects a vacated key with children on it", async () => {
-      const client = await setup(makeDriver(getFamily().database));
+      const client = await setup(
+        makeDriver(getFamily().database, getFamily().namespace)
+      );
       try {
         // N5-U1's CLASS IV guard at depth: a comment already carries `p1`, and the
         // transition would strand it (the foreign key does not cascade). Absorbing the
@@ -395,6 +412,7 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
         ).resolves.toBeNull();
         await expect(tagsOf(client, "p1")).resolves.toEqual(["t1", "t2"]);
       } finally {
+        // Nothing to release: the next test's setup() resets the shared family.
       }
     }, 30_000);
   });
@@ -433,10 +451,17 @@ for (const substrate of ["transaction", "atomic batch"] as const) {
 describe("E2-U3 the carve-out D2 lifted", () => {
   for (const substrate of ["transaction", "atomic batch"] as const) {
     test(`a target named by a NON-primary-key unique now executes (${substrate})`, async () => {
+      const family = getFamily();
       const client = await setup(
         substrate === "transaction"
-          ? new PGliteDriver({ client: getFamily().database })
-          : new BatchOnlyPGliteDriver({ client: getFamily().database })
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
       );
       await client.note.create({
         data: { id: "n-old", body: "departing", postId: "p1" },
@@ -494,10 +519,17 @@ describe("E2-U3 the carve-out D2 lifted", () => {
     }, 30_000);
 
     test(`the same non-PK locator with an OCCUPIED non-cascading slot refuses (${substrate})`, async () => {
+      const family = getFamily();
       const client = await setup(
         substrate === "transaction"
-          ? new PGliteDriver({ client: getFamily().database })
-          : new BatchOnlyPGliteDriver({ client: getFamily().database })
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
       );
       // `c-old` sits on the vacated key behind a NO-ACTION foreign key. The occupied
       // guard's slot is now read from the located row rather than from a `where`

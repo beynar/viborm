@@ -2,9 +2,10 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import Database from "better-sqlite3";
 import { Client as PgClient } from "pg";
@@ -90,6 +91,21 @@ const schema = { Doc };
 beforeAll(() => hydrateSchemaNames(schema));
 
 /**
+ * The database is the worker's ONE PGlite and this file takes only a private
+ * schema in it. A second Wasm Postgres of its own costs ~1.3 GiB, which is what
+ * kept this file from sharing a process with anything else.
+ *
+ * The family is given NO models on purpose. This file builds its measured table
+ * by hand — 20 000 rows, an index, ANALYZE — and every case below reads that one
+ * table, so what it wants from the family is the namespace, not managed
+ * contents. With no table registered when the family is provisioned, the
+ * family's per-test TRUNCATE has nothing to erase and the measurement stands
+ * from `beforeAll` to the last case; the schema is dropped CASCADE when the file
+ * ends, taking the table and its index with it.
+ */
+const getFamily = usePGliteSchemaFamily({});
+
+/**
  * The WHERE predicate the engine builds for `where`, and its bound values.
  *
  * Only the predicate is taken: the SELECT list is irrelevant to the plan
@@ -120,27 +136,35 @@ function predicateFor(
 
 describe("PostgreSQL prefix plans (C-collated substrate)", () => {
   let db: PGlite;
+  /**
+   * The measured table, SCHEMA-QUALIFIED. Every statement in this describe is
+   * verbatim SQL that no driver rewrites, and an unqualified name would resolve
+   * against `public`, where this file has no table at all.
+   */
+  let table: string;
 
   beforeAll(async () => {
-    db = new PGlite();
+    const family = getFamily();
+    db = family.database;
+    table = `"${family.namespace}"."${TABLE}"`;
     await db.exec(
-      `CREATE TABLE ${TABLE} (id text PRIMARY KEY, title text NOT NULL);`
+      `CREATE TABLE ${table} (id text PRIMARY KEY, title text NOT NULL);`
     );
     await db.exec(
-      `INSERT INTO ${TABLE} (id, title)
+      `INSERT INTO ${table} (id, title)
        SELECT g::text, 'name' || g || '_suffix' FROM generate_series(1,${ROW_COUNT}) g;`
     );
-    await db.exec(`CREATE INDEX prefix_plan_title ON ${TABLE} (title);`);
-    await db.exec(`ANALYZE ${TABLE};`);
+    await db.exec(`CREATE INDEX prefix_plan_title ON ${table} (title);`);
+    await db.exec(`ANALYZE ${table};`);
   }, 120_000);
 
-  afterAll(async () => {
-    await db?.close();
-  });
+  // No teardown of the database here: it belongs to the worker and serves every
+  // other suite in this process. The family drops this file's schema — and with
+  // it the table and index above — when the file finishes.
 
   const planFor = async (predicate: string, values: unknown[]) => {
     const result = await db.query<{ "QUERY PLAN": string }>(
-      `EXPLAIN (COSTS OFF) SELECT id FROM ${TABLE} WHERE ${predicate}`,
+      `EXPLAIN (COSTS OFF) SELECT id FROM ${table} WHERE ${predicate}`,
       values
     );
     return result.rows.map((row) => row["QUERY PLAN"]).join("\n");
@@ -181,7 +205,7 @@ describe("PostgreSQL prefix plans (C-collated substrate)", () => {
       "$n"
     );
     const rows = await db.query<{ id: string }>(
-      `SELECT id FROM ${TABLE} WHERE ${predicate}`,
+      `SELECT id FROM ${table} WHERE ${predicate}`,
       values
     );
     expect(rows.rows).toHaveLength(PREFIX_MATCHES);

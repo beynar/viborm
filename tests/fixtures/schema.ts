@@ -1,7 +1,7 @@
 import { s } from "@schema";
+import { createClient } from "@src/index.js";
 import type { ModelOperationInput, Prettify } from "@validation";
 import z from "zod/v4";
-import { createClient } from "@src/index.js";
 
 export const string = s.string();
 export const nullableString = s.string().nullable();
@@ -151,9 +151,7 @@ export const testPost = s
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().now(),
     authorId: s.string(),
-    author: s
-      .toOne(() => testUser)
-      .name("author"),
+    author: s.toOne(() => testUser).name("author"),
     // metadata: s
     //   .json(
     //     z.object({
@@ -175,9 +173,7 @@ export const testProfile = s
     bio: s.string().nullable(),
     avatar: s.string().nullable(),
     userId: s.string().unique(),
-    user: s
-      .toOne(() => testUser)
-      .name("user"),
+    user: s.toOne(() => testUser).name("user"),
   })
   .map("Profile")
   .index(["avatar", "bio"], { name: "idx_profile_eaeaz", type: "gin" })
@@ -196,13 +192,16 @@ const client = createClient({
   driver: {} as any,
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — the binding exists so tsc type-checks groupBy's `by`/`where` inference against this schema; deleting it removes the check.
 const res1 = client.user.groupBy({
   by: ["age"],
   where: {},
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — instantiating ModelOperationInput is the assertion; deleting the alias removes the check.
 type Input = Prettify<ModelOperationInput<typeof testUser, "findFirst">>;
 
+// biome-ignore lint/correctness/noUnusedVariables: compile-only probe — the binding exists so tsc checks the $withCache + deep nested include/where inference; deleting it removes the check.
 const res = await (
   client as unknown as {
     $withCache(options: { ttl: number }): typeof client;

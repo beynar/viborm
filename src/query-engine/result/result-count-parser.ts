@@ -1,6 +1,5 @@
 import { COUNT_RESULT_KEY } from "@adapters/shared/result-parsing";
 import type { ExpectedResultShape, Operation } from "../types";
-import { QueryEngineError } from "../types";
 import type { ResultParser } from "./ResultParser";
 import {
   assertExpectedRowKeys,
@@ -67,35 +66,17 @@ export function parseCountCarrierDefault(
   }
   assertExpectedRowKeys(ctx, operation, row, shape);
   const entries = Object.entries(row);
-  if (entries.length === 0) {
-    return malformedResult(ctx, operation, "the COUNT row has no columns");
-  }
 
   const firstEntry = entries[0];
   if (shape.carrier === "existence") {
-    if (entries.length !== 1 || !firstEntry || !isCountKey(firstEntry[0])) {
-      return malformedResult(
-        ctx,
-        operation,
-        "the existence COUNT row has an unknown shape"
-      );
-    }
-    return parseCountValue(ctx, operation, firstEntry[1]) > 0;
+    return parseCountValue(ctx, operation, row[COUNT_RESULT_KEY]) > 0;
   }
   if (entries.length === 1 && firstEntry && isCountKey(firstEntry[0])) {
     return parseCountValue(ctx, operation, firstEntry[1]);
   }
 
-  const scalars = ctx.model["~"].state.scalars;
   const result: Record<string, number> = {};
   for (const [key, value] of entries) {
-    if (key !== "_all" && !Object.hasOwn(scalars, key)) {
-      return malformedResult(
-        ctx,
-        operation,
-        `COUNT column "${key}" is not part of the active model`
-      );
-    }
     result[key] = parseCountValue(ctx, operation, value);
   }
   return result;
@@ -115,29 +96,6 @@ export function parseCountValue(
     );
   }
   return count;
-}
-
-/**
- * Parse mutation result to get affected count
- */
-export function parseMutationCount(raw: unknown): { count: number } {
-  if (!isResultRow(raw)) {
-    throw new QueryEngineError(
-      "Cannot parse mutation count: expected { rowCount: non-negative integer }."
-    );
-  }
-  const rowCount = raw.rowCount;
-  if (
-    typeof rowCount !== "number" ||
-    !Number.isFinite(rowCount) ||
-    !Number.isSafeInteger(rowCount) ||
-    rowCount < 0
-  ) {
-    throw new QueryEngineError(
-      "Cannot parse mutation count: expected { rowCount: non-negative integer }."
-    );
-  }
-  return { count: rowCount };
 }
 
 export function parseMutationCountFor(

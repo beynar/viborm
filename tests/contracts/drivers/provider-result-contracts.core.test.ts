@@ -103,6 +103,24 @@ async function readValidatedPlanetScaleText(
   return response.text();
 }
 
+async function readValidatedPlanetScaleJson(
+  payload: unknown,
+  query: string
+): Promise<unknown> {
+  const fetch = createValidatedPlanetScaleFetch(
+    createPlanetScaleFetch(payload)
+  );
+  const response = await fetch(
+    "https://phase6.test/psdb.v1alpha1.Database/Execute",
+    {
+      body: JSON.stringify({ query }),
+      headers: {},
+      method: "POST",
+    }
+  );
+  return response.json();
+}
+
 function createMySQL2Driver(affectedRows: unknown, insertId: unknown) {
   const pool = {
     query: vi.fn(async () => [{ affectedRows, insertId }, undefined]),
@@ -283,6 +301,178 @@ describe("provider row-count normalization", () => {
     expect(error.message).not.toContain("executeRaw");
     expect(error.meta).not.toHaveProperty("query");
     expect(error.meta).not.toHaveProperty("params");
+  });
+
+  test.each([
+    ["a primitive result", { result: 1 }, "SELECT id FROM phase6"],
+    [
+      "a non-array field carrier",
+      { result: { fields: {}, rows: [] } },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "an empty field name",
+      { result: { fields: [{ name: "" }], rows: [] } },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "a non-string field type",
+      { result: { fields: [{ name: "id", type: 1 }], rows: [] } },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "a non-array row carrier",
+      { result: { fields: [{ name: "id" }], rows: {} } },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "a primitive row",
+      { result: { fields: [{ name: "id" }], rows: [1] } },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "rows without field metadata",
+      { result: { rows: [{ values: "", lengths: [] }] } },
+      "UPDATE phase6 SET id = 2",
+    ],
+    [
+      "a field-count mismatch",
+      {
+        result: {
+          fields: [{ name: "id" }],
+          rows: [{ values: "", lengths: [] }],
+        },
+      },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "an unsafe member length",
+      {
+        result: {
+          fields: [{ name: "id" }],
+          rows: [{ values: "", lengths: ["9007199254740992"] }],
+        },
+      },
+      "SELECT id FROM phase6",
+    ],
+    [
+      "an overflowing total length",
+      {
+        result: {
+          fields: [{ name: "left" }, { name: "right" }],
+          rows: [
+            {
+              values: "",
+              lengths: ["9007199254740991", "1"],
+            },
+          ],
+        },
+      },
+      "SELECT left, right FROM phase6",
+    ],
+    [
+      "a non-canonical rowsAffected",
+      { result: { rowsAffected: "01" } },
+      "UPDATE phase6 SET id = 2",
+    ],
+    [
+      "a negative insertId",
+      { result: { insertId: "-1" } },
+      "INSERT INTO phase6 VALUES (1)",
+    ],
+  ])("PlanetScale rejects %s before SDK decoding", async (_label, payload, query) => {
+    const error = await captureQueryError(
+      readValidatedPlanetScaleJson(payload, query)
+    );
+
+    expect(error.meta).toEqual({ driver: "planetscale" });
+    expect(error.message).toContain("malformed successful response");
+  });
+
+  test("PlanetScale rejects sparse field, row, and length arrays", async () => {
+    const sparseFields = new Array<unknown>(1);
+    const sparseRows = new Array<unknown>(1);
+    const sparseLengths = new Array<unknown>(1);
+
+    for (const payload of [
+      { result: { fields: sparseFields } },
+      { result: { fields: [{ name: "id" }], rows: sparseRows } },
+      {
+        result: {
+          fields: [{ name: "id" }],
+          rows: [{ values: "", lengths: sparseLengths }],
+        },
+      },
+    ]) {
+      await expect(
+        readValidatedPlanetScaleJson(payload, "SELECT id FROM phase6")
+      ).rejects.toMatchObject({ meta: { driver: "planetscale" } });
+    }
+  });
+
+  test("PlanetScale translates invalid JSON from either response consumer", async () => {
+    const fetch = createValidatedPlanetScaleFetch(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      json: async () => {
+        throw new SyntaxError("private JSON failure");
+      },
+      text: async () => "not-json",
+    }));
+    const request = () =>
+      fetch("https://phase6.test/psdb.v1alpha1.Database/Execute", {
+        body: JSON.stringify({ query: "SELECT id FROM phase6" }),
+        headers: {},
+        method: "POST",
+      });
+
+    const jsonResponse = await request();
+    await expect(jsonResponse.json()).rejects.toMatchObject({
+      meta: { driver: "planetscale" },
+    });
+    const textResponse = await request();
+    await expect(textResponse.text()).rejects.toMatchObject({
+      meta: { driver: "planetscale" },
+    });
+  });
+
+  test.each([
+    "WITH selected AS (SELECT id FROM phase6) SELECT id FROM selected",
+    "INSERT INTO phase6 VALUES (1) RETURNING id",
+  ])("PlanetScale classifies the row-producing statement %s", async (query) => {
+    await expect(
+      readValidatedPlanetScaleJson(
+        {
+          result: {
+            fields: [{ name: "id", type: "INT64" }],
+            rows: [],
+          },
+        },
+        query
+      )
+    ).resolves.toMatchObject({ result: { rows: [] } });
+  });
+
+  test("PlanetScale uses the platform fetch when no fetch option is supplied", async () => {
+    const response = new Response("not an execute response", { status: 200 });
+    const platformFetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(response);
+    const fetch = createValidatedPlanetScaleFetch(undefined);
+
+    try {
+      await expect(
+        fetch("https://phase6.test/not-execute", {
+          body: JSON.stringify({ query: "SELECT id FROM phase6" }),
+          headers: {},
+          method: "POST",
+        })
+      ).resolves.toBe(response);
+      expect(platformFetch).toHaveBeenCalledOnce();
+    } finally {
+      platformFetch.mockRestore();
+    }
   });
 
   test.each([

@@ -6,8 +6,8 @@ import {
   registerUpdateManySeriesBehavior,
   updateManySeriesSchema,
 } from "@tests/contracts/engine/write/update-many-relation-series-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * Package K on the live servers.

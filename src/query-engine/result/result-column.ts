@@ -25,24 +25,24 @@ export type ResultColumn =
     }
   | {
       readonly kind: "relationCounts";
-      readonly relations: ReadonlySet<string> | undefined;
+      readonly relations: ReadonlySet<string>;
     }
   | {
       readonly kind: "relation";
       readonly key: string;
       readonly relation: AnyRelation;
-      readonly expected: ExpectedRelationResultShape | undefined;
+      readonly expected: ExpectedRelationResultShape;
     }
   | {
       readonly kind: "polymorphic";
       readonly key: string;
       readonly relation: AnyRelation;
-      readonly expected: ExpectedPolymorphicResultShape | undefined;
+      readonly expected: ExpectedPolymorphicResultShape;
     }
   | {
       readonly kind: "aggregate";
       readonly name: AggregateResultName;
-      readonly expected: ExpectedAggregateResultShape | undefined;
+      readonly expected: ExpectedAggregateResultShape;
     }
   | { readonly kind: "unknown"; readonly key: string };
 
@@ -54,11 +54,11 @@ export type ResultColumn =
 export function classifyResultColumn(
   model: Model<any>,
   key: string,
-  shape: ExpectedResultShape | undefined
+  shape: ExpectedResultShape
 ): ResultColumn {
   if (key === EMPTY_ROW_RESULT_KEY) return { kind: "empty" };
   if (key === DISTANCE_RESULT_KEY) {
-    return { kind: "distance", scalar: shape?.distanceScalar };
+    return { kind: "distance", scalar: shape.distanceScalar };
   }
 
   const scalars = model["~"].state.scalars;
@@ -68,7 +68,7 @@ export function classifyResultColumn(
   if (scalar) return { kind: "scalar", key, scalar };
 
   if (key === RELATION_COUNTS_RESULT_KEY) {
-    return { kind: "relationCounts", relations: shape?.relationCounts };
+    return { kind: "relationCounts", relations: shape.relationCounts };
   }
 
   const relations = model["~"].state.relations;
@@ -77,27 +77,33 @@ export function classifyResultColumn(
     : undefined;
   if (relation) {
     if (isVariantRelationState(relation["~"].state)) {
+      const expected = shape.polymorphic.get(key);
+      if (!expected) return { kind: "unknown", key };
       return {
         kind: "polymorphic",
         key,
         relation,
-        expected: shape?.polymorphic.get(key),
+        expected,
       };
     }
+    const expected = shape.relations.get(key);
+    if (!expected) return { kind: "unknown", key };
     return {
       kind: "relation",
       key,
       relation,
-      expected: shape?.relations.get(key),
+      expected,
     };
   }
 
   const name = getAggregateResultName(key);
   if (name) {
+    const expected = shape.aggregates.get(key);
+    if (!expected) return { kind: "unknown", key };
     return {
       kind: "aggregate",
       name,
-      expected: shape?.aggregates.get(key),
+      expected,
     };
   }
 

@@ -107,6 +107,7 @@ export function runPolymorphicRelationBehavior(
     test("direct writes preserve the generated private storage pair", async () => {
       const { client } = requireDatabase();
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       const post = await client.post.create({
         data: { slug: "connected-post", title: "Connected post" },
       });
@@ -145,7 +146,7 @@ export function runPolymorphicRelationBehavior(
       const stored = await client.$queryRaw<StoredComment>(
         sql`SELECT ${ident("id")}, ${ident("commentable_type")}, ${ident(
           "commentable_id"
-        )} FROM ${ident("poly_contract_comments")} ORDER BY ${ident("id")}`
+        )} FROM ${tableRef("poly_contract_comments")} ORDER BY ${ident("id")}`
       );
       expect(stored.map(normalizeStoredComment)).toEqual([
         {
@@ -167,7 +168,7 @@ export function runPolymorphicRelationBehavior(
       const disconnected = await client.$queryRaw<StoredComment>(
         sql`SELECT ${ident("id")}, ${ident("commentable_type")}, ${ident(
           "commentable_id"
-        )} FROM ${ident("poly_contract_comments")} WHERE ${ident(
+        )} FROM ${tableRef("poly_contract_comments")} WHERE ${ident(
           "id"
         )} = ${connected.id}`
       );
@@ -183,6 +184,7 @@ export function runPolymorphicRelationBehavior(
     test("inverse create publishes a generated parent identity", async () => {
       const { client } = requireDatabase();
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       const created = await client.post.create({
         data: {
           slug: "inverse-parent",
@@ -201,7 +203,7 @@ export function runPolymorphicRelationBehavior(
       const stored = await client.$queryRaw<StoredComment>(
         sql`SELECT ${ident("id")}, ${ident("commentable_type")}, ${ident(
           "commentable_id"
-        )} FROM ${ident("poly_contract_comments")} ORDER BY ${ident("id")}`
+        )} FROM ${tableRef("poly_contract_comments")} ORDER BY ${ident("id")}`
       );
       expect(stored.map(normalizeStoredComment)).toEqual(
         created.comments.map(({ id }) => ({
@@ -215,6 +217,7 @@ export function runPolymorphicRelationBehavior(
     test("direct and inverse reads correlate exact variants without N+1", async () => {
       const { client, driver } = requireDatabase();
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       const post = await client.post.create({
         data: { id: 41, slug: "same-id-post", title: "Exact target" },
       });
@@ -246,7 +249,7 @@ export function runPolymorphicRelationBehavior(
         },
       });
       await client.$executeRaw(
-        sql`UPDATE ${ident("poly_contract_comments")} SET ${ident(
+        sql`UPDATE ${tableRef("poly_contract_comments")} SET ${ident(
           "commentable_type"
         )} = ${"CONTENT.POST.V1"} WHERE ${ident("id")} = ${caseDecoy.id}`
       );
@@ -425,17 +428,26 @@ export function runPolymorphicRelationBehavior(
       "inverse reads use the generated discriminator/id index",
       async () => {
         const { client, driver } = requireDatabase();
+        // A suite that shares one database instance owns a PRIVATE SCHEMA, so a
+        // statement written out by hand has to name it: the adapter qualifies
+        // only the SQL it generates itself. `namespace` is undefined on the
+        // dialects that do not qualify, and the name then stays bare.
+        const namespace = client.$driver.adapter.namespace;
+        const qualify = (table: string) =>
+          namespace ? `"${namespace}"."${table}"` : `"${table}"`;
         await client.$executeRawUnsafe(
-          `INSERT INTO "poly_contract_posts" ("id", "slug", "title")
+          `INSERT INTO ${qualify("poly_contract_posts")} ("id", "slug", "title")
            SELECT n, 'plan-' || n, 'Plan ' || n
            FROM generate_series(1000, 1199) AS n`
         );
         await client.$executeRawUnsafe(
-          `INSERT INTO "poly_contract_comments" ("body", "commentable_type", "commentable_id")
+          `INSERT INTO ${qualify("poly_contract_comments")} ("body", "commentable_type", "commentable_id")
            SELECT 'comment-' || n, 'content.post.v1', 1000 + (n % 200)
            FROM generate_series(1, 4000) AS n`
         );
-        await client.$executeRawUnsafe("ANALYZE poly_contract_comments");
+        await client.$executeRawUnsafe(
+          `ANALYZE ${qualify("poly_contract_comments")}`
+        );
 
         const statements: Array<{ sql: string; params: unknown[] }> = [];
         const observed = createClient({
@@ -477,6 +489,7 @@ export function runPolymorphicRelationBehavior(
     test("empty storage is optional but orphaned membership is invalid", async () => {
       const { client } = requireDatabase();
       const ident = client.$driver.adapter.identifiers.escape;
+      const tableRef = client.$driver.adapter.identifiers.table;
       const empty = await client.comment.create({ data: { body: "empty" } });
       const optionalTarget = await client.post.create({
         data: { slug: "optional-orphan", title: "Optional orphan" },
@@ -528,12 +541,12 @@ export function runPolymorphicRelationBehavior(
       ).resolves.toContainEqual({ id: optional.id });
 
       await client.$executeRaw(
-        sql`DELETE FROM ${ident("poly_contract_posts")} WHERE ${ident(
+        sql`DELETE FROM ${tableRef("poly_contract_posts")} WHERE ${ident(
           "id"
         )} = ${optionalTarget.id}`
       );
       await client.$executeRaw(
-        sql`DELETE FROM ${ident("poly_contract_videos")} WHERE ${ident(
+        sql`DELETE FROM ${tableRef("poly_contract_videos")} WHERE ${ident(
           "id"
         )} = ${requiredTarget.id}`
       );

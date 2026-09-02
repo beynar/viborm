@@ -623,11 +623,6 @@ export function buildInsert(
   polymorphicStorage: readonly PolymorphicStorageValue<unknown>[] = []
 ): Sql {
   const { columns, values } = buildValues(ctx, data, polymorphicStorage);
-
-  if (values.length === 0) {
-    throw new QueryEngineError("No columns to insert");
-  }
-
   const table = ctx.adapter.identifiers.table(tableName);
   if (columns.length === 0) {
     return ctx.adapter.mutations.insertDefault(table);

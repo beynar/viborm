@@ -7,8 +7,8 @@ import type { AnyDriver } from "@drivers";
 
 import { defineContract } from "@tests/contracts/contract";
 import { nestedWriteBehaviorSchema as schema } from "@tests/fixtures/nested-write-behavior-schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 type NestedWriteClientConfig = VibORMConfig<typeof schema>;
 

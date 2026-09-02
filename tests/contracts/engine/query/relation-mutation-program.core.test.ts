@@ -54,7 +54,7 @@ const collectionSchema = (() => {
 prepareSchema(collectionSchema);
 
 /** The one collection arm of a parsed board payload. */
-function collectionArm(payload: Record<string, unknown>, source?: unknown) {
+function collectionArm(payload: unknown, source?: unknown) {
   const ctx = scopeFor(adapter, collectionSchema.board);
   const parsed = buildParsedRelationPrograms(
     ctx,
@@ -538,5 +538,187 @@ describe("relation mutation program", () => {
     expect(
       create?.kind === "create" ? create.items[0]?.source : undefined
     ).toBe(sourceCreate);
+  });
+
+  test("lowers every polymorphic collection record verb through ordinary programs", () => {
+    const arm = collectionArm({
+      createMany: [
+        {
+          type: "post",
+          data: [{ id: 1, title: "first" }],
+          skipDuplicates: true,
+        },
+        {
+          type: "post",
+          data: [{ id: 2, title: "second" }],
+        },
+      ],
+      connectOrCreate: {
+        type: "video",
+        where: { id: 3 },
+        create: { id: 3, title: "created" },
+      },
+      update: {
+        type: "post",
+        where: { id: 4 },
+        data: { title: { set: "updated" } },
+      },
+      updateMany: {
+        type: "video",
+        where: { title: { contains: "old" } },
+        data: { title: { set: "new" } },
+      },
+      deleteMany: {
+        type: "post",
+        where: { title: { contains: "obsolete" } },
+      },
+      upsert: {
+        type: "video",
+        where: { id: 5 },
+        create: { id: 5, title: "created" },
+        update: { title: { set: "updated" } },
+      },
+    });
+
+    expect(
+      arm.entries.map((entry) => [
+        entry.publicType,
+        entry.program.entries[0]?.kind,
+      ])
+    ).toEqual([
+      ["post", "update"],
+      ["video", "upsert"],
+      ["video", "connectOrCreate"],
+      ["video", "updateMany"],
+      ["post", "deleteMany"],
+      ["post", "createMany"],
+      ["post", "createMany"],
+    ]);
+    const createManyEntries = arm.entries.filter(
+      (entry) => entry.program.entries[0]?.kind === "createMany"
+    );
+    expect(createManyEntries).toHaveLength(2);
+    expect(createManyEntries.map((entry) => entry.path)).toEqual([
+      "items.createMany[0..0]",
+      "items.createMany[1..1]",
+    ]);
+    const firstCreateMany = createManyEntries[0]?.program.entries[0];
+    expect(
+      firstCreateMany?.kind === "createMany"
+        ? firstCreateMany.skipDuplicates
+        : undefined
+    ).toBe(true);
+  });
+
+  test("keeps polymorphic collection sources aligned with their parsed runs", () => {
+    const sourceCreateMany = { id: 11, title: "source bulk" };
+    const sourceUpdate = { title: "source update" };
+    const arm = collectionArm(
+      {
+        createMany: {
+          type: "post",
+          data: [{ id: 11, title: "parsed bulk" }],
+        },
+        update: {
+          type: "post",
+          where: { id: 11 },
+          data: { title: { set: "parsed update" } },
+        },
+      },
+      {
+        createMany: {
+          type: "post",
+          data: [sourceCreateMany],
+        },
+        update: {
+          type: "post",
+          where: { id: 11 },
+          data: sourceUpdate,
+        },
+      }
+    );
+    const createMany = arm.entries.find(
+      (entry) => entry.program.entries[0]?.kind === "createMany"
+    )?.program.entries[0];
+    const update = arm.entries.find(
+      (entry) => entry.program.entries[0]?.kind === "update"
+    )?.program.entries[0];
+
+    expect(
+      createMany?.kind === "createMany" ? createMany.rows[0]?.source : undefined
+    ).toBe(sourceCreateMany);
+    expect(
+      update?.kind === "update" ? update.items[0]?.data.source : undefined
+    ).toBe(sourceUpdate);
+  });
+
+  describe("coverage low value: malformed transformed collection programs", () => {
+    test("fails closed on malformed payloads, discriminators, and source arity", () => {
+      expect(() => collectionArm(42)).toThrow(
+        "produced an invalid mutation payload"
+      );
+      expect(() => collectionArm({ connect: { where: { id: 1 } } })).toThrow(
+        "every item must carry its 'type' discriminator"
+      );
+      expect(() =>
+        collectionArm({
+          connect: { type: "unknown", where: { id: 1 } },
+        })
+      ).toThrow("Unknown polymorphic target 'unknown'");
+      expect(() =>
+        collectionArm(
+          {
+            create: [
+              { type: "post", data: { id: 1, title: "first" } },
+              { type: "post", data: { id: 2, title: "second" } },
+            ],
+          },
+          {
+            create: [{ type: "post", data: { id: 1, title: "first" } }],
+          }
+        )
+      ).toThrow("has 1 'create' item(s) for 2 parsed item(s)");
+    });
+
+    test("contains malformed ordinary envelopes already rejected by operation schemas", () => {
+      const toOne = requireRelationInfo(post, "author");
+      const toMany = requireRelationInfo(user, "posts");
+
+      expect(() =>
+        buildRelationMutationProgram(toOne, {
+          upsert: [
+            {
+              create: { id: 1, name: "created" },
+              update: { name: { set: "updated" } },
+            },
+          ],
+        })
+      ).toThrow("expected a single object envelope for to-one relations");
+      expect(() =>
+        buildRelationMutationProgram(toMany, { connect: 42 })
+      ).toThrow("expected an object envelope");
+      expect(() =>
+        buildRelationMutationProgram(toMany, {
+          update: { where: { id: 1 } },
+        })
+      ).toThrow("expected 'data' to be an object");
+      expect(() =>
+        buildRelationMutationProgram(toMany, {
+          createMany: { data: { id: 1, title: "not an array" } },
+        })
+      ).toThrow("expected 'data' to be an array of objects");
+      expect(() =>
+        buildRelationMutationProgram(
+          toMany,
+          {
+            create: [
+              { id: 1, title: "first" },
+              { id: 2, title: "second" },
+            ],
+          },
+          { create: [{ id: 1, title: "source" }] }
+        )
+      ).toThrow("has 1 record(s) for 2 parsed record(s)");
+    });
   });
 });

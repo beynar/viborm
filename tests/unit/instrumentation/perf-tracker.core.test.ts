@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPerfTracker,
   formatPerfReport,
   noopTracker,
   type PerfReport,
 } from "@src/instrumentation/perf-tracker";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Deterministic clock over `performance.now()`. `createPerfTracker` reads the

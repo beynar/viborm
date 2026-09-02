@@ -1,20 +1,22 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
 import {
   createManySchema,
   runCreateManyBehavior,
 } from "@tests/contracts/engine/write/create-many-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 runCreateManyBehavior({
   name: "PGlite transaction",
@@ -39,10 +41,10 @@ interface Scenario {
   expectReject?: boolean;
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace?: string) {
   return createClient({
     schema: createManySchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -62,7 +64,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed?.(client);
 
   let result: unknown;
@@ -76,8 +78,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: createManySchema,
         driver,
@@ -177,7 +185,7 @@ describe("write boundary createMany dual-run oracle (Direct vs Observed)", () =>
 
 describe("write boundary createMany routing", () => {
   test("createMany operations to Observed and empty data is a count-0 no-op", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
 
@@ -193,5 +201,6 @@ describe("write boundary createMany routing", () => {
       boundary: "production",
     });
     await client.$disconnect();
+    await closeTestPGlite(db);
   });
 });

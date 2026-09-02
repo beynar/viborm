@@ -3,7 +3,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { NestedWriteAssertionError } from "@errors";
+import { NestedWriteAssertionError, NestedWriteError } from "@errors";
 import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
@@ -40,6 +40,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 
 class SqlOnlyDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
+  probeExists = true;
 
   constructor(adapter: DatabaseAdapter, dialect: Dialect) {
     super(dialect, `hazard-signature-${dialect}`);
@@ -56,7 +57,9 @@ class SqlOnlyDriver extends Driver<null, null> {
 
   /** A guard re-probe finds its row: every probe here comes back CLEAN. */
   protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [{ found: 1 } as T], rowCount: 1 };
+    return this.probeExists
+      ? { rows: [{ found: 1 } as T], rowCount: 1 }
+      : { rows: [], rowCount: 0 };
   }
 
   protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
@@ -130,7 +133,7 @@ const dialectCases: DialectCase[] = [
 
 function createEngine(dialectCase: DialectCase): {
   engine: QueryEngine;
-  driver: Driver<null, null>;
+  driver: SqlOnlyDriver;
   adapter: DatabaseAdapter;
 } {
   const adapter = dialectCase.createAdapter();
@@ -230,5 +233,112 @@ describe.each(
     );
 
     expect((attributed as Error).name).toBe("NotFoundError");
+  });
+});
+
+describe("batch guard attribution contracts", () => {
+  function postgresDriver(): SqlOnlyDriver {
+    const dialectCase = dialectCases[0];
+    if (!dialectCase) throw new Error("PostgreSQL dialect case is missing.");
+    return createEngine(dialectCase).driver;
+  }
+
+  function errorName(value: unknown): string | undefined {
+    return value instanceof Error ? value.name : undefined;
+  }
+
+  test("leaves non-assertion and unmatched indexed failures authoritative", async () => {
+    const driver = postgresDriver();
+    const ordinary = new Error("provider failure");
+    expect(
+      await attributeOperationBatchError(ordinary, [cleanGuard()], driver)
+    ).toBe(ordinary);
+
+    const unmatched = new NestedWriteAssertionError("assertion failed", {
+      meta: { statementIndex: 9 },
+    });
+    expect(
+      await attributeOperationBatchError(unmatched, [cleanGuard()], driver)
+    ).toBe(unmatched);
+  });
+
+  test("uses an exact provider statement index without re-probing", async () => {
+    const driver = postgresDriver();
+    const indexed = new NestedWriteAssertionError("assertion failed", {
+      meta: { statementIndex: 0 },
+    });
+
+    const attributed = await attributeOperationBatchError(
+      indexed,
+      [cleanGuard()],
+      driver
+    );
+
+    expect(errorName(attributed)).toBe("NotFoundError");
+  });
+
+  test("attributes both violated probe premise forms", async () => {
+    const missing = postgresDriver();
+    missing.probeExists = false;
+    const existsFailure = await attributeOperationBatchError(
+      new NestedWriteAssertionError("assertion failed"),
+      [cleanGuard()],
+      missing
+    );
+
+    const present = postgresDriver();
+    const notExistsFailure = await attributeOperationBatchError(
+      new NestedWriteAssertionError("assertion failed"),
+      [{ ...cleanGuard(), premise: "notExists" }],
+      present
+    );
+
+    expect(errorName(existsFailure)).toBe("NotFoundError");
+    expect(errorName(notExistsFailure)).toBe("NotFoundError");
+  });
+
+  test("does not invent one attribution when guards disagree", async () => {
+    const driver = postgresDriver();
+    const error = new NestedWriteAssertionError("assertion failed");
+    const attributed = await attributeOperationBatchError(
+      error,
+      [
+        cleanGuard(),
+        {
+          ...cleanGuard(),
+          queryIndex: 1,
+          failure: {
+            ...cleanGuard().failure,
+            message: "A different precondition failed",
+          },
+        },
+      ],
+      driver
+    );
+
+    expect(attributed).toBe(error);
+  });
+
+  test("returns the assertion floor when no guard can own the failure", async () => {
+    const error = new NestedWriteAssertionError("assertion failed");
+    const attributed = await attributeOperationBatchError(
+      error,
+      [],
+      postgresDriver()
+    );
+
+    expect(attributed).not.toBe(error);
+    expect(errorName(attributed)).toBe("NestedWriteError");
+    expect(attributed).toBeInstanceOf(NestedWriteError);
+    // The redacted cause below is `VibORMError.originalCause`, which only the
+    // ORM error class carries; narrowing to bare `Error` cannot see it.
+    if (!(attributed instanceof NestedWriteError)) {
+      throw new Error("Expected a nested-write error.");
+    }
+    expect(attributed.originalCause).toBeInstanceOf(Error);
+    expect(attributed.originalCause).not.toBe(error);
+    expect(attributed.originalCause?.message).toBe(
+      "Underlying error details redacted"
+    );
   });
 });

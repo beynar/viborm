@@ -1,14 +1,13 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { manyToManySchema as schema } from "@tests/fixtures/many-to-many-schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /**
  * M9 filtered-M2M-deleteMany staleness gate (§11 M9, §9, §5.5 Rule 3, §1.2 A6).

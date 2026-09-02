@@ -1,7 +1,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { type Dialect, Driver } from "@drivers";
+import type { Dialect } from "@drivers";
 import { FeatureNotSupportedError } from "@errors";
 import { buildMutationProjectionFold } from "@query-engine/operations/mutation-projection-fold";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
@@ -17,54 +17,11 @@ import { s } from "@schema";
 import { type Sql, sql } from "@sql";
 import type { OperationStep } from "@src/query-engine/write-engine/OperationFragment";
 import { constructRoutedOperation } from "@src/query-engine/write-engine/routing";
+import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { fragmentAtom } from "@tests/fixtures/routed-fragment-atom";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-
-class MockDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter;
-
-  constructor(
-    adapter: DatabaseAdapter,
-    dialect: Dialect = "postgresql",
-    driverName = `mock-${dialect}`
-  ) {
-    super(dialect, driverName);
-    this.adapter = adapter;
-  }
-
-  protected async initClient() {
-    return null;
-  }
-
-  protected async closeClient() {
-    // The recording fixture owns no provider resource.
-  }
-
-  protected async execute<T>(
-    _client: null,
-    _statement: string,
-    _params: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async executeRaw<T>(
-    _client: null,
-    _statement: string,
-    _params?: unknown[]
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    return { rows: [], rowCount: 0 };
-  }
-
-  protected async transaction<T>(
-    _client: null,
-    fn: (tx: null) => Promise<T>
-  ): Promise<T> {
-    return fn(null);
-  }
-}
 
 const vectorOrderModels = (() => {
   const collection = s
@@ -103,7 +60,7 @@ function createEngine(
 ) {
   const schemaRegistry = createSchemaRegistry(vectorOrderSchema);
   const registry = createModelRegistry(vectorOrderSchema, schemaRegistry);
-  return new QueryEngine(new MockDriver(adapter, dialect), registry);
+  return new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
 }
 
 describe("Vector distance orderBy SQL generation", () => {

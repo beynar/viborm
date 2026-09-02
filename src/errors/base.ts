@@ -1,3 +1,4 @@
+import { safeOwnPropertyDescriptor } from "./diagnostic-safety";
 import {
   type DiagnosticDisclosure,
   registerTrustedError,
@@ -303,26 +304,23 @@ export class VibORMError extends Error {
   }
 }
 
-function readDiagnosticName(errorConstructor: unknown): string {
-  let candidate = errorConstructor;
+function readDiagnosticName(errorConstructor: typeof VibORMError): string {
+  let candidate: unknown = errorConstructor;
   for (
     let depth = 0;
     depth < 16 && typeof candidate === "function";
     depth += 1
   ) {
+    const descriptor = safeOwnPropertyDescriptor(candidate, "diagnosticName");
+    if (
+      descriptor &&
+      "value" in descriptor &&
+      typeof descriptor.value === "string" &&
+      descriptor.value.length > 0
+    ) {
+      return descriptor.value;
+    }
     try {
-      const descriptor = Reflect.getOwnPropertyDescriptor(
-        candidate,
-        "diagnosticName"
-      );
-      if (
-        descriptor &&
-        "value" in descriptor &&
-        typeof descriptor.value === "string" &&
-        descriptor.value.length > 0
-      ) {
-        return descriptor.value;
-      }
       candidate = Object.getPrototypeOf(candidate);
     } catch {
       return "VibORMError";
@@ -381,8 +379,8 @@ const DEFECT: CodeVerdict = { expected: false, retryable: false };
 /**
  * The taxonomy's disposition, code by code — the ONE place expected-vs-defect and
  * retryable-vs-not are decided, and the reason a missing disposition is now a compile error:
- * the `default` arm binds `code` to `never`, so adding a member to {@link VibORMErrorCode}
- * without giving it a disposition does not build.
+ * TypeScript proves the switch exhaustive, so adding a member to
+ * {@link VibORMErrorCode} without giving it a disposition does not build.
  *
  * The rule the arms follow: a code is EXPECTED when something outside the engine said no — the
  * database, the caller's payload, the driver's capabilities, a documented shape boundary. It is
@@ -390,6 +388,7 @@ const DEFECT: CodeVerdict = { expected: false, retryable: false };
  * question: could re-running the identical operation succeed?
  */
 function verdictFor(code: VibORMErrorCode): CodeVerdict {
+  // biome-ignore lint/style/useDefaultSwitchClause: a default arm would swallow the exhaustiveness proof this switch exists for — with no default, TypeScript makes a code added to VibORMErrorCode without a disposition a compile error.
   switch (code) {
     // Connection (1xxx). The server said no, or the client could not be built from the given
     // configuration — all outside the engine. A timeout may clear on its own; a refused or
@@ -513,11 +512,6 @@ function verdictFor(code: VibORMErrorCode): CodeVerdict {
     case VibORMErrorCode.INTERNAL_ERROR:
     case VibORMErrorCode.SCHEMA_ERROR:
       return DEFECT;
-
-    default: {
-      const exhaustive: never = code;
-      return exhaustive;
-    }
   }
 }
 

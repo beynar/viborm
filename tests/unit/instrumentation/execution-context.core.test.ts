@@ -53,26 +53,29 @@ describe("driver execution-context snapshots", () => {
 
   it("reads external context members once into a stable immutable snapshot", () => {
     const reads = { correlationId: 0, model: 0, operation: 0 };
-    const external = Object.defineProperties({}, {
-      correlationId: {
-        get() {
-          reads.correlationId += 1;
-          return reads.correlationId === 1 ? "first" : "changed";
+    const external = Object.defineProperties(
+      {},
+      {
+        correlationId: {
+          get() {
+            reads.correlationId += 1;
+            return reads.correlationId === 1 ? "first" : "changed";
+          },
         },
-      },
-      model: {
-        get() {
-          reads.model += 1;
-          return "user";
+        model: {
+          get() {
+            reads.model += 1;
+            return "user";
+          },
         },
-      },
-      operation: {
-        get() {
-          reads.operation += 1;
-          return "findMany";
+        operation: {
+          get() {
+            reads.operation += 1;
+            return "findMany";
+          },
         },
-      },
-    });
+      }
+    );
 
     const snapshot = snapshotExecutionContext(external);
 

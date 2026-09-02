@@ -19,7 +19,6 @@ import {
   createChildScope,
   getColumnName,
   isScalarField,
-  isVariantRelation,
   lookupRelation,
   variantCarrier,
 } from "../context";
@@ -148,13 +147,8 @@ function buildWhereAtPolarity(
       continue;
     }
 
-    if (isVariantRelation(ctx, key)) {
-      const relation = variantCarrier(ctx, key);
-      if (!relation) {
-        throw new QueryEngineError(
-          `Polymorphic relation '${key}' has no validated storage metadata.`
-        );
-      }
+    const relation = variantCarrier(ctx, key);
+    if (relation) {
       // The two storages take different predicates: the row-held pair answers a
       // tagged `{type, is|isNot}` plus null presence, a collection answers the
       // ordinary quantifiers over one tagged member predicate and has no null

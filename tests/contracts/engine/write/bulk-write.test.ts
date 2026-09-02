@@ -1,24 +1,26 @@
-import {
-  BatchOnlyPGliteDriver,
-  type PGliteSchemaFamily,
-  usePGliteSchemaFamily,
-} from "@tests/fixtures/drivers/pglite";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { ValidationError } from "@errors";
-
-import { describe, expect, test } from "vitest";
 import {
   bulkWriteSchema,
   runBulkWriteBehavior,
 } from "@tests/contracts/engine/write/bulk-write-behavior";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
+import {
+  BatchOnlyPGliteDriver,
+  type PGliteSchemaFamily,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import {
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, expect, test } from "vitest";
 
 // The bulk-write stragglers on PGlite, both substrates.
 runBulkWriteBehavior({
@@ -54,10 +56,10 @@ interface Scenario {
   arm?: "rows" | "count";
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace?: string) {
   return createClient({
     schema: bulkWriteSchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -77,7 +79,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed?.(client);
 
   let result: unknown;
@@ -92,8 +94,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: bulkWriteSchema,
         driver,
@@ -294,7 +302,7 @@ const scenarios: Scenario[] = [
 describe("the removed *AndReturn method names (runtime)", () => {
   for (const removed of ["createManyAndReturn", "updateManyAndReturn"]) {
     test(`${removed} fails with a clear unknown-operation error`, async () => {
-      const db = new PGlite();
+      const db = openBorrowedPGlite();
       const client = makeClient(db);
       await syncLiveSchema(client);
       try {
@@ -309,6 +317,7 @@ describe("the removed *AndReturn method names (runtime)", () => {
         ).rejects.toThrow(`Unknown operation '${removed}' on model 'gadget'`);
       } finally {
         await client.$disconnect();
+        await closeTestPGlite(db);
       }
     });
   }
@@ -366,7 +375,7 @@ describe("a validation error names the operation the caller spelled", () => {
       ["count (select absent)", withoutSelect],
     ] as const) {
       test(`${family} — ${arm}`, async () => {
-        const db = new PGlite();
+        const db = openBorrowedPGlite();
         const client = makeClient(db);
         await syncLiveSchema(client);
         try {
@@ -388,6 +397,7 @@ describe("a validation error names the operation the caller spelled", () => {
           expect(error.meta.operation).toBe(family);
         } finally {
           await client.$disconnect();
+          await closeTestPGlite(db);
         }
       });
     }
@@ -409,7 +419,7 @@ const DELETE_MANY_VALIDATION_FAILURE = /Validation failed for deleteMany/;
 
 describe("an explicitly-absent select takes the count arm (runtime)", () => {
   test("all three bulk families agree on select: undefined", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {
@@ -442,11 +452,12 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
   test("a present select still returns rows on all three", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {
@@ -473,11 +484,12 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ).toEqual([{ code: "c1" }]);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 
   test("a malformed select still rejects rather than falling back to count", async () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const client = makeClient(db);
     await syncLiveSchema(client);
     try {
@@ -498,6 +510,7 @@ describe("an explicitly-absent select takes the count arm (runtime)", () => {
       ).rejects.toThrow(DELETE_MANY_VALIDATION_FAILURE);
     } finally {
       await client.$disconnect();
+      await closeTestPGlite(db);
     }
   });
 });

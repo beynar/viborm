@@ -1,46 +1,49 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import type { PGlite } from "@electric-sql/pglite";
 import { s } from "@schema";
-import { describe, expect, test } from "vitest";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
 type Schema = Record<string, ReturnType<typeof s.model>>;
 
-function makeClient(schema: Schema, db: PGlite) {
-  return createClient({
-    schema: schema as never,
-    driver: new PGliteDriver({ client: db }),
-  });
+type AnyClient = Record<string, any>;
+
+/** The part of a schema family this harness reads. */
+interface SuiteFamily {
+  readonly database: PGlite;
+  readonly driver: PGliteDriver;
+  readonly client: unknown;
 }
-type AnyClient = ReturnType<typeof makeClient>;
 
 async function runObserved(
+  getFamily: () => SuiteFamily,
   schema: Schema,
   substrate: "tx" | "batch",
   seed: (c: AnyClient) => Promise<void>,
   op: (c: Record<string, any>) => Promise<void>,
   snap: (c: AnyClient) => Promise<unknown>
 ): Promise<{ state: unknown; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
-  const base = makeClient(schema, db);
-  await syncLiveSchema(base as never);
+  const family = getFamily();
+  const base = family.client as AnyClient;
   await seed(base);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the same Postgres schema the family provisioned; otherwise it would
+  // address `public`, where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema: schema as never,
     driver,
   });
   await op(observed.client);
   const state = await snap(base);
-  await base.$disconnect();
   return {
     state,
     engines: new Set(observed.operations.map((r) => r.boundary)),
@@ -65,6 +68,8 @@ const tree = (() => {
     .map("x1b_adopt_node");
   return { node };
 })();
+
+const getTreeFamily = usePGliteSchemaFamily(tree);
 
 describe("X1b mechanism 4 — connect grandchild under a fresh create (global reparent)", () => {
   const seed = async (c: AnyClient) => {
@@ -119,6 +124,7 @@ describe("X1b mechanism 4 — connect grandchild under a fresh create (global re
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: the adoptee is reparented onto the fresh child, native Observed`, async () => {
       const { state, engines } = await runObserved(
+        getTreeFamily,
         tree,
         substrate,
         seed,
@@ -163,6 +169,8 @@ const m2mSchema = (() => {
     .map("x1b_m2m_tags");
   return { blog, post, tag };
 })();
+
+const getM2mFamily = usePGliteSchemaFamily(m2mSchema);
 
 describe("X1b mechanism 4 — M2M edge under a fresh create at depth", () => {
   const seed = async (c: AnyClient) => {
@@ -223,6 +231,7 @@ describe("X1b mechanism 4 — M2M edge under a fresh create at depth", () => {
   for (const substrate of ["tx", "batch"] as const) {
     test(`${substrate}: the fresh post's M2M edges are created through the junction, native Observed`, async () => {
       const { state, engines } = await runObserved(
+        getM2mFamily,
         m2mSchema,
         substrate,
         seed,

@@ -1,21 +1,20 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
-import { describe, expect, test } from "vitest";
-import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { batchPrimaryKeyDataflowSchema as schema } from "@tests/fixtures/batch-primary-key-dataflow-schema";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { describe, expect, test } from "vitest";
 
-function makeDirectClient(db: PGlite) {
-  return createClient({
-    schema,
-    driver: new PGliteDriver({ client: db }),
-  });
-}
-type AnyClient = ReturnType<typeof makeDirectClient>;
+// A private schema per arm on the worker's shared database: the Direct oracle and
+// the two Observed substrates each seed their own empty tables, exactly as they
+// did when each opened its own instance.
+const getDirectFamily = usePGliteSchemaFamily(schema);
+const getTxObservedFamily = usePGliteSchemaFamily(schema);
+const getBatchObservedFamily = usePGliteSchemaFamily(schema);
+
+type AnyClient = ReturnType<typeof getDirectFamily>["client"];
 
 async function seed(client: AnyClient): Promise<void> {
   // Three disjoint parents. Only 100 and 300 transition; 200 is the untouched
@@ -86,34 +85,33 @@ const EXPECTED: Snapshot = {
 };
 
 async function runDirect(): Promise<Snapshot> {
-  const db = new PGlite();
-  const client = makeDirectClient(db);
-  await syncLiveSchema(client as any);
+  const client = getDirectFamily().client;
   await seed(client);
   await runWorkload((client as any).mutableUser);
-  const state = await snapshot(client);
-  await client.$disconnect();
-  return state;
+  return await snapshot(client);
 }
 
 async function runObserved(
   substrate: "tx" | "batch"
 ): Promise<{ state: Snapshot; engines: Set<"direct" | "production"> }> {
-  const db = new PGlite();
-  const fallback = makeDirectClient(db);
-  await syncLiveSchema(fallback as any);
+  const family =
+    substrate === "tx" ? getTxObservedFamily() : getBatchObservedFamily();
+  const fallback = family.client;
   await seed(fallback);
+  // The observed client is a SECOND driver over the same database, so it must
+  // name the schema the family provisioned; otherwise it would address `public`,
+  // where this suite has no tables.
+  const namespace = family.driver.adapter.namespace;
   const driver =
     substrate === "tx"
-      ? new PGliteDriver({ client: db })
-      : new BatchOnlyPGliteDriver({ client: db });
+      ? new PGliteDriver({ client: family.database, namespace })
+      : new BatchOnlyPGliteDriver({ client: family.database, namespace });
   const observed = observeClientOperations({
     schema,
     driver,
   });
   await runWorkload(observed.client.mutableUser as any);
   const state = await snapshot(fallback);
-  await fallback.$disconnect();
   return {
     state,
     engines: new Set(

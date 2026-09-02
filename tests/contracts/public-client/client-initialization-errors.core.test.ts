@@ -11,8 +11,6 @@
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import {
   ClientInitializationError,
   isClientInitializationError,
@@ -20,14 +18,15 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { s } from "@schema";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 
 const user = s.model({
   id: s.string().id(),
   email: s.string().unique(),
 });
 
-function makeDriver(): PGliteDriver {
-  return new PGliteDriver({ client: new PGlite() });
+function makeDriver(): PlanningDriver {
+  return new PlanningDriver("postgresql");
 }
 
 const DRIVER_REQUIRED_PATTERN = /Driver is required/;

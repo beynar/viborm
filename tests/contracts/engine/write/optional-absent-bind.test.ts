@@ -18,6 +18,7 @@ import {
   optionalAbsentBindSchema,
   runOptionalAbsentBindBehavior,
 } from "@tests/contracts/engine/write/optional-absent-bind-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -53,6 +54,22 @@ class RecordingPGliteDriver extends PGliteDriver {
     return super.execute<T>(client, statement, params, context);
   }
 }
+
+/**
+ * The two seam witnesses below run on the worker's ONE PGlite, in a private schema of
+ * this file's own. Their statements name no table at all, but a driver built over the
+ * shared database still carries the namespace: without it it would address `public`,
+ * which belongs to no suite.
+ */
+const getFamily = usePGliteSchemaFamily(optionalAbsentBindSchema);
+
+const seamDriver = (): RecordingPGliteDriver => {
+  const family = getFamily();
+  return new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+};
 
 /** The real executor on the real engine — only the fragment below is synthetic. */
 function makeSeamExecutor(driver: RecordingPGliteDriver): OperationExecutor {
@@ -117,7 +134,7 @@ function absentFieldOperation(optional: boolean): ExecutableOperation {
 
 describe("the executor's absent-optional bind", () => {
   test("an OPTIONAL output whose read matched no row binds SQL NULL", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = seamDriver();
     const executor = makeSeamExecutor(driver);
     try {
       await executor.execute(
@@ -136,7 +153,7 @@ describe("the executor's absent-optional bind", () => {
   });
 
   test("a NON-optional output whose read matched no row still fails the operation closed", async () => {
-    const driver = new RecordingPGliteDriver();
+    const driver = seamDriver();
     const executor = makeSeamExecutor(driver);
     try {
       // No `optional`: an absent row is not a branch, it is a broken plan. The

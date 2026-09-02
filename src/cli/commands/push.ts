@@ -7,7 +7,8 @@
 
 import { cancel, confirm, isCancel, note, outro } from "@clack/prompts";
 import { Command } from "commander";
-import { createMigrationClient, type PushPreview } from "../../migrations";
+import { createMigrationClient } from "../../migrations/client";
+import type { PushPreview } from "../../migrations/push-v1";
 import { failCli, loadConfig } from "../utils";
 
 interface PushCliOptions {
@@ -70,9 +71,7 @@ async function runPush(options: PushCliOptions): Promise<void> {
 
     if (preview.outcome !== "noop" && !options.yes) {
       if (options.json) {
-        failCli(
-          new Error("Non-interactive push requires --yes to apply a plan")
-        );
+        throw new Error("Non-interactive push requires --yes to apply a plan");
       }
       const accepted = await confirm({
         message: preview.destructive
@@ -99,11 +98,15 @@ async function runPush(options: PushCliOptions): Promise<void> {
   }
 }
 
-export const pushCommand = new Command("push")
-  .description("Synchronize the schema directly without migration history")
-  .option("--config <path>", "Path to viborm.config.ts")
-  .option("--dry-run", "Preview without changing the database")
-  .option("--force-reset", "Plan a rebuild from an empty database")
-  .option("-y, --yes", "Apply without an interactive consent prompt")
-  .option("--json", "Print machine-readable JSON")
-  .action(runPush);
+export function createPushCommand(): Command {
+  return new Command("push")
+    .description("Synchronize the schema directly without migration history")
+    .option("--config <path>", "Path to viborm.config.ts")
+    .option("--dry-run", "Preview without changing the database")
+    .option("--force-reset", "Plan a rebuild from an empty database")
+    .option("-y, --yes", "Apply without an interactive consent prompt")
+    .option("--json", "Print machine-readable JSON")
+    .action(runPush);
+}
+
+export const pushCommand = createPushCommand();

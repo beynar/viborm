@@ -6,7 +6,6 @@ import { getMigrationDriver } from "@src/migrations/drivers";
 import { generateV1 } from "@src/migrations/generate-v1";
 import { withLockedMigrationProducer } from "@src/migrations/pinned-session";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
-import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, test } from "vitest";
 import {
   mysqlEstateDriver,
@@ -184,10 +183,8 @@ describe("pinned migration session", () => {
   });
 
   test("dry-run apply on SQLite writes no control tables", async () => {
-    const client = createClient({
-      schema: { user },
-      driver: createInMemorySQLite3Driver(),
-    });
+    const driver = sqliteEstateDriver();
+    const client = createClient({ schema: { user }, driver });
     const migrations = createMigrationClient(client, {
       storage: new MemoryEstateStorage(),
     });
@@ -195,6 +192,6 @@ describe("pinned migration session", () => {
     const preview = await migrations.apply({ dryRun: true });
     expect(preview.outcome).toBe("preview");
     expect((await migrations.status()).control).toBe("absent");
-    await client.$disconnect();
+    expect(driver.statements.join("\n")).not.toContain("CREATE TABLE");
   });
 });

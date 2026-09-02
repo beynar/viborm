@@ -13,7 +13,6 @@ import {
   getDefaultScalarFieldNames,
   getScalarFieldNames,
   isRelation,
-  isVariantRelation,
   lookupRelation,
   variantCarrier,
 } from "../context";
@@ -27,6 +26,7 @@ import {
   QueryEngineError,
   type QueryScope,
   type RelationRef,
+  type VariantCarrierSlot,
 } from "../types";
 import { buildDistanceExpression } from "./distance-builder";
 import {
@@ -286,7 +286,8 @@ function buildSelectPairs(
       }
 
       const relationRef = lookupRelation(ctx, key);
-      if (isRelation(ctx.model, key) && !isVariantRelation(ctx, key)) {
+      const variantRelation = variantCarrier(ctx, key);
+      if (isRelation(ctx.model, key) && !variantRelation) {
         if (relationRef && typeof value === "object" && value !== null) {
           const includeResult = buildInclude(
             ctx,
@@ -304,8 +305,11 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isVariantRelation(ctx, key)) {
-        pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
+      if (variantRelation) {
+        pairs.push([
+          key,
+          buildPolymorphicProjection(ctx, variantRelation, value, alias),
+        ]);
       }
     }
     if (hasDistanceSelect && hasDistanceOutputField) {
@@ -382,7 +386,8 @@ function buildSelectPairs(
       }
 
       const relationRef = lookupRelation(ctx, key);
-      if (isRelation(ctx.model, key) && !isVariantRelation(ctx, key)) {
+      const variantRelation = variantCarrier(ctx, key);
+      if (isRelation(ctx.model, key) && !variantRelation) {
         if (relationRef) {
           const includeValue =
             value === true ? {} : (value as Record<string, unknown>);
@@ -401,8 +406,11 @@ function buildSelectPairs(
         continue;
       }
 
-      if (isVariantRelation(ctx, key)) {
-        pairs.push([key, buildPolymorphicProjection(ctx, key, value, alias)]);
+      if (variantRelation) {
+        pairs.push([
+          key,
+          buildPolymorphicProjection(ctx, variantRelation, value, alias),
+        ]);
       }
     }
   }
@@ -441,16 +449,10 @@ function buildSelectPairs(
  */
 function buildPolymorphicProjection(
   ctx: QueryScope,
-  key: string,
+  relation: VariantCarrierSlot,
   value: unknown,
   alias: string
 ): Sql {
-  const relation = variantCarrier(ctx, key);
-  if (!relation) {
-    throw new QueryEngineError(
-      `Polymorphic relation '${key}' has no validated storage metadata.`
-    );
-  }
   return isVariantRowCarrier(relation)
     ? buildPolymorphicRead(buildSubquerySelection, ctx, relation, value, alias)
     : buildPolymorphicCollectionRead(

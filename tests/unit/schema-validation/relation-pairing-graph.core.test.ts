@@ -64,15 +64,12 @@ describe("the exact relation-name partition", () => {
     ["named on one side only", "PostAuthor", undefined],
     ["named on the other side only", undefined, "PostAuthor"],
     ["named differently on both sides", "PostAuthor", "AuthoredPost"],
-  ])(
-    "refuses a sole candidate %s — a name is a verdict, not a fallback",
-    (_label, userName, postName) => {
-      // HEAD resolved every one of these, because a SOLE candidate won
-      // regardless of names (`inverse.ts:257-259`, documented as deliberate at
-      // `relation/types.ts:206-207`). §6.2 rule 3 makes each one `nameMismatch`.
-      expect(codes(solePair(userName, postName))).toEqual(["R010"]);
-    }
-  );
+  ])("refuses a sole candidate %s — a name is a verdict, not a fallback", (_label, userName, postName) => {
+    // HEAD resolved every one of these, because a SOLE candidate won
+    // regardless of names (`inverse.ts:257-259`, documented as deliberate at
+    // `relation/types.ts:206-207`). §6.2 rule 3 makes each one `nameMismatch`.
+    expect(codes(solePair(userName, postName))).toEqual(["R010"]);
+  });
 
   it("keeps two matching-name pairs between the same models separate", () => {
     const user = s.model({

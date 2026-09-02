@@ -52,6 +52,8 @@ describe("portable blob result parsing", () => {
     ["adapter hex", "00ff80", [0, 255, 128]],
     ["empty adapter hex", "", []],
     ["MySQL base64", "base64:type15:AP+A", [0, 255, 128]],
+    ["MySQL base64 with one padding byte", "base64:type15:AAA=", [0, 0]],
+    ["MySQL base64 with two padding bytes", "base64:type15:AA==", [0]],
     ["empty MySQL base64", "base64:type15:", []],
   ])("decodes %s without Buffer", (_label, raw, expected) => {
     vi.stubGlobal("Buffer", undefined);

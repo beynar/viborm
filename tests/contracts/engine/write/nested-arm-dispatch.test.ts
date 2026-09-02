@@ -95,15 +95,19 @@ class CorruptLocatePGliteDriver extends RecordingPGliteDriver {
 
 function runSuite(
   name: string,
-  make: (database: PGlite) => RecordingPGliteDriver
+  make: (database: PGlite, namespace: string) => RecordingPGliteDriver
 ): void {
   describe(`E3 upsert update-arm dispatch (${name})`, () => {
     const getFamily = usePGliteSchemaFamily(armDispatchSchema);
     let driver: RecordingPGliteDriver;
     let client: any;
 
+    /** The suite's private schema, which is what its drivers now address. */
+    const qualify = (table: string) => `"${getFamily().namespace}"."${table}"`;
+
     beforeEach(async () => {
-      driver = make(getFamily().database);
+      const family = getFamily();
+      driver = make(family.database, family.namespace);
       client = createClient({ schema: armDispatchSchema, driver }) as any;
       await client.org.create({
         data: { id: "o1", code: "org-1-code", name: "Org" },
@@ -292,7 +296,7 @@ function runSuite(
     const membership = async () =>
       (
         (await client.$queryRawUnsafe(
-          'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
+          `SELECT "teamId", "tagId" FROM ${qualify("tag_team")} ORDER BY "teamId", "tagId"`
         )) as { teamId: string; tagId: string }[]
       ).map((row) => `${row.teamId}/${row.tagId}`);
 
@@ -330,6 +334,7 @@ function runSuite(
       await family.reset();
       const corrupting = new CorruptLocatePGliteDriver({
         client: family.database,
+        namespace: family.namespace,
       });
       const seeded = createClient({
         schema: armDispatchSchema,
@@ -373,7 +378,7 @@ function runSuite(
         armUpdate({ tags: { connect: [{ id: "g1" }] } }, { slug: "team-1" })
       );
       const rows = (await corrupted.$queryRawUnsafe(
-        'SELECT "teamId", "tagId" FROM "tag_team"'
+        `SELECT "teamId", "tagId" FROM ${qualify("tag_team")}`
       )) as { teamId: string }[];
       expect(rows.map((row) => row.teamId)).toEqual(["tDecoy"]);
     });
@@ -733,9 +738,9 @@ function runSuite(
       expect(
         driver.statements.filter((sql) => !sql.startsWith("SELECT"))
       ).toEqual([
-        expect.stringContaining('UPDATE "public"."e3_teams"'),
-        expect.stringContaining('UPDATE "public"."e3_notes"'),
-        expect.stringContaining('INSERT INTO "public"."e3_notes"'),
+        expect.stringContaining(`UPDATE ${qualify("e3_teams")}`),
+        expect.stringContaining(`UPDATE ${qualify("e3_notes")}`),
+        expect.stringContaining(`INSERT INTO ${qualify("e3_notes")}`),
       ]);
       expect(await teams()).toEqual([
         { id: "tDecoy", label: "DECOY", orgId: "o1" },
@@ -820,7 +825,7 @@ function runSuite(
 
     const junction = async () =>
       (await client.$queryRawUnsafe(
-        'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
+        `SELECT "teamId", "tagId" FROM ${qualify("tag_team")} ORDER BY "teamId", "tagId"`
       )) as { teamId: string; tagId: string }[];
 
     test("PK MOVE beside a DEFAULT-CASCADE junction: ordered, then cascaded", async () => {
@@ -848,8 +853,8 @@ function runSuite(
       expect(
         driver.statements.filter((sql) => !sql.startsWith("SELECT"))
       ).toEqual([
-        expect.stringContaining('INSERT  INTO "public"."tag_team"'),
-        expect.stringContaining('UPDATE "public"."e3_teams"'),
+        expect.stringContaining(`INSERT  INTO ${qualify("tag_team")}`),
+        expect.stringContaining(`UPDATE ${qualify("e3_teams")}`),
       ]);
       expect(await junction()).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
       expect(await teams()).toEqual([
@@ -956,7 +961,7 @@ function runSuite(
       ).toEqual([{ id: "t1" }, { id: "tMoved" }]);
       expect(
         await corrupted.$queryRawUnsafe(
-          'SELECT "teamId", "tagId" FROM "tag_team" ORDER BY "teamId", "tagId"'
+          `SELECT "teamId", "tagId" FROM ${qualify("tag_team")} ORDER BY "teamId", "tagId"`
         )
       ).toEqual([{ teamId: "tMoved", tagId: "g1" }]);
     });
@@ -994,11 +999,13 @@ function runSuite(
 
 runSuite(
   "PGlite transaction",
-  (database) => new RecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new RecordingPGliteDriver({ client: database, namespace })
 );
 runSuite(
   "PGlite atomic batch",
-  (database) => new BatchOnlyRecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new BatchOnlyRecordingPGliteDriver({ client: database, namespace })
 );
 
 /**
@@ -1066,15 +1073,19 @@ hydrateSchemaNames(junctionResidueSchema);
 
 function runJunctionResidue(
   name: string,
-  make: (database: PGlite) => RecordingPGliteDriver
+  make: (database: PGlite, namespace: string) => RecordingPGliteDriver
 ): void {
   describe(`B1 residue: a non-cascading junction under a moved key (${name})`, () => {
     const getFamily = usePGliteSchemaFamily(junctionResidueSchema);
     let driver: RecordingPGliteDriver;
     let client: any;
 
+    /** The suite's private schema, which is what its drivers now address. */
+    const qualify = (table: string) => `"${getFamily().namespace}"."${table}"`;
+
     beforeEach(async () => {
-      driver = make(getFamily().database);
+      const family = getFamily();
+      driver = make(family.database, family.namespace);
       client = createClient({ schema: junctionResidueSchema, driver }) as any;
       await client.org.create({ data: { id: "o1", name: "Org" } });
       await client.tag.create({ data: { id: "g1", name: "Tag" } });
@@ -1094,7 +1105,9 @@ function runJunctionResidue(
       return {
         error: (error as Error | undefined)?.constructor.name,
         writes: driver.statements.filter((sql) => !sql.startsWith("SELECT")),
-        junction: await client.$queryRawUnsafe('SELECT * FROM "tag_team"'),
+        junction: await client.$queryRawUnsafe(
+          `SELECT * FROM ${qualify("tag_team")}`
+        ),
         teams: await client.team.findMany({
           orderBy: { id: "asc" },
           select: { id: true },
@@ -1102,15 +1115,15 @@ function runJunctionResidue(
       };
     };
 
-    const REFUSED_BY_THE_CONSTRAINT = {
+    const REFUSED_BY_THE_CONSTRAINT = () => ({
       error: "ForeignKeyError",
       writes: [
-        expect.stringContaining('INSERT  INTO "public"."tag_team"'),
-        expect.stringContaining('UPDATE "public"."b1_res_teams"'),
+        expect.stringContaining(`INSERT  INTO ${qualify("tag_team")}`),
+        expect.stringContaining(`UPDATE ${qualify("b1_res_teams")}`),
       ],
       junction: [],
       teams: [{ id: "t1" }],
-    };
+    });
 
     test("the ARM's junction edge fails closed at the constraint", async () => {
       expect(
@@ -1134,7 +1147,7 @@ function runJunctionResidue(
             },
           })
         )
-      ).toEqual(REFUSED_BY_THE_CONSTRAINT);
+      ).toEqual(REFUSED_BY_THE_CONSTRAINT());
     });
 
     test("the update ROOT does exactly the same, statement for statement", async () => {
@@ -1149,7 +1162,7 @@ function runJunctionResidue(
             },
           })
         )
-      ).toEqual(REFUSED_BY_THE_CONSTRAINT);
+      ).toEqual(REFUSED_BY_THE_CONSTRAINT());
     });
 
     test("the owner is the constraint: a bare key move with an existing join row fails too", async () => {
@@ -1167,7 +1180,7 @@ function runJunctionResidue(
       ).toEqual({
         error: "ForeignKeyError",
         // No relation payload at all — one statement, and the constraint still owns it.
-        writes: [expect.stringContaining('UPDATE "public"."b1_res_teams"')],
+        writes: [expect.stringContaining(`UPDATE ${qualify("b1_res_teams")}`)],
         junction: [{ tagId: "g1", teamId: "t1" }],
         teams: [{ id: "t1" }],
       });
@@ -1177,9 +1190,11 @@ function runJunctionResidue(
 
 runJunctionResidue(
   "PGlite transaction",
-  (database) => new RecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new RecordingPGliteDriver({ client: database, namespace })
 );
 runJunctionResidue(
   "PGlite atomic batch",
-  (database) => new BatchOnlyRecordingPGliteDriver({ client: database })
+  (database, namespace) =>
+    new BatchOnlyRecordingPGliteDriver({ client: database, namespace })
 );

@@ -261,6 +261,7 @@ export class ReadOperation {
   private buildReadSql(): Sql {
     const ctx = createQueryScope(this.engine, this.model);
     const args = this.validatedArgs;
+    // biome-ignore lint/style/useDefaultSwitchClause: every arm returns and there is no trailing return — the switch's exhaustiveness is what makes this compile, so a default clause would turn a missing arm from a type error into a silent undefined.
     switch (this.base) {
       case "findUnique":
         return buildFindUnique(ctx, requireFindUniqueArgs(args));
@@ -300,10 +301,6 @@ export class ReadOperation {
           );
         }
         return buildGroupBy(ctx, { ...args, by });
-      }
-      default: {
-        const exhaustive: never = this.base;
-        throw new QueryEngineError(`Unknown read operation: ${exhaustive}`);
       }
     }
   }

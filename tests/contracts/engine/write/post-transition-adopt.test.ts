@@ -6,16 +6,16 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { expect, test } from "vitest";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import {
   postTransitionAdoptSchema,
   runPostTransitionAdoptBehavior,
 } from "@tests/contracts/engine/write/post-transition-adopt-behavior";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { expect, test } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 /** Records every statement and its parameters, in order. The hook is the PROTECTED
  *  `execute`/`executeRaw` seam, because a transaction runs its statements through a
  *  transaction-bound driver that delegates back to exactly these two methods. */
@@ -55,6 +55,22 @@ runPostTransitionAdoptBehavior({
   pgliteMode: "atomicBatch",
 });
 
+/**
+ * The two recorder witnesses below take a private SCHEMA on the worker's ONE PGlite,
+ * emptied before each test. The recording driver is built over that shared database
+ * and MUST carry the suite's namespace: without it it would address `public`, where
+ * this file has no tables at all.
+ */
+const getFamily = usePGliteSchemaFamily(postTransitionAdoptSchema);
+
+function recordingDriver(): RecordingPGliteDriver {
+  const family = getFamily();
+  return new RecordingPGliteDriver({
+    client: family.database,
+    namespace: family.namespace,
+  });
+}
+
 function makeRunner(driver: PGliteDriver) {
   const schemas = createSchemaRegistry(postTransitionAdoptSchema);
   const engine = new QueryEngine(
@@ -74,10 +90,9 @@ function makeRunner(driver: PGliteDriver) {
 }
 
 test("the root UPDATE precedes the adopt write, which binds the post-transition key", async () => {
-  const driver = new RecordingPGliteDriver();
+  const driver = recordingDriver();
   const client = createClient({ schema: postTransitionAdoptSchema, driver });
   try {
-    await syncLiveSchema(client);
     await client.list.create({ data: { id: 1, name: "target" } });
     await client.item.create({
       data: { id: 20, label: "free", listId: null },
@@ -115,10 +130,9 @@ test("the root UPDATE precedes the adopt write, which binds the post-transition 
 });
 
 test("no transition means no reordering: the adopt write keeps its pre-N5 place", async () => {
-  const driver = new RecordingPGliteDriver();
+  const driver = recordingDriver();
   const client = createClient({ schema: postTransitionAdoptSchema, driver });
   try {
-    await syncLiveSchema(client);
     await client.list.create({ data: { id: 1, name: "target" } });
     await client.item.create({
       data: { id: 20, label: "free", listId: null },

@@ -1,23 +1,22 @@
+import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite } from "@electric-sql/pglite";
+import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
+import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import {
   BatchOnlyPGliteDriver,
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
-
+import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
 import {
-  createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
+  closeTestPGlite,
+  openTestPGlite as openBorrowedPGlite,
+} from "@tests/fixtures/pglite-lifecycle";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
-import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { manyToManySchema } from "@tests/fixtures/many-to-many-schema";
-import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 type RoutedModel = Record<string, (args: Record<string, unknown>) => unknown>;
 
@@ -36,10 +35,10 @@ interface Scenario {
   route?: "direct";
 }
 
-function makeClient(db: PGlite) {
+function makeClient(db: PGlite, namespace?: string) {
   return createClient({
     schema: manyToManySchema,
-    driver: new PGliteDriver({ client: db }),
+    driver: new PGliteDriver({ client: db, namespace }),
   });
 }
 
@@ -76,7 +75,7 @@ async function runArm(
   scenario: Scenario
 ) {
   await family.reset();
-  const client = makeClient(family.database);
+  const client = makeClient(family.database, family.namespace);
   await scenario.seed?.(client);
 
   let result: unknown;
@@ -90,8 +89,14 @@ async function runArm(
     } else {
       const driver =
         kind === "observed-tx"
-          ? new PGliteDriver({ client: family.database })
-          : new BatchOnlyPGliteDriver({ client: family.database });
+          ? new PGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            })
+          : new BatchOnlyPGliteDriver({
+              client: family.database,
+              namespace: family.namespace,
+            });
       const observed = observeClientOperations({
         schema: manyToManySchema,
         driver,
@@ -622,7 +627,7 @@ async function runSelfRefArm(
   kind: ArmKind,
   act: (client: Record<string, RoutedModel>) => Promise<unknown>
 ) {
-  const db = new PGlite();
+  const db = openBorrowedPGlite();
   const client = makeClient(db);
   await syncLiveSchema(client);
   await selfRefSeed(client);
@@ -651,6 +656,7 @@ async function runSelfRefArm(
     operations.length > 0 &&
     operations.every((r) => r.boundary === "production");
   await client.$disconnect();
+  await closeTestPGlite(db);
   return { state, junction, routedToObserved };
 }
 
@@ -700,7 +706,7 @@ describe("write boundary self-referential M2M direction", () => {
 
 describe("M2M connectOrCreate Pin Rule structure", () => {
   const makeOperation = () => {
-    const db = new PGlite();
+    const db = openBorrowedPGlite();
     const driver = new BatchOnlyPGliteDriver({ client: db });
     // Hydrates the shared schema fixture's name registry (createClient does it
     // as a side effect; no I/O happens — the operation is never executed).
@@ -710,21 +716,24 @@ describe("M2M connectOrCreate Pin Rule structure", () => {
       driver,
       createModelRegistry(manyToManySchema, schemas)
     );
-    return new UpdateOperation(boundary, manyToManySchema.post, {
-      where: { id: "p1" },
-      data: {
-        tags: {
-          connectOrCreate: {
-            where: { id: "t9" },
-            create: { id: "t9", name: "tag-9" },
+    return {
+      db,
+      operation: new UpdateOperation(boundary, manyToManySchema.post, {
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: "t9" },
+              create: { id: "t9", name: "tag-9" },
+            },
           },
         },
-      },
-    });
+      }),
+    };
   };
 
   const knownFor = (
-    operation: ReturnType<typeof makeOperation>,
+    operation: ReturnType<typeof makeOperation>["operation"],
     probeRows: Record<string, unknown>[]
   ) => {
     const known: Record<string, unknown> = {};
@@ -736,8 +745,8 @@ describe("M2M connectOrCreate Pin Rule structure", () => {
     return known;
   };
 
-  test("missing arm: child INSERT carries the racePin, no tag-arm guard", () => {
-    const operation = makeOperation();
+  test("missing arm: child INSERT carries the racePin, no tag-arm guard", async () => {
+    const { db, operation } = makeOperation();
     expect(operation.mode).toBe("batch");
     const fragment = operation.compile(knownFor(operation, []));
     // The root-presence guard is the update's own; the connectOrCreate missing
@@ -752,10 +761,11 @@ describe("M2M connectOrCreate Pin Rule structure", () => {
     const child = pinned[0];
     expect(child?.kind === "write" && child.racePin?.fields).toEqual(["id"]);
     expect(child?.kind === "write" && child.expects).toBeUndefined();
+    await closeTestPGlite(db);
   });
 
-  test("found arm: one exists guard raceable:false, no racePin anywhere", () => {
-    const operation = makeOperation();
+  test("found arm: one exists guard raceable:false, no racePin anywhere", async () => {
+    const { db, operation } = makeOperation();
     const fragment = operation.compile(knownFor(operation, [{ id: "t9" }]));
     const guards = fragment.steps.filter(
       (s) => s.kind === "guard" && s.id.includes("tag")
@@ -767,5 +777,6 @@ describe("M2M connectOrCreate Pin Rule structure", () => {
     expect(
       fragment.steps.some((s) => s.kind === "write" && s.racePin !== undefined)
     ).toBe(false);
+    await closeTestPGlite(db);
   });
 });

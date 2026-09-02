@@ -1,5 +1,4 @@
-import type { DriverResultParser } from "@drivers";
-import { PGliteDriver } from "@drivers/pglite";
+import type { AnyDriver, DriverResultParser } from "@drivers";
 import { TransactionError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
@@ -12,6 +11,7 @@ import {
   type SeriesResultReadInput,
 } from "@src/query-engine/write-engine/series-result-read";
 import { sortCapturedRowKeys } from "@src/query-engine/write-engine/target-projection";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
 import Decimal from "decimal.js";
 import { describe, expect, test } from "vitest";
@@ -57,12 +57,9 @@ const schema = (() => {
 
 hydrateSchemaNames(schema);
 
-class CapacityDriver extends PGliteDriver {
-  override readonly maxBindParametersPerStatement: number | undefined;
-
+class CapacityDriver extends PlanningDriver {
   constructor(capacity: number | undefined) {
-    super();
-    this.maxBindParametersPerStatement = capacity;
+    super("postgresql", { maxBindParametersPerStatement: capacity });
   }
 }
 
@@ -119,7 +116,7 @@ function engine(capacity: number | undefined): QueryEngine {
   return engineFromDriver(new CapacityDriver(capacity));
 }
 
-function engineFromDriver(driver: PGliteDriver): QueryEngine {
+function engineFromDriver(driver: AnyDriver): QueryEngine {
   const schemas = createSchemaRegistry(schema);
   return new QueryEngine(driver, createModelRegistry(schema, schemas));
 }

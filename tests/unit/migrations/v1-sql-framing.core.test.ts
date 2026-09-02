@@ -83,7 +83,9 @@ describe("migration v1 SQL framing", () => {
   });
 
   test("invalid UTF-8 is refused before any slice is decoded", () => {
-    const bytes = new Uint8Array([0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x80]);
+    const bytes = new Uint8Array([
+      0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x80,
+    ]);
     const sqlHash = encodeSqlBlob(bytes);
     expect(() =>
       validateSqlRanges(bytes, [

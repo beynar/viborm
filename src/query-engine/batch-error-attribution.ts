@@ -1,7 +1,6 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
-  isVibORMError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
@@ -49,9 +48,7 @@ export async function attributeOperationBatchError(
   }[] = []
 ): Promise<unknown> {
   if (!(error instanceof NestedWriteAssertionError)) return error;
-  const statementIndex = isVibORMError(error)
-    ? error.meta.statementIndex
-    : undefined;
+  const statementIndex = error.meta.statementIndex;
   if (typeof statementIndex === "number") {
     const guard = guards.find(
       (candidate) => candidate.queryIndex === statementIndex

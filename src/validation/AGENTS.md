@@ -229,9 +229,10 @@ Two invariants live here rather than in the factories:
   inside a verb factory — each is reached through `v.lazy` — never from
   `getRelationSchemas`. Resolving a target model's schemas while the enclosing
   model's are still under construction never terminates for a self-referential
-  relation, and the pin is `polymorphic.core.test.ts` "inverse topology stays lazy
-  until create validation", which counts ZERO getter calls after `core.create` is
-  merely read.
+  relation, and the pin is `polymorphic.core.test.ts` "a target getter is settled
+  ONCE, by the definition gate, and never again", which counts exactly ONE getter
+  call — at registry construction — and none after `core.create` is read or
+  validated through.
 - **The create-root `upsert.update` asymmetry is data, not a decision.** An ordinary
   edge keeps the target's BARE `core.update` there because the engine absorbs an
   agreeing owned foreign key (E5-U2); a polymorphic membership has no spellable
@@ -390,12 +391,13 @@ Putting `filter`, `create`, `update`, or model args schemas on scalar/relation/m
 
 ## Coverage Gate
 
-`pnpm test:coverage:validation` runs the validation, scalar,
-operation-schema, and relation core projects in one worker with a 768 MB heap,
-one coverage-processing worker, and a 60-second process limit. It writes
-`coverage/validation/index.html` and requires 100% statements, lines,
-functions, and branches for `src/validation/**/*.ts`. This gate does not include
-definition-time `src/schema/validation`.
+`pnpm test:coverage:validation` runs the validation, scalar, operation-schema,
+and relation core projects as four sequential bounded parts, each with one
+worker, a 768 MB heap, one coverage-processing worker, a 1536 MiB sampled
+process-group RSS ceiling, and verified teardown. It merges those parts, writes
+`coverage/validation/index.html`, and requires 100% statements, lines,
+functions, and branches for `src/validation/**/*.ts`. This gate does not
+include definition-time `src/schema/validation`.
 
 ---
 

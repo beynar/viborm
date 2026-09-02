@@ -248,8 +248,26 @@ function captureValues(values: readonly unknown[]): readonly unknown[] {
   return Object.freeze(copyIndexedValues(values));
 }
 
-/** A lazy raw statement that remains assignable to `Promise<T>`. */
-export interface RawOperation<T> extends Promise<T> {}
+/**
+ * The nominal marker that separates a raw operation from a bare promise. It is
+ * `declare`d, so it exists only in the type system: nothing is added to the
+ * value at runtime and the packed public surface gains no export.
+ */
+declare const RAW_OPERATION: unique symbol;
+
+/**
+ * A lazy raw statement that remains assignable to `Promise<T>`.
+ *
+ * The brand is load-bearing. Without it this interface is STRUCTURALLY
+ * identical to `Promise<T>`, so `$transaction([Promise.resolve(1)])`
+ * typechecked and then threw `InvalidTransactionInputError` at runtime: an
+ * array member has to be an object the transaction-operation owner registry
+ * recognises (`readTransactionOperation`), which a bare promise is not. The
+ * type now refuses what the implementation refuses.
+ */
+export interface RawOperation<T> extends Promise<T> {
+  readonly [RAW_OPERATION]: true;
+}
 
 const rawOperationConstruction = Object.freeze({});
 
@@ -269,6 +287,10 @@ let rawTransactionOwner: TransactionOperationOwner<
 class DeferredRawOperation<T>
   implements RawOperation<T>, TransactionOperation<T>
 {
+  // Type-only: the brand has no runtime representation, and the registry - not
+  // this field - is what authenticates an array member.
+  declare readonly [RAW_OPERATION]: true;
+
   readonly [Symbol.toStringTag] = "Promise";
 
   readonly #engine: QueryEngine;

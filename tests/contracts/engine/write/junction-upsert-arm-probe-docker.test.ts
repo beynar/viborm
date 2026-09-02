@@ -6,8 +6,8 @@ import {
   junctionUpsertArmSchema,
   registerJunctionUpsertArmProbeBehavior,
 } from "@tests/contracts/engine/write/junction-upsert-arm-probe-behavior";
-import { afterAll, describe } from "vitest";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterAll, describe } from "vitest";
 
 /**
  * U-E6.1 on the live servers.

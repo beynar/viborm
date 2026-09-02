@@ -1,18 +1,30 @@
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Model } from "@schema/model";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
 import { CreateOperation } from "@src/query-engine/write-engine/CreateOperation";
 import { OperationExecutor } from "@src/query-engine/write-engine/OperationExecutor";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
 import { producedIdentitySchema } from "@tests/contracts/engine/write/produced-identity-depth-behavior";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { describe, expect, test } from "vitest";
+
+/**
+ * One shared PGlite, one private schema for this file. The corrupting driver is built
+ * over the same database and therefore carries the same namespace — without it it
+ * would address `public`, where this suite has no tables.
+ */
+const getFamily = usePGliteSchemaFamily(producedIdentitySchema);
+
+const driverOptions = () => {
+  const family = getFamily();
+  return { client: family.database, namespace: family.namespace };
+};
 
 /**
  * N4-U2 / N4-U4 — the PROVENANCE instrument for a PRODUCED identity.
@@ -29,7 +41,8 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  * `RETURNING <pk>` in transaction mode on a returning driver, the driver's `insertId`
  * otherwise. Only corrupting what that statement RETURNED can tell the two apart, which
  * is the instrument N1 built (`CorruptLocatePGliteDriver`) and N4-U1 aimed at the depth
- * probe (`depth-seam.test.ts`). This is the same instrument aimed at a produced value.
+ * probe (`depth-seam-located-provenance.test.ts`). This is the same instrument aimed at
+ * a produced value.
  *
  * The corruption points the returned key at ANOTHER LIVE ROW rather than at nonsense, so
  * a foreign-key constraint cannot substitute for the assertion: both outcomes are
@@ -115,12 +128,11 @@ function makeEngine(driver: PGliteDriver): QueryEngine {
 
 describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's returned key)", () => {
   test("an upsert CREATE arm's grandchild follows the key its OWN INSERT returned", async () => {
-    const db = new PGlite();
+    const options = driverOptions();
     const stateClient = createClient({
       schema: producedIdentitySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver(options),
     });
-    await syncLiveSchema(stateClient);
     await stateClient.org.create({ data: { id: 2, slug: "target-org" } });
     // A live decoy squad the corrupted key can legally point at — so a wrong-provenance
     // grandchild is a silent WRONG ROW, not a constraint error.
@@ -128,10 +140,11 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
       data: { code: "S-DECOY", title: "decoy", orgId: 2 },
     });
 
-    const driver = new CorruptInsertIdentityDriver(
-      { client: db },
-      { table: "n4pi_squads", column: "id", wrongValue: decoy.id }
-    );
+    const driver = new CorruptInsertIdentityDriver(options, {
+      table: "n4pi_squads",
+      column: "id",
+      wrongValue: decoy.id,
+    });
     const engine = makeEngine(driver);
     await new OperationExecutor(engine).execute(
       new UpdateOperation(engine, schema.org as Model<any>, {
@@ -165,25 +178,24 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     // both spellings put exactly one drill under a real squad of the right org.
     expect(drills[0]?.squadId).toBe(decoy.id);
     expect(drills[0]?.squadId).not.toBe(squads[1]?.id);
-    await stateClient.$disconnect();
   }, 30_000);
 
   test("a shared-primary-key child and its terminal read spend ONE produced identity", async () => {
-    const db = new PGlite();
+    const options = driverOptions();
     const stateClient = createClient({
       schema: producedIdentitySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver(options),
     });
-    await syncLiveSchema(stateClient);
     // The live decoy the corrupted key points at.
     const decoy = await stateClient.account.create({
       data: { email: "decoy@x", handle: "decoy", name: "decoy" },
     });
 
-    const driver = new CorruptInsertIdentityDriver(
-      { client: db },
-      { table: "n4pi_accounts", column: "id", wrongValue: decoy.id }
-    );
+    const driver = new CorruptInsertIdentityDriver(options, {
+      table: "n4pi_accounts",
+      column: "id",
+      wrongValue: decoy.id,
+    });
     const engine = makeEngine(driver);
     const result = await new OperationExecutor(engine).execute(
       new CreateOperation(engine, schema.profile as Model<any>, {
@@ -212,16 +224,14 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     // read of the accounts table, the driver's own last-insert id) the two halves would
     // name different rows and the operation would return nothing at all.
     expect(result).toMatchObject({ accountId: decoy.id, bio: "produced" });
-    await stateClient.$disconnect();
   }, 30_000);
 
   test("a produced-identity INSERT that reports no key fails closed, writing nothing", async () => {
-    const db = new PGlite();
+    const options = driverOptions();
     const stateClient = createClient({
       schema: producedIdentitySchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver(options),
     });
-    await syncLiveSchema(stateClient);
     await stateClient.org.create({ data: { id: 2, slug: "target-org" } });
 
     // `undefined` is not a live key and not a droppable column: the produced value is
@@ -229,10 +239,11 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     // that it ABORTS rather than writing the grandchild against nothing — the same
     // fail-closed disposition N4-U1's "probe row missing the key" arm asserts for a
     // located identity.
-    const driver = new CorruptInsertIdentityDriver(
-      { client: db },
-      { table: "n4pi_squads", column: "id", wrongValue: undefined }
-    );
+    const driver = new CorruptInsertIdentityDriver(options, {
+      table: "n4pi_squads",
+      column: "id",
+      wrongValue: undefined,
+    });
     const engine = makeEngine(driver);
     // The refusal is NAMED, not merely "something threw". A bare `toThrow()` is
     // satisfied by any failure on this path — a decoder crash, a constraint
@@ -262,6 +273,5 @@ describe("N4-U2 / N4-U4 produced-identity provenance (corrupt the INSERT's retur
     ).rejects.toThrow("Step 'squad.create' did not produce row field 'id'.");
     await expect(stateClient.drill.findMany({})).resolves.toEqual([]);
     await expect(stateClient.squad.findMany({})).resolves.toEqual([]);
-    await stateClient.$disconnect();
   }, 30_000);
 });

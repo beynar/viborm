@@ -112,6 +112,7 @@ function compileRowCodec(
   const fields = new Map<string, ValueCodec>();
   for (const rawKey of shape.rawKeys) {
     const column = classifyResultColumn(model, rawKey, shape);
+    // biome-ignore lint/style/useDefaultSwitchClause: the classified column union is exhaustive; a default would be dead code.
     switch (column.kind) {
       case "empty":
         break;
@@ -131,14 +132,12 @@ function compileRowCodec(
         break;
       case "relationCounts": {
         const relations = column.relations;
-        if (!relations) return invalidCompiledShape();
         const counts = new Map<string, ValueCodec>();
         for (const relation of relations) counts.set(relation, countCodec());
         addResultField(fields, "_count", recordCodec(counts));
         break;
       }
       case "relation":
-        if (!column.expected) return invalidCompiledShape();
         addResultField(
           fields,
           column.key,
@@ -146,7 +145,6 @@ function compileRowCodec(
         );
         break;
       case "polymorphic":
-        if (!column.expected) return invalidCompiledShape();
         addResultField(
           fields,
           column.key,
@@ -154,7 +152,6 @@ function compileRowCodec(
         );
         break;
       case "aggregate":
-        if (!column.expected) return invalidCompiledShape();
         addResultField(
           fields,
           column.name,
@@ -163,10 +160,6 @@ function compileRowCodec(
         break;
       case "unknown":
         return invalidCompiledShape();
-      default: {
-        const exhaustive: never = column;
-        return exhaustive;
-      }
     }
   }
   return recordCodec(fields);

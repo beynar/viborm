@@ -164,14 +164,11 @@ describe("OpenTelemetry provider failure boundary", () => {
     await tracer.startActiveSpan({ name: SPAN_OPERATION }, () => undefined);
     provider.mode = mode;
 
-    const value = tracer.startActiveSpanSync(
-      { name: SPAN_OPERATION },
-      () => {
-        provider.callbackCalls += 1;
-        provider.reenter?.();
-        return "authoritative";
-      }
-    );
+    const value = tracer.startActiveSpanSync({ name: SPAN_OPERATION }, () => {
+      provider.callbackCalls += 1;
+      provider.reenter?.();
+      return "authoritative";
+    });
 
     expect(value).toBe("authoritative");
     expect(provider.callbackCalls).toBe(1);

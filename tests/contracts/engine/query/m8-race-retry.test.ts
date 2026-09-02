@@ -2,16 +2,15 @@ import { createClient, type VibORMClient } from "@client/client";
 import type { Driver } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import {
   NestedWriteAssertionError,
   NestedWriteError,
   UniqueConstraintError,
 } from "@errors";
-
+import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * M8 gate (DESIGN.md §11 M8, §7.4). The write-race retry is unified above
@@ -139,15 +138,12 @@ class CountingTxDriver extends PGliteDriver {
   }
 }
 
-async function setupDb(): Promise<PGlite> {
-  const db = new PGlite();
-  const setupClient = createClient({
-    schema: nestedWriteBehaviorSchema,
-    driver: new PGliteDriver({ client: db }),
-  });
-  await syncLiveSchema(setupClient);
-  return db;
-}
+/**
+ * The suite's private schema on the worker-shared PGlite. Every driver built
+ * over `family.database` must carry `family.namespace`, or it addresses an empty
+ * `public`.
+ */
+const getFamily = usePGliteSchemaFamily(nestedWriteBehaviorSchema);
 
 function boot<TDriver extends PGliteDriver>(
   driver: TDriver
@@ -160,8 +156,11 @@ describe("M8 race-retry classification", () => {
     "an un-attributable planned abort surfaces the typed non-raceable floor, not retried",
     { timeout: 30_000 },
     async () => {
-      const db = await setupDb();
-      const driver = new UnattributableAbortDriver({ client: db });
+      const family = getFamily();
+      const driver = new UnattributableAbortDriver({
+        client: family.database,
+        namespace: family.namespace,
+      });
       const client = boot(driver);
 
       let error: unknown;
@@ -190,8 +189,6 @@ describe("M8 race-retry classification", () => {
       // wrapper leaves it alone — exactly ONE batch attempt.
       expect((error as NestedWriteError).meta.raceable).toBeUndefined();
       expect(driver.batchCount).toBe(1);
-
-      await client.$disconnect();
     }
   );
 
@@ -199,9 +196,11 @@ describe("M8 race-retry classification", () => {
     "a non-raceable correlated-update failure is not retried (planned mode)",
     { timeout: 30_000 },
     async () => {
-      const db = await setupDb();
+      const family = getFamily();
+      const db = family.database;
+      const namespace = family.namespace;
       // Seed two owners, each with one post, on the tx driver.
-      const seed = boot(new PGliteDriver({ client: db }));
+      const seed = boot(new PGliteDriver({ client: db, namespace }));
       await seed.user.create({
         data: {
           id: "owner",
@@ -217,7 +216,7 @@ describe("M8 race-retry classification", () => {
         },
       });
 
-      const driver = new CountingBatchDriver({ client: db });
+      const driver = new CountingBatchDriver({ client: db, namespace });
       const client = boot(driver);
 
       let error: unknown;
@@ -244,8 +243,6 @@ describe("M8 race-retry classification", () => {
       // The correlated locate throws at plan time (before any batch), so the
       // top-level locate probe against the users table is the attempt counter.
       expect(driver.locateProbes).toBe(1);
-
-      await client.$disconnect();
     }
   );
 
@@ -253,8 +250,10 @@ describe("M8 race-retry classification", () => {
     "a non-raceable correlated-update failure is not retried (live mode)",
     { timeout: 30_000 },
     async () => {
-      const db = await setupDb();
-      const seed = boot(new PGliteDriver({ client: db }));
+      const family = getFamily();
+      const db = family.database;
+      const namespace = family.namespace;
+      const seed = boot(new PGliteDriver({ client: db, namespace }));
       await seed.user.create({
         data: {
           id: "owner",
@@ -270,7 +269,7 @@ describe("M8 race-retry classification", () => {
         },
       });
 
-      const driver = new CountingTxDriver({ client: db });
+      const driver = new CountingTxDriver({ client: db, namespace });
       const client = boot(driver);
       driver.txCount = 0;
 
@@ -293,8 +292,6 @@ describe("M8 race-retry classification", () => {
       expect((error as NestedWriteError).meta.raceable).toBeUndefined();
       // Exactly one withTransaction scope — no retry on a non-raceable failure.
       expect(driver.txCount).toBe(1);
-
-      await client.$disconnect();
     }
   );
 
@@ -302,11 +299,13 @@ describe("M8 race-retry classification", () => {
     "a create-branch unique violation passes through the ladder unchanged (pass-through)",
     { timeout: 30_000 },
     async () => {
-      const db = await setupDb();
-      const seed = boot(new PGliteDriver({ client: db }));
+      const family = getFamily();
+      const db = family.database;
+      const namespace = family.namespace;
+      const seed = boot(new PGliteDriver({ client: db, namespace }));
       await seed.tag.create({ data: { id: "t-existing", name: "dup" } });
 
-      const driver = new CountingBatchDriver({ client: db });
+      const driver = new CountingBatchDriver({ client: db, namespace });
       const client = boot(driver);
 
       let error: unknown;
@@ -339,8 +338,6 @@ describe("M8 race-retry classification", () => {
       // false and the error is not self-authorizing raceable — a plain nested
       // create is not retried even on a unique violation. Exactly one batch.
       expect(driver.batchCount).toBe(1);
-
-      await client.$disconnect();
     }
   );
 });

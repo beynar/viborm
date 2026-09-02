@@ -1,25 +1,26 @@
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { NestedWriteError } from "@errors";
-
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import { createSchemaRegistry } from "@validation";
-import { expect, test } from "vitest";
 import type {
   GuardStep,
   StatementStep,
 } from "@src/query-engine/write-engine/OperationFragment";
 import { UpdateOperation } from "@src/query-engine/write-engine/UpdateOperation";
-import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import {
   runToOneUpdateWhereBehavior,
   toOneUpdateWhereSchema,
 } from "@tests/contracts/engine/write/to-one-update-where-behavior";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
+import { createSchemaRegistry } from "@validation";
+import { expect, test } from "vitest";
 
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 // The whole surface on PGlite, both substrates. The driver matrix legs run the
 // same module from tests/drivers/*.test.ts.
 runToOneUpdateWhereBehavior({
@@ -195,14 +196,18 @@ class BeforeBatchPGliteDriver extends BatchOnlyPGliteDriver {
   }
 }
 
+// A private schema on the worker's shared database for the injection arm; the
+// behavior legs above take their own through `useBehaviorDatabase`.
+const getStalenessFamily = usePGliteSchemaFamily(toOneUpdateWhereSchema);
+
 for (const { relation } of DIRECTIONS) {
   test(`${relation}: a concurrent write that voids the wrapper filter aborts the batch typed`, async () => {
-    const db = new PGlite();
-    const seed = createClient({
-      schema: toOneUpdateWhereSchema,
-      driver: new PGliteDriver({ client: db }),
-    });
-    await syncLiveSchema(seed);
+    const family = getStalenessFamily();
+    const db = family.database;
+    // Every EXTRA driver over that database must name the schema the family
+    // provisioned, or it addresses `public`, where this suite has no tables.
+    const namespace = family.namespace;
+    const seed = family.client;
     await seed.profile.create({
       data: { id: 1, bio: "bio-0", active: true },
     });
@@ -214,7 +219,7 @@ for (const { relation } of DIRECTIONS) {
     // Planning sees `active = true`; the hook flips it before the batch commits.
     const injector = createClient({
       schema: toOneUpdateWhereSchema,
-      driver: new PGliteDriver({ client: db }),
+      driver: new PGliteDriver({ client: db, namespace }),
     });
     const stale = createClient({
       schema: toOneUpdateWhereSchema,
@@ -230,7 +235,7 @@ for (const { relation } of DIRECTIONS) {
                 data: { active: false },
               }));
         },
-        { client: db }
+        { client: db, namespace }
       ),
     });
 
@@ -264,6 +269,5 @@ for (const { relation } of DIRECTIONS) {
     expect(await seed.badge.findUnique({ where: { id: 2 } })).toMatchObject({
       label: "label-0",
     });
-    await seed.$disconnect();
   }, 30_000);
 }

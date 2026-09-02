@@ -1,6 +1,4 @@
 import { createClient } from "@client/client";
-import { PGliteDriver } from "@drivers/pglite";
-import { PGlite } from "@electric-sql/pglite";
 import {
   QueryEngineError,
   UnsupportedOperationError,
@@ -11,9 +9,11 @@ import {
 import { UnsupportedOperationError as RootExport } from "@src/index";
 import { UnsupportedOperationError as EngineReexport } from "@src/query-engine/write-engine/shared";
 import { operationFragmentSchema } from "@tests/contracts/engine/write/create-nested-upsert-behavior";
-import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 /**
  * A deliberate execution boundary must not look like an engine crash. A batch-only
@@ -24,6 +24,8 @@ import { syncLiveSchema } from "@tests/fixtures/sync-schema";
  * V8001 dialect-capability class) and is exported from src/errors and the
  * package root so users can `instanceof` it.
  */
+const getFamily = usePGliteSchemaFamily(operationFragmentSchema);
+
 describe("UnsupportedOperationError public surface", () => {
   test("distinct name, diagnostic name, and V8003 code", () => {
     const error = new UnsupportedOperationError("shape boundary");
@@ -52,15 +54,17 @@ describe("UnsupportedOperationError public surface", () => {
   });
 
   test("a live pre-effect refusal surfaces the class with the V8003 code", async () => {
-    const database = new PGlite();
-    const state = createClient({
-      schema: operationFragmentSchema,
-      driver: new PGliteDriver({ client: database }),
-    });
-    await syncLiveSchema(state);
+    const family = getFamily();
+    const state = family.client;
+    // The batch-only client is a SECOND driver over the same database, so it must
+    // name the same Postgres schema the family provisioned; otherwise it would
+    // address `public`, where this suite has no tables.
     const client = createClient({
       schema: operationFragmentSchema,
-      driver: new BatchOnlyPGliteDriver({ client: database }),
+      driver: new BatchOnlyPGliteDriver({
+        client: family.database,
+        namespace: family.driver.adapter.namespace,
+      }),
     });
 
     let caught: unknown;
@@ -91,6 +95,5 @@ describe("UnsupportedOperationError public surface", () => {
     );
     await expect(state.user.findMany({})).resolves.toEqual([]);
     await expect(state.post.findMany({})).resolves.toEqual([]);
-    await state.$disconnect();
   }, 30_000);
 });

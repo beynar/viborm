@@ -15,14 +15,10 @@
  * that file's isolated context, so the mock is registered in time every time,
  * regardless of worker reuse.
  *
- * The mock is scriptable + capturable: `confirm`/`select`/`text` pull from a
- * per-test FIFO answer queue (`queueAnswers`), and `intro/outro/cancel/note/log/
- * spinner` become silent no-ops whose text is recorded into `clackLog` for
- * output assertions. We mock the *prompt library*, never the code under test.
- *
- * `command-factory.test.ts` needs spyable `vi.fn()` prompt members instead, so
- * it declares its OWN file-local `vi.mock("@clack/prompts")`, which overrides
- * this setup mock for that file only.
+ * The mock is scriptable + capturable: `confirm` pulls from a per-test FIFO
+ * answer queue (`queueAnswers`), and `outro`/`cancel`/`note` become silent
+ * no-ops whose text is recorded into `clackLog` for output assertions. We mock
+ * the *prompt library*, never the code under test.
  */
 
 import { vi } from "vitest";
@@ -30,9 +26,9 @@ import { vi } from "vitest";
 /** Sentinel returned by a queued answer to simulate Ctrl-C (p.isCancel true). */
 export const CANCEL = Symbol.for("clack:cancel");
 
-// Per-invocation queue of answers for confirm()/select(). Consumed FIFO.
+// Per-invocation queue of answers for confirm(). Consumed FIFO.
 let answerQueue: unknown[] = [];
-// Text emitted by clack (intro/outro/note/log/cancel/spinner) for assertions.
+// Text emitted by clack (outro/note/cancel) for assertions.
 let clackLog: string[] = [];
 
 /** Queue the answers the next command's prompts will receive, in order. */
@@ -63,28 +59,11 @@ vi.mock("@clack/prompts", () => {
   };
   return {
     isCancel: (v: unknown) => v === CANCEL,
-    intro: (m: string) => record("intro", m),
     outro: (m: string) => record("outro", m),
     cancel: (m: string) => record("cancel", m),
     note: (message: string, title?: string) =>
       record("note", title ?? "", message),
     confirm: (opts: { initialValue?: boolean }) =>
       Promise.resolve(nextAnswer(opts.initialValue ?? true)),
-    select: (opts: { options?: { value: unknown }[] }) =>
-      Promise.resolve(nextAnswer(opts.options?.[0]?.value)),
-    text: (opts: { initialValue?: string }) =>
-      Promise.resolve(nextAnswer(opts.initialValue ?? "")),
-    log: {
-      success: (m: string) => record("success", m),
-      error: (m: string) => record("error", m),
-      warn: (m: string) => record("warn", m),
-      info: (m: string) => record("info", m),
-      message: (m: string) => record("message", m),
-    },
-    spinner: () => ({
-      start: (m?: string) => record("spinner.start", m ?? ""),
-      stop: (m?: string) => record("spinner.stop", m ?? ""),
-      message: (m?: string) => record("spinner.message", m ?? ""),
-    }),
   };
 });

@@ -2,12 +2,12 @@
  * Cache Module Exports
  */
 
-export type { WaitUntilFn } from "./cache-contract";
 export {
   CacheDriver,
   type CacheEntry,
   type CacheExecutionOptions,
   type CacheSetOptions,
+  type WaitUntilFn,
 } from "./driver";
 export { CloudflareKVCache } from "./drivers/cloudflare-kv";
 export { MemoryCache } from "./drivers/memory";

@@ -1,14 +1,13 @@
-import { defineContract } from "@tests/contracts/contract";
 import {
   createClient,
   type VibORMClient,
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-
 import { s } from "@schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { defineContract } from "@tests/contracts/contract";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 const schema = (() => {
   const collection = s
@@ -144,8 +143,9 @@ export function runVectorBehavior({
 
       expect(typeof scores.get("exact")).toBe("number");
       expect(scores.get("exact")).toBeCloseTo(0);
-      expect(scores.get("near")).toBeCloseTo(0.2828427);
-      expect(scores.get("orthogonal")).toBeCloseTo(1.4142135);
+      expect(scores.get("near")).toBeCloseTo(0.282_842_7);
+      // biome-ignore lint/suspicious/noApproximativeNumericConstant: This is the expected L2 distance the provider returns, not a stand-in for Math.SQRT2.
+      expect(scores.get("orthogonal")).toBeCloseTo(1.414_213_5);
       expect(scores.get("opposite")).toBeCloseTo(2);
     });
 
@@ -177,8 +177,9 @@ export function runVectorBehavior({
         "orthogonal",
       ]);
       expect(docs[0]?._distance).toBeCloseTo(0);
-      expect(docs[1]?._distance).toBeCloseTo(0.2828427);
-      expect(docs[2]?._distance).toBeCloseTo(1.4142135);
+      expect(docs[1]?._distance).toBeCloseTo(0.282_842_7);
+      // biome-ignore lint/suspicious/noApproximativeNumericConstant: This is the expected L2 distance the provider returns, not a stand-in for Math.SQRT2.
+      expect(docs[2]?._distance).toBeCloseTo(1.414_213_5);
     });
 
     test("orders included docs nearest-first by vector distance and honors take", async () => {
@@ -233,10 +234,10 @@ async function seedVectorDocs(driver: AnyDriver) {
   );
   await driver._executeRaw(
     `INSERT INTO "vector_behavior_docs" ("id", "collectionId", "embedding") VALUES ` +
-      `($1, $2, $3::vector), ` +
-      `($4, $5, $6::vector), ` +
-      `($7, $8, $9::vector), ` +
-      `($10, $11, $12::vector)`,
+      "($1, $2, $3::vector), " +
+      "($4, $5, $6::vector), " +
+      "($7, $8, $9::vector), " +
+      "($10, $11, $12::vector)",
     [
       "exact",
       "collection",

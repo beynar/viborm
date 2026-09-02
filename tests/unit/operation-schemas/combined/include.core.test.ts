@@ -5,9 +5,13 @@
  * with where, orderBy, take, skip options for relations.
  */
 
+import {
+  authorSchemas,
+  postSchemas,
+  simpleSchemas,
+} from "@tests/unit/operation-schemas/fixtures";
 import { type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
-import { authorSchemas, postSchemas, simpleSchemas } from "@tests/unit/operation-schemas/fixtures";
 
 // =============================================================================
 // TYPE TESTS - Simple Model (no relations)
@@ -17,6 +21,7 @@ describe("Include Schema - Types (Simple Model)", () => {
   type Input = InferInput<typeof simpleSchemas.include>;
 
   test("type: empty object matches (no relations)", () => {
+    // biome-ignore lint/complexity/noBannedTypes: the empty object type is the subject of this type assertion.
     expectTypeOf<{}>().toMatchTypeOf<Input>();
   });
 });
