@@ -833,3 +833,36 @@ C, D+E, F, G in parallel, three to five weeks to M1 and M2; G to M3 in the same 
 H throughout; M5 and deletion, one week. About six to eight weeks of wall-clock with the
 streams parallel, against roughly the same calendar for the incremental raptor plan's
 P0–P7, which would leave every old seam in place.
+
+### 13.9 Status log
+
+Branch `pattern-engine`. The old engine is untouched; the new one lives under
+`src/query-engine/pattern/` and `tests/pattern/`. Numbers are the dashboards'
+own output (`tests/pattern/differential/compile.core.test.ts` for M1,
+`execute.core.test.ts` for M2); "cells" are payload × dialect × substrate ×
+world over the 246-payload corpus, 2,952 cells.
+
+| Date | Commit | State |
+| --- | --- | --- |
+| 2026-09-01 | aa326b10 | Day 0: K1–K4 contracts, oracle harness, corpus + 2,952 goldens. |
+| 2026-09-01 | 761464d2 | Wave 1 landed: generator (B), construction (C), scheduler + packer (D+E), executors + simulated driver (F), match + decode (G). K4 smoke payload byte-equal on both substrates; read parity 131 × 3 dialects byte-equal (M3 for the corpus's read shapes). |
+| 2026-09-02 | 0e04c87d | Contract revision reconciled across the four streams (K1 arms / referenceRow / verb / read-side terms; K2 junction pairings; K3 required failures, `Fragment.pack`, program outputs). 870 tests. M1 runner: 232 equal, 1,759 error-identity, 689 with step diffs. |
+| 2026-09-02 | c5919b8c | M2 runner (both engines on the simulated driver, gated to compile-equal cells): 194 equal, 26 trace, 12 outcome. Found: executor re-locks a locked match; nested premise failure raised before the root locate's own failure. |
+| 2026-09-02 | 08bf6522 | K2 orients junctions by slot identity; K1 `Extension.variant`; match exports `lowerPredicate` / `lowerRowKey` / `lowerRowSelector` for the packer; M1 compares record series (capture + members + result reads). 244 equal. |
+
+Open divergence classes, by owner (cell counts from the 08bf6522 run):
+
+- Packer (D+E): row-id allocation for connect / disconnect / set rows (≈540);
+  predicate lowering through the public-args path instead of `lowerPredicate`
+  (≈470); variant families not addressable (≈300); statement `outputs` /
+  `model` (≈200); per-dialect insert forms (postgres CTE with projection,
+  sqlite without RETURNING, mysql insertId) (≈80); bulk member fragments (no
+  `member` boundary yet, so every series cell diverges).
+- Construction (C): refusals today raises that the pattern engine does not
+  (`No fields to update`, nested-dependency refusals) and failure text per verb.
+- Executors (F): double `FOR UPDATE`; premise evaluation order in the missing
+  world; the mysql/batch "public result parsing cannot be rolled back" refusal.
+- Contracts (coordinator): `viaJunction.askingCells` / `referencedCells`
+  naming so the packer and the read constructor read a pairing instead of
+  comparing two (G's note); `Projection.relations[].variant` duplicates
+  `Extension.variant` for projected arms.
