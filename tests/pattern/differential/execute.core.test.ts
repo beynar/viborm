@@ -47,6 +47,8 @@ import {
 } from "./chain";
 import { runCell } from "./compile-cell";
 
+const RETURNS_ROWS = /RETURNING|__viborm_mutation/;
+
 const DIALECTS: readonly PlanningDialect[] = ["postgresql", "mysql", "sqlite"];
 const SUBSTRATES: readonly Substrate[] = ["transaction", "batch"];
 const WORLDS: readonly KnownWorld[] = ["found", "missing"];
@@ -100,20 +102,28 @@ async function runExecution(
   // Found world: every read finds one row carrying its select list with the
   // harness's typed sentinels; missing world: reads find nothing.
   // ponytail: no cell store yet — the script answers by select list only.
-  const rows = (statement: ScriptedStatement): Row[] => {
-    if (world === "missing") return [];
-    const aliases = selectAliases(statement.sql);
-    return [
-      Object.fromEntries(
-        aliases.map((alias, index) => [
-          alias,
-          sentinelFor(oracle, statement.model, alias, `sim.${index}`, 0),
-        ])
-      ),
-    ];
+  const synthesized = (statement: ScriptedStatement): Row[] => [
+    Object.fromEntries(
+      selectAliases(statement.sql).map((alias, index) => [
+        alias,
+        sentinelFor(oracle, statement.model, alias, `sim.${index}`, 0),
+      ])
+    ),
+  ];
+  const rows = (statement: ScriptedStatement): Row[] =>
+    world === "missing" ? [] : synthesized(statement);
+  // A write that carries its own projection (RETURNING, or the mutation CTE)
+  // answers with that projection's row, so both engines get past the first
+  // statement instead of stopping on an empty result.
+  const respond = (statement: ScriptedStatement) => {
+    if (statement.kind !== "write" || !RETURNS_ROWS.test(statement.sql)) {
+      return;
+    }
+    const answer = synthesized(statement);
+    return { rows: answer, rowCount: answer.length };
   };
   const make = () =>
-    new SimulatedDriver({ dialect, capabilities, script: { rows } });
+    new SimulatedDriver({ dialect, capabilities, script: { respond, rows } });
   const mine = make();
   const theirs = make();
   const context = createOperationExecutionContext(
