@@ -965,14 +965,23 @@ function writeFacts(facts: PatternFacts, node: Node): WriteFact[] {
   const row = facts.row(node.row);
   const model = row.table.model;
   const out: WriteFact[] = [];
-  if (node.kind === "retract" || (node.kind === "assert" && row.fresh)) {
+  // A REFERENCE ROW writes nothing about the rows it names: inserting or
+  // removing a membership row neither creates nor destroys a target, so it
+  // contributes its membership fact and no existence or predicate fact. Reading
+  // it as an existence write on the referenced model made every junction verb
+  // refuse against its own siblings (`connect` after `connect`).
+  const referenceRow = row.table.referenceRow === true;
+  if (
+    !referenceRow &&
+    (node.kind === "retract" || (node.kind === "assert" && row.fresh))
+  ) {
     out.push({
       kind: "existence",
       node,
       model,
       constraint: keyConstraint(model, row, node.cells),
     });
-  } else if (node.kind === "assert") {
+  } else if (!referenceRow && node.kind === "assert") {
     out.push({
       kind: "predicate",
       node,

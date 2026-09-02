@@ -26,13 +26,16 @@ import { getColumnName, getTableName } from "@schema/model";
 import { isSql, type Sql } from "@sql";
 import { compileBindBudgetChunks } from "../bind-budget";
 import {
+  buildPolymorphicMembershipPredicate,
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
+  bindMemberJunction,
   bindRelation,
   buildConnectSubqueryForField,
+  hasPolymorphicMembership,
   type JunctionBoundRelation,
 } from "../builders/relation-data-builder";
 import { buildInsert } from "../builders/values-builder";
@@ -40,6 +43,8 @@ import {
   createQueryScope,
   getDefaultScalarFieldNames,
   lookupRelation,
+  memberRef,
+  resolvedSlot,
   variantCarrier,
 } from "../context/query-scope";
 import { JunctionStatements } from "../JunctionStatements";
@@ -96,7 +101,13 @@ import {
   projectionReadsMutatedModel,
   setCanFireReferentialAction,
 } from "../write-engine/shared";
-import type { BoundPremise, Fragment, Premise, Program } from "./fragment";
+import type {
+  BoundPremise,
+  Fragment,
+  GuardShape,
+  Premise,
+  Program,
+} from "./fragment";
 import { StepIds, stepLabels } from "./ids";
 import { lowerPredicate, matchWriteResult } from "./match";
 import type {
@@ -830,6 +841,24 @@ class Packing {
     return this.matchedRow(parent)?.[parentField];
   }
 
+  /**
+   * Where a database-bound variable is actually PUBLISHED, when the row it
+   * belongs to sends no match of its own: some outer row's match carries it as
+   * one of its columns (a parent's locate selects the foreign key its child is
+   * addressed by). One rule over cells — no storage kind, no edge walk.
+   */
+  private publishedBy(
+    variable: Variable
+  ): { row: Row; field: string } | undefined {
+    for (const cell of this.pattern.cells) {
+      if (cell.mode !== "match" || cell.value.id !== variable.id) continue;
+      const row = this.row(cell.row);
+      if (!this.packsMatch(row)) continue;
+      return { row, field: this.fieldOf(row.table.model, cell.column) };
+    }
+    return;
+  }
+
   private value(variable: Variable, planning = false): unknown {
     const { binding } = variable;
     switch (binding.kind) {
@@ -843,8 +872,13 @@ class Packing {
       }
       case "matched": {
         const source = this.matchSource(variable)!;
-        const own = this.rowIds.get(source.row.id)?.match;
-        if (!(own && this.node(source.row.id, "match"))) {
+        if (!this.packsMatch(source.row)) {
+          const published = this.publishedBy(variable);
+          if (published) {
+            const step = this.idOf(published.row.id, "match");
+            if (planning || !this.known) return ref(step, published.field);
+            return this.matchedRow(published.row)?.[published.field];
+          }
           const inherited = this.parentHeldValue(
             source.row,
             source.field,
@@ -1045,14 +1079,70 @@ class Packing {
   }
 
   /** Membership conjuncts: the target's reference cells equal the parent's key. */
+  /** Does the model expose this physical column as a public scalar field? */
+  private isPublicColumn(model: Model<any>, column: string): boolean {
+    const field = this.fieldOf(model, column);
+    return Object.hasOwn(model["~"].state.scalars, field);
+  }
+
+  /**
+   * The membership as public filters — the ordinary foreign key's columns.
+   * A DISCRIMINATED reference stores a private `(type, id)` pair that no public
+   * field names, so it is spelled as SQL instead
+   * ({@link Packing.membershipPredicate}); it must never reach a `where`.
+   */
   private membershipFilters(row: Row, planning: boolean): Where[] {
     const edge = this.edge(row.id);
     if (!edge || edge.kind !== "childHeld") return [];
-    return this.matchCells(row).map((cell) => ({
-      [this.fieldOf(row.table.model, cell.column)]: {
-        equals: this.value(cell.value, planning),
-      },
-    }));
+    return this.matchCells(row)
+      .filter((cell) => this.isPublicColumn(row.table.model, cell.column))
+      .map((cell) => ({
+        [this.fieldOf(row.table.model, cell.column)]: {
+          equals: this.value(cell.value, planning),
+        },
+      }));
+  }
+
+  /**
+   * The membership of a DISCRIMINATED reference, as the one exact `(type, id)`
+   * predicate its owner already spells (`buildPolymorphicMembershipPredicate`).
+   * `undefined` whenever the reference's columns are public — then the filters
+   * above carry it.
+   */
+  private membershipPredicate(
+    row: Row,
+    alias: string,
+    planning: boolean
+  ): Sql | undefined {
+    const edge = this.edge(row.id);
+    if (!edge || edge.kind !== "childHeld") return;
+    const cells = this.matchCells(row).filter(
+      (cell) => !this.isPublicColumn(row.table.model, cell.column)
+    );
+    if (cells.length === 0) return;
+    const scope = this.scope(edge.reference.relation.model);
+    const relationRef = lookupRelation(scope, edge.reference.relation.field);
+    if (!relationRef) return;
+    const bound = bindRelation(scope, relationRef);
+    if (bound.position !== "childHeld" || !hasPolymorphicMembership(bound)) {
+      return;
+    }
+    const { membership } = bound;
+    const idCell = cells.find(
+      (cell) => cell.column === membership.storage.idColumn.name
+    );
+    if (!idCell) return;
+    return buildPolymorphicMembershipPredicate(
+      this.scope(row.table.model),
+      bound,
+      alias,
+      referenceScalarSql(
+        this.engine,
+        membership.storage.idColumn.scalar,
+        membership.storage.idColumn.name,
+        this.value(idCell.value, planning)
+      )
+    );
   }
 
   // -- matches --------------------------------------------------------------
@@ -1121,7 +1211,12 @@ class Packing {
     };
     if (edge.kind === "junction") {
       if (verb === "delete" || verb === "update" || verb === "deleteMany") {
-        const { statements, bound } = this.junctionFor(edge.reference);
+        const { statements, bound } = this.junctionFor(
+          edge.reference,
+          edge.junction === undefined
+            ? undefined
+            : this.row(edge.junction).table.table
+        );
         const membershipRead = statements.materialize(bound, "membershipRead", {
           parentValue: this.keyValues(this.row(edge.parent), undefined, true),
           ...(selector ? { whereUnique: selector, take: 1 } : {}),
@@ -1196,7 +1291,8 @@ class Packing {
     }
     // child-held
     const group = this.groupOf(row);
-    if (membership.length === 0) {
+    const membershipSql = this.membershipPredicate(row, scope.rootAlias, true);
+    if (this.matchCells(row).length === 0) {
       // connect / set / connectOrCreate / upsert-by-selector: the target globally.
       const extraFields =
         verb === "connectOrCreate" || (verb === "upsert" && selector)
@@ -1241,11 +1337,11 @@ class Packing {
     const statement = buildFind(
       scope,
       {
-        where: { AND: conjuncts },
+        ...(conjuncts.length > 0 ? { where: { AND: conjuncts } } : {}),
         select: this.keySelect(row),
         forUpdate: this.txMode,
       },
-      { limit: 1 }
+      { limit: 1, ...(membershipSql ? { predicate: membershipSql } : {}) }
     );
     const required = verb === "update" && node.required;
     const failure = this.targetFailure(row, "update");
@@ -1280,12 +1376,27 @@ class Packing {
     );
   }
 
-  private relationRef(field: string, model: Model<any>): RelationRef {
+  private relationRef(
+    field: string,
+    model: Model<any>,
+    junctionTable?: string
+  ): RelationRef {
     const scope = this.scope(model);
-    return (
-      lookupRelation(scope, field) ??
-      ({ name: field, targetModel: model, cardinality: "many" } as RelationRef)
-    );
+    const direct = lookupRelation(scope, field);
+    if (direct) return direct;
+    const carrier = variantCarrier(scope, field);
+    if (carrier?.edge.kind === "variantJunctionCarrier") {
+      const member =
+        carrier.edge.members.find(
+          (candidate) => candidate.topology.table === junctionTable
+        ) ?? carrier.edge.members[0];
+      if (member) return memberRef(carrier, member);
+    }
+    return {
+      name: field,
+      targetModel: model,
+      cardinality: "many",
+    } as RelationRef;
   }
 
   private targetFailure(
@@ -1296,7 +1407,10 @@ class Packing {
     const field = edge?.reference.relation.field ?? this.pattern.operation;
     const relationRef = this.relationRef(
       field,
-      edge?.reference.relation.model ?? row.table.model
+      edge?.reference.relation.model ?? row.table.model,
+      edge?.junction === undefined
+        ? undefined
+        : this.row(edge.junction).table.table
     );
     return nestedWriteFailure(
       relationTargetNotFound(relationRef, operation),
@@ -1364,10 +1478,11 @@ class Packing {
     const guard = this.guardOf(node, match);
     // ATOM §12's Pin Rule: a MISSING arm's premise is the constraint its own
     // INSERT violates — closer and stronger than a guard, and today emits none.
+    const shape = this.guardShape(this.row(node.row));
     if (this.txMode || premise.kind === "notExists") {
-      return { premise, match, failure: guard.failure };
+      return { premise, shape, match, failure: guard.failure };
     }
-    return { premise, match, guard, failure: guard.failure };
+    return { premise, shape, match, guard, failure: guard.failure };
   }
 
   private refinePremise(node: Node): Premise {
@@ -1405,53 +1520,121 @@ class Packing {
     );
   }
 
+  /**
+   * Is this row's identity CORRELATED — does a match-mode cell anywhere hold
+   * its key, or does the row itself carry membership cells? That is the fact
+   * behind the `membership` guard shape, and it is one rule over cells: a
+   * child-held target carries its own membership, a parent-held one is held by
+   * the enclosing row's columns, a junction one by its reference row.
+   */
+  private isCorrelated(row: Row): boolean {
+    if (this.matchCells(row).length > 0) return true;
+    // Variable IDENTITY, not bindingness: a selector that pins the key makes it
+    // a literal, and the membership cell holding that same literal is still a
+    // correlation.
+    const key = new Set(row.key.map((variable) => variable.id));
+    return this.pattern.cells.some(
+      (cell) =>
+        cell.mode === "match" && cell.row !== row.id && key.has(cell.value.id)
+    );
+  }
+
+  /**
+   * Which of K3's three shapes re-asserts this premise (§6, D6). The public
+   * verb decides nothing here: a correlated identity is re-read as membership,
+   * a row the write re-addresses by its CAPTURED key needs the split witness
+   * (the captured row must still satisfy the selector), and anything else is
+   * the match run again.
+   */
+  private guardShape(row: Row): GuardShape {
+    if (this.isRoot(row)) {
+      const where = this.selectorWhere(row) ?? {};
+      const named = new Set(Object.keys(where));
+      const namesKey = this.keyFields(row).every((field) => named.has(field));
+      return namesKey || this.pattern.operation === "delete"
+        ? "matchRerun"
+        : "capturedSelector";
+    }
+    if (this.isCorrelated(row)) return "membership";
+    const edge = this.edge(row.id);
+    if (edge?.kind === "parentHeld") {
+      // A discriminated target is named by a stored value the guard must
+      // re-read; an ordinary one is the probe again.
+      return edge.reference.discriminator ? "capturedSelector" : "matchRerun";
+    }
+    // A plain `connect` writes by the selector it was handed, so its guard is
+    // that read again; every other membership-adding verb re-addresses the
+    // captured key. (The one verb test left in this file's guard path.)
+    return this.verb(row) === "connect" && edge?.kind !== "junction"
+      ? "matchRerun"
+      : "capturedSelector";
+  }
+
+  /** The failure a violated premise raises — the verb's own sentence. */
+  private guardFailure(row: Row): Failure {
+    const verb = this.verb(row);
+    if (this.isRoot(row)) {
+      if (this.pattern.operation === "upsert") {
+        return notFoundFailure(
+          `query-engine-v2 upsert located no '${this.rootName}' row for its unique where before the atomic batch.`
+        );
+      }
+      if (this.pattern.operation === "delete") {
+        return notFoundFailure(
+          `query-engine-v2 delete located no '${this.stepModel(this.root.table.model)}' row for its unique where.`
+        );
+      }
+      return this.rootNotFound();
+    }
+    if (verb === "connectOrCreate" || verb === "upsert") {
+      return this.replacementFailure(row);
+    }
+    const operation =
+      verb === "delete" ||
+      verb === "disconnect" ||
+      verb === "update" ||
+      verb === "set"
+        ? verb
+        : "connect";
+    return this.targetFailure(row, operation);
+  }
+
+  /**
+   * The guard statement for one shape. Every spelling here is today's, and the
+   * shape — not the verb — chooses between them.
+   */
   private guardOf(node: Node, match: StatementStep): GuardStep {
     const row = this.row(node.row);
     const model = row.table.model;
     const scope = this.scope(model);
     const id = this.idOf(row.id, "guard");
-    if (this.isRoot(row)) {
-      const where = this.selectorWhere(row) ?? {};
-      const named = new Set(Object.keys(where));
-      const namesKey = this.keyFields(row).every((field) => named.has(field));
-      const isDelete = this.pattern.operation === "delete";
-      const statement =
-        namesKey || isDelete
-          ? buildFindUnique(scope, { where, select: this.keySelect(row) })
-          : buildFind(
-              scope,
-              {
-                where: {
-                  AND: [
-                    ...this.selectorConjuncts(row),
-                    this.capturedKeyFilter(row),
-                  ],
-                },
-                select: this.keySelect(row),
-              },
-              { limit: 1 }
-            );
-      return presenceGuard(
-        id,
-        statement,
-        this.pattern.operation === "upsert"
-          ? notFoundFailure(
-              `query-engine-v2 upsert located no '${this.rootName}' row for its unique where before the atomic batch.`
-            )
-          : isDelete
-            ? notFoundFailure(
-                `query-engine-v2 delete located no '${this.stepModel(model)}' row for its unique where.`
-              )
-            : this.rootNotFound()
-      );
-    }
-    const edge = this.edge(row.id)!;
-    const verb = this.verb(row);
+    const shape = this.guardShape(row);
+    const failure = this.guardFailure(row);
     const selector = this.selectorWhere(row) ?? {};
-    const merge = verb === "connectOrCreate" || verb === "upsert";
-    if (edge.kind === "junction") {
-      if (verb === "delete" || verb === "update") {
-        const { statements, bound } = this.junctionFor(edge.reference);
+    const edge = this.edge(row.id);
+
+    if (shape === "matchRerun") {
+      if (this.isRoot(row) || edge?.kind === "childHeld") {
+        return presenceGuard(
+          id,
+          buildFindUnique(scope, {
+            where: selector,
+            select: this.keySelect(row),
+          }),
+          failure
+        );
+      }
+      return presenceGuard(id, match.statement, failure);
+    }
+
+    if (shape === "membership") {
+      if (edge?.kind === "junction") {
+        const { statements, bound } = this.junctionFor(
+          edge.reference,
+          edge.junction === undefined
+            ? undefined
+            : this.row(edge.junction).table.table
+        );
         return presenceGuard(
           id,
           statements.materialize(bound, "membershipRead", {
@@ -1461,10 +1644,99 @@ class Packing {
             take: 1,
             select: this.keySelect(row),
           }),
-          this.targetFailure(row, verb)
+          failure
         );
       }
-      // connect / set / connectOrCreate: the captured selector read.
+      if (edge?.kind === "parentHeld") {
+        const referencedFields = edge.reference.columns.map((c) =>
+          this.fieldOf(model, c.referencedColumn)
+        );
+        return presenceGuard(
+          id,
+          buildFind(
+            scope,
+            {
+              where: {
+                AND: [
+                  ...referencedFields.map((field) => ({
+                    [field]: {
+                      equals: this.parentHeldValue(row, field, false),
+                    },
+                  })),
+                  this.capturedKeyFilter(row),
+                ],
+              },
+              select: this.keySelect(row),
+            },
+            { limit: 1 }
+          ),
+          failure
+        );
+      }
+      const conjuncts: Where[] = [
+        ...this.selectorConjuncts(row),
+        ...this.membershipFilters(row, false),
+      ];
+      if (this.verb(row) !== "disconnect") {
+        conjuncts.push(this.capturedKeyFilter(row));
+      }
+      const membershipSql = this.membershipPredicate(
+        row,
+        scope.rootAlias,
+        false
+      );
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          { where: { AND: conjuncts }, select: this.keySelect(row) },
+          { limit: 1, ...(membershipSql ? { predicate: membershipSql } : {}) }
+        ),
+        failure
+      );
+    }
+
+    // capturedSelector — the split witness: the captured row must STILL be the
+    // one the selector names.
+    if (this.isRoot(row)) {
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          {
+            where: {
+              AND: [
+                ...this.selectorConjuncts(row),
+                this.capturedKeyFilter(row),
+              ],
+            },
+            select: this.keySelect(row),
+          },
+          { limit: 1 }
+        ),
+        failure
+      );
+    }
+    if (edge?.kind === "parentHeld") {
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          {
+            where: capturedSelectorWhere(scope, selector, this.keyValues(row)),
+            select: this.select(
+              edge.reference.columns.map((c) =>
+                this.fieldOf(model, c.referencedColumn)
+              )
+            ),
+            forUpdate: true,
+          },
+          { limit: 1 }
+        ),
+        failure
+      );
+    }
+    if (edge?.kind === "junction") {
       return presenceGuard(
         id,
         buildFind(
@@ -1475,144 +1747,27 @@ class Packing {
           },
           { limit: 1 }
         ),
-        merge
-          ? this.replacementFailure(row)
-          : this.targetFailure(row, verb === "set" ? "set" : "connect")
+        failure
       );
     }
-    if (edge.kind === "parentHeld") {
-      if (this.selectorWhere(row)) {
-        // connect / connectOrCreate: the match re-run — or, for a reference
-        // whose target is named by a discriminator, the captured selector read.
-        const captured = edge.reference.discriminator !== undefined;
-        const statement = captured
-          ? buildFind(
-              scope,
-              {
-                where: capturedSelectorWhere(
-                  scope,
-                  selector,
-                  this.keyValues(row)
-                ),
-                select: this.select(
-                  edge.reference.columns.map((c) =>
-                    this.fieldOf(model, c.referencedColumn)
-                  )
-                ),
-                forUpdate: true,
-              },
-              { limit: 1 }
-            )
-          : match.statement;
-        return presenceGuard(
-          id,
-          statement,
-          merge
-            ? this.replacementFailure(row)
-            : this.targetFailure(row, "connect")
-        );
-      }
-      // update / upsert of the current member: located value AND captured key.
-      const referencedFields = edge.reference.columns.map((c) =>
-        this.fieldOf(model, c.referencedColumn)
-      );
-      return presenceGuard(
-        id,
-        buildFind(
-          scope,
-          {
-            where: {
-              AND: [
-                ...referencedFields.map((field) => ({
-                  [field]: { equals: this.parentHeldValue(row, field, false) },
-                })),
-                this.capturedKeyFilter(row),
-              ],
-            },
-            select: this.keySelect(row),
-          },
-          { limit: 1 }
-        ),
-        verb === "upsert"
-          ? this.replacementFailure(row)
-          : this.targetFailure(row, "update")
-      );
-    }
-    // child-held
-    const membership = this.membershipFilters(row, false);
-    if (verb === "connect") {
-      return presenceGuard(
-        id,
-        buildFindUnique(scope, {
-          where: selector,
-          select: this.keySelect(row),
-        }),
-        this.targetFailure(row, "connect")
-      );
-    }
-    if (merge && membership.length === 0) {
-      const extraFields = edge.reference.columns.map((c) =>
-        this.fieldOf(model, c.holderColumn)
-      );
-      return presenceGuard(
-        id,
-        buildFind(
-          scope,
-          {
-            where: {
-              AND: [
-                ...this.selectorConjuncts(row),
-                this.capturedKeyFilter(row),
-              ],
-            },
-            select: this.select([
-              ...this.keyFields(row),
-              ...(verb === "connectOrCreate" ? extraFields : []),
-            ]),
-          },
-          { limit: 1 }
-        ),
-        this.replacementFailure(row)
-      );
-    }
-    if (verb === "set") {
-      return presenceGuard(
-        id,
-        buildFind(
-          scope,
-          {
-            where: {
-              AND: [
-                ...this.selectorConjuncts(row),
-                this.capturedKeyFilter(row),
-              ],
-            },
-            select: this.keySelect(row),
-          },
-          { limit: 1 }
-        ),
-        this.targetFailure(row, "set")
-      );
-    }
-    const conjuncts: Where[] = [...this.selectorConjuncts(row), ...membership];
-    if (verb !== "disconnect") conjuncts.push(this.capturedKeyFilter(row));
+    // child-held: a merge also publishes the reference columns it decided on.
+    const extraFields =
+      this.verb(row) === "connectOrCreate" && edge
+        ? edge.reference.columns.map((c) => this.fieldOf(model, c.holderColumn))
+        : [];
     return presenceGuard(
       id,
       buildFind(
         scope,
-        { where: { AND: conjuncts }, select: this.keySelect(row) },
+        {
+          where: {
+            AND: [...this.selectorConjuncts(row), this.capturedKeyFilter(row)],
+          },
+          select: this.select([...this.keyFields(row), ...extraFields]),
+        },
         { limit: 1 }
       ),
-      verb === "upsert"
-        ? this.replacementFailure(row)
-        : this.targetFailure(
-            row,
-            verb === "disconnect"
-              ? "disconnect"
-              : verb === "delete"
-                ? "delete"
-                : "update"
-          )
+      failure
     );
   }
 
@@ -1720,15 +1875,16 @@ class Packing {
     reference: Reference,
     cells: readonly Cell[]
   ): PolymorphicStorageValue<unknown> {
-    const carrier = variantCarrier(
+    const slot = resolvedSlot(
       this.scope(reference.relation.model),
       reference.relation.field
     );
-    if (!carrier || carrier.edge.kind !== "variantRowCarrier") {
+    if (slot?.edge.kind !== "variantRowCarrier") {
       throw new QueryEngineError(
         `query-engine pattern: relation '${reference.relation.field}' has no row carrier for its discriminator.`
       );
     }
+    const carrier = { slot: slot.edge.carrier, edge: slot.edge };
     const idCell = cells.find(
       (cell) => cell.column === reference.columns[0]?.holderColumn
     );
@@ -2401,19 +2557,59 @@ class Packing {
 
   // -- nested writes ---------------------------------------------------------
 
-  private junctionFor(reference: Reference): {
+  /**
+   * The public reference behind one K1 reference, with the VARIANT bound.
+   *
+   * A slot that spans several targets is not addressable by name — that is what
+   * `lookupRelation` answering `undefined` means — so the member is chosen by
+   * the fact that distinguishes it: a member junction by its own table, a
+   * row-held variant by the discriminator's stored value. The member's
+   * variant-qualified name (`items.post`) is what today's messages and step
+   * labels carry.
+   */
+  private referenceOf(
+    reference: Reference,
+    junctionTable?: string
+  ): { scope: QueryScope; relationRef: RelationRef | undefined } {
+    const scope = this.scope(reference.relation.model);
+    const direct = lookupRelation(scope, reference.relation.field);
+    if (direct) return { scope, relationRef: direct };
+    const carrier = variantCarrier(scope, reference.relation.field);
+    if (carrier?.edge.kind === "variantJunctionCarrier") {
+      const member =
+        carrier.edge.members.find(
+          (candidate) => candidate.topology.table === junctionTable
+        ) ?? carrier.edge.members[0];
+      if (member) return { scope, relationRef: memberRef(carrier, member) };
+    }
+    return { scope, relationRef: undefined };
+  }
+
+  private junctionFor(
+    reference: Reference,
+    junctionTable?: string
+  ): {
     scope: QueryScope;
     bound: JunctionBoundRelation;
     statements: JunctionStatements;
   } {
-    const scope = this.scope(reference.relation.model);
-    const relationRef = lookupRelation(scope, reference.relation.field);
+    const { scope, relationRef } = this.referenceOf(reference, junctionTable);
     if (!relationRef) {
       throw new QueryEngineError(
         `query-engine pattern: relation '${reference.relation.field}' is not addressable`
       );
     }
-    const bound = bindRelation(scope, relationRef);
+    const carrier = variantCarrier(scope, reference.relation.field);
+    const member =
+      carrier?.edge.kind === "variantJunctionCarrier"
+        ? (carrier.edge.members.find(
+            (candidate) => candidate.topology.table === junctionTable
+          ) ?? carrier.edge.members[0])
+        : undefined;
+    const bound =
+      carrier?.edge.kind === "variantJunctionCarrier" && member
+        ? bindMemberJunction(scope, relationRef, member, "owner")
+        : bindRelation(scope, relationRef);
     if (bound.position !== "junction") {
       throw new QueryEngineError(
         `query-engine pattern: relation '${relationRef.name}' is not stored in a junction`
@@ -2449,7 +2645,10 @@ class Packing {
     idForChunk: (start: number, index: number) => string
   ): WriteStep[] {
     const first = run[0]!;
-    const { statements, bound } = this.junctionFor(first.edge.reference);
+    const { statements, bound } = this.junctionFor(
+      first.edge.reference,
+      this.row(first.junction.id).table.table
+    );
     const parentValue = this.keyValues(this.row(first.edge.parent));
     const targetValues = run.map(({ junction, edge }) =>
       this.junctionTargetValue(junction, edge)
@@ -2479,7 +2678,10 @@ class Packing {
     const toTarget = references.find((r) => r !== toParent);
     const target = toTarget ? this.row(toTarget.referenced) : undefined;
     const edge = target ? this.edge(target.id) : undefined;
-    const { statements, bound } = this.junctionFor(toParent);
+    const { statements, bound } = this.junctionFor(
+      toParent,
+      junction.table.table
+    );
     const parentValue = this.keyValues(this.row(toParent.referenced));
     const verb = this.verb(junction);
     if (junction.mode === "retract") {
@@ -2726,7 +2928,7 @@ class Packing {
               kind: "write",
               model: this.stepModel(model),
               statement: buildUpdateMany(scope, {
-                where: { AND: this.membershipFilters(row, false) },
+                ...this.memberSet(row),
                 data,
               }),
               outputs: {},
@@ -2819,6 +3021,11 @@ class Packing {
   private memberSet(row: Row): { where?: Where; predicate?: Sql } {
     const model = row.table.model;
     const membership = this.membershipFilters(row, false);
+    const membershipSql = this.membershipPredicate(
+      row,
+      getTableName(model),
+      false
+    );
     if (this.hasRelationLeaf(row.predicate)) {
       const table = getTableName(model);
       const predicate = lowerPredicate(
@@ -2834,7 +3041,10 @@ class Packing {
     }
     const filter = this.filterWhere(model, row.predicate);
     const conjuncts = [...membership, ...(filter ? [filter] : [])];
-    return conjuncts.length ? { where: { AND: conjuncts } } : {};
+    return {
+      ...(conjuncts.length ? { where: { AND: conjuncts } } : {}),
+      ...(membershipSql ? { predicate: membershipSql } : {}),
+    };
   }
 
   private targetRetract(node: Node): OperationStep[] {
