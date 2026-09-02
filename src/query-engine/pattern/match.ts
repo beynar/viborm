@@ -49,6 +49,10 @@ import {
   type JunctionRelationTraversal,
 } from "../builders/relation-traversal";
 import { projectScalarForTransport } from "../builders/scalar-transport";
+import {
+  buildSelect,
+  buildSelectWithAliases,
+} from "../builders/select-builder";
 import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildScalarSqlValue } from "../builders/values-builder";
 import { buildWhere } from "../builders/where-builder";
@@ -56,6 +60,7 @@ import {
   createChildScope,
   createQueryScope,
   getColumnName,
+  getDefaultScalarFieldNames,
   getScalarFieldNames,
   getTableName,
   lookupRelation,
@@ -64,6 +69,7 @@ import {
 import { buildNormalizedOrderBy } from "../operations/cursor-order";
 import { buildFindPagination } from "../operations/find-pagination";
 import { buildHaving } from "../operations/groupby-having";
+import { buildMutationProjectionFold } from "../operations/mutation-projection-fold";
 import {
   DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
@@ -1902,14 +1908,34 @@ export function lowerPredicate(
   }
 }
 
-/** One column equality per key member, each operand bound in the field's domain. */
+/**
+ * One column equality per key member, each operand bound in the field's domain.
+ *
+ * Only a key the PATTERN binds to a value can address a row: a `literal` or a
+ * client-side `generated` variable. A key bound by execution (`matched` — the
+ * row's own matched value; `returned` — a database-assigned key) has no value
+ * to spell here, and the caller passes the `WHERE` it built instead. A key that
+ * is only PARTLY value-bound is refused rather than half-spelled: half a
+ * compound key selects more rows than the key does.
+ */
 function rowKeyEqualities(
   ctx: QueryScope,
   key: readonly Variable[],
   alias: string
 ): Sql[] {
   const { adapter } = ctx;
-  return key.map((variable) => {
+  const spellable = key.filter(
+    (variable) =>
+      variable.binding.kind === "literal" ||
+      variable.binding.kind === "generated"
+  );
+  if (spellable.length === 0) return [];
+  if (spellable.length !== key.length) {
+    throw new QueryEngineError(
+      "pattern match: a row key bound partly by execution cannot address a row; pass the selector."
+    );
+  }
+  return spellable.map((variable) => {
     const field = variable.scalar?.field ?? "";
     return adapter.operators.eq(
       adapter.identifiers.column(alias, getColumnName(ctx.model, field)),
@@ -1924,8 +1950,10 @@ export function lowerRowKey(
   key: readonly Variable[],
   alias: string
 ): Sql | undefined {
-  if (key.length === 0) return undefined;
-  return ctx.adapter.operators.and(...rowKeyEqualities(ctx, key, alias));
+  const equalities = rowKeyEqualities(ctx, key, alias);
+  return equalities.length === 0
+    ? undefined
+    : ctx.adapter.operators.and(...equalities);
 }
 
 /**
@@ -2212,4 +2240,376 @@ function variantCollectionFilter(
   return quantifier === "some"
     ? adapter.filters.some(subquery)
     : adapter.filters.none(subquery);
+}
+
+// ---------------------------------------------------------------------------
+// The write's terminal projection (§8: a write answers with a read of the
+// asserted rows)
+// ---------------------------------------------------------------------------
+
+/**
+ * The public projection request one K1 `Projection` states.
+ *
+ * K1 is the truth; this is its spelling in the vocabulary today's projection
+ * builders (`buildSelect`, `buildMutationProjectionFold`) still take. It is a
+ * TOTAL inverse of `construct-read`'s projection walk — scalars, the computed
+ * `_distance`, relation projections with their own `where`, window and nested
+ * projection, variant arms, and `_count` — and the round-trip is pinned over
+ * the whole read corpus in `tests/pattern/match/write-result.core.test.ts`.
+ * When those builders take a `Projection` directly, this goes away.
+ */
+interface ProjectionArgs {
+  readonly select?: Record<string, unknown>;
+  readonly include?: Record<string, unknown>;
+}
+
+const sameFields = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((field, index) => b[index] === field);
+
+function scopeOn(ctx: QueryScope, model: Model<any>): QueryScope {
+  return ctx.model === model
+    ? ctx
+    : createChildScope(ctx, model, ctx.rootAlias);
+}
+
+/**
+ * One K1 `Predicate` as the public `where` it was built from.
+ *
+ * A conjunction is spelled `AND: [...]`, never merged into one object: two
+ * conjuncts may constrain the SAME field (`{ label: "a", AND: [{ label: "b" }] }`),
+ * and merging them would drop one and regroup the rest. The array form compiles
+ * to the identical SQL as the object it came from — `operators.and` of one
+ * conjunct is that conjunct — so the grouping the pattern holds survives.
+ */
+function predicateAsArgs(
+  ctx: QueryScope,
+  predicate: Predicate | undefined
+): Record<string, unknown> | undefined {
+  if (!predicate) return undefined;
+  switch (predicate.kind) {
+    case "and":
+      return { AND: predicate.items.map((item) => predicateAsArgs(ctx, item)) };
+    case "or":
+      return { OR: predicate.items.map((item) => predicateAsArgs(ctx, item)) };
+    case "not":
+      return { NOT: [predicateAsArgs(ctx, predicate.item)] };
+    case "scalar":
+      return {
+        [fieldOf(ctx.model, predicate.column)]: {
+          [predicate.operator]: operandValue(predicate.operand),
+          ...(predicate.mode === "insensitive" ? { mode: "insensitive" } : {}),
+        },
+      };
+    case "structural": {
+      const value = literalValue(predicate.operands[0]!);
+      // A JSON filter rides whole (the leaf carries the public filter object);
+      // a geo leaf is one operator of an ordinary filter object.
+      return {
+        [fieldOf(ctx.model, predicate.column)]:
+          predicate.form === "json" ? value : { [predicate.form]: value },
+      };
+    }
+    case "relation":
+      return {
+        [fieldOfExtension(predicate.extension)]: relationFilterArgs(
+          ctx,
+          predicate
+        ),
+      };
+    default:
+      return {};
+  }
+}
+
+/** `{ some: … }` / `{ is: null }` / a tagged variant predicate, as written. */
+function relationFilterArgs(
+  ctx: QueryScope,
+  leaf: Extract<Predicate, { kind: "relation" }>
+): Record<string, unknown> {
+  const { quantifier } = leaf;
+  if (leaf.presence === "null") return { [quantifier]: null };
+  const carrier = variantCarrier(ctx, fieldOfExtension(leaf.extension));
+  const target = extensionScope(ctx, leaf.extension);
+  // An inner `not` is a collection's `isNot` arm; the ordinary `every` carries
+  // its predicate as written and is negated at lowering.
+  const negated = leaf.inner?.kind === "not" && carrier !== undefined;
+  const inner = negated ? (leaf.inner as { item: Predicate }).item : leaf.inner;
+  const innerArgs = inner ? predicateAsArgs(target, inner) : undefined;
+  if (!carrier) return { [quantifier]: innerArgs ?? {} };
+  const tagged = {
+    type: leaf.extension.variant,
+    ...(innerArgs ? { [negated ? "isNot" : "is"]: innerArgs } : {}),
+  };
+  return isVariantRowCarrier(carrier) ? tagged : { [quantifier]: tagged };
+}
+
+/** The scope of an extension's target row. */
+function extensionScope(ctx: QueryScope, extension: Extension): QueryScope {
+  return scopeOn(ctx, extensionRow(extension).table.model);
+}
+
+function extensionRow(extension: Extension): Row {
+  const target = extension.target;
+  const row = target.rows.find((candidate) => candidate.id === target.root);
+  if (!row) throw new QueryEngineError("pattern match: extension has no root.");
+  return row;
+}
+
+/** A nested relation's own read args: its projection, `where` and window. */
+function relationAsArgs(
+  ctx: QueryScope,
+  extension: Extension
+): Record<string, unknown> {
+  const scope = extensionScope(ctx, extension);
+  const where = predicateAsArgs(scope, extensionRow(extension).predicate);
+  const window = projectionOf(extension.target).window;
+  return {
+    ...projectionAsArgs(scope, extension.target),
+    ...(where ? { where } : {}),
+    ...(window ? windowAsArgs(scope.model, window) : {}),
+  };
+}
+
+/** A nested window as the public `orderBy` / `take` / `skip` / `cursor` / `distinct`. */
+function windowAsArgs(
+  model: Model<any>,
+  window: Window
+): Record<string, unknown> {
+  const orderBy = orderTermsAsArgs(model, window);
+  return {
+    ...(orderBy ? { orderBy } : {}),
+    ...(window.take !== undefined ? { take: window.take } : {}),
+    ...(window.skip !== undefined ? { skip: window.skip } : {}),
+    ...(window.cursor
+      ? { cursor: keyAsWhereUnique(model, window.cursor.key) }
+      : {}),
+    ...(window.distinct ? { distinct: [...window.distinct] } : {}),
+  };
+}
+
+/** `_count: { select: … }`, or `undefined` when nothing is counted. */
+function countsAsArgs(
+  ctx: QueryScope,
+  projection: Projection
+): Record<string, unknown> | undefined {
+  if (projection.relationCounts.length === 0) return undefined;
+  const select: Record<string, unknown> = {};
+  for (const { field, extension } of projection.relationCounts) {
+    const scope = extensionScope(ctx, extension);
+    const predicate = extensionRow(extension).predicate;
+    const negated = predicate?.kind === "not";
+    const where = predicateAsArgs(
+      scope,
+      negated ? (predicate as { item: Predicate }).item : predicate
+    );
+    const { variant } = extension;
+    if (variant !== undefined) {
+      select[field] = {
+        where: {
+          type: variant,
+          ...(where ? { [negated ? "isNot" : "is"]: where } : {}),
+        },
+      };
+      continue;
+    }
+    select[field] = where ? { where } : true;
+  }
+  return { select };
+}
+
+/** Every relation key of one projection, variant arms folded back together. */
+function relationsAsArgs(
+  ctx: QueryScope,
+  projection: Projection
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const entries = projection.relations;
+  for (let i = 0; i < entries.length; ) {
+    const { field } = entries[i]!;
+    let end = i + 1;
+    while (end < entries.length && entries[end]!.field === field) end++;
+    const arms = entries.slice(i, end);
+    i = end;
+    const carrier = variantCarrier(ctx, field);
+    if (!carrier) {
+      out[field] = relationAsArgs(ctx, arms[0]!.extension);
+      continue;
+    }
+    if (isVariantRowCarrier(carrier)) {
+      const byVariant: Record<string, unknown> = {};
+      for (const arm of arms) {
+        byVariant[String(arm.variant)] = relationAsArgs(ctx, arm.extension);
+      }
+      out[field] = byVariant;
+      continue;
+    }
+    const variants: Record<string, unknown> = {};
+    const only: string[] = [];
+    for (const arm of arms) {
+      if (arm.visible !== false) only.push(String(arm.variant));
+      variants[String(arm.variant)] = relationAsArgs(ctx, arm.extension);
+    }
+    out[field] = {
+      ...(only.length === arms.length ? {} : { only }),
+      variants,
+    };
+  }
+  return out;
+}
+
+/** One K1 `Projection` as the `select` / `include` it was built from. */
+function projectionAsArgs(ctx: QueryScope, pattern: Pattern): ProjectionArgs {
+  const scope = scopeOn(ctx, rootRow(pattern).table.model);
+  const projection = projectionOf(pattern);
+  const relations = relationsAsArgs(scope, projection);
+  const counts = countsAsArgs(scope, projection);
+  const distance = projection.computed?.find(
+    (entry) => entry.form === "distance"
+  );
+  const hasRelations = Object.keys(relations).length > 0;
+  // Default scalars beside relations is what an `include` projects; anything
+  // else names its scalars, which is a `select`.
+  const defaulted = sameFields(
+    projection.scalars,
+    getDefaultScalarFieldNames(scope.model)
+  );
+  if (defaulted && !distance) {
+    if (!(hasRelations || counts)) return {};
+    return { include: { ...relations, ...(counts ? { _count: counts } : {}) } };
+  }
+  const select: Record<string, unknown> = {};
+  for (const field of projection.scalars) select[field] = true;
+  if (distance) {
+    select[String(literalValue(distance.operands[0]!))] = {
+      _distance: literalValue(distance.operands[1]!),
+    };
+  }
+  Object.assign(select, relations);
+  if (counts) select._count = counts;
+  return { select };
+}
+
+/** How the packer attaches the terminal projection to its mutation. */
+export type WriteResultForm = "returning" | "fold" | "reselect";
+
+export interface WriteResultRequest {
+  /**
+   * The terminal match pattern: its `projection` IS the result shape, and its
+   * ROOT ROW is the asserted row (its key addresses a reselect, its
+   * cardinality decides whether that read is `LIMIT 1`).
+   */
+  readonly pattern: Pattern;
+  readonly form: WriteResultForm;
+  /** The mutating statement WITHOUT a `RETURNING` clause (`returning`, `fold`). */
+  readonly mutation?: Sql;
+  /** Further self-contained write arms carried as unread CTE arms (`fold`). */
+  readonly siblings?: readonly Sql[];
+  /**
+   * The reselect's `WHERE`. Defaults to the root row's key equalities and
+   * predicate ({@link lowerRowSelector}); the packer overrides it when the key
+   * is a value only it can spell (a generated key it captured, an
+   * exact-membership pin over captured rows).
+   */
+  readonly selector?: Sql;
+}
+
+/**
+ * THE WRITE'S TERMINAL PROJECTION — §8's "a write answers with a read of the
+ * asserted rows", in the three statement forms today's engine emits, and the
+ * one entry the packer (D+E) calls for all of them. Nothing here goes through
+ * the public-args path: the projection comes from K1 and the selector is SQL.
+ *
+ * ```ts
+ * matchWriteResult(ctx, { pattern, form, mutation?, siblings?, selector? }): Sql
+ * ```
+ *
+ * `ctx` is a `QueryScope` on the asserted row's model (`createQueryScope(engine,
+ * model)`); its `rootAlias` is the alias the projection is read under. The
+ * forms:
+ *
+ * - **`returning`** — `<mutation> RETURNING <projection at no alias>`, on a
+ *   driver whose `mutations.returning` emits a clause. The mutation's own rows
+ *   ARE the result. These are the two lines `buildCreate` / `buildUpdate` /
+ *   `buildUpdateManyAndReturn` share, called rather than copied. A relation
+ *   projection cannot ride a `RETURNING` list (no alias to correlate against):
+ *   the caller picks `fold` for that, exactly as today.
+ * - **`fold`** — `WITH "__viborm_mutation" AS (<mutation> RETURNING <every
+ *   column>), <siblings> SELECT <projection> FROM "__viborm_mutation" AS
+ *   <alias>`, through today's `buildMutationProjectionFold`, which owns the CTE
+ *   names and the all-columns RETURNING. Legality (a data-modifying `WITH`, and
+ *   a projection that reads nothing the statement changes) stays the caller's,
+ *   as it is today.
+ * - **`reselect`** — `SELECT <projection> FROM <table> AS <alias> WHERE
+ *   <selector> [LIMIT 1]`, the read a non-returning driver runs after its
+ *   mutation. `LIMIT 1` is emitted for a root row of cardinality `one` (today's
+ *   `buildFindUnique` shape, a literal), omitted for a `set` (today's
+ *   `buildFind` with no limit). `insertId` and a literal key are the SAME
+ *   statement — the difference is which value the key variable carries — which
+ *   is why the binding is not a parameter here: pass the key on the row, or the
+ *   whole `WHERE` through `selector`.
+ *
+ * The rows come back through {@link decodeRows} on the same pattern, so a
+ * write's result is decoded by the projection that built it.
+ */
+export function matchWriteResult(
+  ctx: QueryScope,
+  request: WriteResultRequest
+): Sql {
+  const { adapter, rootAlias } = ctx;
+  const root = rootRow(request.pattern);
+  const scope = scopeOn(ctx, root.table.model);
+  const args = projectionAsArgs(scope, request.pattern);
+
+  if (request.form === "returning") {
+    const mutation = requireMutation(request);
+    const returning = adapter.mutations.returning(
+      buildSelect(scope, args.select, args.include, "")
+    );
+    return returning.strings.join("").trim() === ""
+      ? mutation
+      : sql`${mutation} ${returning}`;
+  }
+
+  if (request.form === "fold") {
+    return buildMutationProjectionFold(scope, {
+      mutation: requireMutation(request),
+      ...(request.siblings ? { siblings: request.siblings } : {}),
+      ...(args.select ? { select: args.select } : {}),
+      ...(args.include ? { include: args.include } : {}),
+    });
+  }
+
+  const projection = buildSelectWithAliases(
+    scope,
+    args.select,
+    args.include,
+    rootAlias
+  );
+  const where = request.selector ?? lowerRowSelector(scope, root, rootAlias);
+  if (!where) {
+    // A read with no WHERE answers with the whole table: refuse rather than
+    // widen. The row is addressed by a key only execution binds.
+    throw new QueryEngineError(
+      "pattern match: the reselect needs a selector; this row is addressed by a key the pattern does not spell."
+    );
+  }
+  const parts: Parameters<typeof assembleAdapterSelect>[1] = {
+    columns: projection.sql,
+    from: adapter.identifiers.table(getTableName(scope.model), rootAlias),
+  };
+  if (projection.lateralJoins.length > 0) parts.joins = projection.lateralJoins;
+  if (where) parts.where = where;
+  // A literal `1`, not a bound parameter: the unique terminal read's own
+  // spelling. A `set` row carries no limit — its selector is the whole answer.
+  if (root.cardinality === "one") parts.limit = sql`1`;
+  return assembleAdapterSelect(adapter, parts);
+}
+
+function requireMutation(request: WriteResultRequest): Sql {
+  if (!request.mutation) {
+    throw new QueryEngineError(
+      `pattern match: the '${request.form}' write result needs its mutation statement.`
+    );
+  }
+  return request.mutation;
 }
