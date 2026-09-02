@@ -19,6 +19,10 @@ const read = (file: string): string =>
 // which is the point — a storage word must not survive under any spelling.
 const STORAGE_WORDS = /junction|foreignkey|polymorphic|parentheld|childheld/i;
 const ADMITTED_FIELD = /viaJunction/g;
+// Error TEXT is not a branch: a line that reproduces today's byte-identical
+// message may name a storage word when it says so. The exemption is per line
+// and must be explicit; it never covers a decision.
+const ERROR_TEXT_LINE = /^.*\/\/ census: error-text\s*$/gm;
 // The class NAME may appear only as the `DeferredRefusal.error` label; never
 // imported, never constructed.
 const ENGINE_ERRORS =
@@ -26,19 +30,30 @@ const ENGINE_ERRORS =
 const NESTED_ONLY_VERBS = /"(connect|disconnect|connectOrCreate)"/;
 const THROWS = /throw new (\w+)/g;
 const CONNECT_OR_CREATE = /"connectOrCreate"/;
+const MESSAGE_LINE = /message: `|^\s*[?:] "|^\s*\? "/;
 
 describe("construction census", () => {
   test.each([
     "sugar.ts",
     "construct.ts",
   ])("%s spells no storage word", (file) => {
-    const source = read(file).replace(ADMITTED_FIELD, "");
+    const source = read(file)
+      .replace(ERROR_TEXT_LINE, "")
+      .replace(ADMITTED_FIELD, "");
     const hit = STORAGE_WORDS.exec(source);
     expect(hit ? `${file}: ${hit[0]} at ${hit.index}` : "").toBe("");
   });
 
   test("construct.ts names no engine error class", () => {
     expect(ENGINE_ERRORS.test(read("construct.ts"))).toBe(false);
+  });
+
+  test("the error-text exemption covers only message lines", () => {
+    const exempt = read("construct.ts").match(ERROR_TEXT_LINE) ?? [];
+    expect(exempt.length).toBeGreaterThan(0);
+    for (const line of exempt) {
+      expect(line).toMatch(MESSAGE_LINE);
+    }
   });
 
   test("construct.ts throws only ValidationError (and an unreachable TypeError)", () => {

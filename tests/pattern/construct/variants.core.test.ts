@@ -161,7 +161,12 @@ describe("payload-bound target", () => {
       data: { subject: { connect: { type: "nope", where: { id: 1 } } } },
     });
     expect(deferredRefusals).toEqual([
-      expect.objectContaining({ kind: "unknownVariant", relation: "subject" }),
+      expect.objectContaining({
+        kind: "unknownVariant",
+        relation: "subject",
+        error: "QueryEngineError",
+        message: "Unknown polymorphic target 'nope' for relation 'subject'.",
+      }),
     ]);
   });
 });

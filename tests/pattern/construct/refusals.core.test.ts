@@ -150,4 +150,27 @@ describe("deferred refusals", () => {
       }
     }
   });
+
+  test("today's texts, verbatim: unknown variant, shared-key merge, bulk membership move", () => {
+    const variant = constructRaw(schema, schema.post, "update", {
+      where: { id: 1 },
+      data: { author: { connect: { type: "nope", where: { id: "u1" } } } },
+    });
+    // No variants family on this edge: the variant is ignored, not refused.
+    expect(variant.deferredRefusals).toEqual([]);
+
+    const moved = construct(schema, schema.user, "updateMany", {
+      where: {},
+      data: { posts: { connect: { id: 1 } } },
+    });
+    const [move] = moved.deferredRefusals;
+    expect(move).toMatchObject({
+      kind: "bulkRootMembershipMove",
+      error: "UnsupportedOperationError",
+    });
+    expect(move!.messageFor?.(3)).toBe(
+      "updateMany matched 3 rows, so it cannot apply 'connect' to relation 'posts': that membership is stored on the target row, which can belong to only one of them — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call."
+    );
+    expect(move!.message).toBe(move!.messageFor?.(2));
+  });
 });

@@ -113,7 +113,16 @@ export interface DeferredRefusal {
   readonly relation?: string;
   readonly path: string;
   readonly message: string;
-  readonly error: "NestedWriteError" | "QueryEngineError";
+  readonly error:
+    | "NestedWriteError"
+    | "QueryEngineError"
+    | "UnsupportedOperationError";
+  /**
+   * Present when today's text names a fact only execution knows (the number
+   * of captured roots): the raiser substitutes it. `message` then carries the
+   * smallest count the refusal fires at.
+   */
+  readonly messageFor?: (recordCount: number) => string;
 }
 
 export interface Constructed {
@@ -244,6 +253,9 @@ class Construction {
 
   run(): Constructed {
     const root = this.root();
+    // Every row a verb plan created is already stamped; what is left is the
+    // root and its arms, whose public verb is the operation itself.
+    for (const row of this.rows) row.verb ??= this.operation;
     this.projection = this.projectionFrom(
       this.model,
       this.args.select,
@@ -694,8 +706,10 @@ class Construction {
         kind: "unknownVariant",
         relation: first.relation.field,
         path,
-        error: "NestedWriteError",
-        message: `Unknown target variant '${variant}' for relation '${first.relation.field}'.`,
+        // `selectVariantRow` on a singular edge; the collection's item binder otherwise.
+        error:
+          first.cardinality === "one" ? "QueryEngineError" : "NestedWriteError",
+        message: `Unknown polymorphic target '${variant}' for relation '${first.relation.field}'.`, // census: error-text
       });
       return first;
     }
@@ -1146,8 +1160,8 @@ class Construction {
         kind: "sharedKeyAmbiguousArm",
         relation: cells.relation.field,
         path: context.path,
-        error: "QueryEngineError",
-        message: `query-engine-v2 create does not support a shared-primary-key merge on relation '${cells.relation.field}' whose reference '${cells.holder.fields.join(", ")}' (this record's primary key) does not resolve to one final value.`,
+        error: "UnsupportedOperationError",
+        message: `query-engine-v2 create does not support a shared-primary-key ${context.verb ?? "merge"} on relation '${cells.relation.field}' whose foreign key '${cells.holder.fields.join(", ")}' (this record's primary key) does not resolve to one final value.`, // census: error-text
       });
     }
     const discriminator = cells.discriminator
@@ -1345,7 +1359,12 @@ class Construction {
     field: string,
     value: unknown
   ): readonly Predicate[] {
-    const column = getColumnName(model, field);
+    // A key the model does not declare (a shape validation would have refused)
+    // is its own column: construction stays total.
+    const column =
+      field in (model["~"].state.scalars as Record<string, unknown>)
+        ? getColumnName(model, field)
+        : field;
     const scalar = { model, field };
     if (!isRecord(value)) {
       return [
@@ -1670,12 +1689,18 @@ class Construction {
       parent.cardinality === "set" &&
       (this.operation === "updateMany" ||
         this.operation === "updateManyAndReturn");
-    if (
-      bulkRoot &&
+    // Today refuses the two storages where N roots would steal one target:
+    // the target row holds the membership, or the reference row's slot is
+    // unique to the target. A reference row that admits many parents is fine.
+    const targetHeld =
       family.kind === "single" &&
       !family.cells.holderIsSource &&
-      !family.cells.viaJunction
-    ) {
+      !family.cells.viaJunction;
+    const singularSlot =
+      family.kind === "single" &&
+      family.cells.viaJunction !== undefined &&
+      family.cells.unique;
+    if (bulkRoot && (targetHeld || singularSlot)) {
       for (const verb of verbs) {
         const row = verbRow(verb);
         // A verb moves an EXISTING row's membership when its plan asserts the
@@ -1692,13 +1717,19 @@ class Construction {
               ))
         );
         if (!moves) continue;
+        const where = singularSlot
+          ? "that target's member-junction slot can belong to only one of them" // census: error-text
+          : "that membership is stored on the target row, which can belong to only one of them";
+        const messageFor = (recordCount: number): string =>
+          `updateMany matched ${recordCount} rows, so it cannot apply '${verb}' to relation '${field}': ${where} — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`;
         this.defer({
           stage: "packing",
           kind: "bulkRootMembershipMove",
           relation: field,
           path: `${path}.${verb}`,
-          error: "NestedWriteError",
-          message: `updateMany cannot move the membership of relation '${field}' with '${verb}' for more than one captured root; split the operation.`,
+          error: "UnsupportedOperationError",
+          message: messageFor(2),
+          messageFor,
         });
       }
     }

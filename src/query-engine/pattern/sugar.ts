@@ -24,6 +24,11 @@
  * never restated.
  */
 
+import {
+  relationTargetNotFound,
+  upsertTargetNotFoundForParent,
+} from "../write-engine/messages";
+
 // ---------------------------------------------------------------------------
 // Verbs
 // ---------------------------------------------------------------------------
@@ -154,7 +159,20 @@ export interface VerbRow {
   readonly plan: readonly Step[];
   /** Read the verb's validated payload into items. An empty list is inert. */
   readonly read: (payload: unknown, shape: PayloadShape) => readonly VerbItem[];
+  /**
+   * The failure today's engine raises when this verb's match binds nothing —
+   * byte-identical text from the write engine's message catalog. Absent when
+   * the verb tolerates an empty match (a merge creates; a fresh row and a
+   * set-valued write name no target).
+   */
+  readonly notFound?: (relationName: string) => string;
 }
+
+/** `relationTargetNotFound` reads only the relation's public name. */
+const targetNotFound =
+  (verb: "connect" | "delete" | "disconnect" | "set" | "update") =>
+  (relationName: string): string =>
+    relationTargetNotFound({ name: relationName } as never, verb);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -250,6 +268,7 @@ export const SUGAR: readonly VerbRow[] = [
       { primitive: "retract", what: "reference" },
     ],
     read: readRemoval,
+    notFound: targetNotFound("disconnect"),
   },
   {
     verb: "delete",
@@ -257,6 +276,7 @@ export const SUGAR: readonly VerbRow[] = [
     // match X ∈ N; retract all cells of X
     plan: [MATCH_MEMBER, { primitive: "retract", what: "row" }],
     read: readRemoval,
+    notFound: targetNotFound("delete"),
   },
   {
     verb: "update",
@@ -266,6 +286,7 @@ export const SUGAR: readonly VerbRow[] = [
       MATCH_MEMBER,
       { primitive: "assertAtKey", what: "record", from: "data" },
     ],
+    notFound: targetNotFound("update"),
     read: (payload, shape) => {
       if (shape.cardinality === "one") {
         // The to-one payload is the canonical `{ data, where? }` envelope; a
@@ -305,6 +326,7 @@ export const SUGAR: readonly VerbRow[] = [
         ],
       },
     ],
+    notFound: upsertTargetNotFoundForParent,
     read: (payload, shape) => {
       if (shape.cardinality === "one") {
         const envelope = asRecord(payload);
@@ -356,6 +378,7 @@ export const SUGAR: readonly VerbRow[] = [
     stage: 2,
     // retract reference cells for N \ S; assert them for S \ N
     plan: [{ primitive: "setDifference" }],
+    notFound: targetNotFound("set"),
     read: (payload, shape) =>
       payload === undefined
         ? []
@@ -415,6 +438,7 @@ export const SUGAR: readonly VerbRow[] = [
     stage: 3,
     // match X by selector; assert reference cell(s) so X ∈ N
     plan: [MATCH_SELECTOR, ASSERT_REFERENCE],
+    notFound: targetNotFound("connect"),
     read: (payload, shape) =>
       selectorItems(payload, shape).map((item) => ({
         ...item,
@@ -471,6 +495,19 @@ export function verbRow(verb: Verb): VerbRow {
 /** Whether a payload key is one of the eleven verbs. */
 export function isVerb(key: string): key is Verb {
   return ROW_BY_VERB.has(key as Verb);
+}
+
+/**
+ * The text a violated target premise raises for the verb stamped on a row
+ * (`Row.verb`), or `undefined` when that verb tolerates an empty match. The
+ * raiser (packing) reads this; construction never spells the sentence.
+ */
+export function targetNotFoundFailure(
+  verb: string | undefined,
+  relationName: string
+): string | undefined {
+  if (verb === undefined || !isVerb(verb)) return undefined;
+  return ROW_BY_VERB.get(verb)?.notFound?.(relationName);
 }
 
 // ---------------------------------------------------------------------------
