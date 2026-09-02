@@ -856,6 +856,7 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 67e24c67 | Packer rewritten as family lowerings keyed by one storage fact (parent-held / child-held / junction) crossed with row facts, with total id allocation, the per-dialect mutation folds, junction statements and the terminal read lowered as a match. M2 compares decoded results, enforces the projection's row shape and erases the per-operation scratch id. **M1 1,460 equal, fuzz 277, M2 989 equal, 437 trace, 4 outcome.** |
 | 2026-09-02 | bb24c065 | Terminal write projection lowered by `matchWriteResult` (returning / fold / reselect) against today's builders. Statement-atomic seam settles arm-less fragments and runs a one-statement program bare on every substrate. Fifteen semantic generator strategies with measured stage labels. M2 compares decoded results, enforces the row shape, and lets a write answer its own projection. **M1 1,460 equal, fuzz 277, M2 1,205 equal, 213 trace, 12 outcome.** |
 | 2026-09-02 | 8d628bae | Correlation direction taken from construction order (the enclosing row's match publishes the column) rather than re-derived; matched-then-retracted rows keep a match node; a located row is re-addressed by the key its own match captured. Three packer tables become contract facts: `Row.located`, `Row.label`, `BoundPremise.shape`. **M1 1,475 equal, order mismatches 224 → 122; fuzz 291; M2 1,225 equal, 208 trace, 12 outcome.** |
+| 2026-09-02 | 97d59970 | `decodeRows` gains the bulk count arm, which today's engine never routes through the parser at all; the write-result fuzz proves the terminal projection over 4,384 cells (555 payloads × 3 dialects × 2 substrates, series result reads included) with one allowed difference. **M2 1,237 equal, 208 trace, 0 outcome.** |
 
 Open divergence classes, by owner (cell counts from the 8d628bae run):
 
@@ -865,8 +866,10 @@ Open divergence classes, by owner (cell counts from the 8d628bae run):
   inlining (84); member fragments for series (70). Match emission is down to
   258 missing matches and 122 order mismatches, dominated by the series
   payloads.
-- Match and decode (G): the terminal write projection over the whole corpus;
-  a count arm in `decodeRows`.
+- Match and decode (G): closed for reads, write projections and counts. Next
+  is the wave-2 layer move: today's select builders take a `Projection`, which
+  retires the 379-line args inverse the pattern engine only needs because
+  those builders still speak the public request's grammar.
 - Construction (C): `Row.located` and `Row.label` stamped from the verb plans;
   arm-scoped deferred refusals; a refusal today raises and the engine does not;
   a schema gap that leaves three semantic strategies unexercised.
