@@ -39,9 +39,14 @@ function runPnpm(args, options) {
       stdio: "pipe",
     });
   } catch (error) {
-    const stderr = error?.stderr?.toString?.() ?? "";
+    // pnpm reports its errors on STDOUT (ERR_PNPM_* lines), so both streams
+    // go into the message.
+    const output = [error?.stdout, error?.stderr]
+      .map((stream) => stream?.toString?.() ?? "")
+      .filter((text) => text.trim().length > 0)
+      .join("\n");
     throw new Error(
-      `pnpm ${args.join(" ")} failed${stderr ? `:\n${stderr}` : ""}`,
+      `pnpm ${args.join(" ")} failed${output ? `:\n${output}` : ""}`,
       { cause: error }
     );
   }
@@ -153,8 +158,14 @@ try {
       },
     })
   );
+  // `--prefer-offline`, not `--offline`: the sandbox has no lockfile, so pnpm
+  // must resolve the linked dependencies' ranges from its registry METADATA
+  // cache, which is not the content store. A developer machine has that cache
+  // warm; the CI runner restores only the store, and `--offline` then fails
+  // with ERR_PNPM_NO_OFFLINE_META. prefer-offline keeps a warm cache hermetic
+  // and lets a cold one fetch metadata.
   runPnpm(
-    ["install", "--offline", "--ignore-scripts", "--no-frozen-lockfile"],
+    ["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"],
     {
       cwd: consumerRoot,
     }
