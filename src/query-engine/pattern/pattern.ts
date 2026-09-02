@@ -260,6 +260,8 @@ export type Predicate =
 export interface Extension {
   readonly reference: Reference;
   readonly target: Pattern;
+  /** The selected variant when the reference resolves to one of several (a relation filter leaf, a relation count, a relation aggregate order term). */
+  readonly variant?: string;
 }
 
 // ---------------------------------------------------------------------------
