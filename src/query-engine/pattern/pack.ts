@@ -3,35 +3,65 @@
  *
  * Cell groups (already decided by the scheduler) become statements through the
  * EXISTING adapter methods and lowering helpers: `buildFindUnique` / `buildFind`
- * for matches, `buildUpdate` / `buildCreate` / `buildDelete` for row asserts and
- * retracts, `JunctionStatements` for junction rows, `referenceSql` for reference
- * cells, `compileBindBudgetChunks` for the bulk fold. Premises become the batch
- * guards the current Parts emit; where the pinned guard is not the match re-run
- * the premise carries it explicitly (§8 review, failure 1).
+ * for matches, `buildUpdate` / `buildInsert` / `buildDelete` / the bulk builders
+ * for row asserts and retracts, `JunctionStatements` for reference rows,
+ * `referenceSql` for reference cells, `compileBindBudgetChunks` for the bulk
+ * fold, `buildMutationProjectionFold` for the returning-dialect create folds.
+ * Premises become the batch guards the current Parts emit; where the pinned
+ * guard is not the match re-run the premise carries it explicitly (§8 review).
+ *
+ * The packer's one table is {@link Packing.edgeOf}: which row holds the
+ * reference (the parent, the target, or a reference row of its own). Every
+ * statement shape below is keyed by that storage fact plus what the row does
+ * (matches, asserts, retracts, at a fresh or a bound key). `Row.verb` is read
+ * for LABELS and MESSAGES only, as K1 permits.
  *
  * Every refusal here is a packing-time refusal (§7.4): it runs after legality
  * and keeps today's class and message.
  */
-import { NestedWriteError, NotFoundError } from "@errors";
+import { getAdapterInternals } from "@adapters/adapter-internals";
+import { NestedWriteError, NotFoundError, QueryEngineError } from "@errors";
 import type { Model } from "@schema/model";
-import { getColumnName } from "@schema/model";
+import { getColumnName, getTableName } from "@schema/model";
+import { isSql, type Sql } from "@sql";
 import { compileBindBudgetChunks } from "../bind-budget";
 import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { bindRelation } from "../builders/relation-data-builder";
-import { createQueryScope, lookupRelation } from "../context/query-scope";
+import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
+import {
+  bindRelation,
+  buildConnectSubqueryForField,
+  type JunctionBoundRelation,
+} from "../builders/relation-data-builder";
+import { buildInsert } from "../builders/values-builder";
+import {
+  createQueryScope,
+  getDefaultScalarFieldNames,
+  lookupRelation,
+  variantCarrier,
+} from "../context/query-scope";
 import { JunctionStatements } from "../JunctionStatements";
 import {
   buildCreate,
+  buildCreateManyPlan,
   buildDelete,
+  buildDeleteMany,
+  buildDeleteManyAndReturn,
   buildFind,
   buildFindUnique,
+  buildInsertStatement,
+  buildMutationProjectionFold,
   buildUpdate,
+  buildUpdateMany,
+  buildUpdateManyAndReturn,
+  buildUpdateStatement,
+  buildUpsert,
+  compileMutationDependencyFold,
 } from "../operations";
 import type { QueryEngine } from "../query-engine";
-import type { QueryScope } from "../types";
+import type { QueryScope, RelationRef } from "../types";
 import { createRacePin } from "../write-engine/create-race-pin";
 import {
   affectedRows,
@@ -40,13 +70,22 @@ import {
   notFoundFailure,
   presenceGuard,
   queryFailure,
+  referenceScalarSql,
   referenceSql,
 } from "../write-engine/fragment-builders";
-import { relationTargetNotFound } from "../write-engine/messages";
+import { linkGroupSelector } from "../write-engine/link-target-groups";
 import {
+  nestedReplacement,
+  relationTargetNotFound,
+  upsertPremiseChanged,
+} from "../write-engine/messages";
+import {
+  type Failure,
   type GuardStep,
   type OperationStep,
+  type OperationValueReference,
   ref,
+  type StatementOutputSource,
   type StatementStep,
   type WriteStep,
 } from "../write-engine/OperationFragment";
@@ -56,11 +95,13 @@ import { parseCapturedRows } from "../write-engine/series-result-read";
 import {
   capturedSelectorWhere,
   getStepModelName,
-  uniqueSelectorConjuncts,
+  projectionReadsAnyTable,
+  projectionReadsMutatedModel,
+  setCanFireReferentialAction,
 } from "../write-engine/shared";
-import { referenceCells } from "./cells";
 import type { BoundPremise, Fragment, Premise, Program } from "./fragment";
 import { StepIds, stepLabels } from "./ids";
+import { buildMatch, lowerPredicate } from "./match";
 import type {
   Cell,
   Pattern,
@@ -93,15 +134,35 @@ export function pack(
 }
 
 // ---------------------------------------------------------------------------
-// Row ids — the label scheme, allocated in payload order (§12.3, F17)
+// Row facts
 // ---------------------------------------------------------------------------
 
-interface RowIds {
-  readonly match?: string;
-  readonly write?: string;
-  readonly guard?: string;
-  readonly select?: string;
+/** Which row stores the reference a target hangs from (the one storage fact). */
+interface Edge {
+  readonly kind: "parentHeld" | "childHeld" | "junction";
+  /** The reference between the target and its parent (for a junction: to the target). */
+  readonly reference: Reference;
+  readonly parent: RowId;
+  readonly target: RowId;
+  /** A junction's reference row and its reference to the parent. */
+  readonly junction?: RowId;
+  readonly toParent?: Reference;
 }
+
+interface RowIds {
+  match?: string;
+  write?: string;
+  guard?: string;
+  select?: string;
+  /** Extra labelled steps a family emits beside the row's own three. */
+  extra: Record<string, string>;
+}
+
+type Where = Record<string, unknown>;
+
+// ---------------------------------------------------------------------------
+// The packer
+// ---------------------------------------------------------------------------
 
 class Packing {
   private readonly pattern: Pattern;
@@ -115,7 +176,11 @@ class Packing {
   >();
   private readonly generated = new Map<VariableId, unknown>();
   private readonly matchSteps = new Map<RowId, StatementStep>();
+  private readonly edges = new Map<RowId, Edge>();
   private readonly rootName: string;
+  private readonly root: Row;
+  /** Rows folded into an earlier row's statement (a group probe, a set clear). */
+  private readonly folded = new Set<RowId>();
 
   private readonly scheduled: Scheduled;
   private readonly engine: QueryEngine;
@@ -139,10 +204,12 @@ class Packing {
     }
     for (const cell of this.pattern.cells) this.cells.get(cell.row)?.push(cell);
     this.txMode = scheduled.substrate.supportsTransactions;
-    this.rootName = getStepModelName(
-      this.row(this.pattern.root).table.model,
-      "parent"
-    );
+    this.root = this.row(this.pattern.root);
+    this.rootName = getStepModelName(this.root.table.model, "parent");
+    for (const row of this.pattern.rows) {
+      const edge = this.computeEdge(row);
+      if (edge) this.edges.set(row.id, edge);
+    }
     this.allocateIds();
   }
 
@@ -155,106 +222,496 @@ class Packing {
     return row;
   }
 
-  private holderReferences(row: RowId): Reference[] {
-    return this.pattern.references.filter((r) => r.holder === row);
+  private cellsOf(id: RowId): readonly Cell[] {
+    return this.cells.get(id) ?? [];
   }
 
-  private referencesTo(row: RowId): Reference[] {
-    return this.pattern.references.filter((r) => r.referenced === row);
-  }
-
-  /** A row holding nothing but references (D1's junction row; K1 `TableRef.referenceRow`). */
   private isJunction(row: Row): boolean {
     return row.table.referenceRow === true;
   }
 
-  private relationField(row: RowId): string {
-    const reference =
-      this.pattern.references.find(
-        (r) =>
-          (r.referenced === row || r.holder === row) &&
-          r.holder !== r.referenced
-      ) ?? undefined;
-    return reference?.relation.field ?? this.pattern.operation;
+  private isRoot(row: Row): boolean {
+    return row.id === this.pattern.root;
+  }
+
+  private get capabilities() {
+    return this.engine.adapter.capabilities;
+  }
+
+  private get returning(): boolean {
+    return this.capabilities.supportsReturning;
+  }
+
+  /**
+   * The edge a target row hangs from. A junction row's two references name the
+   * parent (constructed first, the smaller id) and the target.
+   */
+  private computeEdge(row: Row): Edge | undefined {
+    if (this.isRoot(row) || this.isJunction(row)) return undefined;
+    for (const reference of this.pattern.references) {
+      if (reference.holder === reference.referenced) continue;
+      const holder = this.row(reference.holder);
+      if (this.isJunction(holder)) {
+        if (reference.referenced !== row.id) continue;
+        const other = this.pattern.references.find(
+          (r) => r.holder === holder.id && r !== reference
+        );
+        if (!other || other.referenced === row.id) continue;
+        // The parent is the endpoint constructed first.
+        if (other.referenced > row.id) continue;
+        return {
+          kind: "junction",
+          reference,
+          parent: other.referenced,
+          target: row.id,
+          junction: holder.id,
+          toParent: other,
+        };
+      }
+      if (reference.holder === row.id && reference.referenced < row.id) {
+        return {
+          kind: "childHeld",
+          reference,
+          parent: reference.referenced,
+          target: row.id,
+        };
+      }
+      if (reference.referenced === row.id && reference.holder < row.id) {
+        return {
+          kind: "parentHeld",
+          reference,
+          parent: reference.holder,
+          target: row.id,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /** A junction row whose target is absent (a set's clear, an untargeted retract). */
+  private junctionParentEdge(junction: Row): Reference | undefined {
+    const references = this.pattern.references.filter(
+      (r) => r.holder === junction.id
+    );
+    if (references.length === 0) return undefined;
+    return references.reduce((a, b) => (a.referenced <= b.referenced ? a : b));
+  }
+
+  private edge(row: RowId): Edge | undefined {
+    return this.edges.get(row);
   }
 
   private childName(row: Row): string {
-    return getStepModelName(row.table.model, this.relationField(row.id));
+    const edge = this.edge(row.id);
+    return getStepModelName(
+      row.table.model,
+      edge?.reference.relation.field ?? this.pattern.operation
+    );
   }
 
   private node(row: RowId, kind: Node["kind"]): Node | undefined {
     return this.scheduled.nodes.find((n) => n.row === row && n.kind === kind);
   }
 
-  /**
-   * The label sequences the current constructors allocate, per row shape, in
-   * payload order. See ids.ts for the inventory.
-   */
-  private allocateIds(): void {
-    const root = this.row(this.pattern.root);
-    const rootMatch = this.node(root.id, "match");
-    const rootIds: {
-      match?: string;
-      write?: string;
-      guard?: string;
-      select?: string;
-    } = {};
-    if (rootMatch)
-      rootIds.match = this.ids.allocate(stepLabels.locate(this.rootName));
-    if (root.mode === "retract") {
-      rootIds.write = this.ids.allocate(stepLabels.delete(this.rootName));
-    } else if (root.fresh) {
-      rootIds.write = this.ids.allocate(stepLabels.create(this.rootName));
-    } else if (this.node(root.id, "assert")) {
-      rootIds.write = this.ids.allocate(stepLabels.update(this.rootName));
-    }
-    if (this.pattern.projection) {
-      rootIds.select = this.ids.allocate(stepLabels.select(this.rootName));
-    }
-    if (rootMatch)
-      rootIds.guard = this.ids.allocate(stepLabels.guardExists(this.rootName));
-    this.rowIds.set(root.id, rootIds);
+  private verb(row: Row): string {
+    return row.verb ?? "";
+  }
 
-    for (const row of this.pattern.rows) {
-      if (row.id === root.id || this.isJunction(row)) continue;
-      const child = this.childName(row);
-      const ids: { match?: string; write?: string; guard?: string } = {};
-      const matched = this.node(row.id, "match") !== undefined;
-      const referencedByJunction = this.referencesTo(row.id).some((r) =>
-        this.isJunction(this.row(r.holder))
+  private retractCells(row: Row): readonly Cell[] {
+    return this.cellsOf(row.id).filter((cell) => cell.mode === "retract");
+  }
+
+  private matchCells(row: Row): readonly Cell[] {
+    return this.cellsOf(row.id).filter((cell) => cell.mode === "match");
+  }
+
+  private stepModel(model: Model<any>): string {
+    return getStepModelName(model, "record");
+  }
+
+  /** Same parent, same relation: one Part's worth of targets. */
+  private sameEdgeGroup(a: Row, b: Row): boolean {
+    const ea = this.edge(a.id);
+    const eb = this.edge(b.id);
+    return (
+      ea !== undefined &&
+      eb !== undefined &&
+      ea.kind === eb.kind &&
+      ea.parent === eb.parent &&
+      ea.reference.relation.field === eb.reference.relation.field &&
+      this.verb(a) === this.verb(b) &&
+      a.arm === b.arm
+    );
+  }
+
+  // -- ids (payload order, the label scheme — §12.3) ----------------------
+
+  private extra(row: RowId, key: string, label: string): void {
+    const ids = this.rowIds.get(row) ?? { extra: {} };
+    ids.extra[key] = this.ids.allocate(label);
+    this.rowIds.set(row, ids);
+  }
+
+  private allocateIds(): void {
+    const root = this.root;
+    const rootIds: RowIds = { extra: {} };
+    const op = this.pattern.operation;
+    const name = this.rootName;
+    if (op === "create") {
+      rootIds.select = this.ids.allocate(stepLabels.select(name));
+      rootIds.write = this.ids.allocate(stepLabels.create(name));
+    } else if (op === "update") {
+      rootIds.match = this.ids.allocate(stepLabels.locate(name));
+      rootIds.write = this.ids.allocate(stepLabels.update(name));
+      rootIds.select = this.ids.allocate(stepLabels.select(name));
+      rootIds.guard = this.ids.allocate(stepLabels.guardExists(name));
+    } else if (op === "delete") {
+      rootIds.match = this.ids.allocate(stepLabels.locate(name));
+      rootIds.extra.read = this.ids.allocate(`${name}.read`);
+      rootIds.write = this.ids.allocate(stepLabels.delete(name));
+      rootIds.guard = this.ids.allocate(stepLabels.guardExists(name));
+    } else if (op === "upsert") {
+      rootIds.match = this.ids.allocate(stepLabels.locate(name));
+      rootIds.write = this.ids.allocate(`${name}.upsert`);
+      rootIds.select = this.ids.allocate(stepLabels.select(name));
+      rootIds.guard = this.ids.allocate(stepLabels.guardExists(name));
+    } else if (op === "updateMany" || op === "deleteMany") {
+      rootIds.write = this.ids.allocate(op);
+    } else if (op === "updateManyAndReturn" || op === "deleteManyAndReturn") {
+      rootIds.write = this.ids.allocate(
+        `${name}.${op === "updateManyAndReturn" ? "updateManyReturn" : "deleteManyReturn"}`
       );
-      const holdsReference = this.holderReferences(row.id).length > 0;
-      if (row.mode === "match" && referencedByJunction) {
-        // RelationJunctionPart.buildTargetSlot: find, guard.exists, <kind>, delete.child
-        ids.match = this.ids.allocate(stepLabels.find(child));
-        ids.guard = this.ids.allocate(stepLabels.guardExists(child));
-        ids.write = this.ids.allocate(stepLabels.connect(child));
-        this.ids.allocate(stepLabels.deleteChild(child));
-      } else if (row.mode === "match") {
-        // RecordUpdateCompiler.interpretToOneLink: find, guard.exists (the FK folds)
-        ids.match = this.ids.allocate(stepLabels.find(child));
-        ids.guard = this.ids.allocate(stepLabels.guardExists(child));
-      } else if (row.fresh) {
-        ids.write = this.ids.allocate(stepLabels.create(child));
-      } else if (matched && holdsReference) {
-        // RelationLinkPart: find, connect, guard.exists
-        ids.match = this.ids.allocate(stepLabels.find(child));
-        ids.write = this.ids.allocate(stepLabels.connect(child));
-        ids.guard = this.ids.allocate(stepLabels.guardExists(child));
-      } else {
-        if (matched) ids.match = this.ids.allocate(stepLabels.find(child));
-        ids.write = this.ids.allocate(
-          row.mode === "retract"
-            ? stepLabels.delete(child)
-            : stepLabels.update(child)
-        );
-        ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+    }
+    this.rowIds.set(root.id, rootIds);
+    if (op.startsWith("createMany")) {
+      // Every member row of the bulk create shares the root's statements.
+      for (const member of this.createManyRows()) {
+        if (member.id !== root.id) this.folded.add(member.id);
       }
-      this.rowIds.set(row.id, ids);
+    }
+
+    const done = new Set<RowId>();
+    for (const row of this.pattern.rows) {
+      if (this.isRoot(row) || this.isJunction(row) || done.has(row.id)) {
+        continue;
+      }
+      const edge = this.edge(row.id);
+      if (!edge) {
+        // A top-level fresh row beside the root (createMany's members).
+        this.rowIds.set(row.id, { extra: {} });
+        continue;
+      }
+      const verb = this.verb(row);
+      if (verb === "set") {
+        // Targets first, then the departure row (today's Part allocation).
+        const members = this.pattern.rows.filter(
+          (r) =>
+            !(this.isJunction(r) || done.has(r.id)) &&
+            this.edge(r.id)?.parent === edge.parent &&
+            this.edge(r.id)?.reference.relation.field ===
+              edge.reference.relation.field &&
+            this.verb(r) === "set"
+        );
+        const departing = members.filter((r) => r.cardinality === "set");
+        const targets = members.filter((r) => r.cardinality !== "set");
+        for (const target of targets) {
+          this.allocateTarget(target, this.edge(target.id)!);
+          done.add(target.id);
+        }
+        for (const departure of departing) {
+          const child = this.childName(departure);
+          if (edge.kind === "junction") {
+            this.extra(departure.id, "clear", stepLabels.setClear(child));
+            this.extra(departure.id, "insert", stepLabels.setInsert(child));
+          } else {
+            this.extra(departure.id, "departing", `${child}.departing`);
+            this.extra(
+              departure.id,
+              "departingGuard",
+              `${child}.guard.departing`
+            );
+            this.extra(departure.id, "orphan", `${child}.orphan`);
+          }
+          done.add(departure.id);
+        }
+        continue;
+      }
+      if (
+        edge.kind === "childHeld" &&
+        verb === "connect" &&
+        row.mode === "match"
+      ) {
+        // One Part per key-shape group: find, connect, guard.exists × N.
+        const group = this.pattern.rows.filter(
+          (r) => !done.has(r.id) && this.sameEdgeGroup(row, r)
+        );
+        const child = this.childName(row);
+        const ids: RowIds = { extra: {} };
+        ids.match = this.ids.allocate(stepLabels.find(child));
+        ids.write = this.ids.allocate(stepLabels.connect(child));
+        this.rowIds.set(row.id, ids);
+        for (const member of group) {
+          const memberIds =
+            member.id === row.id ? ids : ({ extra: {} } as RowIds);
+          memberIds.guard = this.ids.allocate(stepLabels.guardExists(child));
+          if (member.id !== row.id) {
+            memberIds.match = ids.match;
+            memberIds.write = ids.write;
+            this.folded.add(member.id);
+            this.rowIds.set(member.id, memberIds);
+          }
+          done.add(member.id);
+        }
+        continue;
+      }
+      this.allocateTarget(row, edge);
+      done.add(row.id);
     }
   }
 
-  private idOf(row: RowId, which: keyof RowIds): string {
+  private allocateTarget(row: Row, edge: Edge): void {
+    const child = this.childName(row);
+    const verb = this.verb(row);
+    const ids: RowIds = { extra: {} };
+    const matched = row.mode !== "assert" || this.node(row.id, "match");
+    const untargeted = row.predicate === undefined;
+    if (edge.kind === "junction") {
+      switch (verb) {
+        case "connect":
+        case "set":
+        case "delete":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          ids.write = this.ids.allocate(`${child}.${verb}`);
+          ids.extra.child = this.ids.allocate(stepLabels.deleteChild(child));
+          break;
+        case "update":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(stepLabels.update(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          ids.extra.child = this.ids.allocate(stepLabels.deleteChild(child));
+          break;
+        case "disconnect":
+          ids.write = this.ids.allocate(stepLabels.disconnect(child));
+          break;
+        case "deleteMany":
+          ids.match = this.ids.allocate(`${child}.members`);
+          ids.extra.added = this.ids.allocate(`${child}.guard.added`);
+          ids.extra.removed = this.ids.allocate(`${child}.guard.removed`);
+          ids.extra.junctionDelete = this.ids.allocate(
+            stepLabels.junctionDelete(child)
+          );
+          ids.write = this.ids.allocate(`${child}.deleteMany`);
+          break;
+        case "updateMany":
+          ids.write = this.ids.allocate(`${child}.updateMany`);
+          break;
+        case "connectOrCreate":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.extra.create = this.ids.allocate(stepLabels.create(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          ids.write = this.ids.allocate(stepLabels.junctionInsert(child));
+          break;
+        case "upsert":
+          ids.extra.member = this.ids.allocate(`${child}.member`);
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.extra.create = this.ids.allocate(stepLabels.create(child));
+          ids.extra.update = this.ids.allocate(stepLabels.update(child));
+          ids.guard = this.ids.allocate(`${child}.guard.member`);
+          ids.write = this.ids.allocate(stepLabels.junctionInsert(child));
+          break;
+        default:
+          // create / createMany: the fresh target, then its reference row.
+          ids.write = this.ids.allocate(stepLabels.create(child));
+          ids.extra.join = this.ids.allocate(stepLabels.junctionInsert(child));
+          break;
+      }
+    } else if (edge.kind === "parentHeld") {
+      switch (verb) {
+        case "connect":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          break;
+        case "delete":
+          this.extra(edge.parent, "fknull", "parent.fknull");
+          ids.write = this.ids.allocate(stepLabels.delete(child));
+          break;
+        case "update":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(stepLabels.update(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          break;
+        case "upsert":
+          if (row.fresh) {
+            ids.write = this.ids.allocate(stepLabels.create(child));
+          } else {
+            ids.match = this.ids.allocate(stepLabels.find(child));
+            ids.write = this.ids.allocate(stepLabels.update(child));
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          }
+          break;
+        case "connectOrCreate":
+          if (row.fresh) {
+            ids.write = this.ids.allocate(stepLabels.create(child));
+          } else {
+            ids.match = this.ids.allocate(stepLabels.find(child));
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          }
+          break;
+        case "create":
+          ids.write = this.ids.allocate(stepLabels.create(child));
+          break;
+        default:
+          break;
+      }
+    } else {
+      switch (verb) {
+        case "disconnect":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(stepLabels.disconnect(child));
+          if (!untargeted) {
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          }
+          break;
+        case "delete":
+          if (untargeted) {
+            ids.match = this.ids.allocate(stepLabels.find(child));
+            ids.write = this.ids.allocate(`${child}.deleteMany`);
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          } else {
+            ids.match = this.ids.allocate(stepLabels.find(child));
+            ids.write = this.ids.allocate(stepLabels.delete(child));
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          }
+          break;
+        case "update":
+        case "deleteMany":
+        case "updateMany":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(`${child}.${verb}`);
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          break;
+        case "set":
+          ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(`${child}.set`);
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          break;
+        case "connectOrCreate":
+        case "upsert":
+          if (row.fresh) {
+            ids.write = this.ids.allocate(stepLabels.create(child));
+          } else {
+            ids.match = this.ids.allocate(stepLabels.find(child));
+            // The missing arm's fresh row is allocated by its own row.
+            ids.write = this.ids.allocate(stepLabels.update(child));
+            ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          }
+          break;
+        case "createMany":
+          ids.write = this.ids.allocate(`${child}.createMany`);
+          break;
+        case "create":
+          ids.write = this.ids.allocate(stepLabels.create(child));
+          break;
+        default:
+          if (matched) ids.match = this.ids.allocate(stepLabels.find(child));
+          ids.write = this.ids.allocate(stepLabels.update(child));
+          ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+          break;
+      }
+    }
+    // Total by construction: a row the families above did not spell still
+    // gets every id its own nodes need, so no shape can reach a missing id.
+    if (!ids.match && this.node(row.id, "match")) {
+      ids.match = this.ids.allocate(stepLabels.find(child));
+    }
+    if (
+      !ids.write &&
+      (this.node(row.id, "assert") || this.node(row.id, "retract"))
+    ) {
+      ids.write = this.ids.allocate(
+        row.fresh
+          ? stepLabels.create(child)
+          : row.mode === "retract"
+            ? stepLabels.delete(child)
+            : stepLabels.update(child)
+      );
+    }
+    if (!ids.guard && ids.match) {
+      ids.guard = this.ids.allocate(stepLabels.guardExists(child));
+    }
+    // A merge's arms share one match: the fresh (missing) row reads the
+    // decision row's ids.
+    this.rowIds.set(row.id, ids);
+  }
+
+  /**
+   * Whether a row's match is EMITTED as a statement. Today's owners allocate a
+   * probe id for families that never send one (a correlated bulk verb, a
+   * targetless disconnect, a parent-held delete), so allocation and emission
+   * are two questions: the label keeps the `#n` sequence, this decides the SQL.
+   */
+  private packsMatch(row: Row): boolean {
+    if (this.isRoot(row)) {
+      const op = this.pattern.operation;
+      if (op === "create" || op.startsWith("createMany")) return false;
+      if (op.startsWith("updateMany") || op.startsWith("deleteMany")) {
+        // The predicate rides the one bulk statement; there is no locate.
+        return false;
+      }
+      if (op === "delete" && this.deleteFolds()) return false;
+      if (op === "update" && this.updateFolds()) return false;
+      return true;
+    }
+    const edge = this.edge(row.id);
+    if (!edge) return false;
+    const verb = this.verb(row);
+    if (row.fresh) return false;
+    if (verb === "create" || verb === "createMany") return false;
+    if (edge.kind === "junction") {
+      // A junction disconnect deletes by target subquery; a bulk verb rides
+      // its own membership predicate.
+      return verb !== "disconnect" && verb !== "updateMany";
+    }
+    if (edge.kind === "parentHeld") {
+      // Only a target named by its own selector, or a member the arm must
+      // decide on, is probed; a delete/disconnect inlines the parent's cells.
+      return (
+        verb === "connect" ||
+        verb === "connectOrCreate" ||
+        verb === "update" ||
+        verb === "upsert"
+      );
+    }
+    // child-held: the bulk verbs correlate inline, an untargeted disconnect
+    // needs no probe, and a `set` departure is read only when it cannot be
+    // nulled (the required-FK orphan refusal).
+    if (verb === "updateMany" || verb === "deleteMany") return false;
+    if (verb === "disconnect" && !row.predicate) return false;
+    if (verb === "set" && row.cardinality === "set") {
+      return !edge.reference.nullable;
+    }
+    if (verb === "delete" && !row.predicate) return false;
+    return true;
+  }
+
+  /** The terminal read is the root's own step only where today emits one. */
+  private packsTerminal(): boolean {
+    const op = this.pattern.operation;
+    if (op === "delete") return false;
+    if (op.startsWith("createMany") || op.startsWith("updateMany"))
+      return false;
+    if (op.startsWith("deleteMany")) return false;
+    if (op === "create") return !this.createFolds();
+    if (op === "update") return !this.updateFolds();
+    if (op === "upsert") return false;
+    return true;
+  }
+
+  private idOf(
+    row: RowId,
+    which: "match" | "write" | "guard" | "select"
+  ): string {
     const id = this.rowIds.get(row)?.[which];
     if (!id) {
       throw new Error(
@@ -262,6 +719,23 @@ class Packing {
       );
     }
     return id;
+  }
+
+  private extraId(row: RowId, key: string): string {
+    const id = this.rowIds.get(row)?.extra[key];
+    if (!id) {
+      throw new Error(
+        `query-engine pattern: row ${row} has no '${key}' step id`
+      );
+    }
+    return id;
+  }
+
+  /** The decision row a merge arm's row shares its match with. */
+  private decisionOf(row: Row): Row | undefined {
+    if (row.arm === undefined) return undefined;
+    const arm = this.pattern.arms.find((a) => a.id === row.arm);
+    return arm ? this.row(arm.decision) : undefined;
   }
 
   // -- values ---------------------------------------------------------------
@@ -281,30 +755,85 @@ class Packing {
     return getPrimaryKeyFields(row.table.model);
   }
 
+  private select(fields: readonly string[]): Record<string, boolean> {
+    return Object.fromEntries(fields.map((field) => [field, true]));
+  }
+
   private keySelect(row: Row): Record<string, boolean> {
-    return Object.fromEntries(
-      this.keyFields(row).map((field) => [field, true])
-    );
+    return this.select(this.keyFields(row));
+  }
+
+  /** The fields a row's match publishes: its key plus the parent's fields it binds. */
+  private matchFields(row: Row): readonly string[] {
+    const fields = [...this.keyFields(row)];
+    for (const cell of this.matchCells(row)) {
+      const field = this.fieldOf(row.table.model, cell.column);
+      if (!fields.includes(field)) fields.push(field);
+    }
+    return fields;
+  }
+
+  /** The row a variable's `matched` binding reads, and the field on it. */
+  private matchSource(
+    variable: Variable
+  ): { row: Row; field: string } | undefined {
+    const { binding } = variable;
+    if (binding.kind !== "matched") return undefined;
+    const row = this.row(binding.row);
+    return { row, field: this.fieldOf(row.table.model, binding.column) };
+  }
+
+  /**
+   * Where a matched variable is PUBLISHED: the row's own match step, or — for a
+   * row matched through the parent's reference cells (a parent-held target) —
+   * the parent's locate, which selects those cells.
+   */
+  private publisher(row: Row): { step: string; row: Row } | undefined {
+    const own = this.rowIds.get(row.id)?.match;
+    if (own && this.node(row.id, "match")) return { step: own, row };
+    const edge = this.edge(row.id);
+    if (edge?.kind === "parentHeld") {
+      const parent = this.row(edge.parent);
+      const parentStep = this.rowIds.get(parent.id)?.match;
+      if (parentStep) return { step: parentStep, row: parent };
+    }
+    return undefined;
   }
 
   /** The decoded first row of a match, through the existing captured-row parser. */
-  private matchedRow(row: RowId): Record<string, unknown> | undefined {
-    if (this.decoded.has(row)) return this.decoded.get(row);
-    const target = this.row(row);
-    const raw = this.known?.[planningKey(this.idOf(row, "match"), "rows")];
+  private matchedRow(row: Row): Record<string, unknown> | undefined {
+    if (this.decoded.has(row.id)) return this.decoded.get(row.id);
+    const source = this.publisher(row);
+    const raw = source ? this.known?.[planningKey(source.step, "rows")] : [];
     const rows = Array.isArray(raw)
       ? parseCapturedRows(
           this.engine,
-          target.table.model,
+          (source ?? { row }).row.table.model,
           raw,
-          this.keySelect(target)
+          this.select(this.matchFields((source ?? { row }).row))
         )
       : [];
-    this.decoded.set(row, rows[0]);
+    this.decoded.set(row.id, rows[0]);
     return rows[0];
   }
 
-  private value(variable: Variable): unknown {
+  /** The value at the parent's reference cell for a parent-held target. */
+  private parentHeldValue(row: Row, field: string, planning: boolean): unknown {
+    const edge = this.edge(row.id);
+    if (edge?.kind !== "parentHeld") return undefined;
+    const parent = this.row(edge.parent);
+    const pair = edge.reference.columns.find(
+      (c) => this.fieldOf(row.table.model, c.referencedColumn) === field
+    );
+    if (!pair) return undefined;
+    const parentField = this.fieldOf(parent.table.model, pair.holderColumn);
+    const step = this.rowIds.get(parent.id)?.match;
+    if (!step) return undefined;
+    if (planning || !this.known) return ref(step, parentField);
+    return this.matchedRow(parent)?.[parentField];
+  }
+
+  private value(variable: Variable, planning = false): unknown {
     const { binding } = variable;
     switch (binding.kind) {
       case "literal":
@@ -316,19 +845,28 @@ class Packing {
         return this.generated.get(variable.id);
       }
       case "matched": {
-        const field = this.fieldOf(
-          this.row(binding.row).table.model,
-          binding.column
-        );
-        if (!this.known) return ref(this.idOf(binding.row, "match"), field);
-        const row = this.matchedRow(binding.row);
+        const source = this.matchSource(variable)!;
+        const own = this.rowIds.get(source.row.id)?.match;
+        if (!(own && this.node(source.row.id, "match"))) {
+          const inherited = this.parentHeldValue(
+            source.row,
+            source.field,
+            planning
+          );
+          if (inherited !== undefined) return inherited;
+        }
+        if (planning || !this.known) {
+          return ref(this.idOf(source.row.id, "match"), source.field);
+        }
+        const row = this.matchedRow(source.row);
         if (!row) {
+          const field = this.edge(source.row.id)?.reference.relation.field;
           throw new NestedWriteError(
-            `query-engine-v2 ${this.pattern.operation} for relation '${this.relationField(binding.row)}' could not resolve its parent id.`,
-            this.relationField(binding.row)
+            `query-engine-v2 ${this.pattern.operation} for relation '${field ?? this.pattern.operation}' could not resolve its parent id.`,
+            field ?? this.pattern.operation
           );
         }
-        return row[field];
+        return row[source.field];
       }
       case "returned":
         return ref(
@@ -342,21 +880,19 @@ class Packing {
 
   private keyValues(
     row: Row,
-    key: readonly Variable[] = row.key
+    key: readonly Variable[] = row.key,
+    planning = false
   ): Record<string, unknown> {
     const fields = this.keyFields(row);
     const values: Record<string, unknown> = {};
     key.forEach((variable, index) => {
       const field = fields[index];
-      if (field !== undefined) values[field] = this.value(variable);
+      if (field !== undefined) values[field] = this.value(variable, planning);
     });
     return values;
   }
 
-  private keyWhere(
-    row: Row,
-    key: readonly Variable[] = row.key
-  ): Record<string, unknown> {
+  private keyWhere(row: Row, key: readonly Variable[] = row.key): Where {
     return buildPrimaryKeyWhereUnique(
       row.table.model,
       this.keyValues(row, key)
@@ -365,20 +901,73 @@ class Packing {
 
   // -- predicates -----------------------------------------------------------
 
-  private whereOf(
+  private literalLeaves(
+    model: Model<any>,
+    predicate: Predicate | undefined,
+    out: Record<string, unknown>
+  ): boolean {
+    if (!predicate) return true;
+    if (predicate.kind === "scalar") {
+      if (predicate.operator !== "equals" || Array.isArray(predicate.operand)) {
+        return false;
+      }
+      out[this.fieldOf(model, predicate.column)] = this.value(
+        predicate.operand as Variable
+      );
+      return true;
+    }
+    if (predicate.kind === "and") {
+      return predicate.items.every((item) =>
+        this.literalLeaves(model, item, out)
+      );
+    }
+    return false;
+  }
+
+  /**
+   * A row's unique selector as the public `whereUnique` object — exactly the
+   * spelling the caller wrote (bare values, compound keys nested under their
+   * constraint name), which is what keeps `buildFindUnique` byte-identical.
+   */
+  private selectorWhere(row: Row): Where | undefined {
+    const values: Record<string, unknown> = {};
+    if (!this.literalLeaves(row.table.model, row.predicate, values)) {
+      return undefined;
+    }
+    const fields = Object.keys(values);
+    if (fields.length === 0) return undefined;
+    const keys = this.keyFields(row);
+    if (
+      keys.length > 1 &&
+      keys.every((field) => fields.includes(field)) &&
+      fields.length === keys.length
+    ) {
+      return buildPrimaryKeyWhereUnique(row.table.model, values);
+    }
+    return values;
+  }
+
+  /** The selector as equality conjuncts (`{ id: { equals } }` each). */
+  private selectorConjuncts(row: Row): Where[] {
+    const values: Record<string, unknown> = {};
+    this.literalLeaves(row.table.model, row.predicate, values);
+    return Object.entries(values).map(([field, value]) => ({
+      [field]: { equals: value },
+    }));
+  }
+
+  /** A non-unique filter, in the validated operation-object spelling. */
+  private filterWhere(
     model: Model<any>,
     predicate: Predicate | undefined
-  ): Record<string, unknown> {
-    if (!predicate) return {};
+  ): Where | undefined {
+    if (!predicate) return undefined;
     switch (predicate.kind) {
       case "scalar": {
         const field = this.fieldOf(model, predicate.column);
         const operand = Array.isArray(predicate.operand)
           ? (predicate.operand as readonly Variable[]).map((v) => this.value(v))
           : this.value(predicate.operand as Variable);
-        if (predicate.operator === "equals" && predicate.mode === undefined) {
-          return { [field]: operand };
-        }
         return {
           [field]: {
             [predicate.operator]: operand,
@@ -387,9 +976,12 @@ class Packing {
         };
       }
       case "and": {
-        const items = predicate.items.map((item) => this.whereOf(model, item));
-        const merged: Record<string, unknown> = {};
-        for (const item of items) {
+        const items = predicate.items.map((item) =>
+          this.filterWhere(model, item)
+        );
+        if (items.some((item) => item === undefined)) return undefined;
+        const merged: Where = {};
+        for (const item of items as Where[]) {
           for (const [key, value] of Object.entries(item)) {
             if (Object.hasOwn(merged, key)) return { AND: items };
             merged[key] = value;
@@ -397,27 +989,48 @@ class Packing {
         }
         return merged;
       }
-      case "or":
-        return { OR: predicate.items.map((item) => this.whereOf(model, item)) };
-      case "not":
-        return { NOT: this.whereOf(model, predicate.item) };
-      default:
-        throw new Error(
-          `query-engine pattern: predicate kind '${predicate.kind}' is not packable yet`
+      case "or": {
+        const items = predicate.items.map((item) =>
+          this.filterWhere(model, item)
         );
+        return items.some((item) => item === undefined)
+          ? undefined
+          : { OR: items };
+      }
+      case "not": {
+        const item = this.filterWhere(model, predicate.item);
+        return item === undefined ? undefined : { NOT: item };
+      }
+      default:
+        return undefined;
     }
   }
 
-  private isUniqueSelector(
-    scope: QueryScope,
-    where: Record<string, unknown>
-  ): boolean {
-    try {
-      uniqueSelectorConjuncts(scope, where);
-      return true;
-    } catch {
-      return false;
+  private hasRelationLeaf(predicate: Predicate | undefined): boolean {
+    if (!predicate) return false;
+    switch (predicate.kind) {
+      case "relation":
+      case "structural":
+        return true;
+      case "and":
+      case "or":
+        return predicate.items.some((item) => this.hasRelationLeaf(item));
+      case "not":
+        return this.hasRelationLeaf(predicate.item);
+      default:
+        return false;
     }
+  }
+
+  /** Membership conjuncts: the target's reference cells equal the parent's key. */
+  private membershipFilters(row: Row, planning: boolean): Where[] {
+    const edge = this.edge(row.id);
+    if (!edge || edge.kind !== "childHeld") return [];
+    return this.matchCells(row).map((cell) => ({
+      [this.fieldOf(row.table.model, cell.column)]: {
+        equals: this.value(cell.value, planning),
+      },
+    }));
   }
 
   // -- matches --------------------------------------------------------------
@@ -426,69 +1039,259 @@ class Packing {
     const row = this.row(node.row);
     const cached = this.matchSteps.get(row.id);
     if (cached) return cached;
-    const model = row.table.model;
-    const scope = this.scope(model);
-    const where = this.whereOf(model, row.predicate);
-    const select = this.keySelect(row);
-    const isRoot = row.id === this.pattern.root;
-    const statement = this.isUniqueSelector(scope, where)
-      ? buildFindUnique(scope, { where, select, forUpdate: this.txMode })
-      : buildFind(
-          scope,
-          { where, select, forUpdate: this.txMode },
-          { limit: 1 }
-        );
-    const step: StatementStep = {
-      id: this.idOf(row.id, "match"),
-      kind: "read",
-      ...(isRoot ? {} : { model: getStepModelName(model, "record") }),
-      statement,
-      outputs: {
-        rows: { kind: "rows" },
-        ...(node.required
-          ? Object.fromEntries(
-              this.keyFields(row).map((field) => [
-                field,
-                { kind: "firstRowField", field },
-              ])
-            )
-          : {}),
-      },
-      ...(node.required ? { expects: exactlyOneRow(this.rootNotFound()) } : {}),
-    };
+    const step = this.isRoot(row)
+      ? this.rootMatch(row)
+      : this.targetMatch(row, node);
     this.matchSteps.set(row.id, step);
     return step;
   }
 
-  private rootNotFound() {
+  private rootNotFound(): Failure {
     return notFoundFailure(
       `query-engine-v2 ${this.pattern.operation} located no '${this.rootName}' row for its unique where.`
     );
   }
 
-  private relationRefOf(reference: Reference) {
-    const scope = this.scope(reference.relation.model);
-    const relationRef = lookupRelation(scope, reference.relation.field);
-    if (!relationRef) {
-      throw new Error(
-        `query-engine pattern: relation '${reference.relation.field}' is not addressable`
-      );
+  private rootMatch(row: Row): StatementStep {
+    const scope = this.scope(row.table.model);
+    const where = this.selectorWhere(row) ?? {};
+    const fields = this.matchFields(row);
+    const upsert = this.pattern.operation === "upsert";
+    const isDelete = this.pattern.operation === "delete";
+    return {
+      id: this.idOf(row.id, "match"),
+      kind: "read",
+      statement: buildFindUnique(scope, {
+        where,
+        select: this.select(fields),
+        forUpdate: this.txMode,
+      }),
+      outputs: {
+        rows: { kind: "rows" },
+        ...(isDelete
+          ? {}
+          : Object.fromEntries(
+              fields.map((field) => [
+                field,
+                {
+                  kind: "firstRowField",
+                  field,
+                  ...(upsert ? { optional: true } : {}),
+                },
+              ])
+            )),
+      },
+      ...(upsert ? {} : { expects: exactlyOneRow(this.rootNotFound()) }),
+    };
+  }
+
+  private targetMatch(row: Row, node: Node): StatementStep {
+    const edge = this.edge(row.id)!;
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const verb = this.verb(row);
+    const selector = this.selectorWhere(row);
+    const membership = this.membershipFilters(row, true);
+    const id = this.idOf(row.id, "match");
+    const base = { id, kind: "read" as const, model: this.stepModel(model) };
+    const rows: Record<string, StatementOutputSource> = {
+      rows: { kind: "rows" },
+    };
+    if (edge.kind === "junction") {
+      if (verb === "delete" || verb === "update" || verb === "deleteMany") {
+        const { statements, bound } = this.junctionFor(edge.reference);
+        const membershipRead = statements.materialize(bound, "membershipRead", {
+          parentValue: this.keyValues(this.row(edge.parent), undefined, true),
+          ...(selector ? { whereUnique: selector, take: 1 } : {}),
+          ...(verb === "deleteMany"
+            ? { where: this.filterWhere(model, row.predicate) ?? {} }
+            : {}),
+          select: this.keySelect(row),
+          ...(this.txMode ? { lock: "transaction" } : {}),
+        });
+        return { ...base, statement: membershipRead, outputs: rows };
+      }
+      return {
+        ...base,
+        statement: buildFindUnique(scope, {
+          where: selector ?? {},
+          select: this.keySelect(row),
+          forUpdate: this.txMode,
+        }),
+        outputs: rows,
+      };
     }
-    return { scope, relationRef };
+    if (edge.kind === "parentHeld") {
+      if (selector) {
+        // connect / connectOrCreate: the target by its own unique.
+        const referencedFields = edge.reference.columns.map((c) =>
+          this.fieldOf(model, c.referencedColumn)
+        );
+        return {
+          ...base,
+          statement: buildFindUnique(scope, {
+            where: selector,
+            select: this.select(referencedFields),
+            forUpdate: this.txMode,
+          }),
+          outputs: rows,
+        };
+      }
+      // update / upsert: the current member, by the parent's reference cells.
+      const correlation: Where[] = edge.reference.columns.map((c) => ({
+        [this.fieldOf(model, c.referencedColumn)]: {
+          equals: this.parentHeldValue(
+            row,
+            this.fieldOf(model, c.referencedColumn),
+            true
+          ),
+        },
+      }));
+      return {
+        ...base,
+        statement: buildFind(
+          scope,
+          {
+            where:
+              correlation.length === 1 ? correlation[0]! : { AND: correlation },
+            select: this.keySelect(row),
+            forUpdate: this.txMode,
+          },
+          { limit: 1 }
+        ),
+        outputs: {
+          ...rows,
+          ...(verb === "upsert"
+            ? Object.fromEntries(
+                this.keyFields(row).map((field) => [
+                  field,
+                  { kind: "firstRowField", field, optional: true },
+                ])
+              )
+            : {}),
+        },
+      };
+    }
+    // child-held
+    const group = this.groupOf(row);
+    if (membership.length === 0) {
+      // connect / set / connectOrCreate / upsert-by-selector: the target globally.
+      const extraFields =
+        verb === "connectOrCreate" || (verb === "upsert" && selector)
+          ? edge.reference.columns.map((c) =>
+              this.fieldOf(model, c.holderColumn)
+            )
+          : [];
+      const select = this.select([...this.keyFields(row), ...extraFields]);
+      const statement =
+        group.length > 1
+          ? buildFind(scope, {
+              where: linkGroupSelector(
+                scope,
+                group.map((r) => this.selectorWhere(r) ?? {})
+              ),
+              select,
+              forUpdate: this.txMode,
+            })
+          : buildFindUnique(scope, {
+              where: selector ?? {},
+              select,
+              forUpdate: this.txMode,
+            });
+      return {
+        ...base,
+        statement,
+        outputs: {
+          ...rows,
+          ...(verb === "upsert"
+            ? Object.fromEntries(
+                this.keyFields(row).map((field) => [
+                  field,
+                  { kind: "firstRowField", field, optional: true },
+                ])
+              )
+            : {}),
+        },
+      };
+    }
+    // A current member: selector (when any) and membership, limit 1.
+    const conjuncts = [...this.selectorConjuncts(row), ...membership];
+    const statement = buildFind(
+      scope,
+      {
+        where: { AND: conjuncts },
+        select: this.keySelect(row),
+        forUpdate: this.txMode,
+      },
+      { limit: 1 }
+    );
+    const required = verb === "update" && node.required;
+    const failure = this.targetFailure(row, "update");
+    return {
+      ...base,
+      statement,
+      outputs: {
+        ...rows,
+        ...(required || verb === "upsert"
+          ? Object.fromEntries(
+              this.keyFields(row).map((field) => [
+                field,
+                {
+                  kind: "firstRowField",
+                  field,
+                  ...(verb === "upsert" ? { optional: true } : {}),
+                },
+              ])
+            )
+          : {}),
+      },
+      ...(required ? { expects: exactlyOneRow(failure) } : {}),
+    };
   }
 
-  /** The reference through which a matched target hangs (the holder's edge to it). */
-  private incomingReference(row: RowId): Reference | undefined {
-    return this.referencesTo(row)[0];
+  /** The rows a group probe covers (child-held connect groups). */
+  private groupOf(row: Row): Row[] {
+    const id = this.rowIds.get(row.id)?.match;
+    if (!id) return [row];
+    return this.pattern.rows.filter(
+      (r) => this.rowIds.get(r.id)?.match === id && this.edge(r.id)
+    );
   }
 
-  private targetFailure(row: RowId) {
-    const reference = this.incomingReference(row);
-    if (!reference) return this.rootNotFound();
-    const { relationRef } = this.relationRefOf(reference);
+  private relationRef(field: string, model: Model<any>): RelationRef {
+    const scope = this.scope(model);
+    return (
+      lookupRelation(scope, field) ??
+      ({ name: field, targetModel: model, cardinality: "many" } as RelationRef)
+    );
+  }
+
+  private targetFailure(
+    row: Row,
+    operation: "connect" | "delete" | "disconnect" | "set" | "update"
+  ): Failure {
+    const edge = this.edge(row.id);
+    const field = edge?.reference.relation.field ?? this.pattern.operation;
+    const relationRef = this.relationRef(
+      field,
+      edge?.reference.relation.model ?? row.table.model
+    );
     return nestedWriteFailure(
-      relationTargetNotFound(relationRef, "connect"),
+      relationTargetNotFound(relationRef, operation),
       relationRef.name,
+      false
+    );
+  }
+
+  private replacementFailure(row: Row): Failure {
+    const verb = this.verb(row);
+    const field = this.edge(row.id)?.reference.relation.field ?? "";
+    if (verb === "upsert") {
+      return nestedWriteFailure(upsertPremiseChanged(field), field, false);
+    }
+    return nestedWriteFailure(
+      nestedReplacement("connectOrCreate"),
+      field,
       false
     );
   }
@@ -498,30 +1301,40 @@ class Packing {
     if (!this.known) return;
     const row = this.row(node.row);
     if (!node.taken) return;
-    const found = this.matchedRow(row.id) !== undefined;
-    if (found) return;
+    // A match the packer does not send answers nothing, so it refuses nothing:
+    // its family's premise is the correlated write's own predicate.
+    if (!this.packsMatch(row)) return;
+    if (this.matchedRow(row) !== undefined) return;
     if (node.premise?.kind === "notExists") return;
-    if (node.required) {
+    if (this.isRoot(row)) {
       throw new NotFoundError(
-        getStepModelName(row.table.model, "record"),
+        this.stepModel(row.table.model),
         this.pattern.operation
       );
     }
-    const reference = this.incomingReference(row.id);
-    if (!reference) return;
-    const { relationRef } = this.relationRefOf(reference);
-    throw new NestedWriteError(
-      relationTargetNotFound(relationRef, "connect"),
-      relationRef.name
-    );
+    const verb = this.verb(row);
+    // A merge's decision refuses nothing: the missing arm IS the answer.
+    if (
+      this.pattern.arms.some((a) => a.decision === row.id) &&
+      (verb === "connectOrCreate" || verb === "upsert")
+    ) {
+      return;
+    }
+    const operation =
+      verb === "delete" ||
+      verb === "disconnect" ||
+      verb === "update" ||
+      verb === "set"
+        ? verb
+        : "connect";
+    const failure = this.targetFailure(row, operation);
+    throw new NestedWriteError(failure.message, failure.relation ?? "");
   }
 
   // -- premises and guards (§8.1) -------------------------------------------
 
   private premiseOf(node: Node, match: StatementStep): BoundPremise {
     const premise = this.refinePremise(node);
-    // The guard carries today's exact typed failure; in a transaction the
-    // locked match is the premise and only the failure is kept.
     const guard = this.guardOf(node, match);
     if (this.txMode) return { premise, match, failure: guard.failure };
     return { premise, match, guard, failure: guard.failure };
@@ -535,94 +1348,280 @@ class Packing {
     };
     if (premise.kind !== "notExists") return premise;
     const row = this.row(node.row);
-    const race = createRacePin(
-      this.scope(row.table.model),
-      this.whereOf(row.table.model, row.predicate)
-    );
+    const where = this.selectorWhere(row);
+    const race = where
+      ? createRacePin(this.scope(row.table.model), where)
+      : undefined;
     return race
       ? { kind: "notExists", row: node.row, raceable: true, pin: race.pin }
       : premise;
+  }
+
+  private capturedKeyFilter(row: Row): Where {
+    return Object.fromEntries(
+      Object.entries(this.keyValues(row)).map(([field, value]) => [
+        field,
+        { equals: value },
+      ])
+    );
   }
 
   private guardOf(node: Node, match: StatementStep): GuardStep {
     const row = this.row(node.row);
     const model = row.table.model;
     const scope = this.scope(model);
-    const where = this.whereOf(model, row.predicate);
     const id = this.idOf(row.id, "guard");
-    if (node.required) {
-      // UpdateOperation.buildRootPresenceGuard.
+    if (this.isRoot(row)) {
+      const where = this.selectorWhere(row) ?? {};
       const named = new Set(Object.keys(where));
       const namesKey = this.keyFields(row).every((field) => named.has(field));
-      const captured = this.keyValues(row);
-      const statement = namesKey
-        ? buildFindUnique(scope, { where, select: this.keySelect(row) })
-        : buildFind(
-            scope,
-            {
-              where: {
-                AND: [
-                  ...uniqueSelectorConjuncts(scope, where),
-                  Object.fromEntries(
-                    Object.entries(captured).map(([field, value]) => [
-                      field,
-                      { equals: value },
-                    ])
-                  ),
-                ],
+      const isDelete = this.pattern.operation === "delete";
+      const statement =
+        namesKey || isDelete
+          ? buildFindUnique(scope, { where, select: this.keySelect(row) })
+          : buildFind(
+              scope,
+              {
+                where: {
+                  AND: [
+                    ...this.selectorConjuncts(row),
+                    this.capturedKeyFilter(row),
+                  ],
+                },
+                select: this.keySelect(row),
               },
-              select: this.keySelect(row),
-            },
-            { limit: 1 }
-          );
-      return presenceGuard(id, statement, this.rootNotFound());
+              { limit: 1 }
+            );
+      return presenceGuard(
+        id,
+        statement,
+        this.pattern.operation === "upsert"
+          ? notFoundFailure(
+              `query-engine-v2 upsert located no '${this.rootName}' row for its unique where before the atomic batch.`
+            )
+          : isDelete
+            ? notFoundFailure(
+                `query-engine-v2 delete located no '${this.stepModel(model)}' row for its unique where.`
+              )
+            : this.rootNotFound()
+      );
     }
-    const referencedByJunction = this.referencesTo(row.id).some((r) =>
-      this.isJunction(this.row(r.holder))
-    );
-    if (referencedByJunction) {
-      // RelationJunctionPart.capturedSelectorRead — the pinned guard is not the
-      // match re-run (split-witness correlation on the captured key).
+    const edge = this.edge(row.id)!;
+    const verb = this.verb(row);
+    const selector = this.selectorWhere(row) ?? {};
+    const merge = verb === "connectOrCreate" || verb === "upsert";
+    if (edge.kind === "junction") {
+      if (verb === "delete" || verb === "update") {
+        const { statements, bound } = this.junctionFor(edge.reference);
+        return presenceGuard(
+          id,
+          statements.materialize(bound, "membershipRead", {
+            parentValue: this.keyValues(this.row(edge.parent)),
+            whereUnique: selector,
+            where: this.capturedKeyFilter(row),
+            take: 1,
+            select: this.keySelect(row),
+          }),
+          this.targetFailure(row, verb)
+        );
+      }
+      // connect / set / connectOrCreate: the captured selector read.
       return presenceGuard(
         id,
         buildFind(
           scope,
           {
-            where: capturedSelectorWhere(scope, where, this.keyValues(row)),
+            where: capturedSelectorWhere(scope, selector, this.keyValues(row)),
             select: this.keySelect(row),
           },
           { limit: 1 }
         ),
-        this.targetFailure(row.id)
+        merge
+          ? this.replacementFailure(row)
+          : this.targetFailure(row, verb === "set" ? "set" : "connect")
       );
     }
-    // The match re-run: RecordUpdateCompiler.compileToOneConnect / RelationLinkPart.
-    return presenceGuard(id, match.statement, this.targetFailure(row.id));
+    if (edge.kind === "parentHeld") {
+      if (this.selectorWhere(row)) {
+        // connect / connectOrCreate: the match re-run — or, for a reference
+        // whose target is named by a discriminator, the captured selector read.
+        const captured = edge.reference.discriminator !== undefined;
+        const statement = captured
+          ? buildFind(
+              scope,
+              {
+                where: capturedSelectorWhere(
+                  scope,
+                  selector,
+                  this.keyValues(row)
+                ),
+                select: this.select(
+                  edge.reference.columns.map((c) =>
+                    this.fieldOf(model, c.referencedColumn)
+                  )
+                ),
+                forUpdate: true,
+              },
+              { limit: 1 }
+            )
+          : match.statement;
+        return presenceGuard(
+          id,
+          statement,
+          merge
+            ? this.replacementFailure(row)
+            : this.targetFailure(row, "connect")
+        );
+      }
+      // update / upsert of the current member: located value AND captured key.
+      const referencedFields = edge.reference.columns.map((c) =>
+        this.fieldOf(model, c.referencedColumn)
+      );
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          {
+            where: {
+              AND: [
+                ...referencedFields.map((field) => ({
+                  [field]: { equals: this.parentHeldValue(row, field, false) },
+                })),
+                this.capturedKeyFilter(row),
+              ],
+            },
+            select: this.keySelect(row),
+          },
+          { limit: 1 }
+        ),
+        verb === "upsert"
+          ? this.replacementFailure(row)
+          : this.targetFailure(row, "update")
+      );
+    }
+    // child-held
+    const membership = this.membershipFilters(row, false);
+    if (verb === "connect") {
+      return presenceGuard(
+        id,
+        buildFindUnique(scope, {
+          where: selector,
+          select: this.keySelect(row),
+        }),
+        this.targetFailure(row, "connect")
+      );
+    }
+    if (merge && membership.length === 0) {
+      const extraFields = edge.reference.columns.map((c) =>
+        this.fieldOf(model, c.holderColumn)
+      );
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          {
+            where: {
+              AND: [
+                ...this.selectorConjuncts(row),
+                this.capturedKeyFilter(row),
+              ],
+            },
+            select: this.select([
+              ...this.keyFields(row),
+              ...(verb === "connectOrCreate" ? extraFields : []),
+            ]),
+          },
+          { limit: 1 }
+        ),
+        this.replacementFailure(row)
+      );
+    }
+    if (verb === "set") {
+      return presenceGuard(
+        id,
+        buildFind(
+          scope,
+          {
+            where: {
+              AND: [
+                ...this.selectorConjuncts(row),
+                this.capturedKeyFilter(row),
+              ],
+            },
+            select: this.keySelect(row),
+          },
+          { limit: 1 }
+        ),
+        this.targetFailure(row, "set")
+      );
+    }
+    const conjuncts: Where[] = [...this.selectorConjuncts(row), ...membership];
+    if (verb !== "disconnect") conjuncts.push(this.capturedKeyFilter(row));
+    return presenceGuard(
+      id,
+      buildFind(
+        scope,
+        { where: { AND: conjuncts }, select: this.keySelect(row) },
+        { limit: 1 }
+      ),
+      verb === "upsert"
+        ? this.replacementFailure(row)
+        : this.targetFailure(
+            row,
+            verb === "disconnect"
+              ? "disconnect"
+              : verb === "delete"
+                ? "delete"
+                : "update"
+          )
+    );
   }
 
-  // -- writes (§7.1–§7.3) ---------------------------------------------------
+  // -- assignments (§7.1) ---------------------------------------------------
 
-  private assignmentData(
+  /**
+   * A row's assignment data and its private polymorphic storage: scalar cells
+   * first, reference cells after them (ATOM §10), a discriminated reference as
+   * one atomic `(type, id)` pair through the adapter's polymorphic storage.
+   */
+  private assignment(
     row: Row,
     cells: readonly Cell[]
-  ): Record<string, unknown> {
+  ): {
+    data: Record<string, unknown>;
+    polymorphicStorage: PolymorphicStorageValue<unknown>[];
+  } {
     const model = row.table.model;
-    const referenceColumns = new Set(
-      this.holderReferences(row.id).flatMap((r) =>
-        r.columns.map((c) => c.holderColumn)
-      )
+    const references = this.pattern.references.filter(
+      (r) => r.holder === row.id
     );
-    // Scalar assignments first, derived reference assignments after them
-    // (ATOM §10: "Derived FK parameters follow user scalar parameters").
+    const referenceColumns = new Map<string, Reference>();
+    for (const reference of references) {
+      for (const pair of reference.columns) {
+        referenceColumns.set(pair.holderColumn, reference);
+      }
+      if (reference.discriminator) {
+        referenceColumns.set(reference.discriminator.column, reference);
+      }
+    }
     const ordered = [
       ...cells.filter((cell) => !referenceColumns.has(cell.column)),
       ...cells.filter((cell) => referenceColumns.has(cell.column)),
     ];
     const data: Record<string, unknown> = {};
+    const polymorphicStorage: PolymorphicStorageValue<unknown>[] = [];
+    const seenDiscriminated = new Set<Reference>();
     for (const cell of ordered) {
+      const reference = referenceColumns.get(cell.column);
+      if (reference?.discriminator) {
+        if (seenDiscriminated.has(reference)) continue;
+        seenDiscriminated.add(reference);
+        polymorphicStorage.push(this.polymorphicValue(reference, cells));
+        continue;
+      }
       const field = this.fieldOf(model, cell.column);
       if (cell.mode === "retract") {
-        data[field] = { set: null };
+        data[field] = row.fresh ? null : { set: null };
         continue;
       }
       if (cell.relative) {
@@ -631,131 +1630,746 @@ class Packing {
         };
         continue;
       }
-      const value = this.value(cell.value);
-      if (referenceColumns.has(cell.column)) {
-        data[field] = referenceSql(this.engine, model, field, value);
+      if (reference) {
+        data[field] = referenceSql(
+          this.engine,
+          model,
+          field,
+          this.referenceValue(row, reference, cell)
+        );
         continue;
       }
-      // The set builder consumes the validated update vocabulary (`{ set }`);
-      // the insert builder consumes plain values.
+      const value = this.value(cell.value);
       data[field] = row.fresh ? value : { set: value };
     }
-    return data;
+    return { data, polymorphicStorage };
   }
 
-  private assertStep(node: Node): WriteStep {
-    const row = this.row(node.row);
-    const model = row.table.model;
-    const scope = this.scope(model);
-    const isRoot = row.id === this.pattern.root;
-    const id = this.idOf(row.id, "write");
-    const data = this.assignmentData(row, node.cells);
-    if (row.fresh) {
+  /**
+   * The value a reference cell stores: the referenced row's key. A target named
+   * by a unique the reference does not store is looked up in place (today's
+   * `toOneFkAssign` subquery) when the row itself holds the reference.
+   */
+  private referenceValue(row: Row, reference: Reference, cell: Cell): unknown {
+    const target = this.row(reference.referenced);
+    const variable = cell.value;
+    if (
+      variable.binding.kind === "matched" &&
+      variable.binding.row === target.id &&
+      this.edge(target.id)?.kind === "parentHeld" &&
+      !this.isJunction(target)
+    ) {
+      const selector = this.selectorWhere(target);
+      const field = this.fieldOf(target.table.model, variable.binding.column);
+      if (selector && !Object.hasOwn(selector, field)) {
+        const scope = {
+          ...this.scope(row.table.model),
+          mutationTable: getTableName(row.table.model),
+        };
+        return buildConnectSubqueryForField(
+          scope,
+          this.relationRef(reference.relation.field, reference.relation.model),
+          selector,
+          field
+        );
+      }
+    }
+    return this.value(variable);
+  }
+
+  private polymorphicValue(
+    reference: Reference,
+    cells: readonly Cell[]
+  ): PolymorphicStorageValue<unknown> {
+    const carrier = variantCarrier(
+      this.scope(reference.relation.model),
+      reference.relation.field
+    );
+    if (!carrier || carrier.edge.kind !== "variantRowCarrier") {
+      throw new QueryEngineError(
+        `query-engine pattern: relation '${reference.relation.field}' has no row carrier for its discriminator.`
+      );
+    }
+    const idCell = cells.find(
+      (cell) => cell.column === reference.columns[0]?.holderColumn
+    );
+    if (!idCell || idCell.mode === "retract") {
       return {
-        id,
-        kind: "write",
-        model: getStepModelName(model, "record"),
-        statement: buildCreate(scope, { data, select: this.keySelect(row) }),
-        outputs: {},
+        kind: "empty",
+        carrier: carrier.slot,
+        storage: carrier.edge.storage,
       };
     }
-    const where =
-      isRoot || !row.predicate
-        ? this.keyWhere(row)
-        : this.whereOf(model, row.predicate);
-    const enforce =
-      isRoot &&
-      this.txMode &&
-      this.engine.adapter.capabilities.supportsReturning;
+    const storage = carrier.edge.storage;
+    const referencedField = this.fieldOf(
+      this.row(reference.referenced).table.model,
+      reference.columns[0]!.referencedColumn
+    );
     return {
-      id,
+      kind: "linked",
+      carrier: carrier.slot,
+      storage,
+      storedType: String(this.value(reference.discriminator!.value)),
+      referencedField,
+      id: referenceScalarSql(
+        this.engine,
+        storage.idColumn.scalar,
+        storage.idColumn.name,
+        this.value(idCell.value)
+      ),
+    };
+  }
+
+  // -- writes ----------------------------------------------------------------
+
+  private projectionSelect(): Record<string, boolean> | undefined {
+    const projection = this.pattern.projection;
+    if (!projection) return undefined;
+    return this.select(projection.scalars);
+  }
+
+  /**
+   * The projection as the PUBLIC select shape the fold gates ask about: they
+   * only test whether a key names a relation or `_count`, so the nested value
+   * need not be the traversal's own arguments.
+   */
+  private publicSelect(): Record<string, unknown> | undefined {
+    const projection = this.pattern.projection;
+    if (!projection) return undefined;
+    const select: Record<string, unknown> = this.select(projection.scalars);
+    for (const relation of projection.relations) {
+      select[relation.field] = { select: {} };
+    }
+    if (projection.relationCounts.length > 0) {
+      select._count = {
+        select: this.select(projection.relationCounts.map((c) => c.field)),
+      };
+    }
+    return select;
+  }
+
+  private projectionIsScalarOnly(): boolean {
+    const projection = this.pattern.projection;
+    return (
+      !projection ||
+      (projection.relations.length === 0 &&
+        projection.relationCounts.length === 0)
+    );
+  }
+
+  private defaultSelect(
+    model: Model<any>
+  ): Record<string, boolean> | undefined {
+    const fields = getDefaultScalarFieldNames(model);
+    return fields.length === 0 ? undefined : this.select(fields);
+  }
+
+  private terminalFailure(): Failure {
+    return queryFailure(
+      `query-engine-v2 ${this.pattern.operation} terminal read expected exactly one row.`
+    );
+  }
+
+  /** The root row's write: create, update, delete or a bulk form. */
+  private rootWrite(node: Node): OperationStep[] {
+    const row = this.root;
+    const op = this.pattern.operation;
+    if (op === "createMany" || op === "createManyAndReturn") {
+      return this.createManyRoot();
+    }
+    if (op.startsWith("updateMany") || op.startsWith("deleteMany")) {
+      return this.bulkRoot(node);
+    }
+    if (op === "delete") return this.deleteRoot();
+    if (op === "upsert") return this.upsertRoot(node);
+    if (row.fresh) return this.createRoot(node);
+    return [this.updateRoot(node)];
+  }
+
+  /** The one-statement create (CreateOperation.foldStep). */
+  private createFolds(): boolean {
+    if (this.pattern.operation !== "create") return false;
+    if (!this.returning || this.hasNestedRows()) return false;
+    if (this.pattern.arms.some((a) => a.decision === this.root.id))
+      return false;
+    const scope = this.scope(this.root.table.model);
+    return (
+      this.projectionIsScalarOnly() ||
+      (this.capabilities.supportsCteWithMutations &&
+        !projectionReadsMutatedModel(scope, this.publicSelect(), undefined))
+    );
+  }
+
+  /** The one-statement update (UpdateOperation.directWrite). */
+  private updateFolds(): boolean {
+    if (this.pattern.operation !== "update") return false;
+    if (!this.returning || this.hasNestedRows()) return false;
+    const node = this.node(this.root.id, "assert");
+    if (!node || node.cells.length === 0) return false;
+    const scope = this.scope(this.root.table.model);
+    if (this.projectionIsScalarOnly()) return true;
+    return (
+      this.capabilities.supportsCteWithMutations &&
+      !projectionReadsMutatedModel(scope, this.publicSelect(), undefined) &&
+      !setCanFireReferentialAction(
+        this.root.table.model,
+        this.assignment(this.root, node.cells).data
+      )
+    );
+  }
+
+  /** The one-statement delete (DeleteOperation.foldStep). */
+  private deleteFolds(): boolean {
+    return (
+      this.pattern.operation === "delete" &&
+      this.returning &&
+      this.projectionIsScalarOnly()
+    );
+  }
+
+  private updateRoot(node: Node): WriteStep {
+    const row = this.root;
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const { data, polymorphicStorage } = this.assignment(row, node.cells);
+    const fknull = this.rowIds.get(row.id)?.extra.fknull;
+    const onlyFkNull =
+      fknull !== undefined &&
+      node.cells.every((cell) => cell.mode === "retract");
+    if (this.updateFolds()) {
+      // One `UPDATE … WHERE <selector> RETURNING <select>`: no locate, no
+      // terminal read, and the row is addressed by the caller's own selector.
+      const select = this.projectionSelect();
+      const scalarOnly = this.projectionIsScalarOnly();
+      const where = this.selectorWhere(row) ?? {};
+      return {
+        id: this.idOf(row.id, "write"),
+        kind: "write",
+        statement: scalarOnly
+          ? buildUpdate(scope, {
+              where,
+              data,
+              polymorphicStorage,
+              ...(select ? { select } : {}),
+            })
+          : buildMutationProjectionFold(scope, {
+              mutation: buildUpdateStatement(scope, {
+                where,
+                data,
+                polymorphicStorage,
+              }),
+              ...(select ? { select } : {}),
+            }),
+        outputs: { result: { kind: "rows" } },
+        ...(this.txMode
+          ? { expects: affectedRows(1, this.rootNotFound()) }
+          : {}),
+      };
+    }
+    return {
+      id: onlyFkNull ? fknull : this.idOf(row.id, "write"),
       kind: "write",
-      model: getStepModelName(model, isRoot ? "parent" : "record"),
+      model: getStepModelName(model, "parent"),
       statement: buildUpdate(scope, {
-        where,
+        where: this.keyWhere(row),
         data,
+        polymorphicStorage,
         select: this.keySelect(row),
       }),
       outputs: {},
-      ...(enforce ? { expects: affectedRows(1, this.rootNotFound()) } : {}),
+      ...(this.txMode && this.returning
+        ? { expects: affectedRows(1, this.rootNotFound()) }
+        : {}),
     };
   }
 
-  private retractStep(node: Node): WriteStep {
-    const row = this.row(node.row);
-    const scope = this.scope(row.table.model);
-    return {
-      id: this.idOf(row.id, "write"),
-      kind: "write",
-      model: getStepModelName(row.table.model, "record"),
-      statement: buildDelete(scope, { where: this.keyWhere(row) }),
-      outputs: {},
-    };
+  private deleteRoot(): OperationStep[] {
+    const row = this.root;
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const select = this.projectionSelect() ?? this.defaultSelect(model);
+    const selector = this.selectorWhere(row) ?? {};
+    if (this.returning && this.projectionIsScalarOnly()) {
+      return [
+        {
+          id: this.idOf(row.id, "write"),
+          kind: "write",
+          statement: buildDelete(scope, {
+            where: selector,
+            ...(select ? { select } : {}),
+          }),
+          outputs: { result: { kind: "rows" } },
+          ...(this.txMode
+            ? { expects: affectedRows(1, this.rootNotFound()) }
+            : {}),
+        },
+      ];
+    }
+    const where = this.txMode ? this.keyWhere(row) : selector;
+    return [
+      {
+        id: this.extraId(row.id, "read"),
+        kind: "read",
+        statement: buildFindUnique(scope, {
+          where,
+          ...(select ? { select } : {}),
+          forUpdate: this.txMode && this.projectionIsScalarOnly(),
+        }),
+        outputs: { result: { kind: "rows" } },
+      },
+      {
+        id: this.idOf(row.id, "write"),
+        kind: "write",
+        statement: buildDelete(scope, { where }),
+        outputs: {},
+        ...(this.txMode
+          ? { expects: affectedRows(1, this.rootNotFound()) }
+          : {}),
+      },
+    ];
   }
 
-  /** §7.2: consecutive junction rows of one edge pack into one chunked INSERT. */
-  private junctionSteps(run: readonly Node[]): WriteStep[] {
-    const first = this.row(run[0]!.row);
-    const references = this.holderReferences(first.id);
-    const source = references.find(
-      (r) => this.row(r.referenced).table.model === r.relation.model
+  private bulkRoot(node: Node): OperationStep[] {
+    const row = this.root;
+    const model = row.table.model;
+    const op = this.pattern.operation;
+    const scope = this.scope(model);
+    const table = getTableName(model);
+    const predicate = lowerPredicate(
+      { ...scope, mutationTable: table },
+      row.predicate,
+      table,
+      true
     );
-    const target = references.find((r) => r !== source);
-    if (!(source && target)) {
-      throw new Error(
-        "query-engine pattern: a junction row needs two references"
+    const limit = this.pattern.projection?.window?.take;
+    const args = {
+      ...(predicate ? { predicate } : {}),
+      ...(limit === undefined ? {} : { limit }),
+    };
+    const id = this.idOf(row.id, "write");
+    if (op === "deleteMany") {
+      return [
+        {
+          id,
+          kind: "write",
+          statement: buildDeleteMany(scope, args),
+          outputs: { count: { kind: "rowCount" } },
+        },
+      ];
+    }
+    if (op === "deleteManyAndReturn") {
+      return [
+        {
+          id,
+          kind: "write",
+          statement: buildDeleteManyAndReturn(scope, {
+            ...args,
+            select: this.projectionSelect(),
+          }),
+          outputs: { result: { kind: "rows" } },
+        },
+      ];
+    }
+    const { data } = this.assignment(row, node.cells);
+    if (op === "updateMany") {
+      return [
+        {
+          id,
+          kind: "write",
+          statement: buildUpdateMany(scope, { ...args, data }),
+          outputs: { count: { kind: "rowCount" } },
+        },
+      ];
+    }
+    return [
+      {
+        id,
+        kind: "write",
+        statement: buildUpdateManyAndReturn(scope, {
+          ...args,
+          data,
+          select: this.projectionSelect(),
+        }),
+        outputs: { result: { kind: "rows" } },
+      },
+    ];
+  }
+
+  /** Every top-level fresh row of the root's model with no incoming reference. */
+  private createManyRows(): Row[] {
+    return this.pattern.rows.filter(
+      (r) =>
+        r.fresh &&
+        r.table.model === this.root.table.model &&
+        !this.isJunction(r) &&
+        !this.edge(r.id)
+    );
+  }
+
+  private createManyRoot(): OperationStep[] {
+    const rows = this.createManyRows();
+    const scope = this.scope(this.root.table.model);
+    const data = rows.map((r) => this.assignment(r, this.cellsOf(r.id)).data);
+    const skipDuplicates = this.pattern.arms.some((arm) =>
+      rows.some((r) => r.id === arm.decision)
+    );
+    const returnRows = this.pattern.operation === "createManyAndReturn";
+    const select = this.projectionSelect();
+    const plan = buildCreateManyPlan(
+      scope,
+      { data, skipDuplicates, ...(select ? { select } : {}) },
+      returnRows,
+      undefined,
+      this.engine.maxBindParametersPerStatement
+    );
+    const recoverUnique =
+      skipDuplicates &&
+      this.engine.adapter.mutations.skipDuplicatesStrategy ===
+        "recoverableUniqueError";
+    const label = returnRows
+      ? `${this.rootName}.createManyReturn`
+      : `${this.rootName}.createMany`;
+    return plan.statements.map(
+      (statement): WriteStep => ({
+        id: this.ids.allocate(label),
+        kind: "write",
+        statement: statement.sql,
+        outputs: returnRows
+          ? { result: { kind: "rows" } }
+          : { count: { kind: "rowCount" } },
+        ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
+      })
+    );
+  }
+
+  private upsertRoot(node: Node): OperationStep[] {
+    // The scalar `ON CONFLICT` fold: no nested rows at all.
+    const row = this.root;
+    const missing = this.pattern.rows.find(
+      (r) =>
+        r.fresh &&
+        r.arm !== undefined &&
+        r.table.model === row.table.model &&
+        !this.edge(r.id)
+    );
+    const others = this.pattern.rows.filter(
+      (r) => r.id !== row.id && r.id !== missing?.id
+    );
+    if (
+      !missing ||
+      others.length > 0 ||
+      !this.capabilities.supportsTargetedUpsert
+    ) {
+      throw new QueryEngineError(
+        "query-engine pattern: upsert with nested rows is not packable yet"
       );
     }
-    const { scope, relationRef } = this.relationRefOf(source);
+    const scope = this.scope(row.table.model);
+    const create = this.assignment(missing, this.cellsOf(missing.id)).data;
+    const update = this.assignment(row, node.cells).data;
+    return [
+      {
+        id: this.idOf(row.id, "write"),
+        kind: "write",
+        statement: buildUpsert(scope, {
+          where: this.selectorWhere(row) ?? {},
+          create,
+          update,
+          select: this.projectionSelect(),
+        } as never),
+        outputs: { result: { kind: "rows" } },
+      },
+    ];
+  }
+
+  /**
+   * Whether the payload named any relation at all — today's fold gate
+   * (`relations.length === 0` / `isPureScalar`). A parent-held verb writes no
+   * row of its own but still puts a reference cell on the root, so both halves
+   * are asked: any row beside the root, or any reference cell on it.
+   */
+  private hasNestedRows(): boolean {
+    if (this.pattern.rows.some((r) => r.id !== this.root.id)) return true;
+    if (this.pattern.references.some((r) => r.holder === this.root.id))
+      return true;
+    // A parent-held `disconnect` writes no row and pushes no reference: its one
+    // trace is a RETRACT cell on the root (a scalar `null` is an assert cell).
+    return this.retractCells(this.root).length > 0;
+  }
+
+  private createRoot(node: Node): OperationStep[] {
+    const row = this.root;
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const { data, polymorphicStorage } = this.assignment(row, node.cells);
+    const select = this.projectionSelect();
+    const scalarOnly = this.projectionIsScalarOnly();
+    const id = this.idOf(row.id, "write");
+    const skipDuplicates = this.pattern.arms.some((a) => a.decision === row.id);
+    const foldsCte =
+      !scalarOnly &&
+      this.capabilities.supportsCteWithMutations &&
+      !projectionReadsMutatedModel(scope, select, undefined);
+    if (
+      !(this.hasNestedRows() || skipDuplicates) &&
+      (scalarOnly || foldsCte) &&
+      this.returning
+    ) {
+      return [
+        {
+          id,
+          kind: "write",
+          model: this.stepModel(model),
+          statement: foldsCte
+            ? buildMutationProjectionFold(scope, {
+                mutation: buildInsertStatement(scope, data),
+                ...(select ? { select } : {}),
+              })
+            : buildCreate(scope, { data, ...(select ? { select } : {}) }),
+          outputs: { result: { kind: "rows" } },
+          ...(this.txMode
+            ? { expects: exactlyOneRow(this.terminalFailure()) }
+            : {}),
+        },
+      ];
+    }
+    return [this.insertStep(row, id, data, polymorphicStorage, true)];
+  }
+
+  /** A generated key member of a fresh row, when the database assigns one. */
+  private generatedField(row: Row): string | undefined {
+    const fields = this.keyFields(row);
+    const generated = row.key
+      .map((variable, index) =>
+        variable.binding.kind === "returned" ? fields[index] : undefined
+      )
+      .filter((field): field is string => field !== undefined);
+    return generated.length === 1 ? generated[0] : undefined;
+  }
+
+  /**
+   * One record INSERT (CreateOperation.buildInsertStep): plain when nothing
+   * downstream needs a database-produced value; otherwise it publishes the
+   * generated key through RETURNING or the driver's insert id.
+   */
+  private insertStep(
+    row: Row,
+    id: string,
+    data: Record<string, unknown>,
+    polymorphicStorage: readonly PolymorphicStorageValue<unknown>[],
+    terminal: boolean
+  ): WriteStep {
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const generated = this.generatedField(row);
+    const demanded =
+      generated !== undefined &&
+      (terminal ||
+        this.scheduled.nodes.some(
+          (n) =>
+            n.row !== row.id &&
+            n.consumes.some((v) => {
+              const variable = this.pattern.variables.find((x) => x.id === v);
+              return (
+                variable?.binding.kind === "returned" &&
+                variable.binding.row === row.id
+              );
+            })
+        ));
+    const racePin = this.racePinOf(row);
+    if (!demanded) {
+      return {
+        id,
+        kind: "write",
+        model: this.stepModel(model),
+        statement: buildInsert(
+          scope,
+          getTableName(model),
+          data,
+          polymorphicStorage
+        ),
+        outputs: {},
+        ...(racePin ? { racePin } : {}),
+      };
+    }
+    const byReturning =
+      this.returning &&
+      (this.txMode ||
+        !getAdapterInternals(this.engine.adapter).batchRefs.storeLastInsertId);
+    if (byReturning) {
+      return {
+        id,
+        kind: "write",
+        model: this.stepModel(model),
+        statement: buildCreate(scope, {
+          data,
+          ...(polymorphicStorage.length ? { polymorphicStorage } : {}),
+          select: { [generated!]: true },
+        } as never),
+        outputs: { id: { kind: "firstRowField", field: generated! } },
+        ...(racePin ? { racePin } : {}),
+      };
+    }
+    return {
+      id,
+      kind: "write",
+      model: this.stepModel(model),
+      statement: buildInsert(
+        scope,
+        getTableName(model),
+        data,
+        polymorphicStorage
+      ),
+      outputs: { id: { kind: "insertId" } },
+      ...(racePin ? { racePin } : {}),
+    };
+  }
+
+  /** The missing arm's race pin: the decision selector's unique target. */
+  private racePinOf(row: Row) {
+    const decision = this.decisionOf(row);
+    if (!(decision && row.fresh)) return undefined;
+    const arm = this.pattern.arms.find((a) => a.id === row.arm);
+    if (arm?.taken !== "missing") return undefined;
+    const where = this.selectorWhere(decision);
+    if (!where) return undefined;
+    const race = createRacePin(this.scope(decision.table.model), where);
+    if (!race) return undefined;
+    const data = this.assignment(row, this.cellsOf(row.id)).data;
+    const spells = race.values.every(({ fieldName, value }) =>
+      Object.is(data[fieldName], value)
+    );
+    return spells ? race.pin : undefined;
+  }
+
+  /**
+   * The row key the terminal read addresses, as LITERAL variables: the created
+   * row's produced identity (a `Ref` lowered through the destination cast), or
+   * the root's post-transition key.
+   */
+  private terminalKey(): Variable[] {
+    const root = this.root;
+    const model = root.table.model;
+    const fields = this.keyFields(root);
+    const key = root.newKey ?? root.key;
+    return key.map((variable, index) => {
+      const field = fields[index]!;
+      const value =
+        variable.binding.kind === "returned"
+          ? referenceSql(
+              this.engine,
+              model,
+              field,
+              ref(this.idOf(root.id, "write"), "id")
+            )
+          : this.value(variable);
+      return {
+        id: -1 - index,
+        binding: { kind: "literal", value },
+        scalar: { model, field },
+      };
+    });
+  }
+
+  /**
+   * The terminal read is a MATCH over the root's projection (§9.1), lowered by
+   * stream G: a relation projection, a `_count` and a nested window are that
+   * traversal's bytes, never a second spelling here.
+   */
+  private terminalStep(): StatementStep | undefined {
+    const root = this.root;
+    const op = this.pattern.operation;
+    const model = root.table.model;
+    const terminal: Pattern = {
+      root: root.id,
+      rows: [
+        {
+          ...root,
+          mode: "match",
+          fresh: false,
+          cardinality: "one",
+          key: this.terminalKey(),
+          ...(root.newKey ? {} : {}),
+          predicate: undefined,
+          arm: undefined,
+        } as Row,
+      ],
+      cells: [],
+      references: [],
+      arms: [],
+      variables: [],
+      ...(this.pattern.projection
+        ? { projection: this.pattern.projection }
+        : {}),
+      operation: "findUnique",
+    };
+    return {
+      id: this.idOf(root.id, "select"),
+      kind: "read",
+      ...(op === "create" ? { model: this.stepModel(model) } : {}),
+      statement: buildMatch(terminal, this.engine),
+      outputs: { result: { kind: "rows" } },
+      ...(this.txMode
+        ? { expects: exactlyOneRow(this.terminalFailure()) }
+        : {}),
+    };
+  }
+
+  // -- nested writes ---------------------------------------------------------
+
+  private junctionFor(reference: Reference): {
+    scope: QueryScope;
+    bound: JunctionBoundRelation;
+    statements: JunctionStatements;
+  } {
+    const scope = this.scope(reference.relation.model);
+    const relationRef = lookupRelation(scope, reference.relation.field);
+    if (!relationRef) {
+      throw new QueryEngineError(
+        `query-engine pattern: relation '${reference.relation.field}' is not addressable`
+      );
+    }
     const bound = bindRelation(scope, relationRef);
     if (bound.position !== "junction") {
-      throw new Error(
+      throw new QueryEngineError(
         `query-engine pattern: relation '${relationRef.name}' is not stored in a junction`
       );
     }
-    const statements = new JunctionStatements(scope, this.txMode);
-    // The column pairing comes from the cell map (K2), never from the edge.
-    const family = referenceCells(
-      this.engine.relations,
-      source.relation.model,
-      source.relation.field
-    );
-    const single = family.kind === "single" ? family.cells : undefined;
-    if (!single?.viaJunction) {
-      throw new Error(
-        `query-engine pattern: relation '${relationRef.name}' has no junction cells`
-      );
-    }
-    const sideValues = (
-      row: RowId,
-      pairs: readonly { holderColumn: string; referencedColumn: string }[]
-    ) => {
-      const cells = this.cells.get(row) ?? [];
-      return Object.fromEntries(
-        pairs.map((pair) => {
-          const cell = cells.find((c) => c.column === pair.holderColumn);
-          if (!cell) {
-            throw new Error(
-              `query-engine pattern: junction row ${row} lacks column '${pair.holderColumn}'`
-            );
-          }
-          return [pair.referencedColumn, this.value(cell.value)];
-        })
-      );
+    return {
+      scope,
+      bound,
+      statements: new JunctionStatements(scope, this.txMode),
     };
-    // `viaJunction.source/target` are the topology's fixed sides; `cells` is
-    // the pairing oriented to the asking slot's TARGET, so the parent side is
-    // whichever fixed side the target pairing is not (exact on a self-relation).
-    const viaJunction = single.viaJunction;
-    const targetPairs = single.cells;
-    const targetColumns = new Set(targetPairs.map((pair) => pair.holderColumn));
-    const parentPairs = viaJunction.sourceCells.every((pair) =>
-      targetColumns.has(pair.holderColumn)
-    )
-      ? viaJunction.targetCells
-      : viaJunction.sourceCells;
-    const parentValue = sideValues(first.id, parentPairs);
-    const targetValues = run.map((node) => sideValues(node.row, targetPairs));
+  }
+
+  /** A junction row's target key, keyed by the target's referenced fields. */
+  private junctionTargetValue(
+    junction: Row,
+    edge: Edge
+  ): Record<string, unknown> {
+    const target = this.row(edge.target);
+    const cells = this.cellsOf(junction.id);
+    return Object.fromEntries(
+      edge.reference.columns.map((pair) => {
+        const cell = cells.find((c) => c.column === pair.holderColumn);
+        return [
+          this.fieldOf(target.table.model, pair.referencedColumn),
+          cell ? this.value(cell.value) : undefined,
+        ];
+      })
+    );
+  }
+
+  private junctionInsertMany(
+    run: readonly { junction: Row; edge: Edge }[],
+    idForChunk: (start: number, index: number) => string
+  ): WriteStep[] {
+    const first = run[0]!;
+    const { statements, bound } = this.junctionFor(first.edge.reference);
+    const parentValue = this.keyValues(this.row(first.edge.parent));
+    const targetValues = run.map(({ junction, edge }) =>
+      this.junctionTargetValue(junction, edge)
+    );
     const chunks = compileBindBudgetChunks(
       targetValues.length,
       this.engine.maxBindParametersPerStatement,
@@ -765,103 +2379,544 @@ class Packing {
           targetValues: targetValues.slice(start, end),
         })
     );
-    return chunks.map((chunk) => ({
-      id: this.idOf(this.targetRowOf(run[chunk.start]!.row, source), "write"),
+    return chunks.map((chunk, index) => ({
+      id: idForChunk(chunk.start, index),
       kind: "write",
       statement: chunk.statement,
       outputs: {},
     }));
   }
 
-  private targetRowOf(junction: RowId, source: Reference): RowId {
-    const target = this.holderReferences(junction).find((r) => r !== source);
-    if (!target)
-      throw new Error("query-engine pattern: junction row without a target");
-    return target.referenced;
+  private junctionWrite(junction: Row): OperationStep[] {
+    const references = this.pattern.references.filter(
+      (r) => r.holder === junction.id
+    );
+    const toParent = this.junctionParentEdge(junction)!;
+    const toTarget = references.find((r) => r !== toParent);
+    const target = toTarget ? this.row(toTarget.referenced) : undefined;
+    const edge = target ? this.edge(target.id) : undefined;
+    const { statements, bound } = this.junctionFor(toParent);
+    const parentValue = this.keyValues(this.row(toParent.referenced));
+    const verb = this.verb(junction);
+    if (junction.mode === "retract") {
+      if (!target) {
+        // set's clear-all, or an untargeted disconnect.
+        const ids = this.rowIds.get(junction.id);
+        const id = ids?.extra.clear;
+        if (!id) return [];
+        return [
+          {
+            id,
+            kind: "write",
+            statement: statements.materialize(bound, "junctionDelete", {
+              parentValue,
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      if (verb === "disconnect") {
+        return [
+          {
+            id: this.idOf(target.id, "write"),
+            kind: "write",
+            statement: statements.materialize(bound, "junctionDelete", {
+              parentValue,
+              targetWhere: this.selectorWhere(target) ?? {},
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      // delete: the reference rows of the captured target.
+      return [
+        {
+          id: this.idOf(target.id, "write"),
+          kind: "write",
+          statement: statements.materialize(bound, "junctionDeleteTargets", {
+            parentValue,
+            targetValues: [this.keyValues(target)],
+          }),
+          outputs: {},
+        },
+      ];
+    }
+    if (!(target && edge)) return [];
+    // assert: one membership row for one target (the multi-row fold is the caller's).
+    const targetValue = this.junctionTargetValue(junction, edge);
+    const insert = statements.materializeJunctionInsert(bound, {
+      parentValue,
+      targetValue,
+    });
+    const id =
+      verb === "create" || verb === "createMany"
+        ? this.extraId(target.id, "join")
+        : this.idOf(target.id, "write");
+    return [
+      {
+        id,
+        kind: "write",
+        statement: insert.statement,
+        outputs: {},
+        ...(insert.racePin ? { racePin: insert.racePin } : {}),
+      },
+    ];
   }
 
-  private sameJunctionEdge(a: Node, b: Node): boolean {
-    const rowA = this.row(a.row);
-    const rowB = this.row(b.row);
-    if (rowA.table.table !== rowB.table.table) return false;
-    const sourceA = this.holderReferences(rowA.id).find(
-      (r) => this.row(r.referenced).table.model === r.relation.model
-    );
-    const sourceB = this.holderReferences(rowB.id).find(
-      (r) => this.row(r.referenced).table.model === r.relation.model
-    );
-    return (
-      sourceA !== undefined &&
-      sourceB !== undefined &&
-      sourceA.referenced === sourceB.referenced &&
-      sourceA.relation.field === sourceB.relation.field
-    );
+  private targetAssert(node: Node): OperationStep[] {
+    const row = this.row(node.row);
+    const edge = this.edge(row.id);
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const verb = this.verb(row);
+    if (!edge) {
+      // A createMany member beside the root: packed by the root.
+      return [];
+    }
+    const { data, polymorphicStorage } = this.assignment(row, node.cells);
+    if (row.fresh) {
+      if (verb === "createMany" && edge.kind === "childHeld") {
+        const group = this.pattern.rows.filter(
+          (r) => r.fresh && this.sameEdgeGroup(row, r) && !this.folded.has(r.id)
+        );
+        if (group[0]?.id !== row.id) return [];
+        for (const member of group.slice(1)) this.folded.add(member.id);
+        const rows = group.map(
+          (r) => this.assignment(r, this.cellsOf(r.id)).data
+        );
+        const skipDuplicates = this.pattern.arms.some((a) =>
+          group.some((r) => r.id === a.decision)
+        );
+        const plan = buildCreateManyPlan(
+          scope,
+          { data: rows, skipDuplicates },
+          false,
+          undefined,
+          this.engine.maxBindParametersPerStatement
+        );
+        const recoverUnique =
+          skipDuplicates &&
+          this.engine.adapter.mutations.skipDuplicatesStrategy ===
+            "recoverableUniqueError";
+        return plan.statements.map(
+          (statement, index): WriteStep => ({
+            id:
+              index === 0
+                ? this.idOf(row.id, "write")
+                : this.ids.allocate(`${this.childName(row)}.createMany`),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: statement.sql,
+            outputs: {},
+            ...(recoverUnique ? { onUniqueConflict: "skip" } : {}),
+          })
+        );
+      }
+      const id =
+        this.rowIds.get(row.id)?.write ??
+        this.rowIds.get(this.decisionOf(row)?.id ?? -1)?.extra.create;
+      if (!id) {
+        throw new Error(
+          `query-engine pattern: row ${row.id} has no 'write' step id`
+        );
+      }
+      const skipDuplicates =
+        verb === "createMany" &&
+        this.pattern.arms.some((a) => a.decision === row.id);
+      if (skipDuplicates) {
+        const plan = buildCreateManyPlan(
+          scope,
+          { data: [data], skipDuplicates: true },
+          false
+        );
+        return plan.statements.map((statement) => ({
+          id,
+          kind: "write" as const,
+          model: this.stepModel(model),
+          statement: statement.sql,
+          outputs: {},
+        }));
+      }
+      return [this.insertStep(row, id, data, polymorphicStorage, false)];
+    }
+    // Asserted at a bound key.
+    const selector = this.selectorWhere(row);
+    if (edge.kind === "childHeld") {
+      if (verb === "connect" && !this.folded.has(row.id)) {
+        const group = this.groupOf(row);
+        if (group.length > 1) {
+          return [
+            {
+              id: this.idOf(row.id, "write"),
+              kind: "write",
+              model: this.stepModel(model),
+              statement: buildUpdateMany(scope, {
+                where: linkGroupSelector(
+                  scope,
+                  group.map((r) => this.selectorWhere(r) ?? {})
+                ),
+                data,
+                ...(polymorphicStorage.length ? { polymorphicStorage } : {}),
+              }),
+              outputs: {},
+            },
+          ];
+        }
+        return [
+          {
+            id: this.idOf(row.id, "write"),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: buildUpdate(scope, {
+              where: selector ?? this.keyWhere(row),
+              data,
+              ...(polymorphicStorage.length ? { polymorphicStorage } : {}),
+              select: this.keySelect(row),
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      if (verb === "connect") return [];
+      if (verb === "set") {
+        if (row.cardinality === "set") {
+          // The departures: null the reference for N \ S.
+          const targets = this.pattern.rows.filter(
+            (r) => r.cardinality !== "set" && this.sameEdgeGroup(row, r)
+          );
+          const membership = this.membershipFilters(row, false);
+          const exclusions = targets.map((r) => this.selectorConjuncts(r));
+          const where: Where = {
+            AND: [
+              ...membership,
+              ...(exclusions.length > 0
+                ? [
+                    {
+                      NOT: {
+                        OR: exclusions.map((conjuncts) =>
+                          conjuncts.length === 1
+                            ? conjuncts[0]!
+                            : { AND: conjuncts }
+                        ),
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          };
+          return [
+            {
+              id: this.extraId(row.id, "orphan"),
+              kind: "write",
+              model: this.stepModel(model),
+              statement: buildUpdateMany(scope, { where, data }),
+              outputs: {},
+            },
+          ];
+        }
+        const group = this.pattern.rows.filter(
+          (r) => r.cardinality !== "set" && this.sameEdgeGroup(row, r)
+        );
+        if (group[0]?.id !== row.id) return [];
+        return [
+          {
+            id: this.idOf(row.id, "write"),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: buildUpdateMany(scope, {
+              where: linkGroupSelector(
+                scope,
+                group.map((r) => this.selectorWhere(r) ?? {})
+              ),
+              data,
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      if (verb === "disconnect") {
+        if (!selector) {
+          return [
+            {
+              id: this.idOf(row.id, "write"),
+              kind: "write",
+              model: this.stepModel(model),
+              statement: buildUpdateMany(scope, {
+                where: { AND: this.membershipFilters(row, false) },
+                data,
+              }),
+              outputs: {},
+            },
+          ];
+        }
+        return [
+          {
+            id: this.idOf(row.id, "write"),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: buildUpdate(scope, {
+              where: selector,
+              data,
+              select: this.keySelect(row),
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      if (verb === "updateMany") {
+        return [
+          {
+            id: this.idOf(row.id, "write"),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: buildUpdateMany(scope, {
+              ...this.memberSet(row),
+              data,
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      // update / connectOrCreate found / upsert found: by the captured key.
+      const extraFields =
+        verb === "connectOrCreate"
+          ? edge.reference.columns.map((c) =>
+              this.fieldOf(model, c.holderColumn)
+            )
+          : [];
+      return [
+        {
+          id: this.idOf(row.id, "write"),
+          kind: "write",
+          model: this.stepModel(model),
+          statement: buildUpdate(scope, {
+            where: this.keyWhere(row),
+            data,
+            ...(polymorphicStorage.length ? { polymorphicStorage } : {}),
+            select: this.select([...this.keyFields(row), ...extraFields]),
+          }),
+          outputs: {},
+        },
+      ];
+    }
+    if (edge.kind === "parentHeld") {
+      // update / upsert found: the located member by its captured key.
+      return [
+        {
+          id: this.idOf(row.id, "write"),
+          kind: "write",
+          model: this.stepModel(model),
+          statement: buildUpdate(scope, {
+            where: this.keyWhere(row),
+            data,
+            select: this.keySelect(row),
+          }),
+          outputs: {},
+        },
+      ];
+    }
+    // junction target update
+    return [
+      {
+        id: this.idOf(row.id, "write"),
+        kind: "write",
+        model: this.stepModel(model),
+        statement: buildUpdate(scope, {
+          where: this.keyWhere(row),
+          data,
+          select: this.keySelect(row),
+        }),
+        outputs: {},
+      },
+    ];
   }
 
-  private terminalStep(): StatementStep {
-    const root = this.row(this.pattern.root);
-    const projection = this.pattern.projection;
-    const select = Object.fromEntries(
-      (projection?.scalars ?? this.keyFields(root)).map((field) => [
-        field,
-        true,
-      ])
-    );
-    return {
-      id: this.idOf(root.id, "select"),
-      kind: "read",
-      statement: buildFindUnique(this.scope(root.table.model), {
-        where: this.keyWhere(root, root.newKey ?? root.key),
-        select,
-      }),
-      outputs: { result: { kind: "rows" } },
-      ...(this.txMode
-        ? {
-            expects: exactlyOneRow(
-              queryFailure(
-                `query-engine-v2 ${this.pattern.operation} terminal read expected exactly one row.`
-              )
-            ),
-          }
-        : {}),
-    };
+  /** Membership ∧ filter for a bulk verb under a parent. */
+  private memberSet(row: Row): { where?: Where; predicate?: Sql } {
+    const model = row.table.model;
+    const membership = this.membershipFilters(row, false);
+    if (this.hasRelationLeaf(row.predicate)) {
+      const table = getTableName(model);
+      const predicate = lowerPredicate(
+        { ...this.scope(model), mutationTable: table },
+        row.predicate,
+        table,
+        true
+      );
+      return {
+        ...(membership.length ? { where: { AND: membership } } : {}),
+        ...(predicate ? { predicate } : {}),
+      };
+    }
+    const filter = this.filterWhere(model, row.predicate);
+    const conjuncts = [...membership, ...(filter ? [filter] : [])];
+    return conjuncts.length ? { where: { AND: conjuncts } } : {};
   }
+
+  private targetRetract(node: Node): OperationStep[] {
+    const row = this.row(node.row);
+    const edge = this.edge(row.id);
+    if (!edge) return [];
+    const model = row.table.model;
+    const scope = this.scope(model);
+    const verb = this.verb(row);
+    if (edge.kind === "parentHeld") {
+      return [
+        {
+          id: this.idOf(row.id, "write"),
+          kind: "write",
+          model: this.stepModel(model),
+          statement: buildDeleteMany(scope, {
+            where: {
+              AND: Object.entries(this.keyValues(row)).map(
+                ([field, value]) => ({
+                  [field]: { equals: value },
+                })
+              ),
+            },
+          }),
+          outputs: {},
+        },
+      ];
+    }
+    if (edge.kind === "junction") {
+      // The reference row's delete is packed with the reference row; the child follows.
+      if (verb === "deleteMany") {
+        return [
+          {
+            id: this.idOf(row.id, "write"),
+            kind: "write",
+            model: this.stepModel(model),
+            statement: buildDeleteMany(scope, {
+              where: {
+                AND: [
+                  {
+                    [this.keyFields(row)[0]!]: {
+                      in: [this.keyValues(row)[this.keyFields(row)[0]!]],
+                    },
+                  },
+                ],
+              },
+            }),
+            outputs: {},
+          },
+        ];
+      }
+      return [
+        {
+          id: this.extraId(row.id, "child"),
+          kind: "write",
+          model: this.stepModel(model),
+          statement: buildDelete(scope, {
+            where: this.keyWhere(row),
+            ...(this.defaultSelect(model)
+              ? { select: this.defaultSelect(model) }
+              : {}),
+          }),
+          outputs: {},
+        },
+      ];
+    }
+    // child-held
+    if (verb === "deleteMany" || !row.predicate) {
+      return [
+        {
+          id: this.idOf(row.id, "write"),
+          kind: "write",
+          model: this.stepModel(model),
+          statement: buildDeleteMany(scope, this.memberSet(row)),
+          outputs: {},
+        },
+      ];
+    }
+    const select = this.defaultSelect(model);
+    return [
+      {
+        id: this.idOf(row.id, "write"),
+        kind: "write",
+        model: this.stepModel(model),
+        statement: buildDelete(scope, {
+          where: this.keyWhere(row),
+          ...(select ? { select } : {}),
+        }),
+        outputs: {},
+      },
+    ];
+  }
+
+  // -- the write phase ------------------------------------------------------
 
   private writeSteps(nodes: readonly Node[]): OperationStep[] {
     const steps: OperationStep[] = [];
     for (let index = 0; index < nodes.length; index++) {
       const node = nodes[index]!;
       if (!node.taken) continue;
+      const row = this.row(node.row);
       switch (node.kind) {
         case "assert": {
-          const row = this.row(node.row);
           if (this.isJunction(row)) {
-            const run = [node];
-            while (
-              index + 1 < nodes.length &&
-              nodes[index + 1]!.kind === "assert" &&
-              nodes[index + 1]!.taken &&
-              this.isJunction(this.row(nodes[index + 1]!.row)) &&
-              this.sameJunctionEdge(node, nodes[index + 1]!)
-            ) {
-              run.push(nodes[++index]!);
+            const edge = this.junctionEdge(row);
+            const verb = this.verb(row);
+            if (edge && (verb === "connect" || verb === "set")) {
+              const run = [{ junction: row, edge }];
+              while (index + 1 < nodes.length) {
+                const next = nodes[index + 1]!;
+                const nextRow = this.row(next.row);
+                const nextEdge = this.junctionEdge(nextRow);
+                if (
+                  next.kind !== "assert" ||
+                  !next.taken ||
+                  !this.isJunction(nextRow) ||
+                  !nextEdge ||
+                  nextEdge.parent !== edge.parent ||
+                  nextEdge.reference.relation.field !==
+                    edge.reference.relation.field ||
+                  this.verb(nextRow) !== verb
+                ) {
+                  break;
+                }
+                run.push({ junction: nextRow, edge: nextEdge });
+                index++;
+              }
+              const setInsert =
+                verb === "set"
+                  ? this.pattern.rows.find(
+                      (r) =>
+                        this.isJunction(r) &&
+                        r.mode === "retract" &&
+                        this.rowIds.get(r.id)?.extra.insert !== undefined
+                    )
+                  : undefined;
+              steps.push(
+                ...this.junctionInsertMany(run, (start, chunk) =>
+                  setInsert && chunk === 0
+                    ? this.extraId(setInsert.id, "insert")
+                    : this.idOf(run[start]!.edge.target, "write")
+                )
+              );
+              break;
             }
-            steps.push(...this.junctionSteps(run));
+            steps.push(...this.junctionWrite(row));
             break;
           }
-          steps.push(this.assertStep(node));
+          if (this.isRoot(row)) {
+            steps.push(...this.rootWrite(node));
+            break;
+          }
+          steps.push(...this.targetAssert(node));
           break;
         }
         case "retract":
-          steps.push(this.retractStep(node));
+          if (this.isJunction(row)) steps.push(...this.junctionWrite(row));
+          else if (this.isRoot(row)) steps.push(...this.rootWrite(node));
+          else steps.push(...this.targetRetract(node));
           break;
-        case "terminal":
-          steps.push(this.terminalStep());
+        case "terminal": {
+          if (!this.packsTerminal()) break;
+          const terminal = this.terminalStep();
+          if (terminal) steps.push(terminal);
           break;
-        case "cascade":
-        case "unreferenced":
-        case "match":
-          break;
+        }
         default:
           break;
       }
@@ -869,25 +2924,116 @@ class Packing {
     return steps;
   }
 
+  /** The target edge of a junction row (its reference to the row that is not the parent). */
+  private junctionEdge(junction: Row): Edge | undefined {
+    const toParent = this.junctionParentEdge(junction);
+    const toTarget = this.pattern.references.find(
+      (r) => r.holder === junction.id && r !== toParent
+    );
+    if (!toTarget) return undefined;
+    return this.edge(toTarget.referenced);
+  }
+
+  /** Create-tree fold: one CTE statement when every write is a plain arm (CreateOperation.buildTreeFold). */
+  private foldCreateTree(
+    matches: readonly StatementStep[],
+    guards: readonly GuardStep[],
+    writes: readonly OperationStep[]
+  ): OperationStep[] | undefined {
+    if (this.pattern.operation !== "create") return undefined;
+    if (!(this.capabilities.supportsCteWithMutations && this.returning))
+      return undefined;
+    if (matches.length > 0 || guards.length > 0) return undefined;
+    const statementWrites = writes.filter(
+      (step): step is WriteStep => step.kind === "write"
+    );
+    const terminal = writes.find((step) => step.kind === "read");
+    const rootId = this.idOf(this.root.id, "write");
+    if (statementWrites.length < 2 || statementWrites[0]?.id !== rootId) {
+      return undefined;
+    }
+    if (writes.length !== statementWrites.length + (terminal ? 1 : 0))
+      return undefined;
+    if (this.pattern.arms.some((a) => a.decision === this.root.id))
+      return undefined;
+    if (
+      !statementWrites.every(
+        (step) =>
+          isSql(step.statement) && !(step.expects || step.onUniqueConflict)
+      )
+    ) {
+      return undefined;
+    }
+    const scope = this.scope(this.root.table.model);
+    const select = this.projectionSelect();
+    const mutated = new Set(
+      statementWrites.map((step) => {
+        const row = this.pattern.rows.find(
+          (r) => this.rowIds.get(r.id)?.write === step.id
+        );
+        return row ? getTableName(row.table.model) : "";
+      })
+    );
+    if (projectionReadsAnyTable(scope, this.publicSelect(), undefined, mutated))
+      return undefined;
+    const siblings = compileMutationDependencyFold(scope, statementWrites);
+    if (!siblings) return undefined;
+    const rootNode = this.node(this.root.id, "assert")!;
+    const { data, polymorphicStorage } = this.assignment(
+      this.root,
+      rootNode.cells
+    );
+    const racePin = statementWrites[0]?.racePin;
+    return [
+      {
+        id: rootId,
+        kind: "write",
+        model: this.stepModel(this.root.table.model),
+        statement: buildMutationProjectionFold(scope, {
+          mutation: buildInsertStatement(scope, data, polymorphicStorage),
+          siblings,
+          ...(select ? { select } : {}),
+        }),
+        outputs: { result: { kind: "rows" } },
+        ...(racePin ? { racePin } : {}),
+        ...(this.txMode
+          ? { expects: exactlyOneRow(this.terminalFailure()) }
+          : {}),
+      },
+    ];
+  }
+
   // -- program --------------------------------------------------------------
 
   private fragment(scheduled: ScheduledFragment): Fragment {
     const matches = scheduled.matches.map((level) =>
-      level.map((node) => this.matchStep(node))
+      level
+        .filter(
+          (node) =>
+            !this.folded.has(node.row) && this.packsMatch(this.row(node.row))
+        )
+        .map((node) => this.matchStep(node))
     );
     for (const node of scheduled.matches.flat()) this.requireMatched(node);
     const premises: BoundPremise[] = [];
     for (const node of scheduled.matches.flat()) {
       if (!node.taken) continue;
+      const row = this.row(node.row);
+      // A premise protects the bindings a PACKED match produced; a family whose
+      // probe today's engine never sends states none.
+      if (!(this.packsMatch(row) || this.foldGuards(row))) continue;
+      if (!this.rowIds.get(node.row)?.guard) continue;
       premises.push(this.premiseOf(node, this.matchStep(node)));
     }
+    let writes = this.writeSteps(scheduled.writes);
+    if (this.folded.has(this.root.id)) writes = [];
+    const guards = premises.flatMap((p) => (p.guard ? [p.guard] : []));
+    const folded = this.foldCreateTree(matches.flat(), guards, writes);
+    if (folded) writes = folded;
     return {
       matches,
-      writes: this.writeSteps(scheduled.writes),
+      writes,
       premises,
-      // Re-pack the taken arm with the match rows. Ids are a pre-pass in
-      // payload order, so a fresh allocator reproduces the same ids; the
-      // match-phase refusals (`requireMatched`) fire here for the executor.
       pack: (known) => {
         const repacked = new Packing(
           this.scheduled,
@@ -902,21 +3048,68 @@ class Packing {
     };
   }
 
+  /**
+   * A folded root keeps its batch premise even though its match is not packed:
+   * the guard IS the fold's presence premise inside the atomic unit.
+   */
+  private foldGuards(row: Row): boolean {
+    return (
+      this.isRoot(row) &&
+      !this.txMode &&
+      (this.deleteFolds() || this.updateFolds())
+    );
+  }
+
   program(): Program {
     const fragments = this.scheduled.fragments.map((fragment) =>
       this.fragment(fragment)
     );
-    const root = this.row(this.pattern.root);
-    const rootIds = this.rowIds.get(root.id);
-    // The existing fragment `outputs` contract: a reference to the terminal
-    // read (or, with no projection, to the root write).
-    const producer = rootIds?.select ?? rootIds?.write;
     return {
       fragments,
-      outputs: producer ? { result: ref(producer, "result") } : {},
-      model: getStepModelName(root.table.model, "record"),
+      outputs: this.programOutputs(fragments),
+      model: this.stepModel(this.root.table.model),
       operation: this.pattern.operation,
     };
+  }
+
+  private programOutputs(
+    fragments: readonly Fragment[]
+  ): Record<
+    string,
+    OperationValueReference | readonly OperationValueReference[]
+  > {
+    const op = this.pattern.operation;
+    const steps = fragments.flatMap((f) => f.writes);
+    if (op === "createMany" || op === "createManyAndReturn") {
+      const name = op === "createMany" ? "count" : "result";
+      return {
+        [name]: steps
+          .filter((s): s is WriteStep => s.kind === "write")
+          .map((s) => ref(s.id, name)),
+      };
+    }
+    if (op === "updateMany" || op === "deleteMany") {
+      const id = this.idOf(this.root.id, "write");
+      return { count: ref(id, "count") };
+    }
+    if (op === "updateManyAndReturn" || op === "deleteManyAndReturn") {
+      return { result: ref(this.idOf(this.root.id, "write"), "result") };
+    }
+    // The last step publishing `result` owns the program's result.
+    for (let index = steps.length - 1; index >= 0; index--) {
+      const step = steps[index]!;
+      if (
+        step.kind !== "guard" &&
+        step.kind !== "recordSeries" &&
+        step.outputs.result
+      ) {
+        return { result: ref(step.id, "result") };
+      }
+    }
+    const producer =
+      this.rowIds.get(this.root.id)?.select ??
+      this.rowIds.get(this.root.id)?.write;
+    return producer ? { result: ref(producer, "result") } : {};
   }
 }
 
