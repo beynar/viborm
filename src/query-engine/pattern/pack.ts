@@ -48,14 +48,11 @@ import {
   buildCreateManyPlan,
   buildDelete,
   buildDeleteMany,
-  buildDeleteManyAndReturn,
   buildFind,
   buildFindUnique,
   buildInsertStatement,
-  buildMutationProjectionFold,
   buildUpdate,
   buildUpdateMany,
-  buildUpdateManyAndReturn,
   buildUpdateStatement,
   buildUpsert,
   compileMutationDependencyFold,
@@ -101,7 +98,7 @@ import {
 } from "../write-engine/shared";
 import type { BoundPremise, Fragment, Premise, Program } from "./fragment";
 import { StepIds, stepLabels } from "./ids";
-import { buildMatch, lowerPredicate } from "./match";
+import { lowerPredicate, matchWriteResult } from "./match";
 import type {
   Cell,
   Pattern,
@@ -878,6 +875,25 @@ class Packing {
     }
   }
 
+  /**
+   * A located row is re-addressed by the key its own match CAPTURED, never by
+   * the value the payload spelled (ATOM §15's wrong-row protection: a selector
+   * may name an alternate unique, and a concurrent write may move it). The two
+   * agree whenever the selector pins the key, so only execution tells them
+   * apart.
+   */
+  private capturedKeyValue(
+    row: Row,
+    field: string,
+    planning: boolean
+  ): unknown {
+    if (row.fresh || !this.packsMatch(row)) return;
+    const step = this.rowIds.get(row.id)?.match;
+    if (!step) return;
+    if (planning || !this.known) return ref(step, field);
+    return this.matchedRow(row)?.[field];
+  }
+
   private keyValues(
     row: Row,
     key: readonly Variable[] = row.key,
@@ -885,9 +901,15 @@ class Packing {
   ): Record<string, unknown> {
     const fields = this.keyFields(row);
     const values: Record<string, unknown> = {};
+    const addressed = key === row.key;
     key.forEach((variable, index) => {
       const field = fields[index];
-      if (field !== undefined) values[field] = this.value(variable, planning);
+      if (field === undefined) return;
+      const captured = addressed
+        ? this.capturedKeyValue(row, field, planning)
+        : undefined;
+      values[field] =
+        captured === undefined ? this.value(variable, planning) : captured;
     });
     return values;
   }
@@ -1301,6 +1323,10 @@ class Packing {
     if (!this.known) return;
     const row = this.row(node.row);
     if (!node.taken) return;
+    // The root's own not-found is raised HERE, after the whole match phase —
+    // today refuses from `compile`, so the level's other matches still run and
+    // a nested refusal cannot pre-empt it.
+    if (this.isRoot(row) && this.pattern.operation === "upsert") return;
     // A match the packer does not send answers nothing, so it refuses nothing:
     // its family's premise is the correlated write's own predicate.
     if (!this.packsMatch(row)) return;
@@ -1336,18 +1362,31 @@ class Packing {
   private premiseOf(node: Node, match: StatementStep): BoundPremise {
     const premise = this.refinePremise(node);
     const guard = this.guardOf(node, match);
-    if (this.txMode) return { premise, match, failure: guard.failure };
+    // ATOM §12's Pin Rule: a MISSING arm's premise is the constraint its own
+    // INSERT violates — closer and stronger than a guard, and today emits none.
+    if (this.txMode || premise.kind === "notExists") {
+      return { premise, match, failure: guard.failure };
+    }
     return { premise, match, guard, failure: guard.failure };
   }
 
   private refinePremise(node: Node): Premise {
-    const premise = node.premise ?? {
+    let premise = node.premise ?? {
       kind: "exists",
       row: node.row,
       raceable: false,
     };
-    if (premise.kind !== "notExists") return premise;
     const row = this.row(node.row);
+    // A merge's premise follows the arm the world TOOK, not the mere existence
+    // of a missing arm: found means the row is there (a guard pins it), missing
+    // means the target's own unique constraint is the premise.
+    if (this.known && this.pattern.arms.some((a) => a.decision === node.row)) {
+      premise =
+        this.matchedRow(row) === undefined
+          ? { kind: "notExists", row: node.row, raceable: false }
+          : { kind: "exists", row: node.row, raceable: false };
+    }
+    if (premise.kind !== "notExists") return premise;
     const where = this.selectorWhere(row);
     const race = where
       ? createRacePin(this.scope(row.table.model), where)
@@ -1839,27 +1878,20 @@ class Packing {
     if (this.updateFolds()) {
       // One `UPDATE … WHERE <selector> RETURNING <select>`: no locate, no
       // terminal read, and the row is addressed by the caller's own selector.
-      const select = this.projectionSelect();
       const scalarOnly = this.projectionIsScalarOnly();
       const where = this.selectorWhere(row) ?? {};
       return {
         id: this.idOf(row.id, "write"),
         kind: "write",
-        statement: scalarOnly
-          ? buildUpdate(scope, {
-              where,
-              data,
-              polymorphicStorage,
-              ...(select ? { select } : {}),
-            })
-          : buildMutationProjectionFold(scope, {
-              mutation: buildUpdateStatement(scope, {
-                where,
-                data,
-                polymorphicStorage,
-              }),
-              ...(select ? { select } : {}),
-            }),
+        statement: matchWriteResult(scope, {
+          pattern: this.terminalPattern(),
+          form: scalarOnly ? "returning" : "fold",
+          mutation: buildUpdateStatement(scope, {
+            where,
+            data,
+            polymorphicStorage,
+          }),
+        }),
         outputs: { result: { kind: "rows" } },
         ...(this.txMode
           ? { expects: affectedRows(1, this.rootNotFound()) }
@@ -1962,9 +1994,10 @@ class Packing {
         {
           id,
           kind: "write",
-          statement: buildDeleteManyAndReturn(scope, {
-            ...args,
-            select: this.projectionSelect(),
+          statement: matchWriteResult(scope, {
+            pattern: this.terminalPattern("set"),
+            form: "returning",
+            mutation: buildDeleteMany(scope, args),
           }),
           outputs: { result: { kind: "rows" } },
         },
@@ -1985,10 +2018,10 @@ class Packing {
       {
         id,
         kind: "write",
-        statement: buildUpdateManyAndReturn(scope, {
-          ...args,
-          data,
-          select: this.projectionSelect(),
+        statement: matchWriteResult(scope, {
+          pattern: this.terminalPattern("set"),
+          form: "returning",
+          mutation: buildUpdateMany(scope, { ...args, data }),
         }),
         outputs: { result: { kind: "rows" } },
       },
@@ -2120,12 +2153,11 @@ class Packing {
           id,
           kind: "write",
           model: this.stepModel(model),
-          statement: foldsCte
-            ? buildMutationProjectionFold(scope, {
-                mutation: buildInsertStatement(scope, data),
-                ...(select ? { select } : {}),
-              })
-            : buildCreate(scope, { data, ...(select ? { select } : {}) }),
+          statement: matchWriteResult(scope, {
+            pattern: this.terminalPattern(),
+            form: foldsCte ? "fold" : "returning",
+            mutation: buildInsertStatement(scope, data, polymorphicStorage),
+          }),
           outputs: { result: { kind: "rows" } },
           ...(this.txMode
             ? { expects: exactlyOneRow(this.terminalFailure()) }
@@ -2272,24 +2304,27 @@ class Packing {
   }
 
   /**
-   * The terminal read is a MATCH over the root's projection (§9.1), lowered by
-   * stream G: a relation projection, a `_count` and a nested window are that
-   * traversal's bytes, never a second spelling here.
+   * The pattern the write's result is projected through: the asserted row at
+   * its FINAL key, carrying this operation's projection. One value for all
+   * three forms of {@link matchWriteResult}.
    */
-  private terminalStep(): StatementStep | undefined {
+  private terminalPattern(
+    cardinality: "one" | "set" = "one",
+    /** Only a reselect addresses the row: the other forms answer with the
+     *  mutation's own rows, so their key need not be resolvable at all (a
+     *  folded update by an alternate unique never located the row). */
+    addressed = false
+  ): Pattern {
     const root = this.root;
-    const op = this.pattern.operation;
-    const model = root.table.model;
-    const terminal: Pattern = {
+    return {
       root: root.id,
       rows: [
         {
           ...root,
           mode: "match",
           fresh: false,
-          cardinality: "one",
-          key: this.terminalKey(),
-          ...(root.newKey ? {} : {}),
+          cardinality,
+          key: addressed ? this.terminalKey() : (root.newKey ?? root.key),
           predicate: undefined,
           arm: undefined,
         } as Row,
@@ -2301,13 +2336,62 @@ class Packing {
       ...(this.pattern.projection
         ? { projection: this.pattern.projection }
         : {}),
-      operation: "findUnique",
+      operation: cardinality === "one" ? "findUnique" : "findMany",
     };
+  }
+
+  /**
+   * The reselect's `WHERE` when the packer must spell it: a key member bound by
+   * EXECUTION (a generated identity) is a value K1 cannot carry, so the row is
+   * addressed by the reference the write published instead.
+   */
+  private terminalSelector(scope: QueryScope): Sql | undefined {
+    const root = this.root;
+    const key = root.newKey ?? root.key;
+    if (!key.some((variable) => variable.binding.kind === "returned")) {
+      return undefined;
+    }
+    const model = root.table.model;
+    const fields = this.keyFields(root);
+    const { adapter } = scope;
+    return adapter.operators.and(
+      ...key.map((variable, index) => {
+        const field = fields[index]!;
+        const value =
+          variable.binding.kind === "returned"
+            ? ref(this.idOf(root.id, "write"), "id")
+            : this.value(variable);
+        return adapter.operators.eq(
+          adapter.identifiers.column(
+            scope.rootAlias,
+            getColumnName(model, field)
+          ),
+          referenceSql(this.engine, model, field, value)
+        );
+      })
+    );
+  }
+
+  /**
+   * The terminal read is the write's own result projection (§8, §9.1), lowered
+   * by stream G in the `reselect` form: a relation projection, a `_count` and a
+   * nested window are that traversal's bytes, never a second spelling here.
+   */
+  private terminalStep(): StatementStep | undefined {
+    const root = this.root;
+    const op = this.pattern.operation;
+    const model = root.table.model;
+    const scope = this.scope(model);
+    const selector = this.terminalSelector(scope);
     return {
       id: this.idOf(root.id, "select"),
       kind: "read",
       ...(op === "create" ? { model: this.stepModel(model) } : {}),
-      statement: buildMatch(terminal, this.engine),
+      statement: matchWriteResult(scope, {
+        pattern: this.terminalPattern("one", true),
+        form: "reselect",
+        ...(selector ? { selector } : {}),
+      }),
       outputs: { result: { kind: "rows" } },
       ...(this.txMode
         ? { expects: exactlyOneRow(this.terminalFailure()) }
@@ -2836,7 +2920,7 @@ class Packing {
         kind: "write",
         model: this.stepModel(model),
         statement: buildDelete(scope, {
-          where: this.keyWhere(row),
+          where: this.selectorWhere(row) ?? this.keyWhere(row),
           ...(select ? { select } : {}),
         }),
         outputs: {},
@@ -2965,7 +3049,6 @@ class Packing {
       return undefined;
     }
     const scope = this.scope(this.root.table.model);
-    const select = this.projectionSelect();
     const mutated = new Set(
       statementWrites.map((step) => {
         const row = this.pattern.rows.find(
@@ -2989,10 +3072,11 @@ class Packing {
         id: rootId,
         kind: "write",
         model: this.stepModel(this.root.table.model),
-        statement: buildMutationProjectionFold(scope, {
+        statement: matchWriteResult(scope, {
+          pattern: this.terminalPattern(),
+          form: "fold",
           mutation: buildInsertStatement(scope, data, polymorphicStorage),
           siblings,
-          ...(select ? { select } : {}),
         }),
         outputs: { result: { kind: "rows" } },
         ...(racePin ? { racePin } : {}),

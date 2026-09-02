@@ -94,6 +94,11 @@ export interface Node {
   readonly reference?: Reference;
   /** Cells rewritten to the OLD key so `ON UPDATE CASCADE` carries them (§6.2). */
   readonly cascadeCarried: readonly Cell[];
+  /**
+   * Rows whose own match this one must PRECEDE: a correlation cell on this row
+   * holds their key, so this match publishes the column theirs reads.
+   */
+  readonly correlates?: readonly RowId[];
   /** Dependency level (longest predecessor chain) over the whole dataflow graph. */
   readonly level: number;
 }
@@ -130,7 +135,7 @@ export function schedule(
 ): Scheduled {
   const facts = new PatternFacts(pattern);
   const nodes = buildNodes(pattern, facts);
-  const graph = buildGraph(pattern, facts, nodes);
+  const graph = buildGraph(pattern, nodes);
   const order = topological(nodes, graph);
   const leveled = withLevels(order, graph);
   const fragments = cutFragments(leveled, graph, pattern, substrate);
@@ -335,12 +340,21 @@ function buildNodes(pattern: Pattern, facts: PatternFacts): Node[] {
     const writeCells = cells.filter((cell) => cell.mode !== "match");
 
     // 1. The row's own match: it binds every `matched` variable on the row.
-    if (facts.hasOwnMatch(row.id) || row.mode === "match") {
+    //
+    // A row is LOCATED by a match whenever it carries match-mode cells (the
+    // membership that says X ∈ N) even if its key is entirely pinned by the
+    // payload's selector and its mode was later rewritten to assert or
+    // retract — `delete X` is matched, then retracted, and the match is what
+    // proves the membership the retract relies on.
+    if (
+      facts.hasOwnMatch(row.id) ||
+      row.mode === "match" ||
+      matchCells.length > 0
+    ) {
+      const decidesAnArm =
+        row.matchIsDecision === true || facts.decisionRows.has(row.id);
       const decision =
-        row.mode === "match" ||
-        row.matchIsDecision === true ||
-        facts.decisionRows.has(row.id) ||
-        row.arm !== undefined;
+        row.mode === "match" || decidesAnArm || row.arm !== undefined;
       const missing = pattern.arms.some(
         (arm) => arm.decision === row.id && arm.taken === "missing"
       );
@@ -354,20 +368,40 @@ function buildNodes(pattern: Pattern, facts: PatternFacts): Node[] {
         binds: (facts.matchedOn.get(row.id) ?? []).map((v) => v.id),
         consumes: [
           ...dependentVariableIds(facts, predicateVariables(row.predicate)),
+          // A correlation cell holds the OTHER endpoint's key. Which side reads
+          // it is CONSTRUCTION ORDER, not the reference's direction: the
+          // enclosing row's match runs first and publishes the column, the
+          // extended row's match reads it. A child-held probe reads the
+          // parent's key; a parent-held probe reads the parent's own foreign
+          // key column — one rule, both storages.
           ...dependentVariableIds(
             facts,
-            matchCells.map((cell) => cell.value)
+            matchCells
+              .map((cell) => cell.value)
+              .filter(
+                (value) =>
+                  value.binding.kind !== "matched" || value.binding.row < row.id
+              )
           ),
-          // A correlated match reads the OTHER endpoint's key.
           ...dependentVariableIds(
             facts,
             facts
               .referencesWritten(row.id, matchCells)
-              .flatMap((reference) => facts.row(reference.referenced).key)
+              .flatMap((reference) =>
+                reference.referenced < row.id
+                  ? facts.row(reference.referenced).key
+                  : []
+              )
           ),
         ],
         needsRows: [],
         ...(row.arm === undefined ? {} : { arm: row.arm }),
+        correlates: matchCells.flatMap((cell) =>
+          cell.value.binding.kind === "matched" &&
+          cell.value.binding.row > row.id
+            ? [cell.value.binding.row]
+            : []
+        ),
         taken,
         required: !decision,
         premise,
@@ -558,11 +592,7 @@ interface Graph {
   readonly establishes: ReadonlyMap<RowId, Node>;
 }
 
-function buildGraph(
-  pattern: Pattern,
-  facts: PatternFacts,
-  nodes: Node[]
-): Graph {
+function buildGraph(pattern: Pattern, nodes: Node[]): Graph {
   const predecessors = new Map<number, Set<number>>();
   for (const node of nodes) predecessors.set(node.index, new Set());
   const edge = (from: Node, to: Node) => {
@@ -607,6 +637,11 @@ function buildGraph(
       const establisher = establishes.get(row);
       if (establisher) edge(establisher, node);
     }
+    // a correlation this match publishes precedes the match that reads it
+    for (const other of node.correlates ?? []) {
+      const inner = matchOf.get(other);
+      if (inner) edge(node, inner);
+    }
     // the row's own match precedes its write
     if (node.kind === "assert" || node.kind === "retract") {
       const own = matchOf.get(node.row);
@@ -622,7 +657,7 @@ function buildGraph(
     if (!row.newKey || row.newKey.length === 0) continue;
     const rebinder = assertOf.get(row.id);
     if (!rebinder) continue;
-    const oldKey = new Set(dependentVariableIds(facts, row.key));
+    const oldKey = new Set(row.key.map((variable) => variable.id));
     if (oldKey.size === 0) continue;
     for (const node of nodes) {
       if (node.index === rebinder.index || node.kind === "terminal") continue;
