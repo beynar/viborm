@@ -64,6 +64,15 @@ export interface ReferenceCells {
       readonly holderColumn: string;
       readonly referencedColumn: string;
     }[];
+    /** The pairing toward the ASKING endpoint (the parent row); `referencedCells` is the pairing toward the referenced endpoint, always `cells`. */
+    readonly askingCells: readonly {
+      readonly holderColumn: string;
+      readonly referencedColumn: string;
+    }[];
+    readonly referencedCells: readonly {
+      readonly holderColumn: string;
+      readonly referencedColumn: string;
+    }[];
   };
   /** Present when a stored discriminator selects the referenced table. */
   readonly discriminator?: {
@@ -183,6 +192,16 @@ function junctionCells(
   const junctionMembers = sourceIsAsking
     ? topology.target.members
     : topology.source.members;
+  const pairs = (
+    members: readonly { junctionField: string; referencedField: string }[],
+    model: Model<any>
+  ) =>
+    members.map((m) => ({
+      holderColumn: m.junctionField,
+      referencedColumn: getColumnName(model, m.referencedField),
+    }));
+  const sourcePairs = pairs(topology.source.members, topology.source.model);
+  const targetPairs = pairs(topology.target.members, topology.target.model);
   const junctionSide: CellSide = {
     model: referenced.model,
     table: topology.table,
@@ -194,28 +213,15 @@ function junctionCells(
     holder: junctionSide,
     referenced,
     holderIsSource: false,
-    cells: junctionMembers.map((m) => ({
-      holderColumn: m.junctionField,
-      referencedColumn: getColumnName(referenced.model, m.referencedField),
-    })),
+    cells: sourceIsAsking ? targetPairs : sourcePairs,
     viaJunction: {
       table: topology.table,
       source: sourceSide,
       target: targetSide,
-      sourceCells: topology.source.members.map((m) => ({
-        holderColumn: m.junctionField,
-        referencedColumn: getColumnName(
-          topology.source.model,
-          m.referencedField
-        ),
-      })),
-      targetCells: topology.target.members.map((m) => ({
-        holderColumn: m.junctionField,
-        referencedColumn: getColumnName(
-          topology.target.model,
-          m.referencedField
-        ),
-      })),
+      sourceCells: sourcePairs,
+      targetCells: targetPairs,
+      askingCells: sourceIsAsking ? sourcePairs : targetPairs,
+      referencedCells: sourceIsAsking ? targetPairs : sourcePairs,
     },
     unique: options.uniqueTarget,
     nullable: true,
