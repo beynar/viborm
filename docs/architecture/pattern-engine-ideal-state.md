@@ -849,6 +849,10 @@ world over the 246-payload corpus, 2,952 cells.
 | 2026-09-02 | 0e04c87d | Contract revision reconciled across the four streams (K1 arms / referenceRow / verb / read-side terms; K2 junction pairings; K3 required failures, `Fragment.pack`, program outputs). 870 tests. M1 runner: 232 equal, 1,759 error-identity, 689 with step diffs. |
 | 2026-09-02 | c5919b8c | M2 runner (both engines on the simulated driver, gated to compile-equal cells): 194 equal, 26 trace, 12 outcome. Found: executor re-locks a locked match; nested premise failure raised before the root locate's own failure. |
 | 2026-09-02 | 08bf6522 | K2 orients junctions by slot identity; K1 `Extension.variant`; match exports `lowerPredicate` / `lowerRowKey` / `lowerRowSelector` for the packer; M1 compares record series (capture + members + result reads). 244 equal. |
+| 2026-09-02 | 5d99c7bb | M1 also runs over seeded generated payloads (unit B on the dashboard): 1,224 cells, 74 equal. |
+| 2026-09-02 | 07acde88 | Construction stamps a verb on every row and carries today's failure text per verb; construction invariants hold over 600 generated payloads and 1,841 mutants. 262 equal. |
+| 2026-09-02 | 3401a4ab | Read mode over generated reads: 900 payloads × 3 dialects byte-equal and decode-equal, after fixing two refusal-precedence gaps (groupBy duplicate fields, findUnique projecting before addressing). M3 holds for generated reads. |
+| 2026-09-02 | 9817d156 | The packer owns the row lock (executors add none); substrate admission refuses before the parse boundary, in the executor and in the differential chain. **M1 582 equal, M2 522 equal, 18 trace, 12 outcome.** |
 
 Open divergence classes, by owner (cell counts from the 08bf6522 run):
 
@@ -860,9 +864,9 @@ Open divergence classes, by owner (cell counts from the 08bf6522 run):
   `member` boundary yet, so every series cell diverges).
 - Construction (C): refusals today raises that the pattern engine does not
   (`No fields to update`, nested-dependency refusals) and failure text per verb.
-- Executors (F): double `FOR UPDATE`; premise evaluation order in the missing
-  world; the mysql/batch "public result parsing cannot be rolled back" refusal.
-- Contracts (coordinator): `viaJunction.askingCells` / `referencedCells`
-  naming so the packer and the read constructor read a pairing instead of
-  comparing two (G's note); `Projection.relations[].variant` duplicates
-  `Extension.variant` for projected arms.
+- Executors (F): closed. The double lock and the substrate refusal are fixed;
+  the premise-order divergence proved to be the scheduler's (a located root
+  that is also a decision loses its `required` flag, so its refusal no longer
+  precedes a nested target's).
+- Contracts (coordinator): `Projection.relations[].variant` duplicates
+  `Extension.variant` for projected arms; one could derive from the other.
