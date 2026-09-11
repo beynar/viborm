@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "status": "qualified-final-root-review-pending",
+  "reviewedParent": "../g3-prep-06/g3-prep-06-index.json",
+  "independentParentAcceptance": "../g3-prep-06-review-acceptance.md",
+  "runtime": {
+    "node": "v24.21.0",
+    "vitest": "3.1.4",
+    "sqliteDriver": "12.6.0",
+    "platform": "darwin-arm64"
+  },
+  "identities": {
+    "raptorRunnerProduction": "934ef37d910c99efcea7c435e2db9ce65df6080cf91868bc0704dab1f1401ecb",
+    "raptorRunnerHarness": "a33ee9da46496cb2239ee567effc54766b6ca7011f89dfee5d559f0eafb41d70",
+    "wholeSourceCostReceipt": "77da78b0e7797eb509d2a7010887cc95b1c9ff68d94cfd4137464830e5b44bcc"
+  },
+  "repairHarnessManifest": [
+    {
+      "file": "scripts/credential-free-test-manifest.mjs",
+      "sha256": "52faec21469dc279020ef81d05ebad282c7df75b3e1b553707417ea3a0853c62"
+    },
+    {
+      "file": "scripts/run-credential-free-tests.mjs",
+      "sha256": "3d550313631722eb961109cf81b530cf4f51f6a44194649ae71e3a8d79f8ca91"
+    },
+    {
+      "file": "scripts/raptor3-campaign-receipts.test.mjs",
+      "sha256": "12608e57dfd5e1f5964209b119283eaba92db6083f7d0420b50bdfce7b72dffc",
+      "tests": 12
+    }
+  ],
+  "registrationRepair": {
+    "redReceipt": "receipts/registration-red.txt",
+    "greenReceipt": "receipts/registration-green.txt",
+    "normalFixedStageReceipt": "receipts/credential-free-fixed-stage.txt",
+    "normalFixedStageFiles": 38,
+    "normalFixedStageTests": 585,
+    "normalFixedStagePeakRssMiB": 829.5,
+    "normalFixedStageRssCeilingMiB": 1536
+  },
+  "fixedQualification": {
+    "receiptRoot": "receipts/fixed",
+    "qualifyingTests": 1015,
+    "passed": 1015,
+    "failed": 0,
+    "pending": 0,
+    "separateNonqualifyingDiagnostics": 2
+  },
+  "pgliteQualification": {
+    "receipt": "receipts/pglite-summary.txt",
+    "tests": 10,
+    "passed": 10,
+    "failed": 0,
+    "pending": 0
+  },
+  "nativeQualification": {
+    "postgresql": {
+      "receiptRoot": "receipts/native-pg",
+      "topLevelTests": 50,
+      "g3p04Worlds": 8
+    },
+    "mysql": {
+      "receiptRoot": "receipts/native-mysql",
+      "topLevelTests": 39,
+      "g3p04Worlds": 7
+    },
+    "containerReceipt": "receipts/native-container-summary.txt"
+  },
+  "campaignQualification": [
+    {
+      "mode": "g2-seeds",
+      "cells": 10000,
+      "replays": 30000,
+      "skips": 0,
+      "receiptRoot": "receipts/campaigns/g2-seeds"
+    },
+    {
+      "mode": "g2-transport-seeds",
+      "cells": 10000,
+      "replays": 30000,
+      "skips": 0,
+      "receiptRoot": "receipts/campaigns/g2-transport-seeds"
+    },
+    {
+      "mode": "g3p06-seeds",
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "receiptRoot": "receipts/campaigns/g3p06-seeds"
+    },
+    {
+      "mode": "g3p06-transport-seeds",
+      "cells": 200,
+      "replays": 600,
+      "skips": 0,
+      "receiptRoot": "receipts/campaigns/g3p06-transport-seeds"
+    }
+  ],
+  "savedReplayQualification": {
+    "receiptRoot": "receipts/replays",
+    "corporaRoot": "corpora",
+    "tests": 2,
+    "passed": 2
+  },
+  "supportingReceipts": {
+    "harnessAndCliSelfTests": "receipts/harness-selftests-summary.txt",
+    "typecheck": "receipts/typecheck-final-known-pattern-failure.txt",
+    "structure": "receipts/query-engine-structure-summary.json"
+  },
+  "cost": {
+    "wholeReceipt": "g3-prep-06-repair-cost.json",
+    "matchedReceipt": "g3-prep-06-repair-matched-cost.json",
+    "owners": 28,
+    "tokenLines": 9360,
+    "productionDelta": 0
+  },
+  "checksums": "g3-prep-06-repair-SHA256SUMS",
+  "reproduction": "g3-prep-06-repair-reproduction.md"
+}

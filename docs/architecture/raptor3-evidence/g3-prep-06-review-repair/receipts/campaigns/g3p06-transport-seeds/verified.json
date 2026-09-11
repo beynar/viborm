@@ -1,0 +1,31 @@
+{
+  "mode": "g3p06-transport-seeds",
+  "identity": {
+    "production": "934ef37d910c99efcea7c435e2db9ce65df6080cf91868bc0704dab1f1401ecb",
+    "harness": "a33ee9da46496cb2239ee567effc54766b6ca7011f89dfee5d559f0eafb41d70",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 7000,
+    "seedCount": 100,
+    "batchSize": 100,
+    "replayCount": 3,
+    "completionLimit": 5000,
+    "profiles": [
+      "scripted-returning-weak",
+      "scripted-returning-ack"
+    ]
+  },
+  "batches": [
+    {
+      "firstSeed": 7000,
+      "directory": "/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KOCyff"
+    }
+  ]
+}

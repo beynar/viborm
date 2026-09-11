@@ -12,6 +12,7 @@ import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
 import type { AdapterResultParser } from "../../adapter-result-parser";
+import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
   type GeoPointSql,
@@ -70,6 +71,7 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter("`");
+const MYSQL_CONSTRAINTS = createNamedConstraintIdentities(() => "PRIMARY");
 
 /**
  * MySQL has `MOD()` but no exact integer-quotient function for decimals: `DIV`
@@ -418,6 +420,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
+      constraints: MYSQL_CONSTRAINTS,
       select: this.#assemble.select,
     });
   }

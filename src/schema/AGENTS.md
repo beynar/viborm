@@ -161,9 +161,13 @@ unique-selector grammar; `referenceableKeys` adds total unique indexes and is
 the one physical-key view used by stored-reference validation and relation
 cardinality derivation. Compound ID, compound unique, index, and relation
 field/reference tuples reject repeated members at their declaration owners.
-A compound selector name identifies one tuple across IDs and uniques; a second
-explicit or underscore-derived name collision is refused at declaration rather
-than overwriting the first tuple. Model key and index declarations snapshot
+A compound selector is not a model field. Its model-local public query name
+must not overlap a model field, `AND`/`OR`/`NOT`, or another compound selector;
+the mandatory definition-validation rule I006 refuses the schema once before
+operation-schema construction can merge those names. Mapped columns and
+provider constraint names belong to separate physical namespaces. Same-kind
+compound declarations still refuse before Record storage can overwrite the
+first tuple. Model key and index declarations snapshot
 their member arrays. Index options are read once by their four public names so
 later caller mutation cannot change the model and inherited accessors do not
 silently lose a partial predicate or uniqueness fact.

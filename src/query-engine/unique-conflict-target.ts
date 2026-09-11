@@ -1,3 +1,4 @@
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import { getModelKeyCatalog } from "@schema/model";
 import { getPrimaryKeyFields } from "./builders/correlation-utils";
 import { partitionWhereUnique } from "./builders/where-unique-builder";
@@ -9,7 +10,7 @@ import type { TargetConstraintPin } from "./write-engine/OperationFragment";
 /**
  * The unique-conflict target descriptor (P6 pure-leaf extraction, consumed by V2):
  * resolves a `whereUnique` selector into the constraint's fields, columns, table,
- * and candidate constraint names so a skippable/adopting write can pin the exact
+ * and physical constraint name so a skippable/adopting write can pin the exact
  * constraint it races against.
  */
 export function uniqueConflictTarget(
@@ -31,27 +32,24 @@ export function uniqueConflictTarget(
     primaryKeys.length === entries.length &&
     primaryKeys.every((field, index) => field === entries[index]?.fieldName);
   const [selector] = Object.keys(discriminator);
-  // Deliberately NOT findAddressableKey: on a name collision between a scalar
-  // unique and a compound unique, the resolver answers the scalar while this
-  // constraint-name branch has always keyed on the compound's existence — using
-  // the resolver would change the emitted constraint from
-  // `${table}_${selector}_key` to `${table}_${column}_key`.
+  // Definition validation guarantees that a selector has one meaning here.
   const selectorIsCompoundUnique =
     selector !== undefined &&
     getModelKeyCatalog(ctx.model).addressableKeys.some(
       (key) => key.kind === "compoundUnique" && key.name === selector
     );
   let constraints: string[];
+  const constraintsOwner = getAdapterInternals(ctx.adapter).constraints;
   if (isPrimary) {
-    constraints = [`${table}_pkey`, "PRIMARY"];
+    constraints = [constraintsOwner.primaryKey(table, columns).name];
   } else if (selectorIsCompoundUnique) {
-    constraints = [`${table}_${selector}_key`];
+    constraints = [constraintsOwner.unique(table, selector, columns).name];
   } else {
     const [column] = columns;
     if (!column) {
       throw new QueryEngineError("Unique conflict target has no column.");
     }
-    constraints = [`${table}_${column}_key`];
+    constraints = [constraintsOwner.unique(table, column, columns).name];
   }
   return { fields, table, columns, constraints };
 }

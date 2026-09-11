@@ -11,6 +11,7 @@ import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
+import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
   type GeoPointSql,
@@ -63,6 +64,9 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
+const POSTGRES_CONSTRAINTS = createNamedConstraintIdentities(
+  (tableName) => `${tableName}_pkey`
+);
 
 /**
  * `div`/`mod` rather than `/` and a hand-rolled remainder: both are exact on
@@ -129,6 +133,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     installGeoPointSql(this, postgis ? this.createGeoPointSql() : undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
+      constraints: POSTGRES_CONSTRAINTS,
       select: this.#assemble.select,
     });
   }

@@ -115,6 +115,23 @@ export const ALL_PROVIDERS = Object.freeze(Object.keys(PROVIDERS));
 const FIXED_DECIMAL_PROVIDERS = Object.freeze(["sqlite3", "pglite", "mysql2"]);
 
 const stages = Object.freeze({
+  coldRead: Object.freeze([
+    "cold-prepare",
+    "prepare",
+    "execute",
+    "parse",
+    "raw-parse",
+    "full",
+  ]),
+  coldMutation: Object.freeze([
+    "cold-prepare",
+    "prepare",
+    "execute",
+    "raw-parse",
+    "full",
+  ]),
+  coldBulk: Object.freeze(["cold-prepare", "prepare", "parse", "full"]),
+  coldFull: Object.freeze(["cold-full", "full"]),
   allRead: Object.freeze(["prepare", "execute", "parse", "raw-parse", "full"]),
   parseRead: Object.freeze(["parse", "raw-parse", "full"]),
   parseFull: Object.freeze(["parse", "full"]),
@@ -141,6 +158,7 @@ const stages = Object.freeze({
 });
 
 const ASYNC_STAGES = new Set([
+  "cold-full",
   "provider-execute",
   "provider-parse",
   "driver-wrapper",
@@ -346,7 +364,7 @@ export const WORKLOADS = Object.freeze({
     Object.freeze(["provider-execute", "driver-wrapper"]),
     1
   ),
-  "scalar-find-unique": workload("core", stages.allRead, 1),
+  "scalar-find-unique": workload("core", stages.coldRead, 1),
   "scalar-find-many-1": workload("core", stages.parseRead, 1, {
     extensionProof: true,
   }),
@@ -365,8 +383,8 @@ export const WORKLOADS = Object.freeze({
     providers: CORE_FIXTURE_PROVIDERS,
   }),
   "fixed-singular-rowref-1000": workload("core", stages.allRead, 1000),
-  "fixed-collection-rowref-20": workload("core", stages.allRead, 20),
-  "fixed-collection-rowref-1000": workload("core", stages.allRead, 1000),
+  "fixed-collection-rowref-20": workload("core", stages.coldRead, 20),
+  "fixed-collection-rowref-1000": workload("core", stages.coldRead, 1000),
   "variant-singular-rowref-20": workload("variant", stages.allRead, 20),
   "variant-singular-rowref-1000": workload("variant", stages.allRead, 1000),
   "variant-collection-junction-20": workload("variant", stages.allRead, 20),
@@ -384,7 +402,11 @@ export const WORKLOADS = Object.freeze({
     providers: Object.freeze(["sqlite3", "pglite"]),
   }),
   "flat-create-generated-id": workload("core", stages.mutation, 1),
-  "flat-scalar-update": workload("core", stages.mutation, 1),
+  "flat-scalar-update": workload("core", stages.coldMutation, 1),
+  "nested-conditional-found": workload("core", stages.coldFull, 1),
+  "nested-conditional-missing": workload("core", stages.coldFull, 1),
+  "key-transition-cascade": workload("core", stages.coldFull, 1),
+  "relation-series-2": workload("core", stages.coldFull, 2),
   "wide-create-1": workload("wide", stages.prepareFull, 1),
   "wide-create-20": workload("wide", stages.prepareFull, 1),
   "wide-update-1": workload("wide", stages.prepareFull, 1),
@@ -424,8 +446,8 @@ export const WORKLOADS = Object.freeze({
   "bulk-create-returning-100": workload("core", stages.prepareParseFull, 100, {
     asyncStages: ["prepare"],
   }),
-  "bulk-update-returning-100": workload("core", stages.prepareParseFull, 100, {
-    asyncStages: ["prepare"],
+  "bulk-update-returning-100": workload("core", stages.coldBulk, 100, {
+    asyncStages: ["cold-prepare", "prepare"],
   }),
   ...Object.fromEntries(
     [2, 20, 100].flatMap((fieldCount) =>
@@ -436,6 +458,20 @@ export const WORKLOADS = Object.freeze({
     )
   ),
 });
+
+/** Versioned G0 adoption workload selection; protocol hashes bind exact recipes. */
+export const RAPTOR3_WORKLOAD_VERSION = 1;
+export const RAPTOR3_WORKLOADS = Object.freeze([
+  "scalar-find-unique",
+  "flat-scalar-update",
+  "fixed-collection-rowref-20",
+  "nested-conditional-found",
+  "nested-conditional-missing",
+  "key-transition-cascade",
+  "bulk-update-returning-100",
+  "relation-series-2",
+  "fixed-collection-rowref-1000",
+]);
 
 export function resolveEvidenceProgram(workloadNames, workloads = WORKLOADS) {
   const names = new Set();

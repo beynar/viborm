@@ -1,21 +1,281 @@
-# The pattern engine — ideal state for VibORM's query/write engine
+# The pattern-engine experiment — rejected hypothesis and Raptor 3 restart plan
 
 **Date:** 2026-09-02
 
-**Status:** Design. No production code changed. Every number labelled *measured* comes
-from the working tree at `5988a20e`; every number labelled *estimate* is an estimate and
-says so.
+**Status:** **The cell/pattern hypothesis is rejected. Do not implement or merge it as
+the Raptor 3 architecture.** A non-routed prototype exists on branch `pattern-engine`;
+the old engine remains in use. Sections 1–13 are retained below as the experiment's
+original hypothesis and execution record, not as an approved plan.
 
 **Scope:** `src/query-engine` (60,209 lines measured). Nothing in the public schema
 language, query syntax, result types, SQL semantics, parameter order, statement order,
 failure identity, transaction/batch behavior, dialect or driver support changes. The
-plan holds every feature and re-expresses how the engine reaches them.
+restart plan continues to hold every feature and re-expresses how the engine reaches
+them.
 
-**Reading order:** §1 says what the engine is for and why it is 60k lines today. §2 gives
-the model in six definitions. §3–§9 are the design, one mechanism per section, each
-followed by an adversarial review that names the way it fails and what prevents that.
-§10 is the failure register in one place. §11 is the size. §12 is the delivery path and
-the decisions that only the maintainers can make.
+**Reading order:** §0 is the current decision and the only forward plan. Sections 1–13
+explain the rejected hypothesis and preserve the evidence needed for its postmortem.
+
+---
+
+## 0. Post-experiment amendment
+
+### 0.1 Verdict
+
+The experiment does **not** show that semantic compression is impossible. It shows
+that this particular compression was lossy:
+
+> A mutation cannot be represented by its desired cells alone, because VibORM's
+> contract includes the transition used to reach that state: observations, expected
+> cardinality, failure identity and precedence, concurrency premises, publication of
+> values, branch policy, sequential visibility, and result production.
+
+The useful Raptor 3 direction survives: parse the three recursive payload languages
+(`where`, projection, and mutation data) once; resolve relation topology once; lower
+public verbs once; centralise substrate enforcement; and make every later phase consume
+the decision instead of reconstructing it. The rejected step was forcing all three
+languages and all transition semantics through one universal `Pattern` of cells.
+
+### 0.2 Evidence that rejects the hypothesis
+
+The plan predicted a complete engine in **12–14k source lines plus about 4k relocated**.
+The current prototype already contains:
+
+| evidence | current result | consequence |
+|---|---:|---|
+| `src/query-engine/pattern/` | 12,712 lines | the lower bound is already consumed |
+| plus `builders/projection-select.ts` | 14,548 lines total | the original source target is exceeded before parity |
+| M1 compile differential | 1,731 / 3,036 cells equal | 43% of the corpus is not compile-equal |
+| M1 classifications | 556 error-identity cells; 749 step-divergent cells | the missing behavior is semantic, not formatting noise |
+| M1 difference instances | 1,726 byte, 99 order, 49 guard-shape, 502 untaken-arm | the plan's stop threshold of about 40 byte special cases was exceeded by 43× |
+| M2 execution differential | 1,436 equal; 259 trace; 1,305 not compile-equal; 36 series skipped | M2 has not tested the whole corpus and does not satisfy its own definition |
+| `pnpm test:types` | two errors in `pattern/pack.ts` | the current checkout is not green |
+
+The source count understates the eventual replacement. `pack.ts` still imports the old
+query/write engine, including `PlanningKnown`, `Part`, `JunctionStatements`, operation
+builders, membership builders, and write-engine helpers. It is a compatibility bridge,
+not an independent replacement whose legacy dependencies can yet be deleted.
+
+The structural prediction also failed. The six-definition model said the core needed
+cells, patterns, three modes, single-assignment bindings, one schedule, and one premise.
+The implementation had to add back:
+
+- rows, references, branch arms, predicates, projections, windows, order terms, and
+  operation cardinality;
+- `fresh`, `located`, `label`, `verb`, `operation`, `referenceRow`, and
+  `matchIsDecision` facts;
+- four premise variants, three guard shapes, explicit guards, three fragment-boundary
+  variants, and substrate capabilities;
+- a 3,466-line packer with 48 verb comparisons/switches and 24 storage branches.
+
+Those additions are evidence that the proposed primitive set discarded information
+needed downstream. The packer then recovered that information from public verbs,
+storage categories, legacy builders, labels, and special cases—the same redispatch the
+design existed to remove.
+
+### 0.3 The mathematical error in “cells are everything”
+
+`database = partial function (table, key, column) -> value` is a useful physical
+metaphor, but it is not a sufficient execution model:
+
+1. A known key value does not prove that its row exists. Unknown, absent, and SQL `NULL`
+   are different states.
+2. Equal final cells do not imply equal operations. `connect`, `set`, and the missing
+   arm of `connectOrCreate` can converge on the same stored membership while requiring
+   different reads, removals, locks, retries, failures, and statement observations.
+3. A row key, addressable key, reference key, membership key, and published record field
+   are different capabilities. Replacing all of them with a variable loses what the
+   value is allowed to address or prove.
+4. Single assignment can name old and new values, but it does not prove selected-row
+   continuity or exact membership across a committed boundary.
+5. A desired-state pattern does not say which pre-existing facts may be changed, which
+   absence is an error, whether a branch retries, or whether two series members may
+   observe one another.
+6. Match/assert overlap is not the OwnWrite rule. The rule depends on payload order,
+   target certainty, predicate overlap, branch policy, and fragment boundaries.
+7. Projection and decoding are not “match forwards/backwards.” Input validation,
+   physical provider carriers, public result shape, and container ownership are distinct
+   trust boundaries even when they consume one resolved projection.
+
+Therefore a cell may remain a **physical leaf** used by assignment and SQL lowering. It
+must not be the semantic ontology of the engine.
+
+### 0.4 Corrected architecture hypothesis
+
+The next hypothesis has two IR levels and three recursive front ends. It deliberately
+does not force unlike semantics into one object.
+
+```text
+validated payload
+  ├─ filter compiler      ──► Selection / Predicate
+  ├─ projection compiler  ──► Projection
+  └─ mutation compiler    ──► MutationProgram
+            all three traverse the same ResolvedRelationIndex
+
+MutationProgram
+  ├─ Observe(Selection, expected cardinality, publications, premise)
+  ├─ Apply(RecordEffect | MembershipEffect)
+  ├─ Choose(observation, found program, missing program)
+  └─ Series(member programs, visibility boundary)
+             │
+             ├─ dependency + anti-dependency + continuity constraints
+             ▼
+       executable Fragment / OperationStep
+             │
+             ├─ transaction enforcer
+             ├─ atomic-batch enforcer
+             └─ committed-segment enforcer
+                         │
+                         ▼
+                    adapter SQL
+```
+
+The common recursion is **schema navigation**, not a common output algebra. Filter,
+projection, and mutation share the resolved relation path and scalar vocabulary. They
+produce different values because they answer different questions.
+
+### 0.5 Candidate primitives—not frozen contracts
+
+Names below are placeholders. A primitive earns a type only after the losslessness
+tests in §0.7 show that two observably different operations do not collapse into the
+same representation.
+
+| necessary truth | existing owner to compose | candidate representation |
+|---|---|---|
+| one resolved relation topology | `ResolvedRelationIndex` / `ResolvedSlot` | consume the existing slot directly; derive a physical stored-reference view only at SQL lowering |
+| selecting records is not proving they exist | where/query builders and captured-row rules | `Selection { model, predicate, cardinality }` plus an explicit captured `RowKey` when executed |
+| row keys, reference keys, and ordinary produced fields grant different capabilities | model key catalog, relation membership, publication code | `ValueSource` tagged by capability; `RowAddress` and `FieldPublication` remain distinct |
+| record lifetime changes independently of membership | record compilers | `RecordEffect = Insert | Assign | Remove` |
+| membership has cardinality, clearability, storage, and exact tuple semantics | `ResolvedSlot`, clearability, membership builders | `MembershipEffect = Add | Remove`; replacement and `set` compose these with an explicit affected set |
+| a database observation can select later work | planning reads / branch owners | `Observe` plus `Choose`; both arms remain available for pre-I/O policy without pretending both execute |
+| concurrency safety is evidence about a transition, not a generic “match still holds” | OwnWrite, target constraints, Pin Rule, continuity | typed `Premise`: row liveness, absence, exact membership, slot occupant, selected-row continuity; race pin is attached to the relevant absence proof |
+| later work may consume any produced field, not only identity | record-field publication | `FieldPublication` consumed by effects and projections |
+| series members have sequential visibility; fragments have atomicity | record-series and operation-fragment owners | `Series` and `Fragment` remain different concepts |
+| providers execute physical work | existing write execution algebra | retain `OperationStep` / fragment as the physical IR unless a concrete missing capability is proved |
+| result shape is independent of mutation intent | expected-result shape / result parser | one resolved `Projection` consumed separately by SQL emission and decoder compilation |
+
+This is intentionally more than six nouns. ELEGANCE asks for the minimum number of
+**independent truths**, not the minimum number of type names.
+
+### 0.6 What to retain from the experiment
+
+Retain only artifacts that remain useful without assuming `Pattern`:
+
+- the old-engine fragment oracle and canonical dump format;
+- the seeded payload corpus, shrinker, and invalid-payload mode after an audit that they
+  do not encode pattern-specific expectations;
+- the deterministic simulated driver and fault schedule after M2 is completed to cover
+  retry, error identity/meta, progress, instrumentation, malformed rows, and disconnect;
+- the projection-shaped read emitter as a separate measured refactor candidate;
+- the empirical inventories and the negative result recorded here.
+
+Do not treat the current `Pattern`, `ReferenceCells`, scheduler, packer, or executors as
+the foundation of the restart. They are evidence about missing facts. Salvage requires
+an isolated commit, a green `pnpm test:types`, and no dependency on the rejected IR.
+
+### 0.7 Losslessness matrix before implementation
+
+Before freezing any new contract, write a table of pairs that reach similar final rows
+but must remain distinguishable. The candidate IR must explain the difference without
+consulting the public verb again.
+
+Minimum witnesses:
+
+1. `connect X` versus `set [X]` with an existing unmentioned member.
+2. `create X` versus the missing arm of `connectOrCreate X` under a unique race.
+3. `disconnect X` versus `delete X` for each membership storage.
+4. selected-row scalar update versus a row-key transition with the same final values.
+5. parent-held, child-held, junction, and variant membership for the same `connect`.
+6. nullable departure versus required-membership orphan refusal.
+7. singular junction replacement versus plural junction insertion.
+8. one record tree versus two record-series members whose second member observes the
+   first.
+9. operation-atomic execution versus committed segments with the same statements.
+10. a row key, alternate addressable key, reference key, and arbitrary published field
+    carrying equal runtime values.
+11. parent liveness versus exact membership across a committed boundary.
+12. terminal result projection versus a decision read over the same columns.
+
+For every pair, record the distinct observation, effect, premise, publication,
+ordering, failure, or result fact. If the distinction appears only later as a packer
+special case, the candidate IR is lossy and is rejected before implementation.
+
+### 0.8 Restart sequence
+
+Raptor 3 is an end-state ambition, not a big-bang delivery requirement.
+
+1. **Freeze and postmortem the branch.** Make no further production changes on
+   `pattern-engine`. Preserve its commits as evidence. Do not call the branch green
+   while `test:types` fails or a differential is non-strict.
+2. **Extract the oracle, not the ontology.** Prove the dump harness, corpus, shrinker,
+   and simulator on the old engine alone. A green test must fail when a forced
+   divergence is injected.
+3. **Define the losslessness matrix serially.** One owner reviews the semantic
+   distinctions and the candidate representations. Do not parallelise or freeze K1/K2/
+   K3-style contracts in a day.
+4. **Prototype the hardest cross-axis kernel.** Cover a selected root with a row-key
+   transition, a parent-held assignment, a child-held assignment, a singular junction
+   transfer, a variant membership, a branch with a retry pin, and a progressive series.
+   A junction-only slice is insufficient because it does not test root assignment,
+   publication, or continuity.
+5. **Lower to the existing physical algebra.** Keep `OperationStep` and the current
+   executor initially. The experiment tests semantic compression, not a second
+   simultaneous executor rewrite.
+6. **Make one real cutover and delete its old owner.** Measure net source and bundle
+   change only after replacement code and superseded code are both counted. Additive
+   prototype LOC is not a reduction result.
+7. **Expand by semantic owner.** Suggested order: membership add/remove/replace;
+   branch and retry; selected/fresh record composition; record series; only then
+   consider executor consolidation and the read side.
+8. **Treat read compression separately.** Filter and projection may share resolved
+   traversal, but neither must be expressed as a mutation pattern. Keep SQL emission
+   and decoding as separate consumers of one projection.
+
+### 0.9 Non-negotiable gates
+
+- `pnpm test:types` runs against the actual checkout at every integration commit.
+- Differential tests are strict gates. A dashboard that always passes is reporting,
+  not validation.
+- The selected semantic slice reaches 100% compile and execution parity before the
+  surface expands.
+- Every divergence is classified before code changes. A new `if (verb)` in physical
+  lowering is presumptive evidence that semantic lowering lost information.
+- Count decision owners, not forbidden words. Storage may legitimately appear at its
+  one physical lowering boundary; substrate may appear at its one execution boundary;
+  diagnostic provenance may carry a verb without granting permission to branch on it.
+- A milestone stops when its predeclared gate fails. The threshold is not rewritten
+  after the result.
+- Measure net deleted source, minified bytes, gzip, type-check time, and runtime. A new
+  architecture is kept only after a real old owner is deleted.
+- Parallel work begins only after the semantic contracts pass the losslessness matrix.
+  Oracle generation and measurement may run independently; core IR, scheduling, and
+  divergence triage have one owner until then.
+
+### 0.10 Better questions for the next design round
+
+The productive first-principles questions are:
+
+1. Which two operations become identical under this representation but differ in an
+   observable result, error, lock, retry, statement, or committed effect?
+2. What independent truth does each proposed primitive retain, and what concrete old
+   concepts can be deleted because it exists?
+3. Can the hardest cross-axis witnesses lower without recovering a public verb or
+   storage taxonomy downstream?
+4. Which decisions are syntax, which are domain semantics, which are physical SQL, and
+   which are execution-substrate policy? Is each decided exactly once?
+5. After one owner is replaced and deleted, what is the measured net reduction?
+
+“Can this be made more abstract?” remains useful only as an adversarial prompt. It is
+not a keep criterion. The keep criterion is **lossless semantic compression with net
+deletion**.
+
+---
+
+## Historical rejected proposal and experiment record
+
+Everything below this heading describes the cell/pattern hypothesis as it was proposed
+and implemented. It is retained to make the failure inspectable. It is not the current
+architecture plan.
 
 ---
 

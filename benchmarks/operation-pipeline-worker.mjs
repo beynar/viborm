@@ -19,6 +19,8 @@ import {
 } from "./operation-pipeline-catalog.mjs";
 import { protocolIdentity } from "./operation-pipeline-protocol.mjs";
 import { createWorkloadHarness } from "./operation-pipeline-workloads.mjs";
+import { calibrationSourceIdentity } from "./operation-pipeline-semantics.mjs";
+import { serializeEvidenceReport } from "./operation-pipeline-evidence.mjs";
 
 const BENCHMARK_REPOSITORY = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -120,9 +122,18 @@ if (!(stageKind === "sync" || stageKind === "async")) {
 }
 
 const metadata = workspaceMetadata(targetDirectory);
+const calibrationHash = process.env.VIBORM_BENCH_CALIBRATION_SOURCE_SHA256;
+if (
+  calibrationHash !== undefined &&
+  calibrationSourceIdentity(targetDirectory, true).sha256 !== calibrationHash
+) {
+  throw new Error(
+    "Calibration source/build fingerprint mismatch before measurement"
+  );
+}
 const dirtySmokeAllowed =
   smoke && process.env.VIBORM_BENCH_ALLOW_DIRTY_SMOKE === "1";
-if (!(metadata.clean || dirtySmokeAllowed)) {
+if (!(metadata.clean || dirtySmokeAllowed || calibrationHash !== undefined)) {
   throw new Error("Benchmark worker refused a dirty worktree");
 }
 
@@ -264,6 +275,9 @@ async function measureCpu(runOne) {
     checksum,
     cpuMicrosecondsPerOperation: (cpu.user + cpu.system) / iterations,
     wallMicrosecondsPerOperation: (wallMilliseconds * 1000) / iterations,
+    ...(calibrationHash === undefined
+      ? {}
+      : { peakRssBytes: process.resourceUsage().maxRSS * 1024 }),
   };
 }
 
@@ -367,9 +381,15 @@ if (harness.responseBytes) {
 }
 await fixture.driver.disconnect();
 await semanticFixture.driver.disconnect();
+if (
+  calibrationHash !== undefined &&
+  calibrationSourceIdentity(targetDirectory, true).sha256 !== calibrationHash
+) {
+  throw new Error("Calibration source/build changed during measurement");
+}
 
 process.stdout.write(
-  `${JSON.stringify({
+  `${serializeEvidenceReport({
     metadata,
     status: "measured",
     protocol: protocolIdentity(BENCHMARK_REPOSITORY),
@@ -385,6 +405,12 @@ process.stdout.write(
     allocationSamplingInterval: ALLOCATION_SAMPLING_INTERVAL,
     witness: harness.witness,
     semanticDigest: harness.semanticDigest,
+    ...(harness.contractObservation
+      ? { contractObservation: harness.contractObservation }
+      : {}),
+    ...(calibrationHash === undefined
+      ? {}
+      : { calibrationOnly: true, calibrationSourceSha256: calibrationHash }),
     measurement,
   })}\n`
 );

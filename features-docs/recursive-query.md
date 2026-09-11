@@ -1,5 +1,27 @@
 # Recursive Query Implementation
 
+> **Status (2026-09-09): near-term follow-up after Raptor 3.** The API intent in
+> this document remains useful, but the per-file implementation below is a
+> historical design sketch, not execution-ready work. Raptor 3's authoritative
+> [G3 fit gate](../docs/architecture/raptor3-implementation-plan.md) must first
+> prove that bounded recursive reads extend its actual query/projection owners.
+> A new implementation must rebase on those owners rather than copy the old
+> recurse builder.
+> Near-term intent still covers both downward `subordinates` and upward
+> `manager` traversal; SQL-specific spelling remains adapter-owned.
+>
+> The sketch has confirmed gaps: raw-getter self-detection bypasses the resolved
+> relation index; its first-FK-member and single-primary-key maps lose compound
+> tuples and occurrence identity; generic `children` output does not preserve
+> the declared slot's object/null versus array cardinality; the sample promises
+> `where` and `orderBy` without consuming them; and its depth-1000 cap and
+> `true` cycle behavior are not proven. TypeScript-only admission is insufficient:
+> validate once at the existing operation-admission boundary, then trust the
+> admitted engine values. Recursive CTE helpers exist on all adapters, but syntax
+> presence alone is not portability or provider evidence.
+> The proposal below is preserved unchanged as the feature's historical API and
+> design context; these gaps supersede its readiness claims.
+
 ## 1. Overview
 
 This feature enables recursive queries on self-referencing models using SQL's `WITH RECURSIVE` CTE (Common Table Expression). It allows users to traverse hierarchical data (e.g., organizational charts, threaded comments, category trees).

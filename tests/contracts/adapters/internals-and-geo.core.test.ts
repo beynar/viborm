@@ -169,6 +169,36 @@ describe("adapter SELECT assembly", () => {
 });
 
 describe("private adapter seam", () => {
+  test("owns exact provider constraint names without a public property", () => {
+    const postgres = new PostgresAdapter();
+    const mysql = new MySQLAdapter();
+    const sqlite = new SQLiteAdapter();
+
+    expect(
+      getAdapterInternals(postgres).constraints.primaryKey("account", ["id"])
+    ).toEqual({
+      name: "account_pkey",
+      normalizedError: { table: "account", constraint: "account_pkey" },
+    });
+    expect(
+      getAdapterInternals(mysql).constraints.primaryKey("account", ["id"])
+    ).toEqual({
+      name: "PRIMARY",
+      normalizedError: { table: "account", constraint: "PRIMARY" },
+    });
+    expect(
+      getAdapterInternals(sqlite).constraints.unique("account", "email", [
+        "email_address",
+      ])
+    ).toEqual({
+      name: "account_email_key",
+      normalizedError: { columns: ["account.email_address"] },
+    });
+    for (const adapter of [postgres, mysql, sqlite]) {
+      expect("constraints" in adapter).toBe(false);
+    }
+  });
+
   test("stock adapters expose batch-reference SQL without a public property", () => {
     for (const adapter of [
       new PostgresAdapter(),

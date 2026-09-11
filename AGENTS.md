@@ -683,6 +683,70 @@ Both halves of the engine are fast layers, not coverage-only lanes:
 `pnpm test:core` and `pnpm test:all` run both. The `coverage-write-engine-core`
 project re-reads those same 56 write files only so the query-core report can
 merge them; it is not their only home.
+
+Raptor 3 fixed public contracts and harness falsifiers have one explicit
+admission owner, `scripts/raptor3-manifest.mjs`, and their own `raptor3` Vitest
+project. `pnpm test:all` runs that fixed lane once; it clears replay/specimen
+environment selectors so they cannot replace the required tests. These tests
+open real in-process SQLite and do not belong in a provider-free core layer.
+`pnpm test:raptor3` additionally runs the fixed old-versus-old campaign with
+100 schedule IDs per profile and three replays per saved run. The public replay
+command is `node scripts/run-raptor3.mjs replay <corpus.json>`; saved files must
+match the executed source/runtime identity. A passing contract command is not
+the complete milestone or a candidate adoption decision: size, benchmark and
+provider obligations remain in the central implementation plan. The separate
+command-boundary falsifiers run with
+`node scripts/run-node-safe.mjs 768 600000 scripts/raptor3-cli.test.mjs`.
+`pnpm test:raptor3:compare` runs the bounded G1-01 private representation
+comparison on the same fixed scenarios. It has its own explicit file list in
+the existing manifest/project and is also admitted once by `test:all`. The
+scenario invocation optionally accepts a private engine factory; fixture-owned
+raw-state/default/error assertions remain independent, and exact event replay
+is within a candidate rather than across representations. Cross-engine error
+comparison may rename only an outer observed error's own valid correlation ID;
+causes and every other outcome/state/default field remain exact. This comparison is
+not the full G1 milestone or a public engine selector. The central plan owns
+the experimental and adoption gates; `src/query-engine/raptor3/AGENTS.md` owns
+the candidate's local boundaries.
+`pnpm test:raptor3:contracts` runs the selected command engine's expanded fixed
+SQLite contracts. `pnpm test:raptor3:generated` runs independent generated smoke
+cases and shrinking/fault falsifiers. `pnpm test:raptor3:seeds` runs the explicit
+1,000-seed SQLite campaign as ten serial children, each with 100 distinct seeds,
+both transport profiles, exact case receipts and three candidate replays. This
+is real-provider boundary DST (lane B), not the separate transport simulator.
+`pnpm test:raptor3:transport` runs the explicit-response transport fixtures
+(lane A); `pnpm test:raptor3:transport:seeds` runs their own ten bounded
+100-seed children. The two profiles distinguish a successful response from an
+ordered commit acknowledgement. Their driver never evaluates SQL or invents a
+reply: fixtures supply each result, queued operations are released by the seeded
+recorder, and the oracle checks exact physical parameters as well as public
+outcomes and progress. Both actors must actually be pending before the first
+release. These models are not claims about named hosted drivers or SQL truth.
+The same replay format records the candidate and any deliberate world specimen;
+replaying a known-bad specimen must reproduce its named property failure.
+Subsequent operations' outcomes are compared alongside final raw state.
+The `raptor3-provider` project uses the existing PGlite schema-family fixture and
+isolated live-provider stage. Ordinary Raptor 3 limits remain unchanged. The full
+seed campaign is an explicit command, not another copy inside `test:all`.
+Cleanup evidence separates the protected transaction boundary's ordered native
+aggregate from the public error boundary's deliberate cause redaction. The
+rollback witness rejects only after a real successful rollback and records both
+boundaries through the same replay protocol. Never change disclosure policy to
+make a harness assertion pass. An interactive lifecycle aggregate first passes
+its complete independent oracle, including ordering and shared correlation;
+only then may its two actual lifecycle errors be compared individually through
+the existing outer-error rule. This does not authorize recursive normalization
+of opaque causes. Recorder snapshots use the existing lossless value codec,
+preserving null-prototype metadata; the first replay fault remains authoritative.
+`benchmarks/operation-pipeline-evidence.mjs` owns the shared lossless value codec
+for replay and measured benchmark reports. Measured worker/report JSON uses the
+explicit `viborm-evidence-v1` envelope in both strict and semantic modes; decode
+it with `parseEvidenceReport` before reading metrics. Metadata-only control
+output stays plain JSON. Replay owns its record-level admission, while the codec
+owns value transport. Do not stringify native values or use a digest as an
+exact comparison. Transport regression runs through the existing bounded Node
+launcher with `benchmarks/operation-pipeline-transport.test.mjs`.
+
 Cache coverage admits every cache core file plus its four deterministic public
 client contracts and rejects resource-owning provider imports. Migration
 coverage uses `scripts/migration-test-manifest.mjs` for deterministic core and

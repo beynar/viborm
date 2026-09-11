@@ -2,6 +2,7 @@
 
 import { validateSchema } from "../../../validation/primitives/helpers";
 import { isValidSchemaIdentifier } from "../../identifier";
+import { getAmbiguousPublicSelectorNames } from "../../model/keys";
 import type { Model, ModelState } from "../../model";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
@@ -405,6 +406,20 @@ export function compoundConstraintsNonEmpty(
   return errors;
 }
 
+/** I006: one model-local public unique-where name has one meaning. */
+export function publicSelectorNamesAreUnambiguous(
+  _s: Schema,
+  name: string,
+  model: Model<any>
+): SchemaValidationIssue[] {
+  return getAmbiguousPublicSelectorNames(model).map((selector) => ({
+    code: "I006",
+    message: `Public selector name '${selector}' is ambiguous in '${name}'; a compound selector must not reuse a model field, logical filter, or another compound selector name`,
+    severity: "error",
+    model: name,
+  }));
+}
+
 /**
  * I004: a fixed-decimal LIST is not a member of a key or an index (plan 2.1).
  *
@@ -556,6 +571,7 @@ export const modelRules = [
   indexNameUnique,
   // Compound key checks
   compoundConstraintsNonEmpty,
+  publicSelectorNamesAreUnambiguous,
   decimalListsAreNotKeyMembers,
   geoPointRolesArePortable,
 ];

@@ -12,6 +12,7 @@ import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import type { QueryParts } from "../../adapter-query-parts";
 import type { AdapterResultParser } from "../../adapter-result-parser";
+import { sqliteConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
   type GeoPointSql,
@@ -247,6 +248,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     installGeoPointSql(this, this.geoPoint);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
+      constraints: sqliteConstraintIdentities,
       select: this.#assemble.select,
     });
   }

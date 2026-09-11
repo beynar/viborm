@@ -187,7 +187,7 @@ export function diagnosticMeasurementCounts(definition, mode) {
   };
 }
 
-export function aggregateTarget(target, samples) {
+export function aggregateTarget(target, samples, additionalFields = []) {
   const responseAvailability = new Set(
     samples.map(
       (sample) =>
@@ -219,7 +219,13 @@ export function aggregateTarget(target, samples) {
       (sample) => typeof sample.output.measurement[field] === "number"
     )
   );
-  const fields = [...measuredFields(target.mode), ...optionalFields];
+  const fields = [
+    ...new Set([
+      ...measuredFields(target.mode),
+      ...optionalFields,
+      ...additionalFields,
+    ]),
+  ];
   const byCheckout = Object.fromEntries(
     ["baseline", "candidate"].map((label) => {
       const checkoutSamples = samples.filter(

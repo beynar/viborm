@@ -1,5 +1,8 @@
 // biome-ignore-all lint/style/useFilenamingConvention: Architecture names this compiler child JunctionStatements.
-import { assembleAdapterSelect } from "@adapters/adapter-internals";
+import {
+  assembleAdapterSelect,
+  getAdapterInternals,
+} from "@adapters/adapter-internals";
 import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
 import {
@@ -289,7 +292,12 @@ export class JunctionStatements {
       fields: columns,
       table,
       columns,
-      constraints: [`${table}_pkey`, "PRIMARY"],
+      constraints: [
+        getAdapterInternals(this.ctx.adapter).constraints.primaryKey(
+          table,
+          columns
+        ).name,
+      ],
     };
   }
 

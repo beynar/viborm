@@ -7,6 +7,38 @@ import {
 } from "./scripts/driver-test-manifest.mjs";
 import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
 import {
+  G1_COMPARISON_TESTS,
+  G1_BASELINE_TESTS,
+  G1_CONTRACT_TESTS,
+  G2_BASELINE_TESTS,
+  G2_CONTRACT_TESTS,
+  G25_CONTRACT_TESTS,
+  G25_PG_CONTRACT_TESTS,
+  G27_CONTRACT_TESTS,
+  G27_MYSQL_CONTRACT_TESTS,
+  G27_PG_CONTRACT_TESTS,
+  G3P02_PG_CONTRACT_TESTS,
+  G3P03_CONTRACT_TESTS,
+  G3P03_PG_CONTRACT_TESTS,
+  G3P04_CONTRACT_TESTS,
+  G3P04_REVIEW_CONTRACT_TESTS,
+  G3P04_PG_CONTRACT_TESTS,
+  G3P05_CONTRACT_TESTS,
+  G2_DIAGNOSTIC_TESTS,
+  G2_PG_BASELINE_TESTS,
+  G2_PG_CONTRACT_TESTS,
+  G2_CAMPAIGN_TESTS,
+  G2_TRANSPORT_TESTS,
+  G2_GENERATED_TESTS,
+  G1_GENERATED_TESTS,
+  G1_CAMPAIGN_TESTS,
+  G1_TRANSPORT_TESTS,
+  G1_TRANSPORT_CAMPAIGN_TESTS,
+  G1_PROVIDER_TESTS,
+  G1_PROVIDER_BASELINE_TESTS,
+  RAPTOR3_TESTS,
+} from "./scripts/raptor3-manifest.mjs";
+import {
   QUERY_ENGINE_CORE_TESTS,
   WRITE_ENGINE_CORE_TESTS,
   WRITE_ENGINE_COVERAGE_TESTS,
@@ -43,6 +75,57 @@ const coverageProject = (name: string, include: string[]) => ({
 });
 
 export default defineWorkspace([
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3",
+      include: [
+        ...RAPTOR3_TESTS,
+        ...G1_COMPARISON_TESTS,
+        ...G1_BASELINE_TESTS,
+        ...G1_CONTRACT_TESTS,
+        ...G2_BASELINE_TESTS,
+        ...G2_CONTRACT_TESTS,
+        ...G25_CONTRACT_TESTS,
+        ...G27_CONTRACT_TESTS,
+        ...G3P03_CONTRACT_TESTS,
+        ...G3P04_CONTRACT_TESTS,
+        ...G3P04_REVIEW_CONTRACT_TESTS,
+        ...G3P05_CONTRACT_TESTS,
+        ...G2_DIAGNOSTIC_TESTS,
+        ...G1_GENERATED_TESTS,
+        ...G1_CAMPAIGN_TESTS,
+        ...G1_TRANSPORT_TESTS,
+        ...G1_TRANSPORT_CAMPAIGN_TESTS,
+        ...G2_CAMPAIGN_TESTS,
+        ...G2_TRANSPORT_TESTS,
+        ...G2_GENERATED_TESTS,
+      ],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3-provider",
+      include: [...G1_PROVIDER_TESTS, ...G1_PROVIDER_BASELINE_TESTS],
+    },
+  },
+  {
+    extends: "./vitest.config.ts",
+    test: {
+      name: "raptor3-live-provider",
+      include: [
+        ...G2_PG_BASELINE_TESTS,
+        ...G2_PG_CONTRACT_TESTS,
+        ...G25_PG_CONTRACT_TESTS,
+        ...G27_PG_CONTRACT_TESTS,
+        ...G27_MYSQL_CONTRACT_TESTS,
+        ...G3P02_PG_CONTRACT_TESTS,
+        ...G3P03_PG_CONTRACT_TESTS,
+        ...G3P04_PG_CONTRACT_TESTS,
+      ],
+    },
+  },
   layerProject("validation", ["tests/unit/validation/**/*.core.test.ts"]),
   layerProject("scalars", ["tests/unit/scalars/**/*.core.test.ts"]),
   layerProject("operation-schemas", [
