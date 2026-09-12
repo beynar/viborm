@@ -18,14 +18,17 @@ without re-baselining both sides.
 
 ## Stages
 
-| Stage | Deliverable | Verified by |
-|---|---|---|
-| A | Baseline + this contract | `baseline.json`, `pnpm test:core` green |
-| B | Native ULID / NanoID / CUID2 / UUIDv7 / KSUID; three packages removed | vectors, differential CUID2 test, `layer-scalars`, `layer-schema-json` |
-| C | `decimal.js` → `big.js`; public `Decimal` is `Big` | `layer-validation`, decimal contracts, packed consumer typecheck |
-| D | One ID domain owner; UUID storage end to end on pg / mysql / sqlite | provider-backed round trips |
-| E | ULID and KSUID through the same mechanism | same harness, no fork |
-| F | Migrations, FK derivation edge cases, docs, package verification | `pnpm test:core`, `pnpm test:package`, measured after-numbers |
+| Stage | Deliverable | Verified by | Shipped |
+|---|---|---|---|
+| A | Baseline + this contract | `baseline.json`, `pnpm test:core` green | `native-ids-evidence/baseline.json` at fc69297b: 499 files / 10,067 tests |
+| B | Native ULID / NanoID / CUID2 / UUIDv7 / KSUID; three packages removed | vectors, differential CUID2 test, `layer-scalars`, `layer-schema-json` | all six formats, `.uuidv7()` and `.ksuid()` added, `@paralleldrive/cuid2` + `nanoid` + `ulidx` out, `@noble/hashes` in; CUID2 byte-identical to upstream |
+| C | `decimal.js` → `big.js`; public `Decimal` is `Big` | `layer-validation`, decimal contracts, packed consumer typecheck | `big.js@7.0.1` pinned, `@types/big.js` a runtime dependency, exponent-widening and the base-1e7 port deleted |
+| D | One ID domain owner; UUID storage end to end on pg / mysql / sqlite | provider-backed round trips | `idDomainOf` + `idStorageOf` + the codec; SIX engine seams, not five; `.id()` amended to declare a KEY, not a domain (see §3) |
+| E | ULID and KSUID through the same mechanism | same harness, no fork | shipped inside D — one mechanism, no per-format branch above the codec |
+| F | Migrations, FK derivation edge cases, docs, package verification | `pnpm test:core`, `pnpm test:package`, measured after-numbers | `identifierConversionChecks` + the PostgreSQL `text`→`uuid` guard, the conversion guide, docs and CHANGELOG consolidation, package + workerd + bun verification, `final.json` |
+
+The measured after-numbers and every lane Stage F executed are in
+[`native-ids-report.md`](./native-ids-report.md).
 
 B and C are independent and run in parallel worktrees. D depends on the contract
 below, not on C.
@@ -299,6 +302,20 @@ hold public strings, so the snapshot revision does not move.
 - Pre-check queries (invalid rows, prefix mismatch, normalization collisions,
   FK-set agreement) are provided as `trusted-read` checks for manual
   transitions.
+
+  > **SHIPPED IN STAGE F.** `migrations/identifier-conversion.ts`
+  > (`identifierConversionChecks`, public from `viborm/migrations` alongside the
+  > `MigrationCheckInput` type) renders them for one `(schema, model, field,
+  > dialect)`. Four questions, not three: the key column's rows, the key
+  > column's alias collisions, and — per referencing foreign key — that column's
+  > own rows and its set agreement AFTER normalization. Junction and
+  > polymorphic-carrier columns are out of scope by name, not by omission: they
+  > have no `(model, field)`, and the migration guide lists them instead.
+  >
+  > The PostgreSQL `text` → `uuid` leg now runs a `DO` block first, which counts
+  > the rows the cast would abort on and names both routes. It changes no
+  > outcome and owns nothing but the message; the plan's earlier wording
+  > ("guarded by a row-format pre-check") is satisfied in that sense only.
 - An unchanged declaration produces no diff. Introspection recovers the
   physical type; the logical format lives in the schema document
   (`generate`), never guessed from `uuid`/`BINARY` alone.

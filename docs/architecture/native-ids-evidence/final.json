@@ -428,5 +428,107 @@
         "blank": 1806
       }
     }
+  },
+  "databaseStorage": {
+    "note": "Added after the bundle run, from the throwaway scripts named below; `node scripts/measure-bundle.mjs` does not produce this block and would drop it on a rerun.",
+    "rows": 200000,
+    "commands": [
+      "node scratchpad/measure-storage/pg-storage.mjs   # PostgreSQL 16, 127.0.0.1:5434",
+      "node scratchpad/measure-storage/mysql-storage.mjs # MySQL 8, 127.0.0.1:3307"
+    ],
+    "postgres": {
+      "sizes": "pg_total_relation_size / pg_relation_size / pg_indexes_size, after VACUUM ANALYZE",
+      "tables": {
+        "sz_ulid_text": {
+          "totalBytes": 25239552,
+          "heapBytes": 15237120,
+          "indexBytes": 9961472,
+          "rows": 200000,
+          "insertMs": 1105
+        },
+        "sz_ulid_bytea": {
+          "totalBytes": 20234240,
+          "heapBytes": 12050432,
+          "indexBytes": 8142848,
+          "rows": 200000,
+          "insertMs": 677
+        },
+        "sz_uuid_text": {
+          "totalBytes": 35127296,
+          "heapBytes": 16891904,
+          "indexBytes": 18194432,
+          "rows": 200000,
+          "insertMs": 1535
+        },
+        "sz_uuid_native": {
+          "totalBytes": 21602304,
+          "heapBytes": 12050432,
+          "indexBytes": 9510912,
+          "rows": 200000,
+          "insertMs": 998
+        }
+      }
+    },
+    "mysql": {
+      "sizes": "information_schema.TABLES DATA_LENGTH / INDEX_LENGTH, after ANALYZE TABLE; InnoDB clusters on the primary key, so a primary-key identifier has INDEX_LENGTH 0 and the `_sec` tables carry the same identifier as a secondary UNIQUE index instead",
+      "tables": {
+        "sz_ulid_text": {
+          "dataLength": 13172736,
+          "indexLength": 0,
+          "totalBytes": 13172736,
+          "rows": 200000,
+          "insertMs": 856
+        },
+        "sz_ulid_binary": {
+          "dataLength": 11059200,
+          "indexLength": 0,
+          "totalBytes": 11059200,
+          "rows": 200000,
+          "insertMs": 700
+        },
+        "sz_uuid_text": {
+          "dataLength": 19480576,
+          "indexLength": 0,
+          "totalBytes": 19480576,
+          "rows": 200000,
+          "insertMs": 1092
+        },
+        "sz_uuid_binary": {
+          "dataLength": 19447808,
+          "indexLength": 0,
+          "totalBytes": 19447808,
+          "rows": 200000,
+          "insertMs": 765
+        },
+        "sz_ulid_text_sec": {
+          "dataLength": 15220736,
+          "indexLength": 8962048,
+          "totalBytes": 24182784,
+          "rows": 200000,
+          "insertMs": 1062
+        },
+        "sz_ulid_binary_sec": {
+          "dataLength": 13123584,
+          "indexLength": 6832128,
+          "totalBytes": 19955712,
+          "rows": 200000,
+          "insertMs": 767
+        },
+        "sz_uuid_text_sec": {
+          "dataLength": 17350656,
+          "indexLength": 19480576,
+          "totalBytes": 36831232,
+          "rows": 200000,
+          "insertMs": 1191
+        },
+        "sz_uuid_binary_sec": {
+          "dataLength": 13123584,
+          "indexLength": 10010624,
+          "totalBytes": 23134208,
+          "rows": 200000,
+          "insertMs": 913
+        }
+      }
+    }
   }
 }

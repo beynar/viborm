@@ -409,12 +409,17 @@ pair:
 
 | Package | Why it is a dependency |
 |---|---|
-| `@standard-schema/spec` | Types only — the interface every validator here speaks |
-| `valibot` / `arktype` | Optional peers in practice: the built-in `v.*` primitives are VibORM's own |
 | `big.js` (pinned `7.0.1`) | The exact decimal value type. `Decimal` **is** `Big` |
 | `@types/big.js` (pinned `7.0.0`) | big.js ships no declarations, and VibORM's published `.d.mts` names the module — without the types a consumer would silently see `any` under `skipLibCheck`. That is why a `@types/*` package is a **runtime** dependency here and not a devDependency |
-| `@noble/hashes` | One narrow subpath (`sha3.js`, ~4.6 KB) for CUID2's digest |
+| `@noble/hashes` | One narrow subpath (`sha3.js`, ~4.6 KB) for CUID2's digest — the only hash VibORM needs |
+| `@standard-schema/spec` | Types only — the interface every validator here speaks |
+| `@opentelemetry/semantic-conventions` | Attribute names for the instrumentation layer |
 | `@clack/prompts`, `commander` | The CLI only |
+
+`big.js` and `@noble/hashes` are the only two the built `dist/` imports at all
+(`valibot` and `arktype` are declared but never imported by it: the `v.*`
+primitives are VibORM's own, and a caller's `.schema()` brings its own
+validator).
 
 What left the graph, and what replaced it:
 
