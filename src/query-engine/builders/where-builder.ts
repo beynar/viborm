@@ -524,7 +524,7 @@ function buildFilterOperation(
 ): Sql {
   const { adapter } = ctx;
   const idColumn = idColumnOf(adapter, ctx.model, fieldName, ctx.relations);
-  const lit = (v: unknown) => {
+  const lit = (v: unknown, substring = false) => {
     if (isFieldRef(v)) {
       // Reached only from an operator the schemas do NOT open to references
       // (in/notIn/has/hasEvery/hasSome). Fail closed rather than bind the token.
@@ -539,7 +539,7 @@ function buildFilterOperation(
         `An SQL fragment is not supported by the '${operation}' filter on '${fieldName}'.`
       );
     }
-    return scalarValueLiteral(ctx, fieldName, v);
+    return scalarValueLiteral(ctx, fieldName, v, { substring });
   };
   /** A containment candidate crosses through the same whole-list owner as a write. */
   const containmentCandidate = (members: unknown[]): Sql =>
@@ -581,8 +581,9 @@ function buildFilterOperation(
   //    `tests/query-engine/field-reference-sql.test.ts` instead of being claimed
   //    as behavior no test could actually witness.
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
-  const plainOperand = (v: unknown) =>
-    operandExpression(ctx, fieldName, scalarState, v, alias) ?? lit(v);
+  const plainOperand = (v: unknown, substring = false) =>
+    operandExpression(ctx, fieldName, scalarState, v, alias) ??
+    lit(v, substring);
   /**
    * An enum column compared against ANOTHER COLUMN goes through text on every
    * dialect.
@@ -631,9 +632,9 @@ function buildFilterOperation(
       ? adapter.operators.exactTextEq(column, lit(v))
       : adapter.operators.eq(...exactComparison(v));
   /** Case-folded operand — pairs with `foldedTextColumn`. */
-  const foldedOperand = (v: unknown) => {
+  const foldedOperand = (v: unknown, substring = false) => {
     const expr = operandExpression(ctx, fieldName, scalarState, v, alias);
-    if (!expr) return adapter.expressions.asciiCaseFold(lit(v));
+    if (!expr) return adapter.expressions.asciiCaseFold(lit(v, substring));
     return isTextScalar
       ? adapter.expressions.caseSensitiveText(
           adapter.expressions.asciiCaseFold(expr)
@@ -798,15 +799,18 @@ function buildFilterOperation(
     // referenced column as naturally as a bound literal.
     case "contains": {
       return isInsensitive
-        ? adapter.operators.containsText(foldedTextColumn, foldedOperand(value))
-        : adapter.operators.containsText(column, plainOperand(value));
+        ? adapter.operators.containsText(
+            foldedTextColumn,
+            foldedOperand(value, true)
+          )
+        : adapter.operators.containsText(column, plainOperand(value, true));
     }
 
     case "startsWith": {
       if (isInsensitive) {
         return adapter.operators.startsWithText(
           foldedTextColumn,
-          foldedOperand(value)
+          foldedOperand(value, true)
         );
       }
       // A literal string operand is the only shape that can be escaped into a
@@ -824,13 +828,19 @@ function buildFilterOperation(
       if (typeof value === "string") {
         return adapter.operators.startsWithPrefix(column, value);
       }
-      return adapter.operators.startsWithText(column, plainOperand(value));
+      return adapter.operators.startsWithText(
+        column,
+        plainOperand(value, true)
+      );
     }
 
     case "endsWith": {
       return isInsensitive
-        ? adapter.operators.endsWithText(foldedTextColumn, foldedOperand(value))
-        : adapter.operators.endsWithText(column, plainOperand(value));
+        ? adapter.operators.endsWithText(
+            foldedTextColumn,
+            foldedOperand(value, true)
+          )
+        : adapter.operators.endsWithText(column, plainOperand(value, true));
     }
 
     // Array operations (for array/list scalars)

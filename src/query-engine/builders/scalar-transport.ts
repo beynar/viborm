@@ -52,7 +52,24 @@ export function projectScalarForTransport(
   // `include`, and the nine drivers' nine binary shapes stop being a variable.
   // A `uuid` column and a text-stored domain already travel as text.
   if (idColumn?.representation === "bytes") {
-    return adapter.expressions.blobToHex(expression);
+    const hex = adapter.expressions.blobToHex(expression);
+    // A NULLABLE binary column needs the same null guard the point projection
+    // needs, and for a sharper reason than symmetry: SQLite's `hex(NULL)` is
+    // the EMPTY STRING, not NULL. Without this a null foreign key comes back
+    // as `''`, which reads as a zero-byte identifier — measured live on
+    // sqlite3, where every create through a model with a nullable identifier
+    // foreign key failed to decode its own returned row.
+    return state?.nullable === true
+      ? adapter.expressions.caseWhen(
+          [
+            {
+              when: adapter.operators.isNull(expression),
+              then: adapter.literals.null(),
+            },
+          ],
+          hex
+        )
+      : hex;
   }
   return decimalDescriptorOfState(state)
     ? adapter.expressions.cast(expression, "text")

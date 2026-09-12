@@ -246,6 +246,28 @@ describe("projecting an identifier column", () => {
     ).toBe(column);
   });
 
+  test("a NULLABLE byte column keeps its null across the hex encoding", () => {
+    // SQLite's `hex(NULL)` is the EMPTY STRING, which reads back as a
+    // zero-byte identifier rather than as an absent one. Falsified live before
+    // this guard existed: every create through a model with a nullable
+    // identifier foreign key failed to decode its own returned row.
+    const optional = s.model({
+      id: s.string().id(),
+      refId: s.string().uuid("usr").nullable(),
+    });
+    prepareSchema({ optional });
+    const projected = projectScalarForTransport(
+      sqlite,
+      optional["~"].state.scalars.refId,
+      column,
+      idColumnOf(sqlite, optional, "refId", undefined)
+    );
+    const statement = projected.toStatement();
+    expect(statement.toUpperCase()).toContain("HEX(");
+    expect(statement.toUpperCase()).toContain("CASE");
+    expect(statement.toUpperCase()).toContain("IS NULL");
+  });
+
   test("a flat select uses the same projection the transport owner decides", () => {
     const scope = scopeFor(sqlite, post);
     const select = buildSelect(
@@ -299,6 +321,24 @@ describe("filtering an identifier column", () => {
     );
     expect(where?.values).toEqual([bytesOf(UUID_HEX)]);
     expect(where?.toStatement()).not.toContain("BINARY ");
+  });
+
+  test("a SUBSTRING operand binds as the fragment it is, never as a value", () => {
+    // `contains: "tz4a"` asks about part of a cuid, not about a cuid. Only a
+    // text-stored domain can be asked at all — a compact one refuses the four
+    // text predicates — and encoding the fragment through the domain would
+    // refuse every such query. Falsified live on sqlite3 before this split.
+    const scope = scopeFor(pg, user);
+    const where = buildWhere(
+      scope,
+      { slug: { contains: "tz4a" } },
+      scope.rootAlias
+    );
+    expect(where?.values).toEqual(["tz4a"]);
+    // The whole value still binds as a domain value on the same field.
+    expect(
+      buildWhere(scope, { slug: { equals: CUID } }, scope.rootAlias)?.values
+    ).toEqual([CUID]);
   });
 
   test("a text-stored domain is still compared as text", () => {

@@ -514,7 +514,8 @@ export function decimalListValue(
 export function scalarValueLiteral(
   ctx: QueryScope,
   fieldName: string,
-  value: unknown
+  value: unknown,
+  options: { readonly substring?: boolean } = {}
 ): Sql {
   const sentinel = jsonNullKindOf(value);
   if (sentinel) {
@@ -554,7 +555,12 @@ export function scalarValueLiteral(
           decimalDescriptorOf(ctx.model, fieldName)
         );
   }
-  if (value !== null && value !== undefined) {
+  // A SUBSTRING is not a value of the field's domain and never was: `contains:
+  // "StGXR8"` asks about part of a nanoid, not about a nanoid. Only a
+  // TEXT-stored domain can be asked such a question at all — a compact one
+  // refuses the four text predicates outright — so the column holds the public
+  // string and the fragment binds as the fragment it is.
+  if (value !== null && value !== undefined && options.substring !== true) {
     // Every comparison, cursor bound and assignment operand for an identifier
     // field is the same physical value its column holds — the one binding
     // `buildScalarSqlValue` writes with.
