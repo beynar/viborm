@@ -214,12 +214,14 @@ function requireDecimal(value: unknown): Decimal {
  */
 function countDecimalConstructions(run: () => void): number {
   let count = 0;
-  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "d");
-  Object.defineProperty(Decimal.prototype, "d", {
+  // big.js names the coefficient `c`, and every construction path writes it
+  // exactly once — `parse` for a string or number, `n.c.slice()` for a copy.
+  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "c");
+  Object.defineProperty(Decimal.prototype, "c", {
     configurable: true,
     set(this: object, value: unknown) {
       count += 1;
-      Object.defineProperty(this, "d", {
+      Object.defineProperty(this, "c", {
         value,
         writable: true,
         enumerable: true,
@@ -230,8 +232,8 @@ function countDecimalConstructions(run: () => void): number {
   try {
     run();
   } finally {
-    if (previous) Object.defineProperty(Decimal.prototype, "d", previous);
-    else Reflect.deleteProperty(Decimal.prototype, "d");
+    if (previous) Object.defineProperty(Decimal.prototype, "c", previous);
+    else Reflect.deleteProperty(Decimal.prototype, "c");
   }
   return count;
 }

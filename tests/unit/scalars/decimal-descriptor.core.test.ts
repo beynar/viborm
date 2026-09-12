@@ -794,10 +794,15 @@ describe("decimal descriptor", () => {
         () => decimal(domain()).default("abc" as never),
       ],
       [
-        "a non-finite Decimal",
+        // big.js constructs no non-finite value, so the only Decimal-family
+        // value that can still fail here is an incomplete representation.
+        "an incomplete Decimal representation",
         () =>
           decimal(domain()).default(
-            new Decimal(Number.POSITIVE_INFINITY) as never
+            Object.assign(Object.create(Decimal.prototype), {
+              s: 1,
+              e: 0,
+            }) as never
           ),
       ],
     ])("refuses %s at the declaration", (_name, build) => {

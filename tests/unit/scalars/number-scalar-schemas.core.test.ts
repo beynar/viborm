@@ -1181,8 +1181,12 @@ describe("Decimal Scalar", () => {
         expect(parse(schemas.base, "abc").issues).toBeDefined();
         expect(parse(schemas.base, Number.NaN).issues).toBeDefined();
         expect(parse(schemas.base, null).issues).toBeDefined();
+        // big.js constructs no NaN at all — `new Decimal(Number.NaN)` throws —
+        // so the Decimal-family value that reaches this boundary is a forged
+        // one with an incomplete representation.
+        expect(() => new Decimal(Number.NaN)).toThrow();
         expect(
-          parse(schemas.base, new Decimal(Number.NaN)).issues
+          parse(schemas.base, Object.create(Decimal.prototype)).issues
         ).toBeDefined();
       });
 
