@@ -19,6 +19,7 @@
 import { s } from "@schema";
 import type { ScalarState } from "@schema/scalars/common";
 import { string } from "@schema/scalars/string/scalar";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type InferInput,
   type InferOutput,
@@ -870,8 +871,9 @@ describe("a declared identifier domain", () => {
   const UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
   const CUID = "tz4a98xxat96iws9zmbrgj3a";
 
-  const admitted = (schema: unknown, value: unknown) => {
-    const result = parse(schema as never, value);
+  /** The value a schema admitted, or `undefined` when it refused. */
+  const admitted = (schema: StandardSchemaV1, value: unknown): unknown => {
+    const result = parse(schema, value);
     return result.issues ? undefined : result.value;
   };
 
@@ -903,7 +905,7 @@ describe("a declared identifier domain", () => {
 
   test("the refusal names the domain it expected", () => {
     const schemas = getScalarSchemas(string().nanoid(8, "n")["~"].state);
-    const result = parse(schemas.create as never, "bad");
+    const result = parse(schemas.create, "bad");
     expect(result.issues?.[0]?.message).toBe(
       "Expected a nanoid value of length 8 prefixed 'n-'"
     );
