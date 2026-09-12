@@ -55,9 +55,10 @@ public `Decimal` at every selected field or aggregate leaf, including nested
 results and cache hits. They never return canonical transport text or a
 JavaScript number. Decimal lists preserve that same logical element surface.
 Use `Decimal#eq()` in value assertions. Results use the one constructor exported
-from `viborm` — big.js's `Big`, whose 25-method prototype is the whole public
-value surface — but semantic decimal equality is still a value comparison rather
-than JavaScript object identity or a test framework's structural comparison.
+from `viborm` — big.js's `Big`, whose 27-member prototype (23 distinct
+operations) is the whole public value surface — but semantic decimal equality
+is still a value comparison rather than JavaScript object identity or a test
+framework's structural comparison.
 
 ### Recursive Proxy Pattern
 

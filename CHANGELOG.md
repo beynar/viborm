@@ -21,14 +21,17 @@ migrations all behave exactly as before, and the accepted input grammar
 
 What changes for application code that does arithmetic on returned values:
 
-- **25 prototype methods instead of ~130.** `plus`, `minus`, `times`, `div`,
-  `mod`, `pow`, `sqrt`, `abs`, `neg`, `cmp`, `eq`, `gt`, `gte`, `lt`, `lte`,
-  `round`, `prec`, `toFixed`, `toPrecision`, `toExponential`, `toNumber`,
-  `toString`, `valueOf`, `toJSON`. Gone: `isZero`, `isNeg`, `isNaN`,
-  `isFinite`, `floor`, `ceil`, `trunc`, `toDP`, `toSD`, `dp`, `sd`, `ln`,
-  `log`, `exp`, the trigonometric methods, `toFraction`, `toNearest`, `clamp`,
-  and the radix conversions. `x.isZero()` becomes `x.eq(0)`; `x.isNeg()`
-  becomes `x.s < 0` (or `x.lt(0)`, which answers `false` for a negative zero).
+- **27 prototype members instead of ~130**, carrying 23 distinct operations.
+  Kept: `abs`, `add`, `cmp`, `div`, `eq`, `gt`, `gte`, `lt`, `lte`, `minus`,
+  `mod`, `mul`, `neg`, `plus`, `pow`, `prec`, `round`, `sqrt`, `sub`, `times`,
+  `toExponential`, `toFixed`, `toJSON`, `toNumber`, `toPrecision`, `toString`,
+  `valueOf`. Four of those are aliases: `add`, `sub` and `mul` are `plus`,
+  `minus` and `times`, and `toJSON` is `toString`.
+- **Gone:** `isZero`, `isNeg`, `isNaN`, `isFinite`, `floor`, `ceil`, `trunc`,
+  `toDP`, `toSD`, `dp`, `sd`, `ln`, `log`, `exp`, the trigonometric methods,
+  `toFraction`, `toNearest`, `clamp`, and the radix conversions.
+  `x.isZero()` becomes `x.eq(0)`; `x.isNeg()` becomes `x.s < 0` (or `x.lt(0)`,
+  which answers `false` for a negative zero).
 - **No NaN and no Infinity.** `new Decimal("abc")` and `new Decimal(NaN)`
   throw where they used to produce a NaN value, `div(0)` throws "Division by
   zero", `sqrt()` of a negative throws, and `pow` accepts integer exponents in

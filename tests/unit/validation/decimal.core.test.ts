@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { decimal } from "@schema/scalars";
+import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { parse as parseSchema } from "@validation";
 import {
   canonicalizeDecimal,
@@ -1240,5 +1243,51 @@ describe("the JSON list container", () => {
     ]) {
       expect(decodeDecimalListContainer(bad, 2)).toBeUndefined();
     }
+  });
+});
+
+describe("the documented value surface", () => {
+  /**
+   * The migration note is the only inventory an application has of the value
+   * surface it is porting to, and `big.js` is pinned exactly — so the note can
+   * only drift by being written wrong. It first claimed 25 methods and listed
+   * 24 names, silently omitting `add`, `sub` and `mul`, which a reader ported
+   * away from as removals although they exist as aliases.
+   */
+  const noteSection = (marker: string): string => {
+    const changelog = readFileSync(
+      join(REPOSITORY_ROOT, "CHANGELOG.md"),
+      "utf8"
+    );
+    const start = changelog.indexOf(marker);
+    if (start < 0) throw new Error(`CHANGELOG has no ${marker} inventory`);
+    const end = changelog.indexOf("\n- ", start);
+    return changelog.slice(start, end < 0 ? changelog.length : end);
+  };
+
+  /** Every BARE name in backticks: `x.isZero()` and `x.s < 0` are prose. */
+  const documentedNames = (section: string): Set<string> =>
+    new Set(
+      [...section.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map(
+        (match) => match[1] as string
+      )
+    );
+
+  const prototypeMembers = new Set(
+    Object.getOwnPropertyNames(Decimal.prototype).filter(
+      (name) => name !== "constructor"
+    )
+  );
+
+  test("lists exactly the prototype big.js ships", () => {
+    expect([...documentedNames(noteSection("Kept:"))].sort()).toEqual(
+      [...prototypeMembers].sort()
+    );
+  });
+
+  test("calls gone only what big.js genuinely dropped", () => {
+    const gone = [...documentedNames(noteSection("- **Gone:**"))];
+    expect(gone.length).toBeGreaterThan(0);
+    expect(gone.filter((name) => prototypeMembers.has(name))).toEqual([]);
   });
 });
