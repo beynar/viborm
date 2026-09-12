@@ -11,7 +11,7 @@ runs at one commit with one `dist/` are byte-equal.
 | `baseline.json` | A | `fc69297b` | Before anything moved: `decimal.js`, `@paralleldrive/cuid2`, `nanoid`, `ulidx` all in the graph |
 | `stage-b.json` | B | — | After the three identifier packages left and the six formats became VibORM's own |
 | `stage-c.json` | C | — | After `decimal.js` became `big.js@7.0.1` |
-| `final.json` | F | `3e191bb5` + the Stage F tests | The after-numbers, plus one block the script does not produce (below) |
+| `final.json` | F | `bc3755b4` | The after-numbers, plus one block the script does not produce (below) |
 
 `baseline.json` is never regenerated.
 

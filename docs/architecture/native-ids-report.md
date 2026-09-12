@@ -7,7 +7,8 @@ exact.
 
 Branch `native-ids-stage-f`. Measurement artifacts:
 [`native-ids-evidence/`](./native-ids-evidence/) — `baseline.json` (stage A,
-commit `fc69297b`), `stage-b.json`, `stage-c.json`, `final.json`.
+commit `fc69297b`), `stage-b.json`, `stage-c.json`, `final.json` (commit
+`bc3755b4`, measured after `pnpm package:build` on the final tree).
 
 ---
 
