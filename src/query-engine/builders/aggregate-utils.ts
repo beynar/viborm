@@ -118,6 +118,7 @@ export function buildAggregateColumn(
     // result scale elsewhere. `_sum` deliberately keeps plain `SUM` — its
     // answer may exceed the field's precision, which is a widened decode
     // question and not a SQL one — and `_min`/`_max` stay in the field domain.
+    const decimalOperand = decimal && aggType === "avg";
     // An identifier is aggregated in the vocabulary it TRAVELS in, not the one
     // it is stored in — the transport spelling is applied to the column and
     // `MIN`/`MAX` run over that. Two reasons, and either alone decides it:
@@ -140,10 +141,9 @@ export function buildAggregateColumn(
         : idColumn.representation === "bytes"
           ? projectIdBytes(adapter, column, true)
           : adapter.expressions.cast(column, "text");
-    let expr =
-      decimal && aggType === "avg"
-        ? adapter.aggregates.decimalAvg(operand, decimal)
-        : aggFn(operand);
+    let expr = decimalOperand
+      ? adapter.aggregates.decimalAvg(operand, decimal)
+      : aggFn(operand);
     // BigInt/Decimal aggregates lose precision as JSON numbers — cast to
     // TEXT like select-builder does; the result parser converts back
     const scalarType = scalars[field]?.["~"].state.type;
