@@ -203,6 +203,42 @@ column carries the membership itself, so there is nothing there to null.
 
 This is the canonical reference — the per-relationship pages link back here.
 
+## Identifier Domains Are Derived
+
+A key declares its format; the columns that reference it do not repeat the
+declaration. If `user.id` is a `.uuid("usr")`, then `post.authorId` holds exactly
+the values `user.id` holds — so VibORM admits them, normalizes them and stores
+them the same way, with no declaration on the foreign key at all:
+
+```ts
+const user = s.model({
+  id: s.string().id().uuid("usr"),
+  posts: s.toMany(() => post),
+});
+
+const post = s.model({
+  id: s.string().id(),
+  authorId: s.string(), // derives `uuid("usr")`: admitted, and stored compactly
+  author: s.toOne(() => user).fields("authorId").references("id"),
+});
+```
+
+It is derived everywhere the reference reaches: self-relations, compound keys
+member for member, one-to-one children whose own primary key IS the foreign key
+(the derivation follows the chain), junction columns, and a polymorphic
+carrier's id column.
+
+Two things are refused rather than resolved, both the same failure — two answers
+to "what does this column hold":
+
+- a foreign key whose own declaration contradicts its target
+  (`authorId: s.string().ulid()` against a `uuid` key);
+- one column reached through several references whose keys disagree — a shared
+  foreign key, a compound member, or a set of polymorphic variants.
+
+Declaring the same format the target declares is allowed and changes nothing.
+Declaring nothing is the normal spelling.
+
 ## Pages
 
 <CardGroup>

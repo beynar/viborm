@@ -38,6 +38,37 @@ candidates, then hand the resulting `Sql` container to the adapter. Builders
 must not recreate member conversion or grow one SQL fragment and bind per
 member.
 
+## Identifier semantics
+
+A field whose format the caller NAMED — `.uuid()`, `.uuidv7()`, `.ulid()`,
+`.ksuid()`, `.nanoid()`, `.cuid()` — carries a DOMAIN, and a foreign key derives
+its target's. `builders/id-field.ts` is the one lookup: `idColumnOf(adapter,
+model, field, relations)` for a model field (a foreign key needs the index),
+`idColumnOfScalar` for a private column whose scalar IS the referenced key's — a
+junction side, a polymorphic row carrier's id column. Both answer
+`{ domain, representation }`, and the REPRESENTATION is the adapter's
+(`result.idRepresentation`): `bytea` on PostgreSQL and `BINARY(16)` on MySQL are
+the same ULID and the engine is not allowed to know which dialect it is building
+for.
+
+Exactly five seams touch it, and there is no format switch anywhere else:
+
+| Seam | Owner |
+| --- | --- |
+| Parameter | `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
+| Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
+| Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value |
+| Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
+| DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
+
+A SUBSTRING is not a value of the domain: `contains`/`startsWith`/`endsWith`
+bind their operand through `scalarValueLiteral`'s explicit substring escape
+hatch, and only a text-stored domain can reach them at all. A compactly stored
+column is never collated or ASCII-folded as text, the identity fast path is off
+for every domain field, and a decoded row takes the copy policy. Captured row
+keys stay primitive canonical strings — what `fkEquals`, deduplication and the
+identity map compare. Raw SQL stays physical.
+
 ## DateTime semantics
 
 DateTime planning carries the scalar's declared SQLite physical form; it never
@@ -751,6 +782,7 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/relation-membership.ts` | child-held membership and value provenance |
 | `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
 | `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |
+| `builders/id-field.ts` | the one identifier-domain and physical-form lookup, and the encode/decode the seams share |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
 Keep the internal adapter batch-reference lowering and `JunctionStatements` as

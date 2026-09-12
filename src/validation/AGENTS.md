@@ -346,7 +346,37 @@ them when the boundary needs stronger semantics such as a plain prototype,
 finite/integer values, promise-like behavior, safe reads from hostile values,
 or recursive JSON validation. Native array identity remains `Array.isArray`.
 
-### Rule 7: One Typed Validation Error Surface
+### Rule 7: One Identifier Codec, Below Every Boundary
+
+`primitives/id-codec.ts` owns the identifier DOMAIN: which strings belong to
+`{ format, prefix?, length? }`, what their canonical spelling is
+(`canonicalizeId`), and the two physical conversions (`encodePhysicalId` /
+`decodePhysicalId`). It is PURE and dialect-blind — it takes an
+`IdRepresentation` (`"text"` / `"uuid"` / `"bytes"`), never a provider — which is
+what lets the validation schemas admit with the same code the write path encodes
+with. Choosing the representation belongs one layer up, to
+`@schema/scalars/string/id-domain`'s `idStorageOf`; do not teach this module a
+column type.
+
+Admission is chained ONCE, in `buildValidator`, from the internal
+`ScalarOptions.idDomain` (a sibling of `disallowZero`): after the base type
+check and BEFORE a caller's `.schema()` and any transform, so a custom validator
+sees the canonical spelling and every identity-sensitive consumer downstream —
+cache key, captured row key, `fkEquals` — sees one spelling per identifier.
+`scalars/string.ts` is the one place that passes it: from the field's own
+declaration, or from the domain a FOREIGN KEY derives, which the registry reads
+off the resolved index and threads through `getScalarsSchemas`. The four
+compact formats also build a filter without `contains`/`startsWith`/`endsWith`/
+`mode`, and `scalarInternKey` carries the domain so two fields share a filter
+tree only when they share a domain.
+
+`primitives/binary-shapes.ts` is the one normalization of every driver's binary
+spelling — `Buffer`, `Uint8Array`, `ArrayBuffer`, a byte array, PostgreSQL's
+`\x…`, MySQL's `base64:typeNNN:…`, plain hex. It REPORTS rather than throws: the
+blob result parser and the id codec owe different messages, so the wording
+belongs to them and only the classification belongs here.
+
+### Rule 8: One Typed Validation Error Surface
 `ValidationError.source` identifies the boundary that refused the value:
 `operation`, `registry`, `schema-builder`, or `json-schema`. Operation failures
 use V4001 and Prisma P2009. All other runtime-validation sources use V4002 and

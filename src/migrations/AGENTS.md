@@ -510,9 +510,22 @@ dependency-safe clear are compiled before anything is dropped.
 | History-free dialect-aware live planning/execution | `push/index.ts` |
 | Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
+| Identifier column type and physical form | `@schema/scalars/string/id-domain` `idStorageOf` — the three `mapScalarType`s derive from it |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
+
+An identifier column is the clearest case of that last sentence. A declared
+format's column type is NOT a migration decision: `idStorageOf` is the same
+function the adapter's read promise and the engine's parameter binding derive
+from, so a column cannot be created as one thing and written as another. A
+foreign key's domain is derived — the serializer reads it from the resolved
+index it is already built over — while junction and polymorphic carrier columns
+carry the referenced key's own scalar and need no derivation at all. A native
+type override is interpreted by the same function, and one the domain cannot
+live in is refused at the schema gate (F013), never mapped to a guess.
+`gen_random_uuid()` narrows accordingly: it produces a `uuid`, so a `.uuid()`
+field whose override makes it `bytea` gets no DDL default.
 
 ## Public operation surface
 

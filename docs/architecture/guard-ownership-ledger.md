@@ -1837,3 +1837,63 @@ The witness that used to order these two — `operation-construction-witnesses.t
 "RelationUpsertPart :814 — a mismatched-arity child FK is refused UPSTREAM" —
 is deleted with its schema, and the file carries a ledger comment naming the
 construction refusal that replaced it.
+
+## Addendum — the identifier domain (Stage D, native identifiers)
+
+Four refusals were added and one was narrowed. Each one's unique coverage is
+stated below, because a guard whose coverage cannot be named is one this
+codebase does not keep.
+
+**`FK012` — two answers to "what does this column hold"
+(`schema/validation/id-domains.ts`, in the GATE).** Unique coverage: a column
+whose identifier domain is reached through more than one path and disagrees — a
+foreign key whose own declaration contradicts its target, one column shared by
+two references whose keys are different formats or prefixes, a compound member
+whose target disagrees. Nothing downstream can repair it: the migration would
+create one column while the engine bound values of another domain into it. It
+lives in the gate rather than in the advisory rule list because
+`skipValidation` may drop advice and must not be able to drop this. It is NOT a
+second `FK003`: that one compares scalar TYPE, array shape, decimal domain and
+SQLite datetime form; two `string` columns that pass it can still hold different
+identifier domains.
+
+**`F013` — a native type the domain cannot live in (same file, same gate).**
+Unique coverage: a declared or derived identifier field whose native type
+override is, for its own dialect, neither a text-family column nor a binary one
+of that format's exact width (nor `uuid` for the two uuid formats). It is
+dialect-blind — the override names its own dialect — and it is not the
+native-catalog spelling check (`J011`), which asks whether the type exists at
+all rather than whether this domain fits in it.
+
+**`P002` widened — variants must agree on their identifier domain
+(`schema/validation/rules/polymorphic.ts`).** Unique coverage: two variant
+targets whose keys are both `string` but hold different formats or prefixes. The
+row carrier stores every variant's key in ONE column, typed from the FIRST
+variant's scalar, so a `uuid` beside a `ulid` would be written through a codec
+that is not its own. It is the same statement the rule already makes for scalar
+type and for the decimal descriptor, in a third representation fact — not a new
+guard, one more clause of an existing one.
+
+**`J004` on `generate.implicit` (`schema/json/read.ts`).** Unique coverage: a
+document that marks a generator implicit on a kind `.id()` never installs.
+`implicit` says "this ULID is the one `.id()` installs"; on any other kind it
+would claim a generator that does not exist and silently drop that format's
+domain, its admission and its compact column.
+
+**The engine's text-predicate refusal
+(`query-engine/builders/scalar-filter-operators.ts`).** Not a new guard: the
+existing `assertSupportedScalarFilterOperator` gains a narrower operator set for
+a compactly stored identifier, and a message that says why rather than
+"unsupported". The validation schema already removed the four operators from the
+type and from what it admits; this is the same fact restated at the boundary a
+trusted internal program can reach without one, exactly as every other entry in
+that function is.
+
+**Deleted, not added.** `createFingerprint`'s
+`globals.length > 0 ? globals + entropy : entropy`
+(`schema/scalars/string/autogenerate.ts`) is gone. Its two arms are the same
+string — concatenating an empty `globals` IS `entropy` — so the condition named
+no case and its unique coverage could not be stated. It was carried over from
+upstream CUID2 and was the one uncovered branch in the whole schema subsystem at
+the stage baseline (`32af0e16`: branches 99.95%). The digest is unchanged, which
+the differential test against the pinned upstream package proves.

@@ -20,7 +20,45 @@ Versioning.
   declaration instead of silently producing empty identifiers or throwing a
   platform error on every row.
 - PostgreSQL emits `DEFAULT gen_random_uuid()` only for an unprefixed `.uuid()`
-  field.
+  field, and only where the column can hold one.
+
+### Identifier storage (breaking for new schemas)
+
+Naming an identifier format is now a promise about every value of the field, and
+VibORM both holds you to it and takes advantage of it. `.uuid()`, `.uuidv7()`,
+`.ulid()`, `.ksuid()`, `.nanoid()` and `.cuid()` declare a **domain**; a bare
+`.id()` still declares a **key** and is unchanged in every respect — its values
+are whatever a string column holds, and it is still stored as text.
+
+- **Values are validated.** A declared or derived domain admits only its own
+  values, everywhere one can appear: `create`, `update`, `where`, unique
+  selectors, cursors, and every `connect` / `connectOrCreate` / `upsert` key. A
+  prefix is matched whole, and aliases normalize once — an uppercase UUID and a
+  lowercase ULID address the same row their canonical spelling does. Previously
+  `s.string().uuid()` refused nothing.
+- **Storage changes for new schemas.** `uuid`/`uuidv7` become `uuid` on
+  PostgreSQL and `BINARY(16)`/`BLOB` elsewhere; `ulid` becomes
+  `bytea`/`BINARY(16)`/`BLOB`; `ksuid` becomes `bytea(20)`/`BINARY(20)`/`BLOB`.
+  A declared prefix is no longer stored — it is identical in every row and is
+  re-applied on read. `nanoid` and `cuid` keep text storage.
+- **Four operators are gone from the compact formats.** `contains`,
+  `startsWith`, `endsWith` and `mode` are removed from a compactly stored
+  field's filter TYPE and refused by the engine: sixteen bytes are not the text
+  you wrote them as. `equals`, `not`, `in`, `notIn`, `lt`, `lte`, `gt`, `gte`,
+  `orderBy` and cursor pagination are exact and unchanged — the byte order of
+  all four formats IS their canonical text order.
+- **Foreign keys derive.** A column that references a key is admitted,
+  normalized and stored exactly as that key is, with no declaration of its own.
+  Declaring a DIFFERENT domain on a foreign key than its target has, or reaching
+  one column through references whose keys disagree, is a schema error (FK012).
+- **Existing databases.** A table whose identifier column already holds text
+  keeps working if you say so: a text-family native type
+  (`s.string(PG.STRING.VARCHAR(40)).uuid()`, `TEXT`, `citext`, `CHAR(n)`, …)
+  opts out of compact storage while keeping the domain validated. Otherwise the
+  column type changes and the differ plans a destructive `alterColumn`; the
+  conversion of existing rows is not yet automated. A native type the domain
+  cannot live in is refused where it is declared (F013), with a message naming
+  the spellings that format does accept.
 
 ### Decimal API change (breaking)
 

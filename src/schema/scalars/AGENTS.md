@@ -156,6 +156,29 @@ above that leaf, do not add a `Math.random()` path, and do not draw entropy at
 import or declaration time — every generator is lazy so that loading VibORM and
 describing a schema draw none.
 
+A NAMED format is also a DOMAIN, and `.id()` alone is not. Naming
+`.uuid()`/`.ulid()`/… promises that every value of the field belongs to that
+format, which is what lets VibORM admit those values, normalize their aliases
+and store them compactly; `.id()` declares a key whose values stay whatever a
+string column holds. `AutoGenerate.implicit` is the whole record of that
+difference — written only by `.id()`, read only by `idDomainOfState`, and
+restated by the schema document so a round trip cannot promote a key into a
+domain.
+
+| Question | Owner |
+|---|---|
+| Which format, prefix and length were declared | `ScalarState.autoGenerate` (`string/scalar.ts`) |
+| Is that a DOMAIN, and which one | `string/id-domain.ts` — `idDomainOfState` |
+| Which column and which physical form on a dialect | `string/id-domain.ts` — `idStorageOf` |
+| Which strings belong to it, and their canonical spelling | `@validation/primitives/id-codec` |
+| What a foreign key's domain is | `@schema/validation/id-domains` (L5, derived) |
+
+`idStorageOf` is the ONE storage decision: the migration column type, the
+adapter's read promise and the engine's parameter binding all derive from it, so
+a column cannot be created as one thing and written as another. A native type
+override is interpreted there too, and one the domain cannot live in is refused
+at the gate (F013) rather than guessed at.
+
 ### Rule 8: GeoPoint Has One Fixed Declaration
 
 `s.point()` takes no argument and exposes only `.nullable()`, `.default()`, and
