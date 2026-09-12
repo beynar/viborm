@@ -1866,13 +1866,22 @@ native-catalog spelling check (`J011`), which asks whether the type exists at
 all rather than whether this domain fits in it.
 
 **`P002` widened — variants must agree on their identifier domain
-(`schema/validation/rules/polymorphic.ts`).** Unique coverage: two variant
-targets whose keys are both `string` but hold different formats or prefixes. The
-row carrier stores every variant's key in ONE column, typed from the FIRST
-variant's scalar, so a `uuid` beside a `ulid` would be written through a codec
-that is not its own. It is the same statement the rule already makes for scalar
-type and for the decimal descriptor, in a third representation fact — not a new
-guard, one more clause of an existing one.
+(`schema/validation/id-domains.ts`).** Unique coverage: two variant targets
+whose keys are both `string` but HOLD different formats or prefixes. The row
+carrier stores every variant's key in ONE column, so a `uuid` beside a `ulid`
+would be written through a codec that is not its own. It is the same statement
+the storage rule already makes for scalar type and for the decimal descriptor,
+in a third representation fact — not a new guard, one more clause of an existing
+one, and it keeps that clause's code.
+
+It is computed in the DERIVATION rather than beside the rule's other clauses
+because the answer may be derived: a variant whose primary key is its parent
+foreign key declares nothing and still holds uuids, and the storage rule runs
+while the index it would have to ask is still being built. Compared as
+declarations it both over-refused (two variants that hold one domain, one
+declaring and one deriving it) and under-refused (two variants that derive
+domains which differ — the shape that types the carrier column from one variant
+and writes another's key through it).
 
 **`J004` on `generate.implicit` (`schema/json/read.ts`).** Unique coverage: a
 document that marks a generator implicit on a kind `.id()` never installs.

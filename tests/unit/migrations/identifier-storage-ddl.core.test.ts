@@ -188,6 +188,102 @@ describe("a derived column is the column it references", () => {
   });
 });
 
+/**
+ * The DERIVED case, which is the one a junction and a carrier get wrong when
+ * they read a scalar's own declaration: a one-to-one child whose primary key IS
+ * its parent foreign key declares no format and still holds the parent's. Its
+ * junction and carrier columns must be the column they reference or the table
+ * cannot be keyed at all — PostgreSQL refuses a `text` → `uuid` foreign key
+ * outright, and SQLite accepts it and then stores two different things.
+ */
+describe("a key that DERIVES its domain types its private columns too", () => {
+  function derivedSchema() {
+    const account = s
+      .model({
+        id: s.string().id().uuid("usr"),
+        profile: s.toOne(() => profile),
+      })
+      .map("idd_accounts");
+    const profile = s
+      .model({
+        id: s.string().id(),
+        account: s
+          .toOne(() => account)
+          .fields("id")
+          .references("id"),
+        tags: s.toMany(() => tag),
+        notes: s.toMany(() => note).name("subject"),
+      })
+      .map("idd_profiles");
+    const tag = s
+      .model({
+        id: s.string().id().ulid(),
+        profiles: s.toMany(() => profile),
+      })
+      .map("idd_tags");
+    const other = s
+      .model({
+        id: s.string().id().uuid("usr"),
+        notes: s.toMany(() => note).name("subject"),
+      })
+      .map("idd_others");
+    const note = s
+      .model({
+        id: s.string().id(),
+        subject: s
+          .toOne(
+            { profile: () => profile, other: () => other },
+            { values: { profile: "p.v1", other: "o.v1" } }
+          )
+          .name("subject"),
+      })
+      .map("idd_notes");
+    return { account, profile, tag, other, note };
+  }
+
+  const derivedSnapshot = (driver: MigrationDriver) =>
+    serializeModels(derivedSchema(), { migrationDriver: driver });
+
+  test("the junction column is the derived key's own column", () => {
+    for (const driver of drivers) {
+      const snapshot = derivedSnapshot(driver);
+      const profileKey = tableOf(snapshot, "idd_profiles").columns.find(
+        (column) => column.name === "id"
+      )?.type;
+      const tagKey = tableOf(snapshot, "idd_tags").columns.find(
+        (column) => column.name === "id"
+      )?.type;
+      const modelTables = new Set([
+        "idd_accounts",
+        "idd_profiles",
+        "idd_tags",
+        "idd_others",
+        "idd_notes",
+      ]);
+      const junction = snapshot.tables.find(
+        (table) => !modelTables.has(table.name)
+      );
+      if (!junction) throw new Error("no junction table serialized");
+      expect(junction.columns.map((column) => column.type).sort()).toEqual(
+        [profileKey, tagKey].sort()
+      );
+    }
+  });
+
+  test("the polymorphic carrier's id column is too", () => {
+    for (const driver of drivers) {
+      const snapshot = derivedSnapshot(driver);
+      const profileKey = tableOf(snapshot, "idd_profiles").columns.find(
+        (column) => column.name === "id"
+      )?.type;
+      const carrier = tableOf(snapshot, "idd_notes").columns.find((column) =>
+        column.name.endsWith("_id")
+      );
+      expect(carrier?.type).toBe(profileKey);
+    }
+  });
+});
+
 describe("a native type override", () => {
   const overridden = (native: Parameters<typeof s.string>[0]) => ({
     only: s.model({ id: s.string(native).id().uuid("usr") }).map("ids_only"),

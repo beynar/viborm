@@ -207,6 +207,45 @@ export function deriveIdDomains(
     for (const field of byField.keys()) resolve(model, field);
   }
 
+  // The polymorphic row carrier's ONE private id column stores every variant's
+  // key, so every variant's key must hold one domain — the same DISAGREEMENT
+  // rule the shared-foreign-key case above states, over a column that is not a
+  // field and therefore has no (model, field) of its own to key an issue by.
+  //
+  // It is checked HERE and not beside the rest of P002 because the answer may
+  // be DERIVED: a variant whose primary key is its parent foreign key declares
+  // nothing and still holds uuids, and the storage rule runs while the index it
+  // would have to ask is still being built. Comparing declarations there
+  // refused two variants that hold the same domain and admitted two that hold
+  // different ones — the second of which is what types the carrier column from
+  // one variant and writes another variant's key through it.
+  for (const edge of resolvedEdges(index)) {
+    if (edge.kind !== "variantRowCarrier") continue;
+    const carrier = `${nameOf(ctx, edge.carrier.source)}.${edge.carrier.field}`;
+    const [head, ...rest] = edge.members;
+    if (head === undefined) continue;
+    const agreed = resolve(head.targetModel, head.referencedField);
+    let agreedFrom = `${nameOf(ctx, head.targetModel)}.${head.referencedField}`;
+    for (const member of rest) {
+      const domain = resolve(member.targetModel, member.referencedField);
+      if (sameIdDomain(agreed, domain)) continue;
+      const marker = `${nameOf(ctx, member.targetModel)}.${member.referencedField}`;
+      issues.push({
+        code: "P002",
+        message:
+          `The one id column of '${carrier}' would hold ${describeIdDomain2(agreed)} ` +
+          `through '${agreedFrom}' and ${describeIdDomain2(domain)} through '${marker}'. ` +
+          "A column stores one identifier domain.",
+        severity: "error",
+        model: nameOf(ctx, edge.carrier.source),
+        relation: edge.carrier.field,
+        candidates: [agreedFrom, marker],
+        repair: `Give every variant target of '${carrier}' the same identifier format, prefix and length`,
+      });
+      agreedFrom = marker;
+    }
+  }
+
   // Every model the index registers, so a declared domain on a relationless
   // model is checked too. The resolved index holds one slot map per registered
   // model, including an empty one.

@@ -385,6 +385,105 @@ describe("disagreement is refused, never resolved", () => {
   });
 });
 
+/**
+ * The polymorphic row carrier's ONE private id column, which stores every
+ * variant's key. The question is what each key HOLDS, not what it declares: a
+ * variant whose primary key is its parent foreign key declares nothing and
+ * still holds uuids, and a carrier typed from one variant while another writes
+ * a different domain through it is a column with two readings.
+ */
+describe("a variant row carrier holds one identifier domain", () => {
+  /** Two variants, each keyed by `mode`: "declared" names it, "derived" inherits. */
+  const carrierSchema = (
+    first: "declared" | "derived",
+    second: "declared" | "derived",
+    secondFormat: "uuid" | "ulid" = "uuid"
+  ) => {
+    const keyOf = (format: "uuid" | "ulid") =>
+      format === "uuid" ? s.string().id().uuid("b") : s.string().id().ulid();
+    const parentA = s.model({
+      id: keyOf("uuid"),
+      child: s.toOne(() => variantA),
+    });
+    const parentB = s.model({
+      id: keyOf(secondFormat),
+      child: s.toOne(() => variantB),
+    });
+    const variantA =
+      first === "declared"
+        ? s.model({
+            id: keyOf("uuid"),
+            notes: s.toMany(() => note).name("subject"),
+          })
+        : s.model({
+            id: s.string().id(),
+            parent: s
+              .toOne(() => parentA)
+              .fields("id")
+              .references("id"),
+            notes: s.toMany(() => note).name("subject"),
+          });
+    const variantB =
+      second === "declared"
+        ? s.model({
+            id: keyOf(secondFormat),
+            notes: s.toMany(() => note).name("subject"),
+          })
+        : s.model({
+            id: s.string().id(),
+            parent: s
+              .toOne(() => parentB)
+              .fields("id")
+              .references("id"),
+            notes: s.toMany(() => note).name("subject"),
+          });
+    const note = s.model({
+      id: s.string().id(),
+      subject: s
+        .toOne(
+          { a: () => variantA, b: () => variantB },
+          { values: { a: "a", b: "b" } }
+        )
+        .name("subject"),
+    });
+    return {
+      variantA,
+      variantB,
+      note,
+      // A parent belongs to the schema only when its child derives from it;
+      // a declared variant names no parent and would leave one uninverted.
+      ...(first === "derived" ? { parentA } : {}),
+      ...(second === "derived" ? { parentB } : {}),
+    };
+  };
+
+  test("one variant declares the domain and the other derives it", () => {
+    expect(refusal(carrierSchema("declared", "derived"))).toEqual([]);
+  });
+
+  test("both variants derive the same domain", () => {
+    expect(refusal(carrierSchema("derived", "derived"))).toEqual([]);
+  });
+
+  test("two DERIVED domains that differ are refused", () => {
+    const conflict = refusal(carrierSchema("derived", "derived", "ulid")).find(
+      (issue) => issue.code === "P002"
+    );
+    expect(conflict?.message).toContain(
+      "A column stores one identifier domain"
+    );
+    expect(conflict?.candidates).toEqual(["variantA.id", "variantB.id"]);
+  });
+
+  test("two DECLARED domains that differ are still refused", () => {
+    const conflict = refusal(
+      carrierSchema("declared", "declared", "ulid")
+    ).find((issue) => issue.code === "P002");
+    expect(conflict?.relation).toBe("subject");
+    expect(conflict?.repair).toContain("the same identifier format");
+  });
+});
+
 describe("a schema with no relations", () => {
   test("derives nothing and reports nothing", () => {
     const user = s.model({ id: s.string().id().uuid() });

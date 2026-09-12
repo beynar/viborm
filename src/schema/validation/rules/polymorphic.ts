@@ -10,7 +10,6 @@
 // The mandatory relation-definition gate is its only caller.
 
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { sameIdDomain } from "@validation/primitives/id-codec";
 import { isValidSchemaIdentifier } from "../../identifier";
 import { getModelKeyCatalog, type Model } from "../../model";
 import { automaticForeignKeyIndexName } from "../../relation/helpers";
@@ -23,7 +22,6 @@ import {
 import type { VariantJunctionOverride } from "../../relation/types";
 import { string } from "../../scalars";
 import type { Scalar } from "../../scalars/base";
-import { idDomainOfState } from "../../scalars/string/id-domain";
 import { thrownAsError } from "../error";
 import type { ResolvedVariantRowStorage } from "../relation-resolution";
 import type {
@@ -355,16 +353,12 @@ function hasCompatibleVariantIdentity(
   ) {
     return false;
   }
-  // An identifier DOMAIN is part of the representation, not decoration: the
-  // carrier's one id column stores every variant's key, and a `uuid` variant
-  // beside a `ulid` one asks that column to be sixteen bytes of two different
-  // things. The column's own scalar is the first variant's, so a second variant
-  // that disagrees would be written through a codec that is not its own.
-  if (
-    !sameIdDomain(idDomainOfState(firstState), idDomainOfState(candidateState))
-  ) {
-    return false;
-  }
+  // The identifier DOMAIN is part of the representation too, and it is checked
+  // where the DERIVED answer exists — in the identifier-domain derivation, over
+  // the resolved index this rule runs before. A variant key may hold a domain
+  // it never declared (the one-to-one child whose primary key is its parent
+  // foreign key), and comparing declarations here refused those pairs while
+  // admitting two derived domains that differ.
   if (candidateState.type !== "decimal") return true;
   const firstDescriptor = firstState.decimal;
   const candidateDescriptor = candidateState.decimal;
