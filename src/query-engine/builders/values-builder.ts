@@ -29,10 +29,10 @@ import {
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { buildGeoPointValue } from "./geo-point-builder";
 import {
-  encodeIdValue,
   type IdColumn,
   idColumnOf,
-  idColumnOfScalar,
+  idColumnOfPrivate,
+  idLiteral,
 } from "./id-field";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
@@ -94,7 +94,13 @@ function lowerPolymorphicStorage(
   for (const { column, value } of members) {
     columns.push(column.name);
     sqlValues.push(
-      buildScalarSqlValueForScalar(ctx, column.scalar, column.name, value)
+      buildScalarSqlValueForScalar(
+        ctx,
+        column.scalar,
+        column.name,
+        value,
+        idColumnOfPrivate(ctx.adapter, column.reference, ctx.relations)
+      )
     );
   }
   return { columns, values: sqlValues };
@@ -279,13 +285,20 @@ export function buildScalarSqlValue(
   );
 }
 
-/** Lower a value against an explicit destination scalar, including private columns. */
+/**
+ * Lower a value against an explicit destination scalar, including private columns.
+ *
+ * The destination's identifier column is a PARAMETER and has no default: the
+ * scalar alone cannot answer it (a private column's domain belongs to the key
+ * it stands in for, and a foreign key's is derived), so every caller names the
+ * column it is writing into and there is no silent declared-only fallback.
+ */
 export function buildScalarSqlValueForScalar(
   ctx: QueryScope,
   field: Scalar | undefined,
   fieldName: string,
   value: unknown,
-  idColumn: IdColumn | undefined = idColumnOfScalar(ctx.adapter, field)
+  idColumn: IdColumn | undefined
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
@@ -347,10 +360,7 @@ export function buildScalarSqlValueForScalar(
   // bytes, a canonical uuid, or the public string. The prefix is a fact of the
   // declaration and is never stored.
   if (idColumn !== undefined) {
-    return ctx.adapter.literals.id(
-      encodeIdValue(fieldName, value, idColumn),
-      idColumn.representation
-    );
+    return idLiteral(ctx.adapter, fieldName, value, idColumn);
   }
 
   return ctx.adapter.literals.value(value);
@@ -571,10 +581,7 @@ export function scalarValueLiteral(
       ctx.relations
     );
     if (idColumn !== undefined) {
-      return ctx.adapter.literals.id(
-        encodeIdValue(fieldName, value, idColumn),
-        idColumn.representation
-      );
+      return idLiteral(ctx.adapter, fieldName, value, idColumn);
     }
   }
   return ctx.adapter.literals.value(value);

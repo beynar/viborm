@@ -589,9 +589,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     // `CHAR` rather than `TEXT`: MySQL's CAST target list has no `TEXT`, which
     // is why `cast` below maps the generic text cast to `CHAR` too.
     idCast: (expr: Sql, representation: IdRepresentation): Sql =>
-      sql`CAST(${expr} AS ${sql.raw(
-        representation === "bytes" ? "BINARY" : "CHAR"
-      )})`,
+      representation === "bytes"
+        ? sql`UNHEX(${expr})`
+        : sql`CAST(${expr} AS CHAR)`,
 
     // MySQL type mappings - MySQL doesn't support TEXT in CAST
     cast: createCastExpression({

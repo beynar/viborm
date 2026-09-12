@@ -5,7 +5,7 @@ import {
   buildPolymorphicMembershipPredicate,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
-import { idColumnOfScalar } from "../builders/id-field";
+import { idColumnOfPrivate } from "../builders/id-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundPolymorphicMembership,
@@ -606,7 +606,12 @@ export function planningMembershipCondition(
     engine,
     membership.storage.idColumn.scalar,
     membership.storage.idColumn.name,
-    planningReferenceValue(binding.readSource, membership.referencedField)
+    planningReferenceValue(binding.readSource, membership.referencedField),
+    idColumnOfPrivate(
+      engine.adapter,
+      membership.storage.idColumn.reference,
+      engine.relations
+    )
   );
   return {
     filters: [],
@@ -678,7 +683,12 @@ function polymorphicMembershipShape(
     engine,
     membership.storage.idColumn.scalar,
     membership.storage.idColumn.name,
-    referencedValue
+    referencedValue,
+    idColumnOfPrivate(
+      engine.adapter,
+      membership.storage.idColumn.reference,
+      engine.relations
+    )
   );
   return {
     filters: [],
@@ -764,8 +774,9 @@ export function membershipProjection(
           adapter,
           column.scalar,
           adapter.identifiers.column(rootAlias, column.name),
-          // A row carrier's id column carries the referenced key's own scalar.
-          idColumnOfScalar(adapter, column.scalar)
+          // A row carrier's id column holds the referenced key's values, and
+          // that key's domain may be derived: the column names the key.
+          idColumnOfPrivate(adapter, column.reference, childScope.relations)
         ),
         column.name
       )
@@ -974,7 +985,12 @@ export function resolvePolymorphicStorageValue(
       engine,
       storage.idColumn.scalar,
       storage.idColumn.name,
-      resolved
+      resolved,
+      idColumnOfPrivate(
+        engine.adapter,
+        storage.idColumn.reference,
+        engine.relations
+      )
     ),
   };
 }

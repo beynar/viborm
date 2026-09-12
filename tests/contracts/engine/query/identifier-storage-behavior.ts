@@ -86,7 +86,44 @@ export const identifierStorageSchema = (() => {
     .id(["roomId", "slotId"])
     .map("idp_seats");
 
-  return { account, post, tag, seat };
+  /**
+   * The private-column seam: a row-held polymorphic carrier whose `(type, id)`
+   * pair stores every variant's key in ONE column. Both variants are ULIDs
+   * because the carrier holds one domain — that is what P002 says — and the
+   * column is therefore sixteen bytes, not text.
+   */
+  const article = s
+    .model({
+      id: s.string().id().ulid(),
+      headline: s.string(),
+      notes: s.toMany(() => note).name("subject"),
+    })
+    .map("idp_articles");
+
+  const memo = s
+    .model({
+      id: s.string().id().ulid(),
+      headline: s.string(),
+      notes: s.toMany(() => note).name("subject"),
+    })
+    .map("idp_memos");
+
+  const note = s
+    .model({
+      id: s.string().id().uuidv7(),
+      body: s.string(),
+      subject: s
+        .toOne(
+          { article: () => article, memo: () => memo },
+          {
+            values: { article: "a.v1", memo: "m.v1" },
+          }
+        )
+        .name("subject"),
+    })
+    .map("idp_notes");
+
+  return { account, post, tag, seat, article, memo, note };
 })();
 
 // =============================================================================
@@ -116,6 +153,11 @@ const REVISION_2 = "018f0c5e-1f3a-7c1d-8b4e-2a6f9c7d1e01";
 const HANDLE_A = "V1StGXR8_Z5j";
 const HANDLE_B = "dHi6BmyTV1St";
 const HANDLE_C = "GXR8Z5jdHi6B";
+
+const ARTICLE_1 = "01FGHJKMNPQRSTVWXYZ0123456";
+const MEMO_1 = "01GHJKMNPQRSTVWXYZ01234567";
+const NOTE_1 = "018f0c5e-1f3a-7c1d-8b4e-2a6f9c7d1e10";
+const NOTE_2 = "018f0c5e-1f3a-7c1d-8b4e-2a6f9c7d1e11";
 
 const SLOT_1 = "01DEF0123456789ABCDEFGHJKM";
 const SLOT_2 = "01EF0123456789ABCDEFGHJKMN";
@@ -225,15 +267,35 @@ export function runIdentifierStorageBehavior(options: {
       // on the SQLite family. A force-reset here would be worse than either —
       // it plans from the empty snapshot, which is not this suite's to decide
       // for the tables its neighbours own.
-      const present = await client.tag
+      // The probe reads the LAST table this schema grew, not the first: an
+      // estate left behind by an older revision of this suite answers the
+      // first one and then fails on every statement the new tables carry.
+      const present = await client.note
         .findMany({ take: 1 })
         .then(() => true)
         .catch(() => false);
       if (!present) await syncLiveSchema(client);
+      await client.note.deleteMany({});
+      await client.article.deleteMany({});
+      await client.memo.deleteMany({});
       await client.post.deleteMany({});
       await client.seat.deleteMany({});
       await client.tag.deleteMany({});
       await client.account.deleteMany({});
+
+      await client.article.create({
+        data: { id: ARTICLE_1, headline: "first article" },
+      });
+      await client.memo.create({
+        data: { id: MEMO_1, headline: "first memo" },
+      });
+      await client.note.create({
+        data: {
+          id: NOTE_1,
+          body: "about the article",
+          subject: { connect: { type: "article", where: { id: ARTICLE_1 } } },
+        },
+      });
 
       await client.account.createMany({
         data: [
@@ -517,6 +579,119 @@ export function runIdentifierStorageBehavior(options: {
         TAG_2,
         TAG_3,
       ]);
+    });
+
+    /**
+     * The PRIVATE columns, which no public projection names and which every
+     * correlated nested write goes through. A junction side column and a
+     * polymorphic carrier's id column hold the referenced key's values, so they
+     * are compact exactly as that key is — and the probe that publishes them
+     * must project them, decode them and re-bind them in the same vocabulary.
+     * Read through the public surface alone these columns are invisible, which
+     * is why the whole suite was green while they bound the wrong bytes.
+     */
+    test("a nested update reaches through the junction's own columns", async () => {
+      const updated = await client.post.update({
+        where: { id: POST_1 },
+        data: {
+          tags: {
+            update: [{ where: { id: TAG_1 }, data: { name: "alpha+" } }],
+          },
+        },
+        include: { tags: { orderBy: { id: "asc" } } },
+      });
+      expect(
+        updated.tags.map((row: { id: string; name: string }) => [
+          row.id,
+          row.name,
+        ])
+      ).toContainEqual([TAG_1, "alpha+"]);
+
+      await client.post.update({
+        where: { id: POST_1 },
+        data: {
+          tags: {
+            upsert: [
+              {
+                where: { id: TAG_1 },
+                create: { id: TAG_1, name: "never" },
+                update: { name: "alpha" },
+              },
+            ],
+          },
+        },
+      });
+      const restored = await client.tag.findUnique({ where: { id: TAG_1 } });
+      expect(restored?.name).toBe("alpha");
+    });
+
+    test("a nested update reaches through the polymorphic row carrier", async () => {
+      const carrier = await columnTypes(client, options.dialect, "idp_notes");
+      expect(carrier.subject_id).toBe(
+        options.dialect === "postgresql"
+          ? "bytea"
+          : options.dialect === "mysql"
+            ? "binary(16)"
+            : "blob"
+      );
+
+      const updated = await client.note.update({
+        where: { id: NOTE_1 },
+        data: {
+          subject: {
+            update: { type: "article", data: { headline: "renamed" } },
+          },
+        },
+        include: { subject: true },
+      });
+      expect(updated.subject).toEqual({
+        type: "article",
+        data: { id: ARTICLE_1, headline: "renamed" },
+      });
+
+      const upserted = await client.note.update({
+        where: { id: NOTE_1 },
+        data: {
+          subject: {
+            upsert: {
+              type: "article",
+              create: { id: ARTICLE_1, headline: "never" },
+              update: { headline: "first article" },
+            },
+          },
+        },
+        include: { subject: true },
+      });
+      expect(upserted.subject).toEqual({
+        type: "article",
+        data: { id: ARTICLE_1, headline: "first article" },
+      });
+
+      // The other variant, connected after the fact: one column, two keys.
+      await client.note.create({
+        data: {
+          id: NOTE_2,
+          body: "about the memo",
+          subject: { connect: { type: "memo", where: { id: MEMO_1 } } },
+        },
+      });
+      const stored = await storedHex(
+        client,
+        options.dialect === "postgresql"
+          ? sql`SELECT encode("subject_id", 'hex') AS raw FROM idp_notes WHERE "body" = ${"about the memo"}`
+          : sql`SELECT HEX(subject_id) AS raw FROM idp_notes WHERE body = ${"about the memo"}`
+      );
+      // Sixteen bytes of ULID payload — not the 26 characters of its text,
+      // which is what a carrier typed from the wrong owner stores.
+      expect(stored).toHaveLength(32);
+      const reread = await client.note.findUnique({
+        where: { id: NOTE_2 },
+        include: { subject: true },
+      });
+      expect(reread?.subject).toEqual({
+        type: "memo",
+        data: { id: MEMO_1, headline: "first memo" },
+      });
     });
 
     test("a compound identifier key addresses and reads back", async () => {

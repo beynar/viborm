@@ -314,7 +314,9 @@ export interface DatabaseAdapter {
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor) => Sql;
 
     /**
-     * Cast a DEFERRED identifier into its column's physical type.
+     * Bind a DEFERRED identifier back into its column's physical type — the
+     * INVERSE of the transport spelling {@link projectScalarForTransport}
+     * publishes.
      *
      * The sibling of {@link DatabaseAdapter.expressions.decimalCast}, and
      * needed for the same reason: a relation key whose value does not exist at
@@ -322,6 +324,15 @@ export interface DatabaseAdapter {
      * through `literals.id`, and the generic `text` cast names a type the
      * column does not have. `CAST($1 AS TEXT)` against a PostgreSQL `uuid`
      * column is the 42804 this exists to avoid.
+     *
+     * A deferred value has exactly ONE provenance — a step output, which is a
+     * row the driver returned — so it arrives in the spelling that projection
+     * published: LOWERCASE HEX for a `bytes` column, canonical text for a
+     * `uuid` or text-stored one. A plain cast of that hex into the binary type
+     * would bind the hex text's own bytes, so the binary arm decodes it
+     * (`decode(…, 'hex')`, `UNHEX`, `unhex`). SQLite's `unhex()` arrived in
+     * 3.41, above this adapter's 3.35 floor: a compact identifier on SQLite
+     * needs 3.41, and nothing else here does.
      */
     idCast: (expr: Sql, representation: IdRepresentation) => Sql;
 

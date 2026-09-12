@@ -286,13 +286,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
 
     idCast: (expr: Sql, representation: IdRepresentation): Sql =>
-      sql`CAST(${expr} AS ${sql.raw(
-        representation === "uuid"
-          ? "UUID"
-          : representation === "bytes"
-            ? "BYTEA"
-            : "TEXT"
-      )})`,
+      representation === "bytes"
+        ? sql`decode(${expr}, 'hex')`
+        : sql`CAST(${expr} AS ${sql.raw(
+            representation === "uuid" ? "UUID" : "TEXT"
+          )})`,
 
     // PostgreSQL type mappings
     cast: createCastExpression({

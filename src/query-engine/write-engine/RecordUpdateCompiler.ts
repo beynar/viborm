@@ -7,6 +7,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import { idColumnOfPrivate } from "../builders/id-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import { directPolymorphicMembership } from "../builders/polymorphic-relation";
 import {
@@ -1930,7 +1931,12 @@ class RecordUpdateCompilerState implements RecordUpdateCompiler {
       this.engine,
       edge.carrier.edge.storage.idColumn.scalar,
       edge.carrier.edge.storage.idColumn.name,
-      ref(this.targetReadId, edge.carrier.edge.storage.idColumn.name)
+      ref(this.targetReadId, edge.carrier.edge.storage.idColumn.name),
+      idColumnOfPrivate(
+        this.engine.adapter,
+        edge.carrier.edge.storage.idColumn.reference,
+        this.engine.relations
+      )
     );
     return {
       id,

@@ -14,7 +14,12 @@ import { numericDateTimeForm } from "@validation/primitives/datetime-physical-co
 import { toDecimal } from "@validation/primitives/decimal-codec";
 import { isString } from "@validation/value-guards";
 import { dateTimeNativeTypeOf } from "../builders/datetime-field";
-import { decodeIdValue, type IdColumn, idColumnOf } from "../builders/id-field";
+import {
+  decodeIdValue,
+  type IdColumn,
+  idColumnOf,
+  idColumnOfPrivate,
+} from "../builders/id-field";
 import {
   type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
@@ -409,7 +414,19 @@ export class ResultParser {
         decodedInternal[column.name] =
           value === null && column.nullable
             ? null
-            : this.parseCapturedField(column.scalar, value, operation);
+            : this.parseCapturedField(
+                column.scalar,
+                value,
+                operation,
+                // The projection published this column in its PHYSICAL
+                // vocabulary; the decode reads the key the column stands in
+                // for, so the two halves of the seam agree.
+                idColumnOfPrivate(
+                  this.adapter,
+                  column.reference,
+                  this.relations
+                )
+              );
       }
       return { ...decodedInternal, ...row };
     });

@@ -93,24 +93,29 @@ describe("binding an identifier operand", () => {
   });
 });
 
-describe("casting a deferred identifier", () => {
+describe("binding a deferred identifier", () => {
   const deferred = sql`"t"."id"`;
 
-  test("PostgreSQL names the column's own type", () => {
+  // A deferred value is a STEP OUTPUT, and a step output is a row the driver
+  // returned — so it arrives in the TRANSPORT spelling, which for a byte column
+  // is lowercase hex. Casting that hex into the binary type would bind the hex
+  // text's own bytes, so the binary arm decodes it instead. The transport and
+  // this are one round trip, which is why `blobToHex` sits beside it above.
+  test("PostgreSQL decodes the transported hex and names its own types", () => {
     expect(pg.expressions.idCast(deferred, "uuid").toStatement()).toBe(
       'CAST("t"."id" AS UUID)'
     );
     expect(pg.expressions.idCast(deferred, "bytes").toStatement()).toBe(
-      'CAST("t"."id" AS BYTEA)'
+      `decode("t"."id", 'hex')`
     );
     expect(pg.expressions.idCast(deferred, "text").toStatement()).toBe(
       'CAST("t"."id" AS TEXT)'
     );
   });
 
-  test("MySQL casts to BINARY or CHAR, the two targets its CAST list has", () => {
+  test("MySQL unhexes, or casts to CHAR — the text target its CAST list has", () => {
     expect(mysql.expressions.idCast(deferred, "bytes").toStatement()).toBe(
-      'CAST("t"."id" AS BINARY)'
+      'UNHEX("t"."id")'
     );
     expect(mysql.expressions.idCast(deferred, "text").toStatement()).toBe(
       'CAST("t"."id" AS CHAR)'
@@ -120,9 +125,9 @@ describe("casting a deferred identifier", () => {
     );
   });
 
-  test("SQLite casts to BLOB or TEXT", () => {
+  test("SQLite unhexes, or casts to TEXT", () => {
     expect(sqlite.expressions.idCast(deferred, "bytes").toStatement()).toBe(
-      'CAST("t"."id" AS BLOB)'
+      'unhex("t"."id")'
     );
     expect(sqlite.expressions.idCast(deferred, "text").toStatement()).toBe(
       'CAST("t"."id" AS TEXT)'

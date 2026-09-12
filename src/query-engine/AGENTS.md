@@ -43,9 +43,13 @@ member.
 A field whose format the caller NAMED — `.uuid()`, `.uuidv7()`, `.ulid()`,
 `.ksuid()`, `.nanoid()`, `.cuid()` — carries a DOMAIN, and a foreign key derives
 its target's. `builders/id-field.ts` is the one lookup: `idColumnOf(adapter,
-model, field, relations)` for a model field (a foreign key needs the index),
-`idColumnOfScalar` for a private column whose scalar IS the referenced key's — a
-junction side, a polymorphic row carrier's id column. Both answer
+model, field, relations)` for a model field (a foreign key needs the index), and
+`idColumnOfPrivate(adapter, reference, relations)` for a private column — a
+junction side, a polymorphic row carrier's id column — which NAMES the key it
+stands in for and resolves it through that same lookup, because that key's own
+domain may be derived (the one-to-one child whose primary key is its parent
+foreign key) and because derivation is keyed by (model, field), never by a
+scalar instance two models may share. Both answer
 `{ domain, representation }`, and the REPRESENTATION is the adapter's
 (`result.idRepresentation`): `bytea` on PostgreSQL and `BINARY(16)` on MySQL are
 the same ULID and the engine is not allowed to know which dialect it is building
@@ -55,12 +59,17 @@ These seams touch it, and there is no format switch anywhere else:
 
 | Seam | Owner |
 | --- | --- |
-| Parameter | `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
+| Parameter | `builders/id-field.ts` `idLiteral` — the ONE binding, reached by `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
 | Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
 | Aggregate | `builders/aggregate-utils.ts` — `MIN`/`MAX` run over the TRANSPORTED value, through the same `projectIdBytes`; see below |
 | Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value. `parseAggregate` takes the same lookup |
 | Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
 | DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
+
+A DEFERRED identifier — a `Ref` into a step output — is the transport spelling,
+because a step output is a row the driver returned. `expressions.idCast` is the
+inverse of that transport, not a plain cast: it decodes the lowercase hex a byte
+column travels as. The two are one round trip and neither moves alone.
 
 `MIN`/`MAX` aggregate the spelling the column TRAVELS in, not the one it is
 stored in, and the answer is the same: every compact format's canonical text is

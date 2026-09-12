@@ -2,7 +2,7 @@
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { isSql, type Sql, sql } from "@sql";
 import { isRecord } from "@validation/value-guards";
-import { idColumnOfScalar } from "./builders/id-field";
+import { idColumnOf } from "./builders/id-field";
 import {
   buildJunctionDeleteCondition,
   buildJunctionInsert,
@@ -252,9 +252,15 @@ export class JunctionStatements {
             this.ctx.adapter,
             scalar,
             column,
-            // A junction column IS the referenced key's scalar, so its domain
-            // is that key's own declaration and nothing derives here.
-            idColumnOfScalar(this.ctx.adapter, scalar)
+            // A junction column holds the referenced KEY's values, and that
+            // key's domain may be derived — so it is resolved against the
+            // model that owns it, through the same lookup a public field takes.
+            idColumnOf(
+              this.ctx.adapter,
+              source.model,
+              member.referencedField,
+              this.ctx.relations
+            )
           );
           return projected === column
             ? column

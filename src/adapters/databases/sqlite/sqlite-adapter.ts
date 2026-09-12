@@ -412,9 +412,9 @@ export class SQLiteAdapter implements DatabaseAdapter {
       sql`CAST(${expr} AS INTEGER)`,
 
     idCast: (expr: Sql, representation: IdRepresentation): Sql =>
-      sql`CAST(${expr} AS ${sql.raw(
-        representation === "bytes" ? "BLOB" : "TEXT"
-      )})`,
+      representation === "bytes"
+        ? sql`unhex(${expr})`
+        : sql`CAST(${expr} AS TEXT)`,
 
     // SQLite type mappings
     cast: createCastExpression({

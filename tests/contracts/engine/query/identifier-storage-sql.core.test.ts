@@ -8,7 +8,7 @@ import {
   decodeIdValue,
   encodeIdValue,
   idColumnOf,
-  idColumnOfScalar,
+  idColumnOfPrivate,
 } from "@query-engine/builders/id-field";
 import { assertSupportedScalarFilterOperator } from "@query-engine/builders/scalar-filter-operators";
 import { projectScalarForTransport } from "@query-engine/builders/scalar-transport";
@@ -104,13 +104,19 @@ describe("what the engine reads about an identifier column", () => {
 
   test("a field with no domain is no identifier column", () => {
     expect(idColumnOf(pg, post, "title", undefined)).toBeUndefined();
-    expect(idColumnOfScalar(pg, post["~"].state.scalars.title)).toBeUndefined();
-    // A private column carries the referenced key's own scalar and answers
-    // from its declaration, with no index and no derivation.
-    expect(idColumnOfScalar(pg, post["~"].state.scalars.id)).toEqual({
+    expect(
+      idColumnOfPrivate(pg, { model: post, field: "title" }, undefined)
+    ).toBeUndefined();
+    // A private column names the KEY it stands in for and is resolved through
+    // the same lookup a public field is — so a derived domain reaches it too.
+    expect(
+      idColumnOfPrivate(pg, { model: post, field: "id" }, undefined)
+    ).toEqual({
       domain: { format: "ulid", prefix: undefined, length: undefined },
       representation: "bytes",
     });
+    // A column that stands in for no key names none.
+    expect(idColumnOfPrivate(pg, undefined, undefined)).toBeUndefined();
   });
 
   test("a native text override keeps the domain and drops the compaction", () => {

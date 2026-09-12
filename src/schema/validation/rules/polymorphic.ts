@@ -270,6 +270,12 @@ export function checkVariantRowStorage(
 
   const referencedFields = new Map<string, string>();
   const identities: Scalar[] = [];
+  // The first member that resolves a key IS the carrier's key: every variant
+  // agrees on what that column holds, or the carrier is refused below and by
+  // the identifier-domain derivation.
+  let carrierKey:
+    | { readonly model: Model<any>; readonly field: string }
+    | undefined;
   for (const member of input.members) {
     const primaryKey = singlePrimaryKey(member.target);
     if (!primaryKey) {
@@ -286,6 +292,7 @@ export function checkVariantRowStorage(
     }
     referencedFields.set(member.variant, primaryKey.field);
     identities.push(primaryKey.scalar);
+    carrierKey ??= { model: member.target, field: primaryKey.field };
   }
 
   const firstIdentity = identities[0];
@@ -322,6 +329,9 @@ export function checkVariantRowStorage(
               name: idColumnName,
               scalar: firstIdentity,
               nullable,
+              // `firstIdentity` is that same member's key, so the pair and the
+              // scalar are one fact read two ways, never two answers.
+              ...(carrierKey === undefined ? {} : { reference: carrierKey }),
             },
             indexName,
           }
