@@ -126,7 +126,8 @@ type DeclaresCompactId<F extends ScalarState<"string">> = [
       : false;
 
 const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
-  schema: S
+  schema: S,
+  members: V.String<{ array: true }>
 ): StringFilterSchema<S, C> => {
   const operand = v.comparisonOperand("string", schema);
   const filter = stringFilterBase.extend({
@@ -135,6 +136,8 @@ const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
     lte: operand,
     gt: operand,
     gte: operand,
+    in: members,
+    notIn: members,
   });
   return buildNegatableFilterSchema<
     StringOperand<S, C>,
@@ -146,7 +149,8 @@ const buildCompactIdFilterSchema = <
   S extends V.Schema,
   C extends V.Operand<any>,
 >(
-  schema: S
+  schema: S,
+  members: V.String<{ array: true }>
 ): CompactIdFilterSchema<S, C> => {
   const operand = v.comparisonOperand("string", schema);
   const filter = compactIdFilterBase.extend({
@@ -155,6 +159,8 @@ const buildCompactIdFilterSchema = <
     lte: operand,
     gt: operand,
     gte: operand,
+    in: members,
+    notIn: members,
   });
   return buildNegatableFilterSchema<
     StringOperand<S, C>,
@@ -277,6 +283,22 @@ const domainBaseOf = <F extends ScalarState<"string">>(
   return v.string(options);
 };
 
+/**
+ * The SET-MEMBERSHIP operand — `in` / `notIn`, and the negated arm with them.
+ *
+ * A member of `in` is an identifier exactly as `equals`'s operand is, so it
+ * crosses the same admission and the same alias folding. The module-level
+ * `stringList` cannot carry a field's domain, and a set built from it admitted
+ * a value outside the domain (refused later, at the wrong boundary, as a
+ * `QueryEngineError`) and left an alias unfolded — which hashed ONE identifier
+ * to two cache keys, the exact failure normalizing at the args boundary exists
+ * to prevent.
+ */
+const domainMembersOf = (
+  idDomain: IdDomain | undefined
+): V.String<{ array: true }> =>
+  idDomain === undefined ? stringList : v.string({ array: true, idDomain });
+
 /** The create options, which differ from the state only by the domain. */
 const domainStateOf = <F extends ScalarState<"string">>(
   state: F,
@@ -319,8 +341,8 @@ export const buildStringSchema = <
         state.array
           ? buildStringListFilterSchema(base)
           : idDomain !== undefined && isCompactIdFormat(idDomain.format)
-            ? buildCompactIdFilterSchema(base)
-            : buildStringFilterSchema(base)
+            ? buildCompactIdFilterSchema(base, domainMembersOf(idDomain))
+            : buildStringFilterSchema(base, domainMembersOf(idDomain))
       ) as never,
   });
 };

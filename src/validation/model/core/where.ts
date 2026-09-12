@@ -151,7 +151,10 @@ export const getWhereUniqueSchema = <
   const uniqueFilter = getUniqueFilter(model, fieldSchemas);
 
   // Add compound constraints (ID + uniques) using the compound filter helpers
-  const compoundConstraintFilter = getCompoundConstraintFilter(model);
+  const compoundConstraintFilter = getCompoundConstraintFilter(
+    model,
+    fieldSchemas
+  );
 
   const identities: WhereUniqueIdentityEntries<M, F> = {
     ...uniqueFilter.entries,
@@ -247,7 +250,10 @@ export const getWhereUniqueExtendedSchema = <
   fieldSchemas: F
 ): WhereUniqueExtendedSchema<M, F> => {
   const uniqueFilter = getUniqueFilter(model, fieldSchemas);
-  const compoundConstraintFilter = getCompoundConstraintFilter(model);
+  const compoundConstraintFilter = getCompoundConstraintFilter(
+    model,
+    fieldSchemas
+  );
   const where = getWhereSchema<M, F>(model, fieldSchemas);
 
   const discriminators: WhereUniqueIdentityEntries<M, F> = {

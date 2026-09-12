@@ -929,6 +929,33 @@ describe("a declared identifier domain", () => {
     });
   });
 
+  test("a SET operand is an identifier too, admitted and folded", () => {
+    // `in` / `notIn` members are values of the field exactly as `equals`'s
+    // operand is. Built from a module-level list schema they could carry no
+    // domain, so an out-of-domain member was admitted here and refused later as
+    // an engine error, and an ALIAS was never folded — which hashed one
+    // identifier to two cache keys.
+    const compact = getScalarSchemas(string().uuid("usr")["~"].state);
+    expect(
+      admitted(compact.filter, { in: [`usr-${UUID.toUpperCase()}`] })
+    ).toEqual({ in: [`usr-${UUID}`] });
+    expect(admitted(compact.filter, { in: ["nope"] })).toBeUndefined();
+    expect(admitted(compact.filter, { notIn: ["nope"] })).toBeUndefined();
+    expect(admitted(compact.filter, { not: { in: [`usr-${UUID}`] } })).toEqual({
+      not: { in: [`usr-${UUID}`] },
+    });
+
+    const text = getScalarSchemas(string().cuid()["~"].state);
+    expect(admitted(text.filter, { in: [CUID] })).toEqual({ in: [CUID] });
+    expect(admitted(text.filter, { in: ["NOT-A-CUID"] })).toBeUndefined();
+
+    // A field with no domain keeps the list it always had.
+    const plain = getScalarSchemas(string()["~"].state);
+    expect(admitted(plain.filter, { in: ["anything"] })).toEqual({
+      in: ["anything"],
+    });
+  });
+
   test("a TEXT-stored format keeps every string operator", () => {
     const text = getScalarSchemas(string().cuid()["~"].state);
     expect(admitted(text.filter, { contains: "tz4a" })).toEqual({

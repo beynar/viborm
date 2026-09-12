@@ -370,6 +370,15 @@ compact formats also build a filter without `contains`/`startsWith`/`endsWith`/
 `mode`, and `scalarInternKey` carries the domain so two fields share a filter
 tree only when they share a domain.
 
+EVERY operand the field takes is built from that domain-carrying base, not only
+the comparison ones: `in`/`notIn` take a domain-carrying array (a module-level
+list schema can hold no field's domain), and a compound selector's members are
+rebuilt from the field's schema in `model/core/filter.ts` rather than read from
+the pre-domain base `Model.id([...])` snapshotted at declaration time. An
+operand that skips admission is refused later as an engine error — the wrong
+boundary — and, worse, an unfolded alias hashes ONE identifier to two cache
+keys, which is what normalizing at the args boundary exists to prevent.
+
 `primitives/binary-shapes.ts` is the one normalization of every driver's binary
 spelling — `Buffer`, `Uint8Array`, `ArrayBuffer`, a byte array, PostgreSQL's
 `\x…`, MySQL's `base64:typeNNN:…`, plain hex. It REPORTS rather than throws: the
