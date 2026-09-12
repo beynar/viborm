@@ -64,6 +64,13 @@ string column holds, and it is still stored as text.
   filter type per field rather than one per deployment is what keeps the type
   and the runtime saying the same thing. A DERIVED domain narrows at run time
   only: a foreign key has no declaration of its own to compute a type from.
+- **A field reference across storage is refused.** `where: { id: { equals: (ctx)
+  => ctx.fields.someString } }` compiled and matched nothing when `id` was
+  compactly stored and `someString` was not — it compared payload bytes with
+  public text. Both directions now raise before any I/O, naming what each column
+  holds. Two TEXT columns are untouched whatever their domains: a `nanoid`
+  stores exactly the string it shows, so comparing it with an ordinary string
+  column asks the question it appears to ask.
 - **`_min`/`_max` aggregate the transported spelling.** PostgreSQL has neither
   `min(uuid)` nor `max(bytea)`, and the answer is the same either way.
 - **`DEFAULT gen_random_uuid()`** is emitted only for an unprefixed `.uuid()`
@@ -88,10 +95,15 @@ A column that already holds text has two routes, and neither is silent.
   that says how many rows would fail it and what the two routes are, instead of
   naming one offending value.
 - `identifierConversionChecks` (new, from `viborm/migrations`, alongside the
-  `MigrationCheckInput` type) renders the three questions a conversion has to
-  answer first — every row in the domain, no two rows folding together under the
+  `MigrationCheckInput` type) renders the questions a conversion has to answer
+  first — every row in the domain, no two rows folding together under the
   uuid/ulid alias, every referencing foreign key still finding its parent after
-  that fold — as `trusted-read` checks you can run or pass to `generate()`.
+  that fold — as `trusted-read` checks you can run or pass to `generate()`. The
+  fold question is asked of the key and of any referencing column that is a
+  complete key of its own model, never of a plain many-side foreign key. On
+  MySQL every identity comparison is rendered as `CAST(… AS BINARY)`: the 8.0
+  default collation folds case in `=`, which admitted a foreign key that the
+  `BINARY(n)` column would then leave without a parent.
   The per-dialect recipes are in the new
   [Converting identifier columns](https://viborm.dev/docs/migration/identifiers)
   guide; every statement on that page was executed against PostgreSQL 16,

@@ -307,11 +307,11 @@ async function main() {
     ],
     runs,
   };
-  const text = `${JSON.stringify(block, null, 1)}\n`;
+  const text = `${JSON.stringify(block, null, 2)}\n`;
   if (options.merge) {
     const document = JSON.parse(readFileSync(options.merge, "utf8"));
     document.databaseStorage = block;
-    writeFileSync(options.merge, `${JSON.stringify(document, null, 1)}\n`);
+    writeFileSync(options.merge, `${JSON.stringify(document, null, 2)}\n`);
     process.stdout.write(`merged into ${options.merge}\n`);
     return;
   }
