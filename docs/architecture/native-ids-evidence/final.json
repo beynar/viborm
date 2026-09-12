@@ -1,0 +1,432 @@
+{
+  "schemaVersion": 1,
+  "commit": "3e191bb593262944a01a339995d4598cf0cdb8e8",
+  "tool": {
+    "esbuild": "0.28.1",
+    "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
+    "bundleOptions": {
+      "bundle": true,
+      "format": "esm",
+      "platform": "node",
+      "target": "es2022",
+      "minify": true,
+      "treeShaking": true,
+      "external": [
+        "pg",
+        "postgres",
+        "mysql2",
+        "better-sqlite3",
+        "@libsql/client",
+        "@neondatabase/serverless",
+        "@planetscale/database",
+        "@electric-sql/pglite",
+        "@cloudflare/workers-types",
+        "@opentelemetry/api",
+        "commander",
+        "@clack/prompts",
+        "bun",
+        "bun:sqlite",
+        "bun:sql"
+      ]
+    },
+    "gzipLevel": 9,
+    "brotliQuality": 11
+  },
+  "dist": {
+    "files": 175,
+    "totalBytes": 8998203,
+    "runtimeMjsBytes": 1266076,
+    "byExtension": {
+      "mjs": {
+        "files": 76,
+        "bytes": 1266076
+      },
+      "mjs.map": {
+        "files": 66,
+        "bytes": 6991213
+      },
+      "d.mts": {
+        "files": 33,
+        "bytes": 740914
+      }
+    }
+  },
+  "fixtures": {
+    "ids-only": {
+      "raw": 99126,
+      "gzip": 30502,
+      "brotli": 26887,
+      "composition": {
+        "firstPartyBytes": 87561,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "big.js": 6940
+        },
+        "topInputs": [
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17578
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 16955
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 16678
+          },
+          {
+            "name": "dist/registration-preflight-*.mjs",
+            "bytes": 15483
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11577
+          },
+          {
+            "name": "node_modules/big.js/big.mjs",
+            "bytes": 6940
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5515
+          },
+          {
+            "name": "node_modules/@noble/hashes/sha3.js",
+            "bytes": 2808
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "node_modules/@noble/hashes/utils.js",
+            "bytes": 1381
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 1048
+          },
+          {
+            "name": "dist/value-guards-*.mjs",
+            "bytes": 533
+          }
+        ]
+      }
+    },
+    "decimal-only": {
+      "raw": 98971,
+      "gzip": 30485,
+      "brotli": 26895,
+      "composition": {
+        "firstPartyBytes": 87400,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "big.js": 6940
+        },
+        "topInputs": [
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17578
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 16955
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 16678
+          },
+          {
+            "name": "dist/registration-preflight-*.mjs",
+            "bytes": 15483
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11577
+          },
+          {
+            "name": "node_modules/big.js/big.mjs",
+            "bytes": 6940
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5515
+          },
+          {
+            "name": "node_modules/@noble/hashes/sha3.js",
+            "bytes": 2808
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "node_modules/@noble/hashes/utils.js",
+            "bytes": 1381
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 1048
+          },
+          {
+            "name": "dist/value-guards-*.mjs",
+            "bytes": 533
+          }
+        ]
+      }
+    },
+    "pg-representative": {
+      "raw": 844860,
+      "gzip": 230488,
+      "brotli": 190814,
+      "composition": {
+        "firstPartyBytes": 833257,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "big.js": 6971
+        },
+        "topInputs": [
+          {
+            "name": "dist/pending-operation-*.mjs",
+            "bytes": 499438
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 50244
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 38800
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37250
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 35000
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 29315
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17878
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 17040
+          },
+          {
+            "name": "dist/registration-preflight-*.mjs",
+            "bytes": 16438
+          },
+          {
+            "name": "dist/normalized-result-*.mjs",
+            "bytes": 12039
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11791
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 11468
+          }
+        ]
+      }
+    },
+    "full": {
+      "raw": 1205023,
+      "gzip": 333353,
+      "brotli": 272535,
+      "composition": {
+        "firstPartyBytes": 1192126,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "big.js": 6971
+        },
+        "topInputs": [
+          {
+            "name": "dist/pending-operation-*.mjs",
+            "bytes": 501007
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 279899
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 50285
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 38867
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37266
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 35018
+          },
+          {
+            "name": "dist/schema/json.mjs",
+            "bytes": 30498
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 29807
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17841
+          },
+          {
+            "name": "dist/to-many-*.mjs",
+            "bytes": 17040
+          },
+          {
+            "name": "dist/registration-preflight-*.mjs",
+            "bytes": 16599
+          },
+          {
+            "name": "dist/extension-*.mjs",
+            "bytes": 13210
+          }
+        ]
+      }
+    }
+  },
+  "libraries": {
+    "@paralleldrive/cuid2": {
+      "version": "3.3.0",
+      "raw": 24432,
+      "gzip": 10889,
+      "brotli": 9896,
+      "dependencyBytes": {
+        "@noble/hashes": 4600,
+        "@paralleldrive/cuid2": 1174,
+        "bignumber.js": 18625
+      }
+    },
+    "nanoid": {
+      "available": false,
+      "reason": "not installed"
+    },
+    "ulidx": {
+      "available": false,
+      "reason": "not installed"
+    },
+    "big.js": {
+      "version": "7.0.1",
+      "raw": 6916,
+      "gzip": 3004,
+      "brotli": 2750,
+      "dependencyBytes": {
+        "big.js": 6858
+      }
+    },
+    "decimal.js": {
+      "available": false,
+      "reason": "no longer installed"
+    }
+  },
+  "loc": {
+    "total": {
+      "files": 552,
+      "code": 120721,
+      "comment": 32600,
+      "blank": 10742
+    },
+    "perDirectory": {
+      "(root)": {
+        "files": 6,
+        "code": 164,
+        "comment": 132,
+        "blank": 23
+      },
+      "adapters": {
+        "files": 17,
+        "code": 2594,
+        "comment": 1993,
+        "blank": 569
+      },
+      "cache": {
+        "files": 11,
+        "code": 1630,
+        "comment": 478,
+        "blank": 195
+      },
+      "cli": {
+        "files": 4,
+        "code": 590,
+        "comment": 120,
+        "blank": 70
+      },
+      "client": {
+        "files": 17,
+        "code": 5385,
+        "comment": 1150,
+        "blank": 437
+      },
+      "drivers": {
+        "files": 44,
+        "code": 8896,
+        "comment": 1983,
+        "blank": 824
+      },
+      "errors": {
+        "files": 11,
+        "code": 2199,
+        "comment": 502,
+        "blank": 221
+      },
+      "extensions": {
+        "files": 9,
+        "code": 3019,
+        "comment": 109,
+        "blank": 259
+      },
+      "instrumentation": {
+        "files": 11,
+        "code": 1481,
+        "comment": 459,
+        "blank": 210
+      },
+      "migrations": {
+        "files": 84,
+        "code": 22027,
+        "comment": 5164,
+        "blank": 1958
+      },
+      "query-engine": {
+        "files": 147,
+        "code": 46325,
+        "comment": 11540,
+        "blank": 2978
+      },
+      "schema": {
+        "files": 80,
+        "code": 11349,
+        "comment": 3622,
+        "blank": 1148
+      },
+      "sql": {
+        "files": 3,
+        "code": 188,
+        "comment": 117,
+        "blank": 44
+      },
+      "validation": {
+        "files": 108,
+        "code": 14874,
+        "comment": 5231,
+        "blank": 1806
+      }
+    }
+  }
+}
