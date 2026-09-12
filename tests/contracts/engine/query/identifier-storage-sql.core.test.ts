@@ -18,6 +18,7 @@ import {
   scalarValueLiteral,
 } from "@query-engine/builders/values-builder";
 import { buildWhere } from "@query-engine/builders/where-builder";
+import { buildHaving } from "@query-engine/operations/groupby-having";
 import { parseResult } from "@query-engine/result/ResultParser";
 import { identityGuardFor } from "@query-engine/result/scalar-identity-parser";
 import { QueryEngineError } from "@query-engine/types";
@@ -319,6 +320,34 @@ describe("aggregating an identifier column", () => {
     // The null guard sits INSIDE the aggregate: SQLite's `hex(NULL)` is the
     // empty string, which would otherwise win every MIN.
     expect(sqliteSql.toUpperCase()).toContain("CASE");
+  });
+
+  test("HAVING aggregates the same expression the select list does", () => {
+    // One column, one answer to what is aggregated over it. PostgreSQL has no
+    // `min(uuid)` and no `min(bytea)`, so a HAVING clause that named the stored
+    // column did not compile — on a declared key or on a derived foreign key.
+    const pgScope = scopeFor(pg, post);
+    for (const field of ["id", "authorId"]) {
+      const having =
+        buildHaving(
+          pgScope,
+          { [field]: { _min: { equals: null } } },
+          pgScope.rootAlias,
+          [field]
+        )?.toStatement() ?? "";
+      expect(having).toContain("MIN(");
+      expect(having).not.toMatch(BARE_COLUMN_AGGREGATE);
+    }
+
+    const sqliteScope = scopeFor(sqlite, post);
+    const sqliteHaving =
+      buildHaving(
+        sqliteScope,
+        { id: { _min: { equals: null } } },
+        sqliteScope.rootAlias,
+        ["id"]
+      )?.toStatement() ?? "";
+    expect(sqliteHaving.toUpperCase()).toContain("HEX(");
   });
 
   test("a field with no identifier domain aggregates the column itself", () => {

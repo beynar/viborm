@@ -817,6 +817,38 @@ export function runIdentifierStorageBehavior(options: {
       expect(empty._min.id).toBeNull();
     });
 
+    test("having aggregates the same spelling the select list does", async () => {
+      // The HAVING clause and the SELECT list aggregate ONE column, so they
+      // read one owner for what they aggregate over. PostgreSQL has no
+      // `min(uuid)` and no `min(bytea)`, so a clause that named the stored
+      // column did not compile at all — on a declared key or on the foreign
+      // key that derives from it.
+      const kept = await client.post.groupBy({
+        by: ["authorId"],
+        _min: { id: true },
+        having: { id: { _min: { not: null } } },
+      });
+      expect(
+        kept.map((row: { authorId: string }) => row.authorId).sort()
+      ).toEqual([ACCOUNT_A, ACCOUNT_B].sort());
+
+      const none = await client.post.groupBy({
+        by: ["authorId"],
+        _min: { authorId: true },
+        having: { authorId: { _min: { equals: null } } },
+      });
+      expect(none).toEqual([]);
+
+      const counted = await client.post.groupBy({
+        by: ["authorId"],
+        _count: { id: true },
+        having: { id: { _count: { gt: 1 } } },
+      });
+      expect(counted.map((row: { authorId: string }) => row.authorId)).toEqual([
+        ACCOUNT_A,
+      ]);
+    });
+
     test("groupBy groups by the public identifier", async () => {
       const groups = await client.tag.groupBy({
         by: ["id"],

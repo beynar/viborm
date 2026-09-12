@@ -119,28 +119,7 @@ export function buildAggregateColumn(
     // answer may exceed the field's precision, which is a widened decode
     // question and not a SQL one — and `_min`/`_max` stay in the field domain.
     const decimalOperand = decimal && aggType === "avg";
-    // An identifier is aggregated in the vocabulary it TRAVELS in, not the one
-    // it is stored in — the transport spelling is applied to the column and
-    // `MIN`/`MAX` run over that. Two reasons, and either alone decides it:
-    //
-    //  · PostgreSQL 16 has no `min(uuid)` and no `max(bytea)` at all, so
-    //    aggregating the stored value does not compile (measured: "function
-    //    min(uuid) does not exist");
-    //  · JSON cannot hold binary, so the carrier could not have carried the
-    //    answer even where the aggregate exists.
-    //
-    // It is the same answer either way: every compact format's canonical text
-    // is fixed-width and lowercase, so its text order IS its byte order. The
-    // null guard inside the transport is what keeps a NULL row out of the
-    // aggregate — SQLite's `hex(NULL)` is the empty string, which would
-    // otherwise win every `MIN`.
-    const idColumn = idColumnOf(adapter, ctx.model, field, ctx.relations);
-    const operand =
-      idColumn === undefined || idColumn.representation === "text"
-        ? column
-        : idColumn.representation === "bytes"
-          ? projectIdBytes(adapter, column, true)
-          : adapter.expressions.cast(column, "text");
+    const operand = aggregateOperandExpression(ctx, field, column);
     let expr = decimalOperand
       ? adapter.aggregates.decimalAvg(operand, decimal)
       : aggFn(operand);
@@ -157,6 +136,43 @@ export function buildAggregateColumn(
     adapter.json.objectFromColumns(pairs),
     aggName
   );
+}
+
+/**
+ * The expression an aggregate RUNS OVER for one field — the column itself, or
+ * an identifier's transported spelling.
+ *
+ * An identifier is aggregated in the vocabulary it TRAVELS in, not the one it
+ * is stored in. Two reasons, and either alone decides it:
+ *
+ *  · PostgreSQL 16 has no `min(uuid)` and no `max(bytea)` at all, so
+ *    aggregating the stored value does not compile (measured: "function
+ *    min(uuid) does not exist");
+ *  · JSON cannot hold binary, so the carrier could not have carried the answer
+ *    even where the aggregate exists.
+ *
+ * It is the same answer either way: every compact format's canonical text is
+ * fixed-width and lowercase, so its text order IS its byte order. The null
+ * guard inside the transport is what keeps a NULL row out of the aggregate —
+ * SQLite's `hex(NULL)` is the empty string, which would otherwise win every
+ * `MIN`.
+ *
+ * ONE function, because the SELECT list and the HAVING clause aggregate the
+ * same column and two answers to "over what" is how `having` over a compactly
+ * stored key came to name a function no database has.
+ */
+export function aggregateOperandExpression(
+  ctx: QueryScope,
+  field: string,
+  column: Sql
+): Sql {
+  const idColumn = idColumnOf(ctx.adapter, ctx.model, field, ctx.relations);
+  if (idColumn === undefined || idColumn.representation === "text") {
+    return column;
+  }
+  return idColumn.representation === "bytes"
+    ? projectIdBytes(ctx.adapter, column, true)
+    : ctx.adapter.expressions.cast(column, "text");
 }
 
 /**

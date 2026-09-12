@@ -61,7 +61,7 @@ These seams touch it, and there is no format switch anywhere else:
 | --- | --- |
 | Parameter | `builders/id-field.ts` `idLiteral` — the ONE binding, reached by `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
 | Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
-| Aggregate | `builders/aggregate-utils.ts` — `MIN`/`MAX` run over the TRANSPORTED value, through the same `projectIdBytes`; see below |
+| Aggregate | `builders/aggregate-utils.ts` `aggregateOperandExpression` — what an aggregate runs OVER, for the select list and for `having` alike; `MIN`/`MAX` take the TRANSPORTED value through the same `projectIdBytes`; see below |
 | Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value. `parseAggregate` takes the same lookup |
 | Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
 | DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
