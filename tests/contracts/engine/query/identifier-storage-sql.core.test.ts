@@ -32,7 +32,6 @@ import { describe, expect, test } from "vitest";
 
 const UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 const UUID_HEX = "a0eebc999c0b4ef8bb6d6bb9bd380a11";
-const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const CUID = "tz4a98xxat96iws9zmbrgj3a";
 
 const user = s.model({
@@ -58,6 +57,16 @@ prepareSchema({ user, post, textStored });
 const pg = new PostgresAdapter();
 const mysql = new MySQLAdapter();
 const sqlite = new SQLiteAdapter();
+
+const OUTSIDE_DOMAIN = /outside its declared uuid domain/;
+const NOT_A_STRING = /received number/;
+const TEXT_PREDICATE_REFUSED = /stores the identifier itself/;
+const UNSUPPORTED_OPERATION = /Unsupported filter operation/;
+const VALUE_ABSENT = /absent/;
+const REQUIRED_NULL = /required scalar is null/;
+const NOT_IN_DOMAIN = /identifier domain/;
+const DRIVER_SAID_SO = /the driver said so/;
+const PROVIDER_DECODE_FAILED = /provider scalar decoding failed/;
 
 const bytesOf = (hex: string): Uint8Array =>
   Uint8Array.from({ length: hex.length / 2 }, (_, index) =>
@@ -138,10 +147,10 @@ describe("binding an identifier value", () => {
 
   test("a value outside the domain is refused, never guessed", () => {
     expect(() => encodeIdValue("id", UUID, idColumn(pg))).toThrowError(
-      /outside its declared uuid domain/
+      OUTSIDE_DOMAIN
     );
     expect(() => encodeIdValue("id", 7, idColumn(pg))).toThrowError(
-      /received number/
+      NOT_A_STRING
     );
   });
 
@@ -261,7 +270,7 @@ describe("filtering an identifier column", () => {
     for (const operation of ["contains", "startsWith", "endsWith", "mode"]) {
       expect(() =>
         assertSupportedScalarFilterOperator("id", state, operation, domain)
-      ).toThrowError(/stores the identifier itself/);
+      ).toThrowError(TEXT_PREDICATE_REFUSED);
     }
   });
 
@@ -278,7 +287,7 @@ describe("filtering an identifier column", () => {
     const domain = idColumnOf(pg, user, "id", undefined)!.domain;
     expect(() =>
       assertSupportedScalarFilterOperator("id", state, "hasEvery", domain)
-    ).toThrowError(/Unsupported filter operation/);
+    ).toThrowError(UNSUPPORTED_OPERATION);
   });
 
   test("a compact column is compared as bytes, not collated as text", () => {
@@ -368,10 +377,10 @@ describe("decoding an identifier column", () => {
     const select = { select: { id: true } };
     expect(() =>
       parseResult(parserFor(pg, user), "findMany", [{ id: undefined }], select)
-    ).toThrowError(/absent/);
+    ).toThrowError(VALUE_ABSENT);
     expect(() =>
       parseResult(parserFor(pg, user), "findMany", [{ id: null }], select)
-    ).toThrowError(/required scalar is null/);
+    ).toThrowError(REQUIRED_NULL);
   });
 
   test("a physical value outside the domain is malformed, not returned", () => {
@@ -379,7 +388,7 @@ describe("decoding an identifier column", () => {
       parseResult(parserFor(pg, user), "findMany", [{ id: "not-a-uuid" }], {
         select: { id: true },
       })
-    ).toThrowError(/identifier domain/);
+    ).toThrowError(NOT_IN_DOMAIN);
   });
 
   test("a nullable identifier keeps its null", () => {
@@ -488,7 +497,7 @@ describe("an adapter or driver that stands between the row and the codec", () =>
       parseResult(parserFor(named, user), "findMany", [{ id: UUID_HEX }], {
         select: { id: true },
       })
-    ).toThrowError(/the driver said so/);
+    ).toThrowError(DRIVER_SAID_SO);
   });
 
   test("a provider decode that throws is malformed, not a leaked error", () => {
@@ -501,6 +510,6 @@ describe("an adapter or driver that stands between the row and the codec", () =>
       parseResult(parserFor(hostile, user), "findMany", [{ id: UUID_HEX }], {
         select: { id: true },
       })
-    ).toThrowError(/provider scalar decoding failed/);
+    ).toThrowError(PROVIDER_DECODE_FAILED);
   });
 });
