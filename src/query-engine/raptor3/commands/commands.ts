@@ -246,12 +246,16 @@ export class Commands {
         contribution,
       );
   }
-  analyze(
+  analyze(root: RecordCommand): WriteOccurrence[] {
+    const writes: WriteOccurrence[] = [];
+    this.analyzeInto(root, writes);
+    return writes;
+  }
+  private analyzeInto(
     root: RecordCommand,
-    preceding: WriteOccurrence[] = [],
-  ): WriteOccurrence[] {
+    writes: WriteOccurrence[],
+  ): void {
     if (root.suppression) this.context.requireSuppression();
-    const writes = [...preceding];
     const readMembership = (
       lookup: Selection,
       owner: RecordCommand,
@@ -427,24 +431,23 @@ export class Commands {
           command.foundRequirement?.membership,
         );
         read(command.lookup, root);
-        const before = writes.length;
-        if (command.foundRecord) {
-          const found = this.analyze(command.foundRecord, writes);
-          if (!command.missing) root.refusal ??= command.foundRecord.refusal;
-          writes.push(...found.slice(before));
-        }
-        if (command.missing) {
-          const missing = this.analyze(
-            command.missing,
-            writes.slice(0, before),
-          );
-          writes.push(...missing.slice(before));
-        }
+        if (command.foundRecord && command.missing) {
+          const commonLength = writes.length;
+          this.analyzeInto(command.foundRecord, writes);
+          const found = writes.splice(commonLength);
+          this.analyzeInto(command.missing, writes);
+          const missing = writes.splice(commonLength);
+          for (const occurrence of found) writes.push(occurrence);
+          for (const occurrence of missing) writes.push(occurrence);
+        } else if (command.foundRecord) {
+          this.analyzeInto(command.foundRecord, writes);
+          root.refusal ??= command.foundRecord.refusal;
+        } else if (command.missing)
+          this.analyzeInto(command.missing, writes);
         writes.push(command);
       } else if (command.kind === "record") {
-        const nested = this.analyze(command, writes);
+        this.analyzeInto(command, writes);
         root.refusal ??= command.refusal;
-        writes.push(...nested.slice(writes.length));
       } else if (command.kind === "delete") {
         read(command.located, root);
         writes.push(command);
@@ -454,23 +457,20 @@ export class Commands {
         writes.push(command);
       } else if (command.kind === "series" && "records" in command) {
         for (const record of command.records) {
-          const nested = this.analyze(record, writes);
+          this.analyzeInto(record, writes);
           root.refusal ??= record.refusal;
-          writes.push(...nested.slice(writes.length));
         }
       } else if (command.kind === "series") {
         read(command.series.selection, root);
         const analysis = command.series.analysis;
         if (analysis.kind === "record") {
-          const nested = this.analyze(analysis, writes);
+          this.analyzeInto(analysis, writes);
           root.refusal ??= analysis.refusal;
-          writes.push(...nested.slice(writes.length));
         } else {
           writes.push(analysis);
         }
       }
     }
-    return writes;
   }
   lookup(
     model: AnyModel,
@@ -485,7 +485,10 @@ export class Commands {
       selection.model,
       {
         kind: "query",
-        where: this.context.schema.identity(selection.model, row),
+        selector: this.context.queries.identitySelector(
+          selection.model,
+          this.context.schema.identity(selection.model, row),
+        ),
       },
       selection.required,
     );
@@ -549,10 +552,12 @@ export class Commands {
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
       const lookup = this.lookup(model, { kind: "query", where: args.where });
+      const queries = this.context.queries;
       const probes: Condition[] = [];
       for (const field of ["targetWhere", "setWhere"] as const) {
         const where = args[field];
         if (!where) continue;
+        const conditionSelector = queries.prepareSelector(model, where);
         const failure = (match: boolean) =>
           new TransactionError(
             `query-engine-v2 top-level upsert ${field} ${match ? "match" : "skip"} premise changed before the atomic batch.`,
@@ -563,7 +568,10 @@ export class Commands {
         probes.push({
           lookup: this.lookup(model, {
             kind: "query",
-            where: { AND: [args.where ?? {}, where] },
+            selector: queries.andSelectors(model, [
+              lookup.selector,
+              conditionSelector,
+            ]),
           }),
           match: failure(true),
           skip,

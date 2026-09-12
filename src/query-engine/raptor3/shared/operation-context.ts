@@ -1,13 +1,13 @@
 import {
   assembleAdapterSelect,
-  getAdapterInternals,
+  getAdapterInternals
 } from "@adapters/adapter-internals";
 import type { AnyDriver } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import type {
   BatchQuery,
   QueryExecutionContext,
-  QueryResult,
+  QueryResult
 } from "@drivers/types";
 import {
   attachRecordSeriesProgress,
@@ -17,17 +17,22 @@ import {
   type RecordSeriesProgress,
   TransactionError,
   UniqueConstraintError,
-  UnsupportedOperationError,
+  UnsupportedOperationError
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { Sql, sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
-import { InvalidScalarResult, Queries, type Query } from "./query";
+import {
+  InvalidScalarResult,
+  Queries,
+  type PreparedProjection,
+  type Query
+} from "./query";
 import {
   type EngineSchema,
   type Input,
   type Operation,
-  record,
+  record
 } from "./schema";
 import { type Membership, physicalField } from "./storage";
 import { TransportAttempt } from "./transport-attempt";
@@ -80,8 +85,8 @@ export class OperationContext {
             driver: factoryDriver.driverName,
             model: modelName,
             operation,
-            method: "$transaction([...])",
-          },
+            method: "$transaction([...])"
+          }
         }
       );
     }
@@ -99,7 +104,7 @@ export class OperationContext {
     return {
       model: this.modelName,
       operation: this.operation,
-      correlationId: this.correlationId,
+      correlationId: this.correlationId
     };
   }
   private statementContext(
@@ -109,7 +114,7 @@ export class OperationContext {
     return {
       model: model["~"].names.ts!,
       operation,
-      correlationId: this.correlationId,
+      correlationId: this.correlationId
     };
   }
   private queue(
@@ -119,7 +124,7 @@ export class OperationContext {
   ): BatchQuery {
     const query = {
       ...this.transport._prepare(statement, context),
-      context,
+      context
     };
     this.attempt.pending.push(query);
     if (member) this.attempt.pendingMembers.add(member);
@@ -197,8 +202,8 @@ export class OperationContext {
             meta: {
               driver: this.driver.driverName,
               model: this.modelName,
-              operation: this.operation,
-            },
+              operation: this.operation
+            }
           }
         )
       : undefined;
@@ -230,7 +235,7 @@ export class OperationContext {
             : { totalMembers: this.totalMembers }),
           ...(this.mayHaveCommittedSegment
             ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
-            : {}),
+            : {})
         })
       : error;
   }
@@ -284,26 +289,19 @@ export class OperationContext {
       query.sql,
       this.attribution
     );
-    return this.queries.decode(query, response.rows, internal);
+    return this.queries.decodeQuery(query, response.rows, internal);
   }
   referenceProjection(model: AnyModel, values: Input): Query {
     const adapter = this.driver.adapter;
     const select = Object.fromEntries(
       Object.keys(values).map((field) => [field, true])
     );
+    const projection = this.queries.prepareProjection(model, { select });
     return {
-      shape: this.queries.select(model, { select }).shape,
+      shape: projection.shape,
       sql: adapter.clauses.select(
-        sql.join(
-          Object.entries(values).map(([field, value]) =>
-            adapter.identifiers.aliased(
-              this.queries.fieldValue(model, field, value),
-              field
-            )
-          ),
-          ", "
-        )
-      ),
+        sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+      )
     };
   }
   async flush(query?: Query, member?: Member): Promise<Input[]>;
@@ -325,7 +323,7 @@ export class OperationContext {
     const responses = await this.submit(false, member);
     try {
       const rows = projections.map((projection, index) =>
-        this.queries.decode(
+        this.queries.decodeQuery(
           projection,
           responses[resultIndex + index]!.rows,
           true
@@ -367,7 +365,7 @@ export class OperationContext {
           this.driver.adapter.assertions.exists(query.sql),
           context
         ),
-        context,
+        context
       };
     });
     const statements = [...guards, ...attempt.pending.splice(0)];
@@ -382,7 +380,7 @@ export class OperationContext {
         failure: new TransactionError(
           `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
           { meta: { model: this.modelName, operation: this.operation } }
-        ),
+        )
       });
     const members = [...attempt.pendingMembers];
     attempt.pendingMembers.clear();
@@ -519,7 +517,10 @@ export class OperationContext {
                 { meta: this.attribution }
               );
             }
-            return this.queries.decode(query, response.rows.map(record))[0];
+            return this.queries.decodeQuery(
+              query,
+              response.rows.map(record)
+            )[0];
           }
         : () => undefined;
       return [];
@@ -528,7 +529,7 @@ export class OperationContext {
     const responses = await this.submit();
     try {
       return query
-        ? this.queries.decode(query, responses[resultIndex]!.rows)
+        ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
         : [];
     } catch (error) {
       throw this.continuations.length ? this.failure(error, "result") : error;
@@ -544,9 +545,9 @@ export class OperationContext {
       queries: this.attempt.pending.map((query) => ({
         sql: query.sql,
         params: query.params ?? [],
-        context: query.context ?? this.attribution,
+        context: query.context ?? this.attribution
       })),
-      parseResult: this.preparedParser,
+      parseResult: this.preparedParser
     };
   }
   private async setMutation(
@@ -609,18 +610,11 @@ export class OperationContext {
         columns.map((field) => q.fieldValue(model, field, row[field]))
       )
     );
-    let projection: Query | undefined;
+    let projection: PreparedProjection | undefined;
     if (select) {
-      const fields = Object.entries(select)
-        .filter(([, included]) => included === true)
-        .map(([field]) => field);
+      projection = q.prepareProjection(model, { select });
       const returning = adapter.mutations.returning(
-        sql.join(
-          fields.map((field) =>
-            adapter.identifiers.aliased(q.projectedColumn(model, field), field)
-          ),
-          ", "
-        )
+        sql.join(q.lowerProjection(projection).columns, ", ")
       );
       if (!adapter.capabilities.supportsReturning) {
         throw new TransactionError(
@@ -629,14 +623,13 @@ export class OperationContext {
         );
       }
       statement = sql`${statement} ${returning}`;
-      projection = q.select(model, { select });
     }
     return this.setMutation(
       statement,
       this.statementContext(model, "createMany"),
       (result) => {
         return projection
-          ? q.decode(projection, result.rows.map(record))
+          ? q.decodeProjection(projection.shape, result.rows.map(record))
           : { count: result.rowCount };
       }
     );
@@ -657,7 +650,7 @@ export class OperationContext {
     const statement = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
-      q.where(model, where)
+      q.lowerWhere(model, where)
     );
     return this.setMutation(
       statement,
@@ -672,7 +665,7 @@ export class OperationContext {
     return this.setMutation(
       this.driver.adapter.mutations.delete(
         this.queries.table(model),
-        this.queries.where(model, where)
+        this.queries.lowerWhere(model, where)
       ),
       this.statementContext(model, "deleteMany"),
       (result) => ({ count: result.rowCount })
@@ -721,6 +714,11 @@ export class OperationContext {
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch) {
+      const producedProjection = produced.length
+        ? q.prepareProjection(model, {
+            select: Object.fromEntries(produced.map((field) => [field, true]))
+          })
+        : undefined;
       const insertIdField = adapter.capabilities.supportsReturning
         ? undefined
         : this.insertIdField(model, produced);
@@ -732,17 +730,9 @@ export class OperationContext {
         throw new Error(
           "Raptor 3 interactive output requires RETURNING or one generated increment field"
         );
-      if (produced.length && adapter.capabilities.supportsReturning)
+      if (producedProjection && adapter.capabilities.supportsReturning)
         statement = sql`${statement} ${adapter.mutations.returning(
-          sql.join(
-            produced.map((field) =>
-              adapter.identifiers.aliased(
-                q.projectedColumn(model, field),
-                field
-              )
-            ),
-            ", "
-          )
+          sql.join(q.lowerProjection(producedProjection).columns, ", ")
         )}`;
       this.attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
@@ -759,19 +749,14 @@ export class OperationContext {
           : response.insertId === undefined
             ? []
             : [{ [insertIdField]: response.insertId }];
-      const projection = produced.length
-        ? q.select(model, {
-            select: Object.fromEntries(produced.map((field) => [field, true])),
-          })
-        : undefined;
-      const producedValues = projection
-        ? q.decode(projection, producedRows, true)[0]
+      const producedValues = producedProjection
+        ? q.decodeProjection(producedProjection.shape, producedRows, true)[0]
         : undefined;
       if (produced.length && producedValues === undefined)
         throw new TypeError("INSERT did not produce the required record");
       return {
         ...values,
-        ...producedValues,
+        ...producedValues
       };
     }
     const published: Input = { ...values };
@@ -790,23 +775,16 @@ export class OperationContext {
           );
         // The next segment must prove the actual stored owner, including supplied row-key fields.
         const returned = [
-          ...new Set([...this.schema.keys(model), ...demanded]),
+          ...new Set([...this.schema.keys(model), ...demanded])
         ];
-        const projection = Object.fromEntries(
+        const select = Object.fromEntries(
           returned.map((field) => [field, true])
         );
+        const projection = q.prepareProjection(model, { select });
         const resultIndex = this.attempt.pending.length;
         const inserted = this.queue(
           sql`${statement} ${adapter.mutations.returning(
-            sql.join(
-              returned.map((field) =>
-                adapter.identifiers.aliased(
-                  q.projectedColumn(model, field),
-                  field
-                )
-              ),
-              ", "
-            )
+            sql.join(q.lowerProjection(projection).columns, ", ")
           )}`,
           context,
           member
@@ -815,8 +793,8 @@ export class OperationContext {
         const responses = await this.submit(true, member);
         let stored: Input;
         try {
-          const rows = q.decode(
-            q.select(model, { select: projection }),
+          const rows = q.decodeProjection(
+            projection.shape,
             responses[resultIndex]!.rows,
             true
           );
@@ -830,7 +808,10 @@ export class OperationContext {
         }
         this.continuations.push({
           model,
-          query: q.select(model, { where: stored, select: projection }),
+          query: q.select(model, {}, undefined, {
+            projection,
+            identity: stored,
+          })
         });
         return { ...values, ...stored };
       }
@@ -904,12 +885,13 @@ export class OperationContext {
     const statement = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
-      q.where(model, where)
+      q.lowerIdentity(model, where)
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch && demanded.size) {
       const fields = [...demanded];
       const select = Object.fromEntries(fields.map((field) => [field, true]));
+      const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
         await this.transport._execute(statement, context);
         const finalKey = Object.fromEntries(
@@ -924,12 +906,15 @@ export class OperationContext {
                     values[field],
                     q.fieldValue(model, field, captured[field])
                   )
-                : captured[field],
+                : captured[field]
             ])
         );
         // The mutation's locked capture remains protected through this stored-row read.
         const rows = await this.read(
-          q.select(model, { where: finalKey, select }),
+          q.select(model, {}, undefined, {
+            projection,
+            identity: finalKey,
+          }),
           true
         );
         if (!rows[0])
@@ -938,19 +923,11 @@ export class OperationContext {
       }
       const response = await this.transport._execute<Input>(
         sql`${statement} ${adapter.mutations.returning(
-          sql.join(
-            fields.map((field) =>
-              adapter.identifiers.aliased(
-                q.projectedColumn(model, field),
-                field
-              )
-            ),
-            ", "
-          )
+          sql.join(q.lowerProjection(projection).columns, ", ")
         )}`,
         context
       );
-      const rows = q.decode(q.select(model, { select }), response.rows, true);
+      const rows = q.decodeProjection(projection.shape, response.rows, true);
       if (!rows[0])
         throw new TypeError(
           "UPDATE RETURNING did not produce the required record"
@@ -989,12 +966,12 @@ export class OperationContext {
       Object.fromEntries([
         ...edge.sourceSide.members.map((pair) => [
           pair.junctionField,
-          source[pair.referencedField],
+          source[pair.referencedField]
         ]),
         ...edge.targetSide.members.map((pair) => [
           pair.junctionField,
-          target[pair.referencedField],
-        ]),
+          target[pair.referencedField]
+        ])
       ]),
       member
     );
@@ -1009,7 +986,7 @@ export class OperationContext {
     const q = this.queries;
     const columns = [
       ...edge.sourceSide.members,
-      ...edge.targetSide.members,
+      ...edge.targetSide.members
     ].map((pair) => pair.junctionField);
     if (captured) {
       if (columns.every((field) => Object.is(captured[field], values[field]))) {
@@ -1052,7 +1029,7 @@ export class OperationContext {
           adapter.joins.left(
             adapter.identifiers.table(edge.table, membershipAlias),
             q.junctionWhere(edge, values, membershipAlias)
-          ),
+          )
         ],
         where: adapter.operators.and(
           ...edge.targetSide.members.map((pair) =>
@@ -1068,7 +1045,7 @@ export class OperationContext {
           adapter.operators.isNull(
             adapter.identifiers.column(membershipAlias, columns[0]!)
           )
-        ),
+        )
       });
       await this.effect(
         adapter.mutations.insert(
@@ -1156,7 +1133,7 @@ export class OperationContext {
       const conditions: Sql[] = [];
       for (const [side, values] of [
         [edge.sourceSide, source],
-        [edge.targetSide, target],
+        [edge.targetSide, target]
       ] as const) {
         if (!values) continue;
         for (const pair of side.members)
@@ -1181,7 +1158,7 @@ export class OperationContext {
                   Object.fromEntries(
                     edge.targetSide.members.map((pair) => [
                       pair.junctionField,
-                      row[pair.referencedField],
+                      row[pair.referencedField]
                     ])
                   )
                 )
@@ -1211,11 +1188,16 @@ export class OperationContext {
             a.operators.eq(
               q.column(edge.target, edge.discriminator.field),
               q.value(edge.discriminator.value)
-            ),
+            )
           ]
         : []),
       ...(target
-        ? [q.where(edge.target, this.schema.identity(edge.target, target))!]
+        ? [
+            q.lowerIdentity(
+              edge.target,
+              this.schema.identity(edge.target, target)
+            ),
+          ]
         : []),
       ...(keep.length
         ? [
@@ -1223,29 +1205,23 @@ export class OperationContext {
               a.operators.or(
                 ...keep.map(
                   (row) =>
-                    q.where(
+                    q.lowerIdentity(
                       edge.target,
                       this.schema.identity(edge.target, row)
-                    )!
+                    )
                 )
               )
-            ),
+            )
           ]
         : [])
     );
-    const values = [
-      ...edge.pairs.map((pair) =>
-        a.set.assign(q.column(edge.target, pair.target), a.literals.null())
-      ),
-      ...(edge.discriminator
-        ? [
-            a.set.assign(
-              q.column(edge.target, edge.discriminator.field),
-              a.literals.null()
-            ),
-          ]
-        : []),
-    ];
+    const clearability = edge.clearability as Extract<
+      Membership["clearability"],
+      { kind: "columns" }
+    >;
+    const values = clearability.fields.map((field) =>
+      a.set.assign(q.column(edge.target, field), a.literals.null())
+    );
     await this.effect(
       a.mutations.update(q.table(edge.target), sql.join(values, ", "), where),
       this.statementContext(edge.target, "update"),
@@ -1256,7 +1232,7 @@ export class OperationContext {
     await this.effect(
       this.driver.adapter.mutations.delete(
         this.queries.table(model),
-        this.queries.where(model, this.schema.identity(model, row))
+        this.queries.lowerIdentity(model, this.schema.identity(model, row))
       ),
       this.statementContext(model, "delete"),
       member

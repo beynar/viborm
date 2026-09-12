@@ -1,4 +1,5 @@
 import type { AnyModel } from "@schema/model";
+import type { ClearableMembership } from "@schema/relation/clearability";
 import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import type { Scalar } from "@schema/scalars/base";
 import type {
@@ -9,6 +10,7 @@ import type { EngineSchema } from "./schema";
 
 export type Membership = {
   scope: Pick<ResolvedSlot, "edge" | "member">;
+  clearability: ClearableMembership;
   name: string;
   source: AnyModel;
   target: AnyModel;
@@ -30,6 +32,12 @@ export type Membership = {
     }
 );
 
+export type PhysicalField = {
+  readonly name: string;
+  readonly scalar: Scalar;
+  readonly nullable: boolean;
+};
+
 /** Orient the already resolved storage once; no declaration getter or inverse search. */
 export function bindMembership(
   schema: EngineSchema,
@@ -37,8 +45,18 @@ export function bindMembership(
   name: string,
   variant?: string
 ): Membership {
+  return schema.membership(source, name, variant);
+}
+
+export function buildMembershipView(
+  schema: EngineSchema,
+  source: AnyModel,
+  name: string,
+  variant?: string
+): Membership {
   const resolved = schema.index.get(source)!.get(name)!;
   const edge = resolved.edge;
+  const clearability = schema.clearability(resolved);
   const many =
     source["~"].state.relations[name]!["~"].state.cardinality === "many";
   if (edge.kind === "variantRowCarrier") {
@@ -47,7 +65,8 @@ export function bindMembership(
       edge.members.find((member) => member.variant === variant)!;
     const direct = resolved.member === undefined;
     return {
-      scope: { edge, member },
+      scope: Object.freeze({ edge, member }),
+      clearability,
       name: direct ? `${name}.${member.variant}` : name,
       source,
       many,
@@ -73,7 +92,8 @@ export function bindMembership(
       edge.members.find((member) => member.variant === variant)!;
     const direct = resolved.member === undefined;
     return {
-      scope: { edge, member },
+      scope: Object.freeze({ edge, member }),
+      clearability,
       name: direct ? `${name}.${member.variant}` : name,
       source,
       many,
@@ -98,6 +118,7 @@ export function bindMembership(
       : endpoint;
   const base = {
     scope: resolved,
+    clearability,
     name,
     source,
     target: opposite.source,
@@ -127,12 +148,29 @@ export function bindMembership(
   };
 }
 
+export function freezeMembershipView(view: Membership): Membership {
+  if (view.kind === "reference") {
+    for (const pair of view.pairs) Object.freeze(pair);
+    Object.freeze(view.pairs);
+    if (view.discriminator) Object.freeze(view.discriminator);
+  }
+  return Object.freeze(view);
+}
+
 /** Private carrier columns are resolved schema fields, never public scalar declarations. */
 export function physicalField(
   schema: EngineSchema,
   model: AnyModel,
   field: string
-): { name: string; scalar: Scalar; nullable: boolean } {
+): PhysicalField {
+  return schema.physicalField(model, field);
+}
+
+export function buildPhysicalFieldView(
+  schema: EngineSchema,
+  model: AnyModel,
+  field: string
+): PhysicalField {
   const scalar = model["~"].state.scalars[field];
   if (scalar)
     return {
@@ -149,7 +187,17 @@ export function physicalField(
   throw new Error(`Raptor 3 G1 physical field is not implemented: ${field}`);
 }
 
-export function storedFields(schema: EngineSchema, model: AnyModel): string[] {
+export function storedFields(
+  schema: EngineSchema,
+  model: AnyModel
+): readonly string[] {
+  return schema.storedFields(model);
+}
+
+export function buildStoredFieldsView(
+  schema: EngineSchema,
+  model: AnyModel
+): string[] {
   const fields = [...model["~"].scalarFieldNames];
   for (const resolved of schema.index.get(model)!.values()) {
     if (resolved.edge.kind !== "variantRowCarrier" || resolved.member) continue;

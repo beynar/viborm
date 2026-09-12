@@ -41,6 +41,52 @@ tagged variant and caches it per variant. That binding owns literal requirements
 executed relation construction still owns transition registration. Do not move
 schema refusal or input-admission timing earlier while avoiding unused variants.
 
+Schema validation owns definition legality and resolved topology;
+`clearableMembership` owns the physical removal answer. The bound `Membership`
+view exposes that exact answer. Relation construction and execution retain the
+full compound tuple for correlation, but disconnect, parent-held delete cleanup,
+and `set` departures write only its authoritative `columns.fields`. A `none`
+answer retains the existing runtime absence proof, and a junction keeps deleting
+its exact membership row. Direct row-variant clearing reads the resolved carrier
+slot before variant orientation; tagged operations retain exact member scope.
+Do not reconstruct clearability from scalar nullability in the engine.
+
+`EngineSchema` owns lazy immutable factory-lifetime views for physical field
+descriptors, ordered stored fields, exact model/slot/variant membership
+orientation, and slot clearability. Reuse original resolved descriptors,
+topology, edges, and members; freeze only the newly owned wrappers and arrays.
+These caches contain no aliases, operation demands, origins, refusals,
+assignments, scratch references, or attempt values.
+
+`Queries.prepareProjection` owns one immutable alias-free projection description
+and decoder shape. `lowerProjection` binds that description to fresh statement
+aliases for SELECT, RETURNING, recursive reads, and reference-value projection;
+`decodeProjection` consumes its shape without rebuilding SQL. When one mutation
+uses RETURNING plus a required stored-row continuation, both lowerings reuse the
+same prepared description while keeping distinct query-local aliases. Only
+`decodeQuery` consumes query-level row-count requirements. Do not assemble a
+SELECT merely to obtain decoder shape, re-prepare a continuation's projection,
+or remove a SELECT that verifies stored output.
+
+`Queries.prepareSelector` owns one alias-free symbolic selector description and
+its dependency facts. `lowerSelector` binds statement-local aliases and current
+execution identities without reinterpreting admitted public syntax. A
+`Selection` retains the same prepared selector through lookup, capture, and
+membership rechecks. Supplier continuations compose their prepared selector
+with the member selector through `Queries`; the deliberate supplier-specific
+fact choice remains in `RelationBody`. Field references resolve once at query
+scope, remain symbolic operands, and never become literal equality,
+disjointness, or exact-recovery proof. Do not add a second selector walker,
+retain a raw selector as another semantic authority, or cache attempt SQL.
+
+`Commands.analyze` owns one ordered occurrence history per admitted command
+root. Ordinary and series recursion append to that history in place. Only a
+choice with two real arms detaches each arm's suffix so both analyze against the
+same common prefix, then restores both possible suffixes for later siblings.
+Single arms do not copy history. Preserve repeated command occurrences by
+identity, and start dynamic selected-series member analysis with a fresh root
+history; do not replace the ordered array with a set or copy ancestor prefixes.
+
 One selected-series mechanism serves root and nested placements. A series'
 collection filter selects its occurrences;
 it is an observation, not a condition every member must still satisfy. Each

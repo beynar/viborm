@@ -2,9 +2,11 @@
 
 Date: 2026-09-07; implementation status updated 2026-09-12. **G0–G2 complete;
 G2.5 consolidation complete; G2.7 complete after independent acceptance and
-final root review. The six-unit G3-preparation checkpoint is accepted after
-independent unit reviews, bounded recorded repairs, and final root review of
-the repaired G3P-06 registration identity. G3 is ready and not started.**
+final root review. The six-unit G3-preparation checkpoint is accepted. The
+post-preparation fact-ownership checkpoint is active before G3-01 or G3-03;
+all five units are independently accepted and final qualification is complete
+on one frozen identity. Final root global review accepted the checkpoint. G3 is
+not started.**
 Structured commands passed the G2
 gate and independent adversarial review; [the closure
 report](raptor3-evidence/g2-closure.md) records
@@ -925,6 +927,56 @@ public lifecycle integration, provider qualification, and cutover remain G4 or
 later work exactly as specified below. **A partially implemented G3P-02 is not
 a G3-prep or G3 pass.**
 
+### Post-G3-preparation fact-ownership checkpoint
+
+This checkpoint must pass before G3-01 or G3-03 starts. Its ordered units are:
+consume authoritative clearability; reuse immutable `EngineSchema` views;
+separate projection meaning from statement construction; resolve selector
+meaning once; remove repeated history copying. One production writer owns the
+coupled changes, and each stable unit receives independent review before the
+next begins. This plan remains the sole owner of order, acceptance, and the
+existing bounded repair/redesign limits; splitting work does not reset them.
+The [live ledger](raptor3-evidence/post-g3-fact-ownership.md) records evidence
+and implementation detail. All five units are independently accepted after the
+bounded review repairs recorded in the ledger. Final checkpoint qualification
+is complete, and final root global review accepted the checkpoint. G3 remains
+not started.
+
+Schema validation and clearability own topology and legal removal;
+`EngineSchema` owns immutable factory-lifetime schema views; `Queries` owns
+selector and projection meaning; execution owns observations, bindings,
+affected rows, recovery, and progress. Input and provider-result trust
+boundaries remain authoritative, and template/member admission scopes remain
+distinct. Shared views retain no operation demand, alias, origin, refusal,
+scratch reference, or attempt value. Prepared selectors retain symbolic
+operands, and projection descriptions retain no query-local alias or SQL.
+
+- Unit 3 prepares one alias-free shape for SELECT, RETURNING, and reference
+  projections. It removes SELECT assembly used only to obtain decoder shape but
+  retains reads that verify stored output or continuations.
+- Unit 4 resolves admitted names, compound selectors, operators, and field
+  references once. Analysis performs no SQL lowering; supplier-specific fact
+  scope remains distinct, and captured identities rebind symbolic operands per
+  execution attempt.
+- Unit 5 removes ancestor-prefix copying while preserving branch isolation,
+  repeated occurrences, arm-local refusals, semantic mutation order, and
+  separate admission scopes. Depth 1, 2, 8, and 32 evidence distinguishes
+  necessary dependency comparisons and branch bookkeeping from removed copies.
+
+Each unit must replace its competing interpretation path rather than add a
+second compiler, parser, walker, rule registry, or analysis framework. Focused
+review must prove preserved variant laziness, refusal timing, decoding,
+supplier/dependency behavior, retry/attempt/borrowed isolation, branch history,
+and required provider routes applicable to that unit. After all five units pass
+independent review, one final stable identity must pass the accepted preparation
+fixed/provider/campaign/replay/type/cost/archive inventory before this checkpoint
+can be accepted.
+
+The checkpoint introduces no public API, dependency, cutover, or recursive
+feature expansion. Its final qualification still includes every behavior and
+safe-reuse obligation in the authorized checkpoint contract, not only the
+focused witnesses named here.
+
 ### G3 — Scopes, series, recursive composition
 
 Complete C08–C11 by extending the accepted G3-preparation slices, whose
@@ -1511,8 +1563,10 @@ and assess data separately. No automatic destructive repair or replay.
 
 **Current status: G0–G2, G2.5, and G2.7-01/02/03 complete. The six-unit
 G3-preparation checkpoint is accepted after its independent unit reviews and
-final root review of the repaired G3P-06 registration identity. G3 is ready and
-not started.** The
+final root review of the repaired G3P-06 registration identity. The ordered
+post-preparation fact-ownership checkpoint has all five units independently
+accepted; final qualification and root global review are complete.
+G3 is not started.** The
 [G0 report](raptor3-evidence/g0.md) now contains the costed blueprint, fixed
 S1–S4 evidence, reconciled baseline and exact validation limitations. All four
 G0 units meet the revised exit. Arnaud approved deferring small timing variation
@@ -1546,6 +1600,7 @@ ownership, not the forecast.
 | G2.5 — foundation consolidation                    | Complete: final-source gates, 20,000 seed/profile cells, 60,000 exact replays and archive verified; 4,583 charged LOC; [closure and cost review](raptor3-evidence/g2-polish.md)                                                                                           | Accept reviewed +241 LOC for demonstrated ownership gains; preserve private G2 behavior and the recorded evidence limits; G3 not started                  |
 | G2.7 — execution ownership                         | Complete: the final 4,592-line source passes the complete fixed/generated/transport/native provider closure, both 10,000-cell campaigns, 60,000 exact replays, external saved-corpus replay, type/cost checks, independent unit reviews, and the final root global review | Preserve the accepted private ownership boundary; G3 remains a separate, not-started stage                                                                |
 | G3 preparation — six bounded units                 | Accepted: all six units, bounded review repairs, final qualification, and root global review pass on the recorded frozen identities                                                                                                                                       | Preserve the accepted private composition owners; start G3 only as a separate authorized stage                                                            |
+| Post-preparation fact ownership                    | Accepted: all five ordered units, final stable-identity qualification, independent archive audit, and root global review pass                                                                                                                                             | Preserve the accepted fact owners; start G3 only as a separate authorized stage                                                                            |
 | G3 — scopes, bulk, recursion                       | Not started                                                                                                                                                                                                                                                               | Composition survives depth and failure                                                                                                                    |
 | G4 — full envelope and qualification               | Not started                                                                                                                                                                                                                                                               | Complete measured replacement qualifies                                                                                                                   |
 | Cutover/release                                    | Not started                                                                                                                                                                                                                                                               | Candidate-only gates pass; release separately authorized                                                                                                  |

@@ -180,6 +180,49 @@ export const G3P05_RECURSIVE_READ_FIT_COUNTS = Object.freeze({
 export const G3P05_RECURSIVE_READ_FIT_TESTS = Object.freeze(
   Object.keys(G3P05_RECURSIVE_READ_FIT_COUNTS),
 );
+export const POST_G3_CLEARABILITY_CONTRACT_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/clearability-consumption.test.ts": 4,
+});
+export const POST_G3_CLEARABILITY_CONTRACT_TESTS = Object.freeze(
+  Object.keys(POST_G3_CLEARABILITY_CONTRACT_COUNTS),
+);
+export const POST_G3_SCHEMA_VIEW_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/schema-view-reuse.test.ts": 1,
+});
+export const POST_G3_SCHEMA_VIEW_TESTS = Object.freeze(
+  Object.keys(POST_G3_SCHEMA_VIEW_COUNTS),
+);
+export const POST_G3_PROJECTION_PREPARATION_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/projection-preparation.test.ts": 4,
+});
+export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
+  Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS),
+);
+export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/selector-preparation.test.ts": 4,
+});
+export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
+  Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS),
+);
+export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/history-analysis.test.ts": 4,
+});
+export const POST_G3_HISTORY_ANALYSIS_TESTS = Object.freeze(
+  Object.keys(POST_G3_HISTORY_ANALYSIS_COUNTS),
+);
+export const POST_G3_CLEARABILITY_PROVIDER_COUNTS = Object.freeze({
+  "tests/raptor3/prep/native-clearability-ownership.test.ts": 2,
+});
+export const POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS =
+  POST_G3_CLEARABILITY_PROVIDER_COUNTS;
+export const POST_G3_CLEARABILITY_PG_CONTRACT_TESTS = Object.freeze(
+  Object.keys(POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS),
+);
+export const POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS =
+  POST_G3_CLEARABILITY_PROVIDER_COUNTS;
+export const POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS = Object.freeze(
+  Object.keys(POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS),
+);
 export const G3P05_CONTRACT_COUNTS = Object.freeze({
   ...G3P05_SELECTOR_DEPENDENCY_COUNTS,
   ...G3P05_VARIANT_COLLECTION_ORDER_COUNTS,

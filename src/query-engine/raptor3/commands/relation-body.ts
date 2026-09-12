@@ -1,10 +1,9 @@
 import { NestedWriteError } from "@errors";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
-import type { SelectorFacts } from "../shared/query";
+import type { PreparedSelector, SelectorFacts } from "../shared/query";
 import { entries, record, type Input } from "../shared/schema";
 import {
   bindMembership,
-  physicalField,
   storedFields,
   type Membership,
 } from "../shared/storage";
@@ -28,6 +27,9 @@ import {
 } from "./selection";
 
 type Junction = Extract<Membership, { kind: "junction" }>;
+type Supplier =
+  | { readonly kind: "query"; readonly selector: PreparedSelector }
+  | { readonly kind: "producer"; readonly producer: Assignments };
 
 const mutationOrder: readonly string[] = [
   "disconnect",
@@ -56,7 +58,7 @@ const collectionMutationOrder: readonly string[] = [
 
 /** One admitted relation body owns its order, parent, slot and supplied continuation. */
 export class RelationBody {
-  private supplier?: SelectionSource;
+  private supplier?: Supplier;
   private readonly direct: boolean;
   private readonly hasSupply: boolean;
   constructor(
@@ -78,7 +80,7 @@ export class RelationBody {
     if (this.direct) return;
     this.supplier =
       target.kind === "choose" && !target.missing
-        ? { kind: "query", where: target.lookup.source.where }
+        ? { kind: "query", selector: target.lookup.selector }
         : { kind: "producer", producer: target.fields };
   }
   expand(): void {
@@ -121,13 +123,15 @@ export class RelationBody {
         verb === "disconnect" &&
         typeof payload === "boolean"
       ) {
-        if (payload && !this.hasSupply)
-          for (const column of [
-            resolved.edge.storage.typeColumn,
-            resolved.edge.storage.idColumn,
-          ])
+        const clearability = schema.clearability(resolved);
+        if (
+          payload &&
+          !this.hasSupply &&
+          clearability.kind === "columns"
+        )
+          for (const field of clearability.fields)
             parent.fields.contribute(
-              column.name,
+              field,
               { kind: "literal", value: null },
               `Cannot disconnect relation '${name}'.`,
               { owner: parent, origin, scope: resolved },
@@ -208,20 +212,14 @@ export class RelationBody {
           this.requireLookup(outgoing);
           if (edge.kind === "reference" && edge.owner === "source") {
             if (!hasSupply) {
-              for (const pair of edge.pairs)
-                parent.fields.contribute(
-                  pair.source,
-                  { kind: "literal", value: null },
-                  `Cannot disconnect relation '${edge.name}'.`,
-                  { owner: outgoing, origin, scope: edge.scope },
-                );
-              if (edge.discriminator)
-                parent.fields.contribute(
-                  edge.discriminator.field,
-                  { kind: "literal", value: null },
-                  `Cannot disconnect relation '${edge.name}'.`,
-                  { owner: outgoing, origin, scope: edge.scope },
-                );
+              if (edge.clearability.kind === "columns")
+                for (const field of edge.clearability.fields)
+                  parent.fields.contribute(
+                    field,
+                    { kind: "literal", value: null },
+                    `Cannot disconnect relation '${edge.name}'.`,
+                    { owner: outgoing, origin, scope: edge.scope },
+                  );
             }
             if (verb === "delete")
               parent.after.push({ kind: "delete", located: outgoing, origin });
@@ -311,34 +309,36 @@ export class RelationBody {
             verb === "update" && !edge.many ? this.supplier : undefined;
           const suppliedSelector =
             continuation?.kind === "query" ? continuation : undefined;
+          const queries = this.commands.context.queries;
+          const ownSelector = queries.prepareSelector(
+            edge.target,
+            conditional.where as Input | undefined,
+          );
           let selectionSource: SelectionSource = {
             kind: "query",
             where: conditional.where as Input | undefined,
+            selector: ownSelector,
           };
           let facts: SelectorFacts | undefined;
           if (suppliedSelector) {
-            const ownFacts = this.commands.context.queries.selectorFacts(
-              edge.target,
-              selectionSource.where,
-            );
+            const supplierSelector = suppliedSelector.selector;
+            const ownFacts = queries.selectorFacts(ownSelector);
+            const supplierFacts = queries.selectorFacts(supplierSelector);
             facts =
-              ownFacts.fields.size === 0
-                ? this.commands.context.queries.selectorFacts(
-                    edge.target,
-                    suppliedSelector.where,
-                  )
-                : ownFacts;
+              ownFacts.fields.size === 0 ? supplierFacts : ownFacts;
             selectionSource = {
               kind: "query",
-              where: {
-                AND: [suppliedSelector.where ?? {}, conditional.where ?? {}],
-              },
+              selector: queries.andSelectors(edge.target, [
+                supplierSelector,
+                ownSelector,
+              ]),
             };
           }
           if (continuation?.kind === "producer") {
             selectionSource = {
               kind: "producer",
               where: selectionSource.where,
+              selector: selectionSource.selector,
               producer: continuation.producer,
             };
             continuation.producer.select(
@@ -361,6 +361,7 @@ export class RelationBody {
               selectionSource = {
                 kind: "query",
                 where: selectionSource.where,
+                selector: selectionSource.selector,
                 membership,
               };
           }
@@ -568,17 +569,13 @@ export class RelationBody {
   private clearMembership(edge: Membership, targets: Choose[]): void {
     const parent = this.parent;
     if (edge.kind === "reference") {
-      const required = [
-        ...(edge.discriminator?.side === "target"
-          ? [edge.discriminator.field]
-          : []),
-        ...edge.pairs.map((pair) => pair.target),
-      ].filter(
-        (field) =>
-          !physicalField(this.commands.context.schema, edge.target, field)
-            .nullable,
-      );
-      if (required.length) {
+      if (edge.clearability.kind === "none") {
+        const required = [
+          ...(edge.discriminator?.side === "target"
+            ? [edge.discriminator.field]
+            : []),
+          ...edge.pairs.map((pair) => pair.target),
+        ];
         this.membershipSource(edge, parent.located!.fields);
         this.requireLookup({
           kind: "absent",

@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "status": "accepted",
+  "runtime": {
+    "node": "v24.21.0",
+    "vitest": "3.1.4",
+    "sqliteDriver": "12.6.0",
+    "platform": "darwin-arm64"
+  },
+  "identities": {
+    "production": "509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9",
+    "harness": "112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0",
+    "costSource": "00cd4843adc9a0b573118a26f8e35a9fd50e1168c55b9943bd35f3df2cf1508d"
+  },
+  "fixed": {
+    "receiptRoot": "receipts/fixed",
+    "modes": 22,
+    "tests": 1032,
+    "passed": 1032,
+    "failed": 0,
+    "pending": 0,
+    "credentialFreeFixedStage": { "files": 43, "tests": 602, "passed": 602 },
+    "separateNonqualifyingDiagnostics": { "receipt": "receipts/diagnostics", "tests": 2 }
+  },
+  "pglite": {
+    "receipt": "receipts/support/pglite-summary.txt",
+    "isolatedFiles": 4,
+    "tests": 10,
+    "passed": 10,
+    "pending": 0
+  },
+  "native": {
+    "postgresql": {
+      "image": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+      "server": "16.14",
+      "receiptRoot": "receipts/native-pg",
+      "modes": 8,
+      "tests": 52,
+      "passed": 52
+    },
+    "mysql": {
+      "image": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+      "server": "8.4.11",
+      "receiptRoot": "receipts/native-mysql",
+      "modes": 7,
+      "tests": 41,
+      "passed": 41
+    },
+    "lifecycle": "receipts/support/native-container-summary.txt"
+  },
+  "campaigns": {
+    "receiptRoot": "receipts/campaigns",
+    "parents": 4,
+    "batches": 102,
+    "cells": 20400,
+    "replays": 61200,
+    "skips": 0
+  },
+  "savedReplays": {
+    "receiptRoot": "receipts/replays",
+    "corporaRoot": "corpora",
+    "tests": 2,
+    "passed": 2
+  },
+  "support": {
+    "selftests": "receipts/support/selftests-summary.txt",
+    "cli": "receipts/cli/commands.json",
+    "typecheck": "receipts/support/typecheck-summary.txt",
+    "structure": "receipts/support/query-engine-structure.json"
+  },
+  "cost": {
+    "receipt": "cost.json",
+    "owners": 28,
+    "tokenLines": 9923,
+    "deltaFromAcceptedUnit4": 0,
+    "deltaFromAcceptedG3Preparation": 563
+  },
+  "archive": {
+    "checksums": "SHA256SUMS",
+    "reproduction": "reproduction.md",
+    "excluded": [
+      "per-batch corpus.json",
+      "generated-campaign-progress.json",
+      "whole-source archive",
+      "bundle artifacts"
+    ]
+  }
+}

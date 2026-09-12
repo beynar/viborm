@@ -1,0 +1,7 @@
+{
+  "status": "accepted-unit-4-baseline",
+  "production": "ac687ead886a0c94d0694927b43cfab5a4fbda7db1f99b3310d6c68629ba625c",
+  "harness": "0ea531c7f1c0c0c1dccffa39b7231d8b62fc45014aab0d4a7d2e1f8af106b346",
+  "commandsSha256": "0b568cd58fff8b6ff180e98323c533e7a5be95df5b96fd5a7f8e52016d47fe6b",
+  "qualification": "Exact Commands source preserved before Unit 5 edits so review can compare the history-analysis owner without reconstructing it from the larger dirty worktree."
+}

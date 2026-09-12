@@ -4,7 +4,6 @@ import {
   NotFoundError,
   UniqueConstraintError,
 } from "@errors";
-import { findAddressableKey } from "@schema/model/keys";
 import type { Member } from "../shared/operation-context";
 import type { Query } from "../shared/query";
 import { record, type Arguments, type Input } from "../shared/schema";
@@ -126,20 +125,15 @@ export class CommandExecution {
     choice: Choose,
     error: UniqueConstraintError
   ): boolean {
-    const where = choice.lookup.source.where;
-    const selectors = Object.keys(where ?? {});
-    // An extended selector is a decision predicate, not a unique-conflict pin.
-    if (selectors.length !== 1) return false;
-    const selector = selectors[0]!;
-    const key = findAddressableKey(choice.model, selector);
-    if (!key) return false;
-    const selected = key.name ? record(where![selector]) : where!;
+    const key = choice.lookup.selector.uniqueKey;
+    const selected = choice.lookup.selector.uniqueValues;
+    if (!key || !selected) return false;
     if (
       !key.fields.every((field) => {
         const proposed = choice.missing!.fields.known(field);
         return (
           proposed?.kind === "literal" &&
-          Object.is(proposed.value, selected[field])
+          Object.is(proposed.value, selected.get(field))
         );
       })
     )
@@ -206,10 +200,16 @@ export class CommandExecution {
         await this.run(root);
         return (
           await this.context.finish(
-            this.context.queries.select(root.model, {
-              ...args,
-              where: this.identity(root.fields),
-            })
+            this.context.queries.select(
+              root.model,
+              {
+                select: args.select,
+                include: args.include,
+                omit: args.omit,
+              },
+              undefined,
+              { identity: this.identity(root.fields) },
+            )
           )
         )[0];
       } catch (error) {
@@ -307,7 +307,8 @@ export class CommandExecution {
       }
       case "absent": {
         const exclude = command.excluding.map(
-          (fields) => ctx.queries.where(command.model, this.identity(fields))!
+          (fields) =>
+            ctx.queries.lowerIdentity(command.model, this.identity(fields))
         );
         await ctx.requireAbsent(
           ctx.queries.select(
@@ -593,14 +594,13 @@ export class CommandExecution {
       ctx.queries.select(
         selection.model,
         {
-          where: selection.source.where,
           orderBy: Object.fromEntries(keys.map((field) => [field, "asc"])),
         },
         membership && {
           edge: membership.edge,
           parent: this.membershipValues(membership.edge, membership.parent),
         },
-        { forUpdate: !ctx.usesBatch }
+        { forUpdate: !ctx.usesBatch, selector: selection.selector }
       ),
       true
     );

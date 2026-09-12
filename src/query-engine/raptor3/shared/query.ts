@@ -1,7 +1,16 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
 import { QueryEngineError } from "@errors";
-import { findAddressableKey, type AnyModel } from "@schema/model";
+import {
+  fieldRefPayload,
+  formatFieldRef,
+  isFieldRef,
+} from "@schema/field-ref";
+import {
+  findAddressableKey,
+  type AnyModel,
+  type OrderedModelKey,
+} from "@schema/model";
 import { Sql, sql } from "@sql";
 import {
   decodePhysicalDecimal,
@@ -19,6 +28,7 @@ import {
   bindMembership,
   type Membership,
   physicalField,
+  type PhysicalField,
   storedFields,
 } from "./storage";
 
@@ -28,16 +38,23 @@ type Leaf = {
   nullable: boolean;
   decimal?: DecimalDescriptor;
 };
-type Shape =
-  | { kind: "object"; fields: Record<string, Shape | Leaf> }
-  | { kind: "collection"; row: Shape }
-  | { kind: "variants"; many: boolean; arms: Record<string, Shape> }
+export type ProjectionShape =
+  | {
+      kind: "object";
+      fields: Record<string, ProjectionShape | Leaf>;
+    }
+  | { kind: "collection"; row: ProjectionShape }
+  | {
+      kind: "variants";
+      many: boolean;
+      arms: Record<string, ProjectionShape>;
+    }
   | {
       kind: "recursive";
       relation: string;
       many: boolean;
-      seeds: Shape[];
-      descendant: Shape;
+      seeds: ProjectionShape[];
+      descendant: ProjectionShape;
       carriers: {
         seed: string;
         depth: string;
@@ -45,6 +62,35 @@ type Shape =
         value: string;
       };
     };
+type Shape = ProjectionShape;
+type RelationProjectionArguments = Pick<
+  Partial<Arguments>,
+  "orderBy" | "take" | "skip"
+> & { readonly selector?: PreparedSelector };
+interface PreparedRelationProjection {
+  readonly edge: Membership;
+  readonly arguments: RelationProjectionArguments;
+  readonly projection: PreparedProjection;
+}
+export type PreparedProjectionField =
+  | { readonly kind: "scalar"; readonly name: string }
+  | ({
+      readonly kind: "relation";
+      readonly name: string;
+    } & PreparedRelationProjection)
+  | {
+      readonly kind: "variants";
+      readonly name: string;
+      readonly many: boolean;
+      readonly arms: readonly ({
+        readonly variant: string;
+      } & PreparedRelationProjection)[];
+    };
+export interface PreparedProjection {
+  readonly model: AnyModel;
+  readonly fields: readonly PreparedProjectionField[];
+  readonly shape: Extract<ProjectionShape, { kind: "object" }>;
+}
 export interface Query {
   sql: Sql;
   shape: Shape;
@@ -65,6 +111,45 @@ export interface SelectorRead {
   readonly fields: Set<string>;
   readonly equals: Map<string, unknown>;
   readonly exact: boolean;
+}
+type PreparedScalar = {
+  readonly model: AnyModel;
+  readonly field: string;
+  readonly physical: PhysicalField;
+};
+type PreparedOperand =
+  | { readonly kind: "value"; readonly value: unknown }
+  | { readonly kind: "field"; readonly scalar: PreparedScalar };
+type PreparedPredicate =
+  | {
+      readonly kind: "and" | "or";
+      readonly predicates: readonly PreparedPredicate[];
+    }
+  | { readonly kind: "not"; readonly predicate: PreparedPredicate }
+  | {
+      readonly kind: "comparison";
+      readonly operator: "equals" | "gte" | "gt" | "lte" | "lt";
+      readonly scalar: PreparedScalar;
+      readonly operand: PreparedOperand;
+    }
+  | {
+      readonly kind: "in";
+      readonly scalar: PreparedScalar;
+      readonly operands: readonly PreparedOperand[];
+    }
+  | { readonly kind: "isNull"; readonly scalar: PreparedScalar }
+  | {
+      readonly kind: "relation";
+      readonly edge: Membership;
+      readonly quantifier: string;
+      readonly predicate?: PreparedPredicate;
+    };
+export interface PreparedSelector {
+  readonly model: AnyModel;
+  readonly facts: SelectorFacts;
+  readonly uniqueKey?: OrderedModelKey;
+  readonly uniqueValues?: ReadonlyMap<string, unknown>;
+  readonly predicate?: PreparedPredicate;
 }
 export type TraversalArgs = Partial<
   Pick<Arguments, "where" | "select" | "include" | "orderBy">
@@ -140,12 +225,12 @@ export class Queries {
   private scalarShape(model: AnyModel, field: string): Leaf {
     const physical = physicalField(this.schema, model, field);
     const state = physical.scalar["~"].state;
-    return {
+    return Object.freeze({
       kind: "scalar",
       type: state.type,
       nullable: physical.nullable,
       decimal: state.type === "decimal" ? state.decimal : undefined,
-    };
+    });
   }
   junctionWhere(
     edge: Extract<Membership, { kind: "junction" }>,
@@ -228,164 +313,313 @@ export class Queries {
     }
     return this.fieldValue(model, field, value);
   }
-  predicate(
-    expression: Sql,
-    value: unknown,
-    model?: AnyModel,
-    field?: string,
-    facts?: SelectorFacts,
-  ): Sql {
-    if (facts && field) {
-      facts.fields.add(field);
-      if (
-        value === null ||
-        (typeof value !== "object" && !(value instanceof Sql))
-      )
-        facts.equals.set(field, value);
-      else if (
-        !(value instanceof Sql) &&
-        Object.keys(record(value)).length === 1 &&
-        "equals" in record(value)
-      )
-        facts.equals.set(field, record(value).equals);
-      else facts.exact = false;
-    }
-    const { operators: op } = this.adapter;
-    const operandSql = (operand: unknown) =>
-      model && field
-        ? this.fieldValue(model, field, operand)
-        : this.value(operand);
-    if (value === null) return op.isNull(expression);
-    if (value instanceof Sql || typeof value !== "object")
-      return op.eq(expression, operandSql(value));
-    return op.and(
-      ...Object.entries(record(value)).map(([name, operand]) => {
-        switch (name) {
-          case "equals":
-            return this.predicate(expression, operand, model, field);
-          case "in":
-            return op.in(
-              expression,
-              this.adapter.literals.list(
-                (operand as unknown[]).map(operandSql),
-              ),
-            );
-          case "gte":
-            return op.gte(expression, operandSql(operand));
-          case "gt":
-            return op.gt(expression, operandSql(operand));
-          case "lte":
-            return op.lte(expression, operandSql(operand));
-          case "lt":
-            return op.lt(expression, operandSql(operand));
-          case "not":
-            return op.not(this.predicate(expression, operand, model, field));
-          default:
-            throw new Error(`Raptor 3 G1 filter is not implemented: ${name}`);
-        }
-      }),
-    );
-  }
-  where(
-    model: AnyModel,
-    where: Input | undefined,
-    alias?: string,
-    facts?: SelectorFacts,
-    path: readonly Membership[] = [],
-  ): Sql | undefined {
-    if (!where) return undefined;
-    return this.adapter.operators.and(
-      ...Object.entries(where).map(([field, operand]) => {
-        if (field === "AND" || field === "OR") {
-          if (field === "OR" && facts) facts.exact = false;
-          const conditions = entries(operand).map((clause) =>
-            this.where(model, clause, alias, facts, path)!,
-          );
-          return field === "AND"
-            ? this.adapter.operators.and(...conditions)
-            : this.adapter.operators.or(...conditions);
-        }
-        if (field === "NOT") {
-          if (facts) facts.exact = false;
-          return this.adapter.operators.not(
-            this.where(model, record(operand), alias, facts, path)!,
-          );
-        }
-        if (model["~"].state.relations[field]) {
-          const edge = bindMembership(this.schema, model, field);
-          return this.relationWhere(edge, operand, alias, facts, [
-            ...path,
-            edge,
-          ]);
-        }
-        const key = findAddressableKey(model, field);
-        if (key?.name)
-          return this.adapter.operators.and(
-            ...key.fields.map((member) =>
-              this.predicate(
-                this.column(model, member, alias),
-                record(operand)[member],
-                model,
-                member,
-                facts,
-              ),
-            ),
-          );
-        return this.predicate(
-          this.column(model, field, alias),
-          operand,
-          model,
-          field,
-          facts,
-        );
-      }),
-    );
-  }
-  selectorFacts(model: AnyModel, where?: Input): SelectorFacts {
+  prepareSelector(model: AnyModel, where?: Input): PreparedSelector {
     const facts: SelectorFacts = {
       fields: new Set(),
       equals: new Map(),
       exact: true,
       reads: [],
     };
-    this.where(model, where, undefined, facts);
-    return facts;
+    const keys = Object.keys(where ?? {});
+    const uniqueKey =
+      keys.length === 1 ? findAddressableKey(model, keys[0]!) : undefined;
+    const selected = uniqueKey
+      ? uniqueKey.name
+        ? record(where![uniqueKey.name])
+        : where!
+      : undefined;
+    return Object.freeze({
+      model,
+      facts,
+      uniqueKey,
+      uniqueValues: selected
+        ? new Map(
+            uniqueKey!.fields.map((field) => [field, selected[field]]),
+          )
+        : undefined,
+      predicate: where
+        ? this.prepareWhere(model, where, facts, [])
+        : undefined,
+    });
   }
-  private relationWhere(
+  selectorFacts(selector: PreparedSelector): SelectorFacts {
+    return selector.facts;
+  }
+  identitySelector(model: AnyModel, identity: Input): PreparedSelector {
+    const facts: SelectorFacts = {
+      fields: new Set(),
+      equals: new Map(),
+      exact: true,
+      reads: [],
+    };
+    return Object.freeze({
+      model,
+      facts,
+      predicate: Object.freeze({
+        kind: "and",
+        predicates: Object.freeze(
+          Object.entries(identity).map(([field, value]) =>
+            this.prepareScalarPredicate(model, field, value, facts),
+          ),
+        ),
+      }),
+    });
+  }
+  andSelectors(
+    model: AnyModel,
+    selectors: readonly PreparedSelector[],
+  ): PreparedSelector {
+    const facts: SelectorFacts = {
+      fields: new Set(),
+      equals: new Map(),
+      exact: true,
+      reads: [],
+    };
+    const predicates: PreparedPredicate[] = [];
+    for (const selector of selectors) {
+      for (const field of selector.facts.fields) facts.fields.add(field);
+      for (const [field, value] of selector.facts.equals)
+        facts.equals.set(field, value);
+      facts.exact &&= selector.facts.exact;
+      facts.reads.push(...selector.facts.reads);
+      if (selector.predicate) predicates.push(selector.predicate);
+    }
+    return Object.freeze({
+      model,
+      facts,
+      predicate:
+        predicates.length === 0
+          ? undefined
+          : Object.freeze({
+              kind: "and",
+              predicates: Object.freeze(predicates),
+            }),
+    });
+  }
+  lowerSelector(selector: PreparedSelector, alias?: string): Sql | undefined {
+    return selector.predicate
+      ? this.lowerPredicate(selector.predicate, alias)
+      : undefined;
+  }
+  lowerWhere(
+    model: AnyModel,
+    where: Input | undefined,
+    alias?: string,
+  ): Sql | undefined {
+    return this.lowerSelector(this.prepareSelector(model, where), alias);
+  }
+  lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
+    return this.adapter.operators.and(
+      ...Object.entries(identity).map(([field, value]) =>
+        this.adapter.operators.eq(
+          this.column(model, field, alias),
+          this.fieldValue(model, field, value),
+        ),
+      ),
+    );
+  }
+  private prepareWhere(
+    model: AnyModel,
+    where: Input,
+    facts: SelectorFacts,
+    path: readonly Membership[],
+  ): PreparedPredicate {
+    return Object.freeze({
+      kind: "and",
+      predicates: Object.freeze(
+        Object.entries(where).map(([field, operand]) => {
+          if (field === "AND" || field === "OR") {
+            if (field === "OR") facts.exact = false;
+            return Object.freeze({
+              kind: field === "AND" ? "and" : "or",
+              predicates: Object.freeze(
+                entries(operand).map((clause) =>
+                  this.prepareWhere(model, clause, facts, path),
+                ),
+              ),
+            });
+          }
+          if (field === "NOT") {
+            facts.exact = false;
+            return Object.freeze({
+              kind: "not",
+              predicate: this.prepareWhere(
+                model,
+                record(operand),
+                facts,
+                path,
+              ),
+            });
+          }
+          if (model["~"].state.relations[field]) {
+            const edge = bindMembership(this.schema, model, field);
+            return this.prepareRelationPredicate(edge, operand, facts, [
+              ...path,
+              edge,
+            ]);
+          }
+          const key = findAddressableKey(model, field);
+          if (key?.name)
+            return Object.freeze({
+              kind: "and",
+              predicates: Object.freeze(
+                key.fields.map((member) =>
+                  this.prepareScalarPredicate(
+                    model,
+                    member,
+                    record(operand)[member],
+                    facts,
+                  ),
+                ),
+              ),
+            });
+          return this.prepareScalarPredicate(model, field, operand, facts);
+        }),
+      ),
+    });
+  }
+  private prepareScalarPredicate(
+    model: AnyModel,
+    field: string,
+    value: unknown,
+    facts: SelectorFacts,
+  ): PreparedPredicate {
+    const scalar = Object.freeze({
+      model,
+      field,
+      physical: physicalField(this.schema, model, field),
+    });
+    facts.fields.add(field);
+    const filter =
+      value !== null &&
+      typeof value === "object" &&
+      !(value instanceof Sql) &&
+      !isFieldRef(value)
+        ? record(value)
+        : undefined;
+    const hasEquality =
+      filter === undefined ||
+      (Object.keys(filter).length === 1 && "equals" in filter);
+    const equality =
+      filter && hasEquality
+        ? filter.equals
+        : value;
+    if (
+      hasEquality &&
+      (equality === null ||
+        (typeof equality !== "object" && !(equality instanceof Sql)))
+    )
+      facts.equals.set(field, equality);
+    else facts.exact = false;
+    return this.prepareScalarOperations(scalar, value);
+  }
+  private prepareScalarOperations(
+    scalar: PreparedScalar,
+    value: unknown,
+  ): PreparedPredicate {
+    if (value === null) return Object.freeze({ kind: "isNull", scalar });
+    if (
+      value instanceof Sql ||
+      isFieldRef(value) ||
+      typeof value !== "object"
+    )
+      return Object.freeze({
+        kind: "comparison",
+        operator: "equals",
+        scalar,
+        operand: this.prepareOperand(scalar.model, value),
+      });
+    return Object.freeze({
+      kind: "and",
+      predicates: Object.freeze(
+        Object.entries(record(value)).map(([name, operand]) => {
+          switch (name) {
+            case "equals":
+              return this.prepareScalarOperations(scalar, operand);
+            case "in":
+              return Object.freeze({
+                kind: "in",
+                scalar,
+                operands: Object.freeze(
+                  (operand as unknown[]).map((member) =>
+                    this.prepareOperand(scalar.model, member),
+                  ),
+                ),
+              });
+            case "gte":
+            case "gt":
+            case "lte":
+            case "lt":
+              return Object.freeze({
+                kind: "comparison",
+                operator: name,
+                scalar,
+                operand: this.prepareOperand(scalar.model, operand),
+              });
+            case "not":
+              return Object.freeze({
+                kind: "not",
+                predicate: this.prepareScalarOperations(scalar, operand),
+              });
+            default:
+              throw new Error(
+                `Raptor 3 G1 filter is not implemented: ${name}`,
+              );
+          }
+        }),
+      ),
+    });
+  }
+  private prepareOperand(model: AnyModel, value: unknown): PreparedOperand {
+    if (!isFieldRef(value))
+      return Object.freeze({ kind: "value", value });
+    const payload = fieldRefPayload(value);
+    const scope = model["~"].names.ts ?? "unknown";
+    if (payload.model !== scope)
+      throw new QueryEngineError(
+        `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`,
+      );
+    if (!model["~"].state.scalars[payload.field])
+      throw new QueryEngineError(
+        `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`,
+      );
+    return Object.freeze({
+      kind: "field",
+      scalar: Object.freeze({
+        model,
+        field: payload.field,
+        physical: physicalField(this.schema, model, payload.field),
+      }),
+    });
+  }
+  private prepareRelationPredicate(
     edge: Membership,
     operand: unknown,
-    parentAlias: string | undefined,
-    facts: SelectorFacts | undefined,
+    facts: SelectorFacts,
     path: readonly Membership[],
-  ): Sql {
-    const a = this.adapter;
-    const childAlias = this.alias();
-    const relation = record(operand);
-    return a.operators.and(
-      ...Object.entries(relation).map(([quantifier, value]) => {
-        const nestedFacts: SelectorFacts | undefined = facts
-          ? {
-              fields: new Set(),
-              equals: new Map(),
-              exact:
-                facts.exact &&
-                quantifier !== "none" &&
-                quantifier !== "every" &&
-                quantifier !== "isNot",
-              reads: [],
-            }
-          : undefined;
-        const nested =
-          value === null
-            ? undefined
-            : this.where(
-                edge.target,
-                record(value),
-                childAlias,
-                nestedFacts,
-                path,
-              );
-        if (facts && nestedFacts) {
+  ): PreparedPredicate {
+    return Object.freeze({
+      kind: "and",
+      predicates: Object.freeze(
+        Object.entries(record(operand)).map(([quantifier, value]) => {
+          const nestedFacts: SelectorFacts = {
+            fields: new Set(),
+            equals: new Map(),
+            exact:
+              quantifier !== "none" &&
+              quantifier !== "every" &&
+              quantifier !== "isNot",
+            reads: [],
+          };
+          const predicate =
+            value === null
+              ? undefined
+              : this.prepareWhere(
+                  edge.target,
+                  record(value),
+                  nestedFacts,
+                  path,
+                );
           facts.reads.push({
             model: edge.target,
             path,
@@ -394,44 +628,153 @@ export class Queries {
             exact: nestedFacts.exact,
           });
           facts.reads.push(...nestedFacts.reads);
-        }
-        const correlated = this.correlation(
-          edge,
-          parentAlias ?? "",
-          childAlias,
+          return Object.freeze({
+            kind: "relation",
+            edge,
+            quantifier,
+            predicate,
+          });
+        }),
+      ),
+    });
+  }
+  private lowerPredicate(
+    predicate: PreparedPredicate,
+    alias?: string,
+  ): Sql {
+    const a = this.adapter;
+    switch (predicate.kind) {
+      case "and":
+        return a.operators.and(
+          ...predicate.predicates.map((member) =>
+            this.lowerPredicate(member, alias),
+          ),
         );
-        const condition = a.operators.and(
-          correlated,
-          ...(nested
-            ? [quantifier === "every" ? a.operators.not(nested) : nested]
-            : []),
+      case "or":
+        return a.operators.or(
+          ...predicate.predicates.map((member) =>
+            this.lowerPredicate(member, alias),
+          ),
         );
-        const query = a.subqueries.existsCheck(
-          this.table(edge.target, childAlias),
-          condition,
+      case "not":
+        return a.operators.not(this.lowerPredicate(predicate.predicate, alias));
+      case "isNull":
+        return a.operators.isNull(this.preparedColumn(predicate.scalar, alias));
+      case "in":
+        return a.operators.in(
+          this.preparedColumn(predicate.scalar, alias),
+          a.literals.list(
+            predicate.operands.map((operand) =>
+              this.lowerOperand(predicate.scalar, operand, alias),
+            ),
+          ),
         );
-        switch (quantifier) {
-          case "some":
-            return a.filters.some(query);
-          case "none":
-            return a.filters.none(query);
-          case "every":
-            return a.filters.every(query);
-          case "is":
-            return value === null
-              ? a.filters.isNot(query)
-              : a.filters.is(query);
-          case "isNot":
-            return value === null
-              ? a.filters.is(query)
-              : a.filters.isNot(query);
+      case "comparison": {
+        const left = this.preparedColumn(predicate.scalar, alias);
+        const right = this.lowerOperand(
+          predicate.scalar,
+          predicate.operand,
+          alias,
+        );
+        return a.operators[predicate.operator === "equals" ? "eq" : predicate.operator](
+          left,
+          right,
+        );
+      }
+      case "relation":
+        return this.lowerRelationPredicate(predicate, alias);
+    }
+  }
+  private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+    return alias
+      ? this.adapter.identifiers.column(alias, scalar.physical.name)
+      : this.adapter.identifiers.escape(scalar.physical.name);
+  }
+  private lowerOperand(
+    scalar: PreparedScalar,
+    operand: PreparedOperand,
+    alias?: string,
+  ): Sql {
+    if (operand.kind === "field")
+      return this.preparedColumn(operand.scalar, alias);
+    const state = scalar.physical.scalar["~"].state;
+    if (state.type !== "decimal" || operand.value === null)
+      return this.value(operand.value);
+    return operand.value instanceof Sql
+      ? this.adapter.expressions.decimalCast(operand.value, state.decimal)
+      : this.adapter.literals.decimal(operand.value as string, state.decimal);
+  }
+  private lowerValuePredicate(expression: Sql, value: unknown): Sql {
+    const op = this.adapter.operators;
+    if (value === null) return op.isNull(expression);
+    if (value instanceof Sql || typeof value !== "object")
+      return op.eq(expression, this.value(value));
+    return op.and(
+      ...Object.entries(record(value)).map(([name, operand]) => {
+        switch (name) {
+          case "equals":
+            return this.lowerValuePredicate(expression, operand);
+          case "in":
+            return op.in(
+              expression,
+              this.adapter.literals.list(
+                (operand as unknown[]).map((member) => this.value(member)),
+              ),
+            );
+          case "gte":
+          case "gt":
+          case "lte":
+          case "lt":
+            return op[name](expression, this.value(operand));
+          case "not":
+            return op.not(this.lowerValuePredicate(expression, operand));
           default:
             throw new Error(
-              `Raptor 3 G3P-05 relation filter is not implemented: ${quantifier}`,
+              `Raptor 3 G1 filter is not implemented: ${name}`,
             );
         }
       }),
     );
+  }
+  private lowerRelationPredicate(
+    predicate: Extract<PreparedPredicate, { kind: "relation" }>,
+    parentAlias?: string,
+  ): Sql {
+    const a = this.adapter;
+    const childAlias = this.alias();
+    const nested = predicate.predicate
+      ? this.lowerPredicate(predicate.predicate, childAlias)
+      : undefined;
+    const condition = a.operators.and(
+      this.correlation(predicate.edge, parentAlias ?? "", childAlias),
+      ...(nested
+        ? [
+            predicate.quantifier === "every"
+              ? a.operators.not(nested)
+              : nested,
+          ]
+        : []),
+    );
+    const query = a.subqueries.existsCheck(
+      this.table(predicate.edge.target, childAlias),
+      condition,
+    );
+    switch (predicate.quantifier) {
+      case "some":
+        return a.filters.some(query);
+      case "none":
+        return a.filters.none(query);
+      case "every":
+        return a.filters.every(query);
+      case "is":
+        return predicate.predicate ? a.filters.is(query) : a.filters.isNot(query);
+      case "isNot":
+        return predicate.predicate ? a.filters.isNot(query) : a.filters.is(query);
+      default:
+        throw new Error(
+          `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`,
+        );
+    }
   }
   correlation(edge: Membership, parent: string, target: string): Sql {
     return this.membershipWhere(edge, target, parent);
@@ -531,11 +874,25 @@ export class Queries {
     model: AnyModel,
     args: Partial<Arguments>,
     membership?: { edge: Membership; parent: Input },
-    controls: { condition?: Sql; forUpdate?: boolean } = {},
+    controls: {
+      condition?: Sql;
+      forUpdate?: boolean;
+      identity?: Input;
+      projection?: PreparedProjection;
+      selector?: PreparedSelector;
+    } = {},
   ): Query {
     const alias = this.alias();
-    const projection = this.project(model, args, alias);
-    const filter = this.where(model, args.where, alias);
+    const prepared = controls.projection ?? this.prepareProjection(model, args);
+    const projection = this.lowerProjection(prepared, alias);
+    const selector =
+      controls.selector ??
+      (args.where === undefined
+        ? undefined
+        : this.prepareSelector(model, args.where));
+    const filter = selector
+      ? this.lowerSelector(selector, alias)
+      : undefined;
     return {
       sql: assembleAdapterSelect(this.adapter, {
         columns: sql.join(projection.columns, ", "),
@@ -545,6 +902,9 @@ export class Queries {
             ? [this.memberWhere(membership.edge, membership.parent, alias)]
             : []),
           ...(filter ? [filter] : []),
+          ...(controls.identity
+            ? [this.lowerIdentity(model, controls.identity, alias)]
+            : []),
           ...(controls.condition ? [controls.condition] : []),
         ),
         orderBy: this.order(model, args.orderBy, alias),
@@ -552,14 +912,15 @@ export class Queries {
         offset: args.skip === undefined ? undefined : this.value(args.skip),
         forUpdate: controls.forUpdate,
       }),
-      shape: projection.shape,
+      shape: prepared.shape,
     };
   }
   selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
     const alias = this.alias();
-    const projection = this.project(model, { select }, alias);
-    const predicates = identities.map((identity) =>
-      this.where(model, identity, alias)!,
+    const prepared = this.prepareProjection(model, { select });
+    const projection = this.lowerProjection(prepared, alias);
+    const predicates = identities.map(
+      (identity) => this.lowerIdentity(model, identity, alias),
     );
     return {
       sql: assembleAdapterSelect(this.adapter, {
@@ -574,7 +935,7 @@ export class Queries {
           this.value(identities.length),
         ),
       }),
-      shape: projection.shape,
+      shape: prepared.shape,
       expectedRows: {
         count: identities.length,
         missing:
@@ -645,12 +1006,12 @@ export class Queries {
           .keys(model)
           .map((field) => [field, this.projectedColumn(model, field, alias)]),
       );
-    const projectedDocument = (projection: {
-      readonly entries: [string, Sql][];
-      readonly shape: Shape;
-    }) =>
+    const projectedDocument = (
+      projection: PreparedProjection,
+      lowered: { readonly entries: [string, Sql][] },
+    ) =>
       a.json.object(
-        projection.entries.map(([field, expression]) => [
+        lowered.entries.map(([field, expression]) => [
           field,
           projection.shape.kind === "object" &&
           projection.shape.fields[field]!.kind !== "scalar"
@@ -669,7 +1030,8 @@ export class Queries {
     const anchors = traversal.seeds.map((seed, index) => {
       const alias = this.alias();
       const args = withoutRelation(seed.args);
-      const projection = this.project(model, args, alias);
+      const projection = this.prepareProjection(model, args);
+      const lowered = this.lowerProjection(projection, alias);
       seedShapes.push(projection.shape);
       return assembleAdapterSelect(a, {
         columns: sql.join(
@@ -681,7 +1043,7 @@ export class Queries {
               carriers.path,
             ),
             a.identifiers.aliased(
-              projectedDocument(projection),
+              projectedDocument(projection, lowered),
               carriers.value,
             ),
             ...carried(alias),
@@ -689,13 +1051,14 @@ export class Queries {
           ", ",
         ),
         from: this.table(model, alias),
-        where: this.where(model, args.where, alias),
+        where: this.lowerWhere(model, args.where, alias),
       });
     });
     const childAlias = this.alias();
     const walkAlias = this.alias();
     const descendantArgs = withoutRelation(traversal.args ?? {});
-    const descendant = this.project(model, descendantArgs, childAlias);
+    const descendant = this.prepareProjection(model, descendantArgs);
+    const loweredDescendant = this.lowerProjection(descendant, childAlias);
     const walkColumn = (name: string) => a.identifiers.column(walkAlias, name);
     const childIdentity = identityDocument(childAlias);
     const recursive = assembleAdapterSelect(a, {
@@ -713,7 +1076,10 @@ export class Queries {
             ),
             carriers.path,
           ),
-          a.identifiers.aliased(projectedDocument(descendant), carriers.value),
+          a.identifiers.aliased(
+            projectedDocument(descendant, loweredDescendant),
+            carriers.value,
+          ),
           ...carried(childAlias),
         ],
         ", ",
@@ -725,7 +1091,7 @@ export class Queries {
       where: a.operators.and(
         a.operators.lt(walkColumn(carriers.depth), this.value(traversal.depth)),
         ...(descendantArgs.where
-          ? [this.where(model, descendantArgs.where, childAlias)!]
+          ? [this.lowerWhere(model, descendantArgs.where, childAlias)!]
           : []),
         a.operators.not(
           a.arrays.has(
@@ -799,12 +1165,10 @@ export class Queries {
       },
     };
   }
-  private project(
+  prepareProjection(
     model: AnyModel,
     args: Partial<Arguments>,
-    alias: string,
-  ): { columns: Sql[]; entries: [string, Sql][]; shape: Shape } {
-    const a = this.adapter;
+  ): PreparedProjection {
     const selected = args.select ?? {
       ...Object.fromEntries(
         model["~"].scalarFieldNames
@@ -813,15 +1177,12 @@ export class Queries {
       ),
       ...args.include,
     };
-    const columns: Sql[] = [];
-    const projected: [string, Sql][] = [];
+    const prepared: PreparedProjectionField[] = [];
     const fields: Record<string, Shape | Leaf> = {};
     for (const [name, selection] of Object.entries(selected)) {
       if (!selection) continue;
       if (!model["~"].state.relations[name]) {
-        const expression = this.projectedColumn(model, name, alias);
-        columns.push(a.identifiers.aliased(expression, name));
-        projected.push([name, expression]);
+        prepared.push(Object.freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
         continue;
       }
@@ -835,7 +1196,9 @@ export class Queries {
         const configuration = selection === true ? {} : record(selection);
         const only = configuration.only as string[] | undefined;
         const arms: Record<string, Shape> = {};
-        const expressions: [string, Sql][] = [];
+        const preparedArms: ({
+          readonly variant: string;
+        } & PreparedRelationProjection)[] = [];
         for (const member of resolved.edge.members) {
           if (
             many
@@ -847,53 +1210,126 @@ export class Queries {
           const arm = many
             ? record(configuration.variants ?? {})[member.variant]
             : configuration[member.variant];
-          const nested = this.relationProjection(
+          const nested = this.prepareRelationProjection(
             bindMembership(this.schema, model, name, member.variant),
             arm === undefined ? true : arm,
-            alias,
           );
-          arms[member.variant] = nested.shape;
-          expressions.push([
-            member.variant,
-            a.json.document(nested.expression),
-          ]);
+          arms[member.variant] = nested.edge.many
+            ? Object.freeze({
+                kind: "collection",
+                row: nested.projection.shape,
+              })
+            : nested.projection.shape;
+          preparedArms.push(
+            Object.freeze({ variant: member.variant, ...nested }),
+          );
         }
-        const expression = a.json.object(expressions);
-        columns.push(a.identifiers.aliased(expression, name));
-        projected.push([name, expression]);
-        fields[name] = { kind: "variants", many, arms };
+        fields[name] = Object.freeze({
+          kind: "variants",
+          many,
+          arms: Object.freeze(arms),
+        });
+        prepared.push(
+          Object.freeze({
+            kind: "variants",
+            name,
+            many,
+            arms: Object.freeze(preparedArms),
+          }),
+        );
         continue;
       }
-      const nested = this.relationProjection(
+      const nested = this.prepareRelationProjection(
         bindMembership(this.schema, model, name),
         selection,
-        alias,
       );
-      columns.push(a.identifiers.aliased(nested.expression, name));
-      projected.push([name, nested.expression]);
-      fields[name] = nested.shape;
+      fields[name] = nested.edge.many
+        ? Object.freeze({ kind: "collection", row: nested.projection.shape })
+        : nested.projection.shape;
+      prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
     }
-    return { columns, entries: projected, shape: { kind: "object", fields } };
+    return Object.freeze({
+      model,
+      fields: Object.freeze(prepared),
+      shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
+    });
   }
-  private relationProjection(
+  private prepareRelationProjection(
     edge: Membership,
     selection: unknown,
-    alias: string,
-  ): { expression: Sql; shape: Shape } {
-    const a = this.adapter;
+  ): PreparedRelationProjection {
     const nested =
       selection === true ? {} : (record(selection) as Partial<Arguments>);
+    return Object.freeze({
+      edge,
+      arguments: Object.freeze({
+        selector: nested.where
+          ? this.prepareSelector(edge.target, nested.where)
+          : undefined,
+        orderBy: nested.orderBy,
+        take: nested.take,
+        skip: nested.skip,
+      }),
+      projection: this.prepareProjection(edge.target, nested),
+    });
+  }
+  lowerProjection(
+    projection: PreparedProjection,
+    alias?: string,
+  ): { readonly columns: Sql[]; readonly entries: [string, Sql][] } {
+    const a = this.adapter;
+    const columns: Sql[] = [];
+    const entries: [string, Sql][] = [];
+    for (const field of projection.fields) {
+      let expression: Sql;
+      if (field.kind === "scalar") {
+        expression = this.projectedColumn(projection.model, field.name, alias);
+      } else if (field.kind === "relation") {
+        expression = this.lowerRelationProjection(field, alias ?? "");
+      } else {
+        expression = a.json.object(
+          field.arms.map((arm) => [
+            arm.variant,
+            a.json.document(this.lowerRelationProjection(arm, alias ?? "")),
+          ]),
+        );
+      }
+      columns.push(a.identifiers.aliased(expression, field.name));
+      entries.push([field.name, expression]);
+    }
+    return { columns, entries };
+  }
+  lowerProjectionValues(
+    projection: PreparedProjection,
+    values: Input,
+  ): readonly Sql[] {
+    return projection.fields.map((field) => {
+      const scalar = field as Extract<
+        PreparedProjectionField,
+        { kind: "scalar" }
+      >;
+      return this.adapter.identifiers.aliased(
+        this.fieldValue(projection.model, scalar.name, values[scalar.name]),
+        scalar.name,
+      );
+    });
+  }
+  private lowerRelationProjection(
+    relation: PreparedRelationProjection,
+    alias: string,
+  ): Sql {
+    const a = this.adapter;
+    const { edge, arguments: nested, projection } = relation;
     const childAlias = this.alias();
-    const child = this.project(edge.target, nested, childAlias);
-    const childFields =
-      child.shape.kind === "object" ? Object.keys(child.shape.fields) : [];
+    const child = this.lowerProjection(projection, childAlias);
+    const childFields = Object.keys(projection.shape.fields);
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child.columns, ", "),
       from: this.table(edge.target, childAlias),
       where: a.operators.and(
         this.correlation(edge, alias, childAlias),
-        ...(nested.where
-          ? [this.where(edge.target, nested.where, childAlias)!]
+        ...(nested.selector
+          ? [this.lowerSelector(nested.selector, childAlias)!]
           : []),
       ),
       orderBy: this.order(edge.target, nested.orderBy, childAlias),
@@ -908,8 +1344,7 @@ export class Queries {
     const object = a.json.object(
       childFields.map((field) => [
         field,
-        child.shape.kind === "object" &&
-        child.shape.fields[field]!.kind !== "scalar"
+        projection.shape.fields[field]!.kind !== "scalar"
           ? a.json.document(a.identifiers.column(pageAlias, field))
           : a.identifiers.column(pageAlias, field),
       ]),
@@ -922,10 +1357,7 @@ export class Queries {
         from: a.subqueries.correlate(page, pageAlias),
       }),
     );
-    const shape: Shape = edge.many
-      ? { kind: "collection", row: child.shape }
-      : child.shape;
-    return { expression, shape };
+    return expression;
   }
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
@@ -969,7 +1401,7 @@ export class Queries {
       ? a.operators.and(
           ...Object.entries(args.having).flatMap(([field, aggregates]) =>
             Object.entries(record(aggregates)).map(([aggregate, condition]) =>
-              this.predicate(
+              this.lowerValuePredicate(
                 this.aggregate(aggregate, this.column(model, field, alias)),
                 condition,
               ),
@@ -981,7 +1413,7 @@ export class Queries {
       sql: assembleAdapterSelect(a, {
         columns: sql.join(columns, ", "),
         from: this.table(model, alias),
-        where: this.where(model, args.where, alias),
+        where: this.lowerWhere(model, args.where, alias),
         groupBy: sql.join(
           args.by!.map((field) => this.column(model, field, alias)),
           ", ",
@@ -1010,18 +1442,23 @@ export class Queries {
         throw new Error(`Raptor 3 G1 aggregate is not implemented: ${name}`);
     }
   }
-  decode(query: Query, rows: Input[], internal = false): Input[] {
-    if (query.shape.kind === "recursive")
-      return this.decodeRecursive(query.shape, rows, internal);
+  decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
     if (query.expectedRows && rows.length < query.expectedRows.count)
       throw new QueryEngineError(query.expectedRows.missing);
     if (query.expectedRows && rows.length > query.expectedRows.count)
       throw new QueryEngineError(
         "Raptor 3 createMany final read returned inconsistent row counts.",
       );
-    return rows.map(
-      (row) => this.decodeValue(query.shape, row, internal) as Input,
-    );
+    return this.decodeProjection(query.shape, rows, internal);
+  }
+  decodeProjection(
+    shape: ProjectionShape,
+    rows: Input[],
+    internal = false,
+  ): Input[] {
+    if (shape.kind === "recursive")
+      return this.decodeRecursive(shape, rows, internal);
+    return rows.map((row) => this.decodeValue(shape, row, internal) as Input);
   }
   private decodeRecursive(
     shape: Extract<Shape, { kind: "recursive" }>,

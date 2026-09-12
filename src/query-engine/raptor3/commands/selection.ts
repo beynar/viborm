@@ -1,5 +1,9 @@
 import type { AnyModel } from "@schema/model";
-import type { SelectorFacts } from "../shared/query";
+import type {
+  PreparedProjection,
+  PreparedSelector,
+  SelectorFacts,
+} from "../shared/query";
 import type { Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 import { storedFields } from "../shared/storage";
@@ -14,11 +18,13 @@ export type SelectionSource =
   | {
       readonly kind: "query";
       readonly where?: Input;
+      readonly selector?: PreparedSelector;
       readonly membership?: BoundMembership;
     }
   | {
       readonly kind: "producer";
       readonly where?: Input;
+      readonly selector?: PreparedSelector;
       readonly producer: Assignments;
     };
 
@@ -38,6 +44,9 @@ export class Selection {
   readonly kind = "lookup";
   readonly fields: Assignments;
   readonly facts: SelectorFacts;
+  readonly selector: PreparedSelector;
+  private readonly rowProjection: PreparedProjection;
+  private readonly identityProjection: PreparedProjection;
   origin?: Origin;
   retained?: Error;
   membershipOnly?: boolean;
@@ -49,9 +58,24 @@ export class Selection {
     readonly required?: Error,
     facts?: SelectorFacts
   ) {
+    const queries = execution.context.queries;
     this.fields = new Assignments(model, "select");
-    this.facts =
-      facts ?? execution.context.queries.selectorFacts(model, source.where);
+    this.selector =
+      source.selector ?? queries.prepareSelector(model, source.where);
+    this.facts = facts ?? queries.selectorFacts(this.selector);
+    this.rowProjection = queries.prepareProjection(model, {
+      select: Object.fromEntries(
+        storedFields(execution.context.schema, model).map((field) => [
+          field,
+          true,
+        ]),
+      ),
+    });
+    this.identityProjection = queries.prepareProjection(model, {
+      select: Object.fromEntries(
+        execution.context.schema.keys(model).map((field) => [field, true]),
+      ),
+    });
   }
   membership() {
     return this.source.kind === "query" ? this.source.membership : undefined;
@@ -67,43 +91,39 @@ export class Selection {
       }
     );
   }
-  private capturedWhere(condition: Selection): Input {
-    return {
-      AND: [condition.source.where ?? {}, this.execution.identity(this.fields)],
-    };
-  }
   private rowQuery(
-    where: Input | undefined,
-    membership: BoundMembership | undefined
+    selector: PreparedSelector,
+    membership: BoundMembership | undefined,
+    identity?: Input,
   ) {
     const ctx = this.execution.context;
     return ctx.queries.select(
       this.model,
       {
-        where,
         take: 1,
-        select: Object.fromEntries(
-          storedFields(ctx.schema, this.model).map((field) => [field, true])
-        ),
       },
       this.bindMembership(membership),
-      { forUpdate: !ctx.usesBatch }
+      {
+        forUpdate: !ctx.usesBatch,
+        identity,
+        projection: this.rowProjection,
+        selector,
+      },
     );
   }
   inspectMembership(membership: BoundMembership) {
-    return this.rowQuery(this.capturedWhere(this), membership);
+    return this.rowQuery(
+      this.selector,
+      membership,
+      this.execution.identity(this.fields),
+    );
   }
   query() {
-    const where =
+    const identity =
       this.source.kind === "producer"
-        ? {
-            AND: [
-              this.source.where ?? {},
-              this.execution.identity(this.source.producer),
-            ],
-          }
-        : this.source.where;
-    return this.rowQuery(where, this.membership());
+        ? this.execution.identity(this.source.producer)
+        : undefined;
+    return this.rowQuery(this.selector, this.membership(), identity);
   }
   captured(
     condition: Selection = this,
@@ -114,13 +134,14 @@ export class Selection {
     return ctx.queries.select(
       this.model,
       {
-        where: this.capturedWhere(condition),
-        select: Object.fromEntries(
-          ctx.schema.keys(this.model).map((field) => [field, true])
-        ),
         take,
       },
-      this.bindMembership(membership)
+      this.bindMembership(membership),
+      {
+        identity: this.execution.identity(this.fields),
+        projection: this.identityProjection,
+        selector: condition.selector,
+      },
     );
   }
 }

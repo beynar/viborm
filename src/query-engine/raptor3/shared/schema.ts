@@ -1,6 +1,11 @@
 import type { AnyDriver } from "@drivers";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
 import { getModelKeyCatalog, type AnyModel } from "@schema/model";
+import {
+  clearableMembership,
+  type ClearableMembership,
+} from "@schema/relation/clearability";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { validateClientSchemaOrThrow } from "@schema/validation";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { isRecord } from "@validation/value-guards";
@@ -8,6 +13,14 @@ import {
   parseValidated,
   upsertEnvelopeSchema,
 } from "../../write-engine/parse-boundary";
+import {
+  buildMembershipView,
+  buildPhysicalFieldView,
+  buildStoredFieldsView,
+  freezeMembershipView,
+  type Membership,
+  type PhysicalField,
+} from "./storage";
 
 export type Input = Record<string, unknown>;
 export type Operation =
@@ -54,6 +67,22 @@ export function entries(value: unknown): Input[] {
 export class EngineSchema {
   readonly index;
   readonly registry;
+  private readonly membershipViews = new WeakMap<
+    AnyModel,
+    Map<string, Map<string | undefined, Membership>>
+  >();
+  private readonly physicalFields = new WeakMap<
+    AnyModel,
+    Map<string, PhysicalField>
+  >();
+  private readonly storedFieldLists = new WeakMap<
+    AnyModel,
+    readonly string[]
+  >();
+  private readonly clearabilityViews = new WeakMap<
+    ResolvedSlot,
+    ClearableMembership
+  >();
   constructor(readonly schema: Schema) {
     hydrateSchemaNames(schema);
     this.index = validateClientSchemaOrThrow(schema);
@@ -204,6 +233,57 @@ export class EngineSchema {
     return Object.fromEntries(
       this.keys(model).map((field) => [field, row[field]])
     );
+  }
+  membership(model: AnyModel, name: string, variant?: string): Membership {
+    let modelViews = this.membershipViews.get(model);
+    if (!modelViews) {
+      modelViews = new Map();
+      this.membershipViews.set(model, modelViews);
+    }
+    let slotViews = modelViews.get(name);
+    if (!slotViews) {
+      slotViews = new Map();
+      modelViews.set(name, slotViews);
+    }
+    let view = slotViews.get(variant);
+    if (!view) {
+      view = freezeMembershipView(
+        buildMembershipView(this, model, name, variant)
+      );
+      slotViews.set(variant, view);
+    }
+    return view;
+  }
+  clearability(resolved: ResolvedSlot): ClearableMembership {
+    let view = this.clearabilityViews.get(resolved);
+    if (!view) {
+      view = clearableMembership(resolved);
+      if (view.kind === "columns") Object.freeze(view.fields);
+      Object.freeze(view);
+      this.clearabilityViews.set(resolved, view);
+    }
+    return view;
+  }
+  physicalField(model: AnyModel, field: string): PhysicalField {
+    let fields = this.physicalFields.get(model);
+    if (!fields) {
+      fields = new Map();
+      this.physicalFields.set(model, fields);
+    }
+    let descriptor = fields.get(field);
+    if (!descriptor) {
+      descriptor = Object.freeze(buildPhysicalFieldView(this, model, field));
+      fields.set(field, descriptor);
+    }
+    return descriptor;
+  }
+  storedFields(model: AnyModel): readonly string[] {
+    let fields = this.storedFieldLists.get(model);
+    if (!fields) {
+      fields = Object.freeze(buildStoredFieldsView(this, model));
+      this.storedFieldLists.set(model, fields);
+    }
+    return fields;
   }
   scalars(model: AnyModel, admitted: Input): Input {
     return Object.fromEntries(

@@ -93,6 +93,14 @@ classes `StringField`, `IntField`, etc. The concrete classes are
 
 ## Critical Architectural Rules
 
+### Authoritative facts and admission scope
+
+Establish immutable facts once at their authoritative owner. Resolve admitted
+operation meaning once within its admission scope. Consumers use those answers
+instead of reconstructing them. Reobserve facts when their truth can change,
+and validate at each genuine trust boundary. Every additional derivation or
+check must name the distinct fact or boundary it owns.
+
 ### Rule 1: Query Engine / Adapter Separation ⭐ MOST IMPORTANT
 
 **The Golden Rule:** Query engine NEVER generates dialect-specific SQL. ALWAYS delegate to adapter.

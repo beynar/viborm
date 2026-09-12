@@ -1,0 +1,7 @@
+Final frozen identity: production 509869f4df577a29820f26514f6bdb7750f5e5c32591722c004aab8e1d40c4c9; harness 112e82f710c639c31d69ca3cb3395338d26d81a4a04bb2bed9b1ce947120c1e0.
+Each file ran alone through scripts/run-credential-free-tests.mjs with the registered 2560 MiB isolated live-PGlite ceiling.
+tests/raptor3/expanded/produced-legacy.test.ts: 3/3; 1483.4 MiB peak; teardown verified.
+tests/raptor3/expanded/batch-produced-legacy.test.ts: 2/2; 1453.4 MiB peak; teardown verified.
+tests/raptor3/expanded/produced-commands.test.ts: 3/3; 1490.2 MiB peak; teardown verified.
+tests/raptor3/expanded/batch-produced-commands.test.ts: 2/2; 1521.6 MiB peak; teardown verified.
+Total: 10/10, zero failed or pending.
