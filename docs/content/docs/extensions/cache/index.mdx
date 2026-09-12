@@ -67,7 +67,7 @@ documented public values without sharing mutable references between calls.
 Fixed decimals are snapshotted as validated canonical private strings, never as
 Decimal prototypes or JSON numbers. Every scalar and list member is rebuilt as
 a fresh `Decimal` on every hit. Compare those values with `.eq()` rather than
-object identity; a caller mutation or Decimal.js configuration change cannot
+object identity; a caller mutation or big.js configuration change cannot
 poison a later hit or change cache identity.
 
 GeoPoint values are snapshotted through the one coordinate codec. Every cache
