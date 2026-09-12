@@ -575,6 +575,29 @@ describe("a key is not a domain", () => {
     ).toThrowError(IMPLICIT_ON_WRONG_KIND);
   });
 
+  it("refuses `implicit` on a field that is not a key", () => {
+    // `implicit` says "this is the ULID `.id()` installs", and without `id` the
+    // interpreter installs nothing at all: its `.id()` arm needs the flag and
+    // its `applyGenerate` arm stands down for an implicit node. Accepted, the
+    // field came back a bare `{"type":"string"}` with no generator, no default
+    // and no domain — a declaration silently dropped.
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: {
+                type: "string",
+                generate: { kind: "ulid", implicit: true },
+              },
+            },
+          },
+        },
+      })
+    ).toThrowError(IMPLICIT_ON_WRONG_KIND);
+  });
+
   it("ignores an explicitly false `implicit`, which claims nothing", () => {
     const parsed = parseSchema({
       version: 1,

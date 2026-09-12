@@ -777,7 +777,8 @@ function readScalarField(
       const declaration = readGenerateNode(
         generate,
         pointer(path, "generate"),
-        issues
+        issues,
+        field.id === true
       );
       if (declaration !== undefined) field.generate = declaration;
     }
@@ -955,7 +956,8 @@ function readNativeNode(
 function readGenerateNode(
   value: unknown,
   path: string,
-  issues: DocumentIssues
+  issues: DocumentIssues,
+  isKey: boolean
 ): GenerateDocument | undefined {
   const node = asRecord(value, path, issues, "`generate`");
   if (node === undefined) return;
@@ -991,17 +993,28 @@ function readGenerateNode(
     );
     if (flag === true) {
       // `implicit` says "this is the ULID `.id()` installs". It describes ONE
-      // declaration, so it belongs to one kind; on any other it would claim a
-      // generator `.id()` never installs and silently drop that format's
-      // domain, its admission and its compact column.
-      if (kind === "ulid") {
+      // declaration — that kind, on that flag — and either half missing makes
+      // it a claim about a generator nothing installed. On another kind it
+      // would silently drop that format's domain, its admission and its
+      // compact column; without `id` the interpreter installs NOTHING at all
+      // (its `.id()` arm needs the flag and its `applyGenerate` arm stands
+      // down for an implicit node), so the declared generator vanishes and the
+      // field round-trips back as a bare `{"type":"string"}`.
+      if (kind !== "ulid") {
+        addIssue(
+          issues,
+          pointer(path, "implicit"),
+          "J004",
+          '`generate.implicit` describes the ULID `.id()` installs, so it belongs only to `kind: "ulid"`'
+        );
+      } else if (isKey) {
         declaration.implicit = true;
       } else {
         addIssue(
           issues,
           pointer(path, "implicit"),
           "J004",
-          '`generate.implicit` describes the ULID `.id()` installs, so it belongs only to `kind: "ulid"`'
+          "`generate.implicit` describes the ULID `.id()` installs, so it belongs only beside `id: true`"
         );
       }
     }

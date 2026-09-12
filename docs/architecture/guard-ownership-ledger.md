@@ -1892,10 +1892,16 @@ domains which differ — the shape that types the carrier column from one varian
 and writes another's key through it).
 
 **`J004` on `generate.implicit` (`schema/json/read.ts`).** Unique coverage: a
-document that marks a generator implicit on a kind `.id()` never installs.
-`implicit` says "this ULID is the one `.id()` installs"; on any other kind it
+document that marks a generator implicit where `.id()` could not have installed
+it — on another KIND, or without the `id` flag. `implicit` says "this ULID is
+the one `.id()` installs", which is one kind beside one flag. On another kind it
 would claim a generator that does not exist and silently drop that format's
-domain, its admission and its compact column.
+domain, its admission and its compact column. Without `id` the interpreter
+installs nothing at all — its `.id()` arm needs the flag and its `applyGenerate`
+arm stands down for an implicit node — so the declared generator vanishes and
+the field round-trips as a bare `{"type":"string"}`. Not reachable from
+`serializeSchema`, which writes `implicit` only for an `.id()` field; reachable
+from any hand-authored or externally produced document.
 
 **The engine's text-predicate refusal
 (`query-engine/builders/scalar-filter-operators.ts`).** Not a new guard: the
