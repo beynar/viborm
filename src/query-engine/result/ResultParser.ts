@@ -237,7 +237,7 @@ export class ResultParser {
    * string. A caller that indexed rows by the public value would compare two
    * equal decimals with `Object.is` and never match them, and would re-spell
    * them into a later statement through a rendering an application's
-   * `Decimal.set(...)` can move. So this parses ONCE and keeps both.
+   * `Big.NE`/`Big.PE` can move. So this parses ONCE and keeps both.
    */
   parseRowsWithRowKeys<T>(
     operation: Operation,

@@ -20,7 +20,7 @@ import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ForeignKeyError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
 const PAST_DOUBLE = "99999999999999.99";

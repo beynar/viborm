@@ -105,12 +105,14 @@ produced by the database).
 
 - `big.js@7.0.1` (pinned exactly, like decimal.js was) replaces `decimal.js`.
   `export { default as Decimal } from "big.js"` — the public `Decimal` **is**
-  the `Big` constructor. This is an intentional API change: `Big` has 25
-  prototype methods (`plus/minus/times/div/mod/pow/sqrt/abs/cmp/eq/gt/gte/lt/
-  lte/round/prec/toFixed/toPrecision/toExponential/toNumber/toString/valueOf/
-  toJSON`), `div(0)` and `sqrt(-1)` throw, `pow` takes integer exponents only,
-  `Big.DP` is decimal places (not significant digits), and there is no NaN or
-  Infinity: `new Decimal("abc")` throws instead of producing a NaN value.
+  the `Big` constructor. This is an intentional API change: `Big` has 27
+  prototype members (`plus/minus/times/div/mod/pow/sqrt/abs/neg/cmp/eq/gt/gte/
+  lt/lte/round/prec/toFixed/toPrecision/toExponential/toNumber/toString/valueOf`
+  plus the aliases `add/sub/mul` of `plus/minus/times` and `toJSON` of
+  `toString`: 23 distinct operations), `div(0)` and `sqrt(-1)` throw, `pow`
+  takes integer exponents only, `Big.DP` is decimal places (not significant
+  digits), and there is no NaN or Infinity: `new Decimal("abc")` throws
+  instead of producing a NaN value.
   No compatibility shim; old decimal.js instances are not accepted (callers
   convert with `new Decimal(old.toString())`).
 - `@types/big.js@7.0.0` is a **runtime** dependency: big.js ships no

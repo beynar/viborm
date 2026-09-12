@@ -1,7 +1,7 @@
 // String Scalar
 // Standalone scalar class with State generic pattern
 
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { hasIdPrefix, refuseId } from "@validation/primitives/id-formats";
 import v from "@validation/primitives/v";
 import {
@@ -140,7 +140,7 @@ export class StringScalar<State extends ScalarState<"string">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<string>>(schema: S) {
+  schema<S extends StandardSchemaV1<string>>(schema: S) {
     return new StringScalar(
       updateState(this, {
         schema,

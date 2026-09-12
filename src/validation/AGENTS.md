@@ -122,7 +122,8 @@ ordering, pagination, cursor, and selection clauses describe a larger query.
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
 shape and the one field-aware decimal codec. It owns the accepted
 `Decimal | string | number` input grammar, configuration-independent Decimal
-snapshot/render, exact one-constructor materialization, canonical private text, descriptor validation,
+snapshot/render over big.js's `s`/`e`/`c` internals, exact one-constructor
+materialization, canonical private text, descriptor validation,
 logical/coefficient conversion, provider scalar/list encode/decode, widened
 sum decode, and fresh public Decimal construction. Import it by direct path;
 do not add a barrel cycle, another structural descriptor, or a second
@@ -136,11 +137,13 @@ reads this table before provider I/O; no dialect invents a wider local domain.
 
 `v.decimal()` emits canonical private text because operation identity, row keys,
 cursors, and cache keys need value equality. A custom schema observes a
-`Decimal`; the codec snapshots its complete, bounded, finite observable
-numerical representation, then the descriptor validates that snapshot last.
-Decimal.js provides no unforgeable constructor-history witness, so this boundary
-does not claim historical provenance. Public result materialization happens
-later at the typed result leaf.
+`Decimal`; the codec snapshots its complete, bounded observable numerical
+representation, then the descriptor validates that snapshot last. big.js
+provides no constructor-history witness at all — no `isDecimal`, and one shared
+prototype across every constructor it builds — so this boundary does not claim
+historical provenance. Nor does big.js clamp an exponent, so the codec's
+`MAX_RENDER_EXPONENT` ceiling is the only bound on a rendering's length. Public
+result materialization happens later at the typed result leaf.
 
 A literal decimal default crosses that complete field codec once at declaration
 and is retained as trusted canonical output. The decimal create schema applies

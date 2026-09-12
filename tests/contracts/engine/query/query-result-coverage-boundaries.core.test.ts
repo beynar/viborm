@@ -37,7 +37,7 @@ import {
   parserFor,
   prepareSchema,
 } from "@tests/fixtures/query-scope";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const SPARSE_RESULT_PATTERN = /sparse/i;

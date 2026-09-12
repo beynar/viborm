@@ -97,11 +97,11 @@ export default defineConfig({
     // consumer installs it once rather than receiving a second copy inlined
     // into every entry that reaches the string scalar.
     "@noble/hashes",
-    // Bundling this would inline one Decimal class per entry point, and a
+    // Bundling this would inline one Big class per entry point, and a
     // `Decimal` handed back by "viborm" would not be the one "viborm/schema"
     // builds — `instanceof` fails across entries and there is no single public
     // constructor identity. `external` is not derived from `dependencies`.
-    "decimal.js",
+    "big.js",
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",

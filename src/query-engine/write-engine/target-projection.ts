@@ -279,7 +279,7 @@ export function readRowKey(
  * as the public `Decimal` — see {@link ResultParser.parseRowsWithRowKeys}. That
  * is the whole reason this file needs no decimal branch: the value is already
  * one spelling per value, and rendering a `Decimal` here instead would key on
- * `toString()`, which an application's own `Decimal.set({ toExpPos })` moves.
+ * `toString()`, which an application's own `Big.PE` moves.
  */
 export function rowKeyToken(
   model: Model<any>,

@@ -13,7 +13,7 @@ import {
 import { sortCapturedRowKeys } from "@src/query-engine/write-engine/target-projection";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 /** Read one public decimal leaf as the Decimal the result type promises. */

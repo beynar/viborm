@@ -14,7 +14,7 @@ import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 const TABLE = "decimal_list_defaults";
