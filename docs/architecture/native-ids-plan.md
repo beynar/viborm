@@ -141,7 +141,25 @@ produced by the database).
 A field's **ID domain** is `{ format, prefix?, length? }` — the same facts the
 generator methods already record in `ScalarState.autoGenerate`. There is no
 second copy: `autoGenerate` *is* the domain declaration for the six string
-formats (`increment/now/updatedAt` are not ID domains). Generation, admission,
+formats (`increment/now/updatedAt` are not ID domains).
+
+> **AMENDED IN STAGE D (executed).** A NAMED format declares a domain; a bare
+> `.id()` does not. `.id()` installs a ULID so a caller need not supply one, but
+> a convenience default is not an assertion about every value the field will
+> hold — so a `.id()` key admits what a string column admits and is still stored
+> as text, while `.ulid().id()` is a ULID key with admission and compact
+> storage. `AutoGenerate.implicit`, written only by `.id()` and read only by
+> `idDomainOfState`, is the whole record of the difference; the schema document
+> restates it so a round trip cannot promote a key into a domain.
+>
+> The amendment is a MEASUREMENT, not a preference. With `.id()` read as a named
+> ULID, 723 tests across 77 files refuse VibORM's own estate — 2,241 `.id()`
+> declarations across 442 test files, whose identifiers are readable strings —
+> and every one of those failures is the narrowing working as specified. The
+> same would be true of every shipped schema: `.id()` is how a string primary
+> key is spelled, and silently changing its column to `BLOB` and its admission
+> to "ULIDs only" is a larger break than this program set out to make. Stage F
+> inherits the distinction: only a named format needs a text→native conversion. Generation, admission,
 encoding, decoding, schema serialization and physical storage read it through
 one lookup, never re-derive it.
 

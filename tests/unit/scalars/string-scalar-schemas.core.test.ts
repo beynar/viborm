@@ -947,6 +947,33 @@ describe("a declared identifier domain", () => {
     });
   });
 
+  test("a custom default crosses the same validator an input does", () => {
+    // `.default(fn)` after a generator replaces only the closure; the declared
+    // format stays, and the closure's output is admitted exactly as an
+    // explicit value is — it is not a back door into the column.
+    const good = getScalarSchemas(
+      string()
+        .uuid("usr")
+        .default(() => `usr-${UUID}`)["~"].state
+    );
+    expect(admitted(good.create, undefined)).toBe(`usr-${UUID}`);
+
+    const bad = getScalarSchemas(
+      string()
+        .uuid("usr")
+        .default(() => "not a uuid")["~"].state
+    );
+    expect(admitted(bad.create, undefined)).toBeUndefined();
+
+    // And an alias from a custom default normalizes like any other value.
+    const shouting = getScalarSchemas(
+      string()
+        .uuid("usr")
+        .default(() => `usr-${UUID.toUpperCase()}`)["~"].state
+    );
+    expect(admitted(shouting.create, undefined)).toBe(`usr-${UUID}`);
+  });
+
   test("a LIST of strings has no domain, whatever it declares", () => {
     const list = getScalarSchemas(string().uuid().array()["~"].state);
     expect(admitted(list.create, ["anything"])).toEqual(["anything"]);

@@ -121,7 +121,9 @@ export function deriveIdDomains(
   const domains = new Map<Model<any>, Map<string, IdDomain>>();
   const issues: SchemaValidationIssue[] = [];
   const settled = new Map<Model<any>, Map<string, IdDomain | undefined>>();
-  const active = new Set<string>();
+  // Keyed by model IDENTITY, not by name: a name is for the message, and two
+  // models that happen to render the same one must not share a cycle mark.
+  const active = new Map<Model<any>, Set<string>>();
 
   const publish = (
     model: Model<any>,
@@ -155,13 +157,18 @@ export function deriveIdDomains(
       return publish(model, field, declared);
     }
 
-    const marker = `${nameOf(ctx, model)}.${field}`;
-    if (active.has(marker)) {
+    let inProgress = active.get(model);
+    if (inProgress === undefined) {
+      inProgress = new Set();
+      active.set(model, inProgress);
+    }
+    if (inProgress.has(field)) {
       // A reference that is still resolving cannot answer about itself. The
       // declaration it may carry is the only answer there is on this arm.
       return declared;
     }
-    active.add(marker);
+    inProgress.add(field);
+    const marker = `${nameOf(ctx, model)}.${field}`;
 
     let agreed = declared;
     let agreedFrom = agreed === undefined ? undefined : marker;
@@ -192,7 +199,7 @@ export function deriveIdDomains(
             : `Declare '${marker}' with the same identifier format, prefix and length as '${targetMarker}', or declare nothing and let it derive`,
       });
     }
-    active.delete(marker);
+    inProgress.delete(field);
     return publish(model, field, conflicted ? undefined : agreed);
   };
 
