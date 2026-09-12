@@ -113,6 +113,13 @@ cursor pagination — because the byte order of all four compact formats IS thei
 canonical text order (and, for `uuidv7`, `ulid` and `ksuid`, their time order).
 `nanoid` and `cuid` stay text and keep every string operator; only their
 `equals` / `in` / `notIn` operands have to be values of the domain.
+
+The four predicates go by the FORMAT, not by the storage: a compact format that
+took the text-family override below still loses them. The validation schema is
+built before any adapter exists, so it cannot know which dialect this field will
+be bound to, let alone which column that dialect chose — and one filter type per
+field, rather than one per deployment, is the answer that keeps the type and the
+runtime saying the same thing.
 `_min` and `_max` answer with the earliest and latest identifier, for the same
 reason ordering works, and `_count` and `groupBy` are unaffected.
 
@@ -124,11 +131,17 @@ this is the route for a column that already holds text:
 s.string(PG.STRING.VARCHAR(40)).id().uuid("usr"); // varchar(40), still admits only prefixed uuids
 ```
 
-PostgreSQL accepts `text`, `citext`, `varchar(n)`, `char(n)`, `bytea` and — for
-the two uuid formats — `uuid`. MySQL accepts its TEXT family, `BINARY(n)`,
+PostgreSQL accepts `text`, `citext`, `varchar(n)`, `bytea` and — for the two
+uuid formats — `uuid`. MySQL accepts its TEXT family, `BINARY(n)`,
 `VARBINARY(n)` and `BLOB`, where `n` must be the format's own width. SQLite
 accepts `TEXT` and `BLOB`. Anything else is refused where it is declared, with a
 message naming the spellings that format does accept.
+
+PostgreSQL's `char(n)` is **not** among them, though it is an ordinary string
+override: `character(n)` blank-pads to its full width, so a 36-character uuid in
+a `char(40)` column reads back with four trailing spaces and no value of the
+domain is ever returned. MySQL's `CHAR(n)` strips that padding on the way out
+and stays accepted there.
 
 ## Custom Validation
 

@@ -84,7 +84,13 @@ export interface IdStorage {
   readonly columnType: string;
 }
 
-const PG_TEXT_FAMILY = /^(?:text|citext|varchar\(\d+\)|char\(\d+\))$/;
+// `char(n)` is absent deliberately. PostgreSQL BLANK-PADS `character(n)` to its
+// full width, so a 36-character uuid in a `char(40)` column reads back with four
+// trailing spaces and no value of the domain is ever returned — the column is
+// unusable from the moment it is created, for every n wider than the format's
+// own public spelling. MySQL's `CHAR(n)` pads on the way in and STRIPS on the
+// way out, so it keeps its place in that dialect's list.
+const PG_TEXT_FAMILY = /^(?:text|citext|varchar\(\d+\))$/;
 const MYSQL_TEXT_FAMILY =
   /^(?:TINYTEXT|TEXT|MEDIUMTEXT|LONGTEXT|VARCHAR\(\d+\)|CHAR\(\d+\))$/;
 const SQLITE_TEXT_FAMILY = /^TEXT$/;
@@ -212,7 +218,7 @@ export function describeIdNativeTypes(
   const width = idByteLength(format);
   const text =
     dialect === "pg"
-      ? "text, citext, varchar(n), char(n)"
+      ? "text, citext, varchar(n)"
       : dialect === "mysql"
         ? "TEXT, TINYTEXT, MEDIUMTEXT, LONGTEXT, VARCHAR(n), CHAR(n)"
         : "TEXT";

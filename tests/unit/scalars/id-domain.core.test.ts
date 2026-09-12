@@ -186,10 +186,6 @@ describe("native type overrides", () => {
       representation: "text",
       columnType: "varchar(26)",
     });
-    expect(idStorageOf(domain("ulid"), PG.STRING.CHAR(26), "pg")).toEqual({
-      representation: "text",
-      columnType: "char(26)",
-    });
     expect(idStorageOf(domain("uuid"), PG.STRING.CITEXT, "pg")).toEqual({
       representation: "text",
       columnType: "citext",
@@ -210,6 +206,21 @@ describe("native type overrides", () => {
       representation: "text",
       columnType: "TEXT",
     });
+  });
+
+  test("PostgreSQL's char(n) is not in the text family a domain may live in", () => {
+    // `character(n)` BLANK-PADS to its full width, so a 36-character uuid in a
+    // `char(40)` column reads back with four trailing spaces and no value of
+    // the domain is ever returned. MySQL's `CHAR(n)` strips that padding on the
+    // way out and keeps its place above.
+    expect(
+      idStorageOf(domain("uuid"), PG.STRING.CHAR(40), "pg")
+    ).toBeUndefined();
+    expect(
+      idStorageOf(domain("uuid"), PG.STRING.CHAR(36), "pg")
+    ).toBeUndefined();
+    expect(describeIdNativeTypes("uuid", "pg")).not.toContain(", char(n)");
+    expect(describeIdNativeTypes("uuid", "mysql")).toContain("CHAR(n)");
   });
 
   test("a binary override of the format's own width is accepted", () => {
@@ -282,10 +293,10 @@ describe("native type overrides", () => {
 describe("the refusal message's vocabulary", () => {
   test("it names the binary and the text spellings this domain accepts", () => {
     expect(describeIdNativeTypes("uuid", "pg")).toBe(
-      "uuid, bytea, text, citext, varchar(n), char(n)"
+      "uuid, bytea, text, citext, varchar(n)"
     );
     expect(describeIdNativeTypes("ulid", "pg")).toBe(
-      "bytea, text, citext, varchar(n), char(n)"
+      "bytea, text, citext, varchar(n)"
     );
     expect(describeIdNativeTypes("ksuid", "mysql")).toBe(
       "BINARY(20), VARBINARY(20), BLOB, TEXT, TINYTEXT, MEDIUMTEXT, LONGTEXT, VARCHAR(n), CHAR(n)"
@@ -295,7 +306,7 @@ describe("the refusal message's vocabulary", () => {
 
   test("a text format names only the text spellings", () => {
     expect(describeIdNativeTypes("cuid", "pg")).toBe(
-      "text, citext, varchar(n), char(n)"
+      "text, citext, varchar(n)"
     );
     expect(describeIdNativeTypes("nanoid", "sqlite")).toBe("TEXT");
     expect(describeIdNativeTypes("nanoid", "mysql")).toBe(

@@ -452,7 +452,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // at DDL time, and the application generator is already its single owner.
     const idDomain = idDomainOfState(scalarState);
     if (
-      scalarState.autoGenerate !== undefined &&
       idDomain !== undefined &&
       idStorageOf(idDomain, scalar["~"].nativeType, "pg")?.representation ===
         "bytes"

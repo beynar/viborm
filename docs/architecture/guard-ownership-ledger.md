@@ -1865,6 +1865,14 @@ dialect-blind — the override names its own dialect — and it is not the
 native-catalog spelling check (`J011`), which asks whether the type exists at
 all rather than whether this domain fits in it.
 
+PostgreSQL's `char(n)` is NOT in that text family, though it is an ordinary
+string override: `character(n)` blank-pads to its full width, so a 36-character
+uuid in a `char(40)` column reads back with four trailing spaces and no value of
+the domain is ever returned — measured live, where both the write and every
+later read answered "not in this column's declared identifier domain". MySQL's
+`CHAR(n)` strips the padding on the way out and keeps its place in that
+dialect's list. This narrows F013's accepted set; it adds no second check.
+
 **`P002` widened — variants must agree on their identifier domain
 (`schema/validation/id-domains.ts`).** Unique coverage: two variant targets
 whose keys are both `string` but HOLD different formats or prefixes. The row
@@ -1898,6 +1906,27 @@ type and from what it admits; this is the same fact restated at the boundary a
 trusted internal program can reach without one, exactly as every other entry in
 that function is.
 
+**The encode-side refusals (`query-engine/builders/id-field.ts`
+`encodeIdValue`).** Two, and each names a case the other cannot. `Identifier
+field '…' received <typeof>`: a NON-STRING reached a binding for a column whose
+values are strings — a value that never crossed the field's schema, which is the
+only thing that could have typed it (a `set` inside an atomic update object, a
+connect-derived foreign key, a relation-correlated key lowered by
+`referenceSql`). `… received a value outside its declared <format> domain`: a
+string that IS a string and is not one of this column's, on those same paths. It
+is the closing move `decimalLiteral` already makes for the same reason and at
+the same seam — a value with no bytes has no binding, and writing one would
+store a row no read could return.
+
+**The decode-side refusal (`query-engine/result/ResultParser.ts`
+`createFieldChain`).** Unique coverage: a PHYSICAL value the column's codec
+cannot name — bytes of the wrong width, text outside the domain, a shape no
+driver spelling normalizes. It is not the generic malformed-string arm beside
+it, which asks only whether the driver returned a string at all; this one asks
+whether what came back is a value of THIS column, and it is the one refusal that
+catches an estate whose rows were written under a different reading (a migration
+that re-encoded text into a binary column is exactly that).
+
 **Deleted, not added.** `createFingerprint`'s
 `globals.length > 0 ? globals + entropy : entropy`
 (`schema/scalars/string/autogenerate.ts`) is gone. Its two arms are the same
@@ -1906,3 +1935,9 @@ no case and its unique coverage could not be stated. It was carried over from
 upstream CUID2 and was the one uncovered branch in the whole schema subsystem at
 the stage baseline (`32af0e16`: branches 99.95%). The digest is unchanged, which
 the differential test against the pinned upstream package proves.
+
+So is the PostgreSQL migration driver's `scalarState.autoGenerate !== undefined`
+conjunct in `getDefaultExpression`. `idDomainOfState` answers a domain only when
+`state.autoGenerate` is defined, so the conjunct can never be the arm that
+fails; `idDomain !== undefined` beside it already carries it, and the branch it
+added was unreachable.
