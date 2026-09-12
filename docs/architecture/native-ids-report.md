@@ -362,7 +362,7 @@ could not name them:
 
 | Suite | Stage F tip | Now | What was added |
 |---|---|---|---|
-| `identifier-storage-behavior.ts` (pg, mysql2, sqlite3) | 24 | 31 | the 6-estate isolation matrix replacing 2 combined assertions, plus 3 for the unfolded-format estate |
+| `identifier-storage-behavior.ts` (pg, mysql2, sqlite3) | 24 | 31 | the 7-estate isolation matrix replacing 2 combined assertions, plus 2 for the unfolded-format estate |
 | `field-reference-behavior.ts` (pg, mysql2, sqlite3, libsql, pglite) | 35 | 38 | same-storage comparison, the refusal both ways, and the text-against-text control |
 | `identifier-conversion.core.test.ts` (core) | 11 | 15 | the unique/non-unique fold question, the ksuid case, and the two byte-pin renderings |
 | `identifier-storage-sql.core.test.ts` (core) | 39 | 43 | the four arms of the field-reference storage check |
@@ -385,9 +385,9 @@ vector says which check moved:
 | clean | `[true, true, true, true]` |
 | one key row outside the domain | `[false, true, true, true]` |
 | two spellings of one key | `[true, false, true, true]` |
-| a key whose PREFIX differs in case | `[false, true, true, true]` |
 | a foreign key outside the domain | `[true, true, false, false]` |
 | a foreign key that names no parent | `[true, true, true, false]` |
+| a key whose PREFIX differs in case | `[false, true, true, true]` |
 | all four at once | `[false, false, false, false]` |
 
 The foreign-key row is honestly two: a value that is not of the domain also
