@@ -397,6 +397,16 @@ function buildScalarFilter(
 }
 
 /**
+ * The scope model's name as a refusal spells it.
+ *
+ * One owner for the fallback: hydration binds `names.ts`, and the three
+ * reference refusals in this file would otherwise each carry their own answer
+ * for the un-hydrated model no public path can produce.
+ */
+const scopeModelName = (ctx: QueryScope): string =>
+  ctx.model["~"].names.ts ?? "unknown";
+
+/**
  * Resolve a field reference against the CURRENT query scope.
  *
  * This is where Prisma's same-model rule lives. It is a resolution constraint,
@@ -416,9 +426,9 @@ function fieldRefColumn(
   const scopeModel = ctx.model["~"].names.ts;
   if (payload.model !== scopeModel) {
     throw new QueryEngineError(
-      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${
-        scopeModel ?? "unknown"
-      }': a field reference may only compare columns of the same model.`
+      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${scopeModelName(
+        ctx
+      )}': a field reference may only compare columns of the same model.`
     );
   }
   if (!isScalarField(ctx.model, payload.field)) {
@@ -457,9 +467,10 @@ function assertComparableDecimalDomains(
   const other = decimalDescriptorOf(ctx.model, referencedField);
   if (own === undefined || other === undefined) return;
   if (sameDecimalDescriptor(own, other)) return;
-  const model = ctx.model["~"].names.ts ?? "unknown";
   throw new QueryEngineError(
-    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${model}': ` +
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${scopeModelName(
+      ctx
+    )}': ` +
       `'${fieldName}' is decimal(${own.precision},${own.scale}) and '${referencedField}' is ` +
       `decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they ` +
       "declare the same precision and scale."
@@ -517,9 +528,10 @@ function assertComparableIdStorage(
     if (representation === "text") return;
     if (sameIdDomain(own?.domain, other?.domain)) return;
   }
-  const model = ctx.model["~"].names.ts ?? "unknown";
   throw new QueryEngineError(
-    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${model}': ` +
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${scopeModelName(
+      ctx
+    )}': ` +
       `'${fieldName}' is ${describeIdStorage(own)} and '${referencedField}' is ` +
       `${describeIdStorage(other)}. Two columns compare only when one value has the ` +
       "same physical spelling in both."

@@ -23,6 +23,7 @@ import { parseResult } from "@query-engine/result/ResultParser";
 import { identityGuardFor } from "@query-engine/result/scalar-identity-parser";
 import { QueryEngineError } from "@query-engine/types";
 import { s } from "@schema";
+import { createModelFieldRefs } from "@schema/field-ref";
 import { MYSQL, PG } from "@schema/scalars/native-types";
 import { sql } from "@sql";
 import {
@@ -433,6 +434,89 @@ describe("filtering an identifier column", () => {
     );
     expect(where?.toStatement()).toContain("BINARY");
     expect(where?.values).toEqual([CUID]);
+  });
+});
+
+/** The storage refusal's own words, in each of the four shapes it names. */
+const BYTES_VS_TEXT =
+  /'id' is a ulid value, stored as payload bytes and 'title' is plain string text/;
+const TEXT_VS_BYTES =
+  /'title' is plain string text and 'id' is a ulid value, stored as payload bytes/;
+const TWO_COMPACT_DOMAINS =
+  /'id' is a ulid value, stored as payload bytes and 'authorId' is a uuid value prefixed 'usr-', stored as payload bytes/;
+const UUID_PAYLOAD = /stored as a uuid payload/;
+
+/**
+ * A FIELD REFERENCE compares two columns rather than a column and a value, so
+ * the question is not "is this value in the domain" but "does one public value
+ * have one physical spelling in both columns". `checkRef` cannot ask it — the
+ * interned filter schemas are model-blind and see two `string`s — and the where
+ * builder is the first boundary holding the model that can.
+ */
+describe("comparing two identifier columns", () => {
+  const userRefs = createModelFieldRefs("user", user);
+  const postRefs = createModelFieldRefs("post", post);
+  const textRefs = createModelFieldRefs("textStored", textStored);
+
+  test("a compact column and a plain string column are refused, both ways", () => {
+    // Measured on SQLite before this existed: one row holding the same public
+    // string in `id` and in a plain column answered `[]` in both directions,
+    // because one column holds sixteen bytes and the other holds the text.
+    const scope = scopeFor(sqlite, post);
+    expect(() =>
+      buildWhere(scope, { id: { equals: postRefs.title } }, scope.rootAlias)
+    ).toThrowError(BYTES_VS_TEXT);
+    expect(() =>
+      buildWhere(scope, { title: { equals: postRefs.id } }, scope.rootAlias)
+    ).toThrowError(TEXT_VS_BYTES);
+  });
+
+  test("two compact columns of DIFFERENT domains are refused", () => {
+    // On MySQL both columns are `BINARY(16)`, so the comparison would run and
+    // answer TRUE for two rows whose public values differ — a ulid's payload
+    // and a prefixed uuid's payload are sixteen bytes each.
+    const scope = scopeFor(mysql, post);
+    expect(() =>
+      buildWhere(scope, { id: { equals: postRefs.authorId } }, scope.rootAlias)
+    ).toThrowError(TWO_COMPACT_DOMAINS);
+    // On PostgreSQL they are not even the same column type.
+    const onPg = scopeFor(pg, post);
+    expect(() =>
+      buildWhere(onPg, { id: { equals: postRefs.authorId } }, onPg.rootAlias)
+    ).toThrowError(UUID_PAYLOAD);
+  });
+
+  test("one domain in one storage compares with itself", () => {
+    for (const adapter of [pg, mysql, sqlite]) {
+      const scope = scopeFor(adapter, post);
+      const where = buildWhere(
+        scope,
+        { id: { equals: postRefs.id } },
+        scope.rootAlias
+      );
+      expect(where?.values).toEqual([]);
+    }
+  });
+
+  test("two TEXT columns compare, whatever their domains", () => {
+    // `textStored.id` is a uuid domain in a `VARCHAR(36)` column: it holds the
+    // whole public string, prefix included, so comparing it with an ordinary
+    // string column asks exactly what it appears to ask. A `cuid` beside a
+    // plain column is the same case with no native type in sight. Refusing
+    // either would be the storage check over-reaching.
+    const scope = scopeFor(pg, textStored);
+    expect(
+      buildWhere(scope, { id: { equals: textRefs.label } }, scope.rootAlias)
+        ?.values
+    ).toEqual([]);
+    const userScope = scopeFor(pg, user);
+    expect(
+      buildWhere(
+        userScope,
+        { slug: { equals: userRefs.slug } },
+        userScope.rootAlias
+      )?.values
+    ).toEqual([]);
   });
 });
 
