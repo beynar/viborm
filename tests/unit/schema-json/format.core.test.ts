@@ -28,6 +28,8 @@ function completeSurface(): Schema {
     .model({
       id: s.string().id(),
       uid: s.string().uuid("u"),
+      uid7: s.string().uuidv7("v"),
+      ksuid: s.string().ksuid(),
       nano: s.string().nanoid(8, "n"),
       cuid: s.string().cuid("c"),
       // Two order pins. `.nullable()` installs `default: null` as a side
@@ -113,6 +115,8 @@ const COMPLETE_SURFACE: SchemaDocument = {
       fields: {
         id: { type: "string", id: true, generate: { kind: "ulid" } },
         uid: { type: "string", generate: { kind: "uuid", prefix: "u" } },
+        uid7: { type: "string", generate: { kind: "uuidv7", prefix: "v" } },
+        ksuid: { type: "string", generate: { kind: "ksuid" } },
         nano: {
           type: "string",
           generate: { kind: "nanoid", prefix: "n", length: 8 },

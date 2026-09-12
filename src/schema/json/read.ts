@@ -90,7 +90,9 @@ const INDEX_TYPES: Record<IndexType, true> = {
 
 const GENERATE_KINDS: Record<AutoGenerateType, true> = {
   uuid: true,
+  uuidv7: true,
   ulid: true,
+  ksuid: true,
   nanoid: true,
   cuid: true,
   increment: true,

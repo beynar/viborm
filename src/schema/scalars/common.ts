@@ -58,7 +58,9 @@ export type ScalarType =
 
 export type AutoGenerateType =
   | "uuid"
+  | "uuidv7"
   | "ulid"
+  | "ksuid"
   | "nanoid"
   | "cuid"
   | "increment"

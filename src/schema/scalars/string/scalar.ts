@@ -2,6 +2,7 @@
 // Standalone scalar class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
+import { refuseId } from "@validation/primitives/id-formats";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -13,9 +14,11 @@ import {
 import type { NativeType } from "../native-types";
 import {
   defaultCuid,
+  defaultKsuid,
   defaultNanoid,
   defaultUlid,
   defaultUuid,
+  defaultUuidV7,
 } from "./autogenerate";
 
 const stringBase = v.string();
@@ -68,11 +71,45 @@ export class StringScalar<State extends ScalarState<"string">> {
     );
   }
 
+  /**
+   * Marks this field as the model's primary key, and — only when no generator
+   * has been declared yet — installs a ULID.
+   *
+   * `.id()` is a KEY declaration that carries a convenience default, not a
+   * generator of its own, so it never replaces one the caller already spelled:
+   * `.uuid("a").id()` is a prefixed UUID primary key, exactly like
+   * `.id().uuid("a")`. A PREFIX passed after a generator is refused instead of
+   * silently winning or silently losing — `.uuid("a").id("b")` names two
+   * prefixes for one field and only its author knows which was meant.
+   *
+   * `hasDefault` is part of the declaration: a field whose id the runtime
+   * generates must be optional in the create TYPE too.
+   */
   id(prefix?: string) {
+    const declared = this.state.autoGenerate;
+    if (declared !== undefined) {
+      if (prefix !== undefined) {
+        refuseId(
+          "s.string().id",
+          "prefix",
+          `This field already declares a '${declared.kind}' generator${declared.prefix ? ` with the prefix '${declared.prefix}'` : ""}. Spell the prefix on that generator instead of on \`.id()\``
+        );
+      }
+      return new StringScalar(
+        updateState(this, {
+          isId: true,
+          isUnique: true,
+          hasDefault: true,
+          optional: true,
+        }),
+        this._nativeType
+      );
+    }
     return new StringScalar(
       updateState(this, {
         isId: true,
         isUnique: true,
+        hasDefault: true,
         autoGenerate: { kind: "ulid", prefix },
         default: generatorDefault(defaultUlid(prefix)),
         optional: true,
@@ -135,6 +172,30 @@ export class StringScalar<State extends ScalarState<"string">> {
         hasDefault: true,
         default: generatorDefault(defaultUuid(prefix)),
         autoGenerate: { kind: "uuid", prefix },
+        optional: true,
+      }),
+      this._nativeType
+    );
+  }
+
+  uuidv7(prefix?: string) {
+    return new StringScalar(
+      updateState(this, {
+        hasDefault: true,
+        default: generatorDefault(defaultUuidV7(prefix)),
+        autoGenerate: { kind: "uuidv7", prefix },
+        optional: true,
+      }),
+      this._nativeType
+    );
+  }
+
+  ksuid(prefix?: string) {
+    return new StringScalar(
+      updateState(this, {
+        hasDefault: true,
+        default: generatorDefault(defaultKsuid(prefix)),
+        autoGenerate: { kind: "ksuid", prefix },
         optional: true,
       }),
       this._nativeType

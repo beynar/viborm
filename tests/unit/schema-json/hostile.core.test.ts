@@ -555,6 +555,31 @@ describe("modifier legality", () => {
         )
       )
     ).toEqual(["[J007] /models/user/fields/probe/generate"]);
+    for (const kind of ["uuidv7", "ksuid"]) {
+      expect(
+        issues(
+          refusal(
+            withUserField({ type: "string", generate: { kind, length: 8 } })
+          )
+        )
+      ).toEqual(["[J007] /models/user/fields/probe/generate"]);
+    }
+  });
+
+  /**
+   * A nanoid length is a DECLARATION the builder refuses, so the document's
+   * refusal is the builder's own message carried back to this node.
+   */
+  it("refuses a nanoid length no identifier can have", () => {
+    for (const length of [0, -1, 1.5]) {
+      const error = refusal(
+        withUserField({ type: "string", generate: { kind: "nanoid", length } })
+      );
+      expect(issues(error)).toEqual([
+        "[J010] /models/user/fields/probe/generate",
+      ]);
+      expect(error.issues[0]?.message).toContain("greater than zero");
+    }
   });
 });
 

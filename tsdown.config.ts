@@ -92,9 +92,6 @@ export default defineConfig({
     "commander",
     "pg",
     "@clack/prompts",
-    "@paralleldrive/cuid2",
-    "nanoid",
-    "ulidx",
     // Bundling this would inline one Decimal class per entry point, and a
     // `Decimal` handed back by "viborm" would not be the one "viborm/schema"
     // builds — `instanceof` fails across entries and there is no single public

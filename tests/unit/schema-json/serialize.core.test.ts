@@ -141,7 +141,9 @@ describe("refusal witnesses", () => {
   it("names an overridden generator default on every generator kind", () => {
     const overridden = [
       s.string().uuid().default(overrideString),
+      s.string().uuidv7().default(overrideString),
       s.string().ulid().default(overrideString),
+      s.string().ksuid().default(overrideString),
       s.string().nanoid().default(overrideString),
       s.string().cuid().default(overrideString),
       s.string().id().default(overrideString),
@@ -167,7 +169,9 @@ describe("refusal witnesses", () => {
     const user = s.model({
       id: s.string().id("u"),
       uid: s.string().uuid(),
+      uid7: s.string().uuidv7("v"),
       ulid: s.string().ulid("p"),
+      ksuid: s.string().ksuid(),
       nano: s.string().nanoid(8),
       cuid: s.string().cuid(),
       seq: s.int().increment(),
@@ -185,7 +189,9 @@ describe("refusal witnesses", () => {
     ).toEqual([
       ["id", "ulid"],
       ["uid", "uuid"],
+      ["uid7", "uuidv7"],
       ["ulid", "ulid"],
+      ["ksuid", "ksuid"],
       ["nano", "nanoid"],
       ["cuid", "cuid"],
       ["seq", "increment"],

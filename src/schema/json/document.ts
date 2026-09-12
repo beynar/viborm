@@ -194,7 +194,7 @@ export interface EnumFieldDocument extends NativeScalarFieldModifiers {
 
 /**
  * A generator declaration. `kind` names the scalar method that installs it, so
- * the seven tokens are the seven methods and there is no second table.
+ * the nine tokens are the nine methods and there is no second table.
  */
 export interface GenerateDocument {
   kind: AutoGenerateType;

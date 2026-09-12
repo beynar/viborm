@@ -475,7 +475,7 @@ function serializeFunctionDefault(
     issues,
     pointer(path, "default"),
     "J009",
-    "This field carries a function default, which the document cannot hold. Use one of the seven `generate` kinds, a literal default, or a database default through `native`"
+    "This field carries a function default, which the document cannot hold. Use one of the nine `generate` kinds, a literal default, or a database default through `native`"
   );
   return;
 }

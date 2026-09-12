@@ -351,7 +351,7 @@ function modify(
 
 /**
  * `generate.kind` names the scalar method that installs the generator, so the
- * seven tokens are the seven methods.
+ * nine tokens are the nine methods.
  *
  * Whether that method TAKES a prefix or a length is read back from the state it
  * wrote rather than from a second arity table: a generator that ignored the
