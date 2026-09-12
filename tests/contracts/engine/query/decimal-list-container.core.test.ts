@@ -34,7 +34,7 @@ import {
   prepareSchema,
 } from "@tests/fixtures/query-scope";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const MONEY = { precision: 16, scale: 2 } as const;

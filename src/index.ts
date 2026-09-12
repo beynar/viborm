@@ -27,12 +27,14 @@
 // The exact decimal VALUE type. `s.decimal({ precision, scale })` reads back as
 // one of these and accepts one on the way in, so application arithmetic is
 // ordinary `.plus()` / `.minus()` / `.eq()` on the library's own value object.
-// This is decimal.js's ONE constructor, re-exported rather than wrapped: VibORM
+// This is big.js's ONE constructor, re-exported rather than wrapped: VibORM
 // owns the database domain (precision, scale, overflow, SQL rounding, physical
-// representation) and decimal.js owns the value. Configuring it with
-// `Decimal.set(...)` governs only the arithmetic the application performs —
-// VibORM's own SQL, encoding, identity, and validation never consult it.
-export { default as Decimal } from "decimal.js";
+// representation) and big.js owns the value. Its configuration lives in the
+// static properties `Big.DP`, `Big.RM`, `Big.NE`, `Big.PE` and `Big.strict`
+// (big.js has no `set`); they govern only the arithmetic and formatting the
+// application performs — VibORM's own SQL, encoding, identity, and validation
+// never consult them.
+export { default as Decimal } from "big.js";
 export type {
   ExtendedClient,
   VibORMClient,

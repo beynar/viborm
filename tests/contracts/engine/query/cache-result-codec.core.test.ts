@@ -22,7 +22,7 @@ import type { JsonValue } from "@validation";
 import { createSchemaRegistry } from "@validation";
 import { validateJson } from "@validation/primitives/json";
 import { isRecord } from "@validation/value-guards";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const INCOMPLETE_CODEC_PATTERN = /incomplete/i;

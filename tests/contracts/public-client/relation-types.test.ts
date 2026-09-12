@@ -11,7 +11,7 @@ import { createClient as PGliteCreateClient } from "@drivers/pglite";
 import { DbNull, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import {
   afterAll,
   beforeAll,

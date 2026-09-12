@@ -9,29 +9,28 @@
  * precision, scale, spelling, or conversion.
  *
  * Two facts make this module possible at all, and both were measured against
- * the pinned `decimal.js@10.6.0` rather than assumed:
+ * the pinned `big.js@7.0.1` rather than assumed:
  *
- * 1. Decimal.js's public static and prototype surfaces are mutable. VibORM
- *    identifies the family through the prototype captured at module load,
- *    snapshots its complete numeric representation, and renders that plain
- *    data with the local equivalent of decimal.js's `digitsToString` plus
- *    `finiteToString`. No live static identifier or prototype method defines a
- *    canonical ORM value.
- * 2. CONSTRUCTION is not configuration-independent: `Decimal.set({ minE: -3,
- *    maxE: 5 })` turns `new Decimal("0.0000001")` into `0` and
- *    `new Decimal("1e21")` into `Infinity`. VibORM must still return that one
- *    exported constructor's instances, so exact result construction briefly
- *    widens only its exponent range through the configuration function
- *    captured at module load, then restores the application's exact range.
+ * 1. Big's public static and prototype surfaces are mutable, and every
+ *    constructor big.js builds shares the ONE prototype object. VibORM
+ *    identifies the family through that prototype captured at module load,
+ *    snapshots its complete numeric representation (`s`, `e`, `c`), and renders
+ *    that plain data with the local equivalent of big.js's normal-notation
+ *    `stringify` branch. No live static identifier or prototype method defines
+ *    a canonical ORM value — in particular never `toString`/`toJSON`, which
+ *    honor the application's `Big.NE`/`Big.PE` and emit exponent notation.
+ * 2. CONSTRUCTION from a string is configuration-independent: the constructor
+ *    calls big.js's module-private `parse` directly and reads no `Big.DP`,
+ *    `RM`, `NE` or `PE`. The one static that touches construction is
+ *    `Big.strict`, and only for a primitive NUMBER argument — VibORM
+ *    constructs from canonical strings only, so it is unaffected. There is
+ *    nothing to widen and nothing to restore.
  *
- * Construction is synchronous, exposes no supported callback, and cannot yield
- * between widening and restoration. Arbitrary monkeypatches of decimal.js's
- * mutable prototype are outside that guarantee. Later arithmetic therefore sees
- * every application setting on the exported constructor, including its restored
- * exponent range (plan 2.4).
+ * Later arithmetic therefore sees every application setting on the exported
+ * constructor, and none of them can move an answer VibORM produced (plan 2.4).
  */
 
-import Decimal from "decimal.js";
+import Big from "big.js";
 import { isNumber, isString } from "../value-guards";
 
 // =============================================================================
@@ -69,12 +68,9 @@ export function sameDecimalDescriptor(
  */
 export type DecimalPhysicalRepresentation = "text" | "coefficient";
 
-const DECIMAL_LIBRARY_MIN_EXPONENT = -9e15;
-const DECIMAL_LIBRARY_MAX_EXPONENT = 9e15;
-const decimalPrototype = Decimal.prototype;
+const decimalPrototype = Big.prototype;
 const prototypeContains = Object.prototype.isPrototypeOf;
 const applyIntrinsic = Reflect.apply;
-const configureDecimal = Decimal.config;
 
 // =============================================================================
 // CANONICAL PRIVATE TEXT
@@ -102,18 +98,14 @@ const DECIMAL_LITERAL_REGEX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
  */
 
 /**
- * The base of one decimal.js coefficient word: it packs seven digits per array
- * member, so a member outside `[0, 1e7)` is not a coefficient it ever wrote.
- */
-const DIGIT_WORD_BASE = 1e7;
-
-/**
  * The widest exponent this codec will RENDER.
  *
  * Plain rendering writes every digit between the point and the value, so an
  * exponent is a LENGTH: `new Decimal("1e9000000000")` carries a finite
- * representation whose rendering asks for a nine-gigabyte string. The ceiling
- * is stated against the widest domain any supported provider stores,
+ * representation whose rendering asks for a nine-gigabyte string. big.js
+ * clamps no exponent at all — it has no `minE`/`maxE` — so this ceiling is the
+ * ONLY bound between a legitimate instance and that string. It is stated
+ * against the widest domain any supported provider stores,
  * PostgreSQL's `precision <= 1000`: a million digits is a thousand times that
  * column, wide enough that no widened SUM of real rows reaches it and narrow
  * enough that rendering remains bounded.
@@ -121,12 +113,14 @@ const DIGIT_WORD_BASE = 1e7;
 const MAX_RENDER_EXPONENT = 1_000_000;
 
 /**
- * Seven decimal digits fit in one decimal.js coefficient word. A value whose
- * exponent is renderable cannot need more words than this; bounding the array
- * before reading it also makes a corrupted instance's coefficient traversal
- * total.
+ * One decimal digit per big.js coefficient member. The coefficient is the
+ * rendering's OTHER length — an exponent of zero says nothing about how many
+ * digits follow it — so it needs a ceiling of its own, and the renderable
+ * exponent fixes it: a value at the exponent ceiling spells
+ * `MAX_RENDER_EXPONENT + 1` integer digits. Bounding the array before reading
+ * it also makes a corrupted instance's coefficient traversal total.
  */
-const MAX_COEFFICIENT_WORDS = Math.ceil((MAX_RENDER_EXPONENT + 1) / 7) + 1;
+const MAX_COEFFICIENT_DIGITS = MAX_RENDER_EXPONENT + 1;
 
 const LEADING_ZEROS_REGEX = /^0+/;
 const TRAILING_ZEROS_REGEX = /0+$/;
@@ -179,9 +173,9 @@ function expandExponentForm(text: string): string {
 /**
  * The complete observable numerical representation of one Decimal candidate.
  *
- * Decimal.js has no unforgeable construction witness: `isDecimal` is tagged,
- * clone constructors are intentionally accepted, and a complete
- * `Object.create(Decimal.prototype)` value is observationally identical to a
+ * big.js has no unforgeable construction witness: every constructor it builds
+ * shares the one prototype object, and a complete
+ * `Object.create(Big.prototype)` value is observationally identical to a
  * constructed instance. The honest boundary is therefore the representation,
  * not historical provenance. Every hostile datum is read once into this plain
  * snapshot before a Decimal is allocated or any caller method can run.
@@ -189,11 +183,11 @@ function expandExponentForm(text: string): string {
 interface DecimalSnapshot {
   readonly sign: 1 | -1;
   readonly exponent: number;
-  readonly words: number[];
+  readonly digits: number[];
 }
 
-/** Whether a value belongs to the one Decimal.js prototype family. */
-function hasDecimalPrototype(candidate: unknown): candidate is Decimal {
+/** Whether a value belongs to the one big.js prototype family. */
+function hasDecimalPrototype(candidate: unknown): candidate is Big {
   if (
     (typeof candidate !== "object" && typeof candidate !== "function") ||
     candidate === null
@@ -208,15 +202,15 @@ function snapshotDecimalCandidate(
 ): DecimalSnapshot | undefined {
   if (!hasDecimalPrototype(candidate)) return undefined;
 
-  for (const property of ["s", "e", "d"] as const) {
+  for (const property of ["s", "e", "c"] as const) {
     if (!Object.hasOwn(candidate, property)) return undefined;
   }
 
   const sign = Reflect.get(candidate, "s");
   const exponent = Reflect.get(candidate, "e");
-  const coefficient = Reflect.get(candidate, "d");
+  const coefficient = Reflect.get(candidate, "c");
 
-  // The sign is a FACTOR of the rendered value, and decimal.js writes the minus
+  // The sign is a FACTOR of the rendered value, and big.js writes the minus
   // from `s < 0`: an `s` that is neither direction renders as a positive number
   // the candidate never carried.
   if (sign !== 1 && sign !== -1) return undefined;
@@ -229,71 +223,52 @@ function snapshotDecimalCandidate(
   if (Math.abs(exponent) > MAX_RENDER_EXPONENT) return undefined;
   // A missing coefficient renders the WORD `undefined`, which is text, not zero.
   if (!Array.isArray(coefficient)) return undefined;
-  const wordCount = Reflect.get(coefficient, "length");
+  const digitCount = Reflect.get(coefficient, "length");
   if (
-    typeof wordCount !== "number" ||
-    !Number.isInteger(wordCount) ||
-    wordCount > MAX_COEFFICIENT_WORDS
+    typeof digitCount !== "number" ||
+    !Number.isInteger(digitCount) ||
+    digitCount > MAX_COEFFICIENT_DIGITS
   ) {
     return undefined;
   }
-  if (wordCount <= 0) return undefined;
-  const snapshot = new Array<number>(wordCount);
-  for (let index = 0; index < wordCount; index++) {
+  // An empty coefficient renders no digits at all, and empty text is not the
+  // name of any number.
+  if (digitCount <= 0) return undefined;
+  const snapshot = new Array<number>(digitCount);
+  for (let index = 0; index < digitCount; index++) {
     if (!Object.hasOwn(coefficient, index)) return undefined;
-    const word = Reflect.get(coefficient, index);
-    // A member outside the digit-word base is written into the rendering
-    // verbatim, and `null` spins the loop that strips a word's trailing zeros.
+    const digit = Reflect.get(coefficient, index);
+    // A member that is not a single decimal digit is written into the rendering
+    // verbatim, where it is text rather than a digit.
     if (
-      typeof word !== "number" ||
-      !Number.isInteger(word) ||
-      word < 0 ||
-      word >= DIGIT_WORD_BASE
+      typeof digit !== "number" ||
+      !Number.isInteger(digit) ||
+      digit < 0 ||
+      digit > 9
     ) {
       return undefined;
     }
-    snapshot[index] = word;
+    snapshot[index] = digit;
   }
-  // decimal.js never leaves a zero in the LAST word — the same trailing-zero
-  // loop divides it by ten forever — except for the single-word zero it
-  // answers before reaching that loop at all.
-  if (wordCount > 1 && snapshot[wordCount - 1] === 0) return undefined;
-  return { sign, exponent, words: snapshot };
+  return { sign, exponent, digits: snapshot };
 }
 
-/** Render decimal.js's base-1e7 coefficient words as significant digits. */
-function renderDecimalWords(words: readonly number[]): string {
-  const lastIndex = words.length - 1;
-  let lastWord = words[0]!;
-  let digits = "";
-
-  if (lastIndex > 0) {
-    digits += lastWord;
-    for (let index = 1; index < lastIndex; index++) {
-      const word = String(words[index]!);
-      digits += `${"0".repeat(7 - word.length)}${word}`;
-    }
-
-    lastWord = words[lastIndex]!;
-    const word = String(lastWord);
-    digits += "0".repeat(7 - word.length);
-  } else if (lastWord === 0) {
-    return "0";
-  }
-
-  while (lastWord % 10 === 0) lastWord /= 10;
-  return digits + lastWord;
+/** Render one trusted big.js coefficient as significant digits. */
+function renderDecimalDigits(digits: readonly number[]): string {
+  let text = "";
+  for (const digit of digits) text += digit;
+  return text;
 }
 
 /**
- * Render one validated Decimal.js numerical snapshot in plain notation.
+ * Render one validated big.js numerical snapshot in plain notation.
  *
- * This is decimal.js's `digitsToString` plus the non-exponential branch of
- * `finiteToString`, expressed over trusted plain data. It deliberately invokes
- * no exported constructor, static, prototype method, or caller-owned hook.
+ * This is the normal-notation branch of big.js's `stringify`, expressed over
+ * trusted plain data. It deliberately invokes no exported constructor, static,
+ * prototype method, or caller-owned hook.
  */
 function renderDecimalSnapshot(snapshot: DecimalSnapshot): string {
-  let text = renderDecimalWords(snapshot.words);
+  let text = renderDecimalDigits(snapshot.digits);
   const length = text.length;
 
   if (snapshot.exponent < 0) {
@@ -312,14 +287,16 @@ function renderDecimalSnapshot(snapshot: DecimalSnapshot): string {
  * Identify, copy, check, and render a Decimal CANDIDATE once, or `undefined`
  * when it does not name a finite decimal.
  *
- * The captured Decimal.js prototype identifies the value family without
- * consulting mutable `Decimal.isDecimal` or `Symbol.hasInstance` hooks.
- * The candidate's complete observable numerical representation is snapshotted
- * once and rendered directly, so neither a decimal.js constructor nor a
- * caller-owned slice, iterator, constructor, or renderer participates.
+ * The captured big.js prototype identifies the value family without consulting
+ * a mutable `Symbol.hasInstance` hook. The candidate's complete observable
+ * numerical representation is snapshotted once and rendered directly, so
+ * neither a big.js constructor nor a caller-owned slice, iterator, constructor,
+ * or renderer participates.
  *
- * Finiteness is checked here rather than by the grammar because
- * `new Decimal(NaN)` and `new Decimal(Infinity)` are perfectly valid Decimals.
+ * The `try` is the boundary for a candidate whose own accessors throw: big.js
+ * builds no NaN and no infinity — `new Decimal(NaN)` throws — so a non-finite
+ * value reaches this codec only as a forgery, and a forgery is refused by the
+ * snapshot rather than caught here.
  */
 function canonicalizeDecimalCandidate(candidate: unknown): string | undefined {
   try {
@@ -367,10 +344,9 @@ export function canonicalizeDecimal(value: unknown): string | undefined {
  * The canonical spelling of a value that must BE a Decimal, or `undefined`.
  *
  * The custom-schema return position (plan 2.3): a schema handed a `Decimal` may
- * refine it, brand it, or return another complete bounded finite Decimal.js
- * numerical representation. A string, a number, a tag-only or incomplete
- * decimal-like object, `NaN`, and infinity are a different value family and
- * fail there — so unlike
+ * refine it, brand it, or return another complete bounded big.js numerical
+ * representation. A string, a number, and an incomplete or out-of-ceiling
+ * decimal-like object are a different value family and fail there — so unlike
  * {@link canonicalizeDecimal}, this entry admits no other spelling.
  */
 export function canonicalizeDecimalValue(value: unknown): string | undefined {
@@ -397,36 +373,18 @@ export function canonicalizeMaterializedDecimal(
  * Construct one public Decimal value for a validated canonical string.
  *
  * The decode half of every result, cache, and default boundary. It builds one
- * direct instance of the `Decimal` exported from `viborm`. A narrow application
- * exponent range cannot turn a stored exact value into zero or infinity during
- * construction, and the exact application range is restored before return.
+ * direct instance of the `Decimal` exported from `viborm`. Every construction
+ * in this codec goes through {@link constructExact} with a STRING, which big.js
+ * parses without reading a single application static — including under
+ * `Big.strict`, which rejects only primitive numbers.
  */
-export function toDecimal(canonical: string): Decimal {
+export function toDecimal(canonical: string): Big {
   return constructExact(canonical);
 }
 
-/** The one constructor call for a validated exact spelling. */
-function constructExact(spelling: string): Decimal {
-  const minE = Decimal.minE;
-  const maxE = Decimal.maxE;
-  if (
-    minE === DECIMAL_LIBRARY_MIN_EXPONENT &&
-    maxE === DECIMAL_LIBRARY_MAX_EXPONENT
-  ) {
-    return new Decimal(spelling);
-  }
-
-  try {
-    applyIntrinsic(configureDecimal, Decimal, [
-      {
-        minE: DECIMAL_LIBRARY_MIN_EXPONENT,
-        maxE: DECIMAL_LIBRARY_MAX_EXPONENT,
-      },
-    ]);
-    return new Decimal(spelling);
-  } finally {
-    applyIntrinsic(configureDecimal, Decimal, [{ minE, maxE }]);
-  }
+/** The ONE constructor call for a validated exact spelling. */
+function constructExact(spelling: string): Big {
+  return new Big(spelling);
 }
 
 // =============================================================================
@@ -777,7 +735,7 @@ function materializeCoefficientAtPrecision(
   value: unknown,
   scale: number,
   precision?: number
-): Decimal | undefined {
+): Big | undefined {
   if (!(isString(value) && scanCoefficient(value, precision))) return undefined;
   if (value === "0") return constructExact("0");
   const spelling = scale === 0 ? value : `${value}e-${scale}`;
@@ -789,7 +747,7 @@ function materializeProviderText(
   value: unknown,
   scale: number,
   precision?: number
-): Decimal | undefined {
+): Big | undefined {
   if (!isString(value)) return undefined;
   const canonicalEnd = scanProviderText(value, scale, precision);
   if (canonicalEnd === undefined) return undefined;
@@ -818,13 +776,14 @@ export function decodePhysicalDecimal(
  *
  * TEXT uses the already validated provider spelling. A coefficient uses one
  * exact exponent spelling. Neither path renders canonical private text or
- * constructs an intermediate Decimal.
+ * constructs an intermediate Decimal. The exponent spelling `<coefficient>e-<n>`
+ * is inside big.js's own accepted grammar, unlike VibORM's literal grammar.
  */
 export function materializePhysicalDecimal(
   value: unknown,
   descriptor: DecimalDescriptor,
   representation: DecimalPhysicalRepresentation
-): Decimal | undefined {
+): Big | undefined {
   return representation === "text"
     ? materializeProviderText(value, descriptor.scale, descriptor.precision)
     : materializeCoefficientAtPrecision(
@@ -921,7 +880,7 @@ export function materializePhysicalWidenedSum(
   value: unknown,
   descriptor: DecimalDescriptor,
   representation: DecimalPhysicalRepresentation
-): Decimal | undefined {
+): Big | undefined {
   return representation === "text"
     ? materializeProviderText(value, descriptor.scale)
     : materializeCoefficientAtPrecision(value, descriptor.scale);

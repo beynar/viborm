@@ -2,7 +2,7 @@ import { ValidationError, VibORMErrorCode } from "@errors";
 import { decimal } from "@schema/scalars";
 import { normalizeDecimalDefault } from "@schema/scalars/decimal/descriptor";
 import { getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 // `s.decimal({ precision, scale })` is the first scalar factory that reads a

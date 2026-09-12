@@ -14,7 +14,7 @@ import {
   targetProjectionOutputs,
   targetProjectionRowKeySelect,
 } from "@src/query-engine/write-engine/target-projection";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -325,7 +325,7 @@ describe("decoded row-key indexing", () => {
     // says so — which is exactly why the parser hands this owner the canonical
     // private string instead. The canonical form is what makes two spellings of
     // one number one key, and it is stable under any application-side
-    // `Decimal.set(...)`, which `Decimal#toString()` is not.
+    // `Big.NE`/`Big.PE`, which `Decimal#toString()` is not.
     expect(rowKeysEqual(decimalPk, { id: "1.5" }, { id: "1.5" })).toBe(true);
     expect(rowKeyToken(decimalPk, { id: "1.5" })).toBe(
       rowKeyToken(decimalPk, { id: "1.5" })

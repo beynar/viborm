@@ -22,7 +22,7 @@ import type { OperationResult } from "@client/types";
 
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { beforeEach, describe, expect, expectTypeOf, test } from "vitest";
 
 const ledger = s

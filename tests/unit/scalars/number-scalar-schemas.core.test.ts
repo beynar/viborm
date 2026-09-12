@@ -26,7 +26,7 @@ import { sql } from "@sql";
 import type { StandardSchemaOf } from "@standard-schema/spec";
 import { type InferInput, type InferOutput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import {
   type Brand,
   brand,
@@ -1485,7 +1485,7 @@ describe("Decimal Scalar", () => {
     describe("whole-cent price validation", () => {
       const scalar = decimal(MONEY).schema(
         decimalValueSchema(
-          (value) => value.times(100).mod(1).isZero(),
+          (value) => value.times(100).mod(1).eq(0),
           "a price must be a whole number of cents"
         )
       );

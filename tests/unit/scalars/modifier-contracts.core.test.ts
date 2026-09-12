@@ -18,7 +18,7 @@ import { isGeneratorDefault } from "@schema/scalars/common";
 import type { StandardSchemaOf } from "@standard-schema/spec";
 import { parse } from "@validation";
 import v from "@validation/primitives/v";
-import type Decimal from "decimal.js";
+import type Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 const nativeType = { db: "pg", type: "contract_type" } as const;
