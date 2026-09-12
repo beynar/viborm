@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "commit": "9fa26913ef29744b7da77365c13bb637c8b53124",
+  "commit": "9731e9b6e61c84fbc864db2ac28eea046ac8ab18",
   "tool": {
     "esbuild": "0.28.1",
     "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
@@ -34,16 +34,16 @@
   },
   "dist": {
     "files": 177,
-    "totalBytes": 8785634,
-    "runtimeMjsBytes": 1240685,
+    "totalBytes": 8787001,
+    "runtimeMjsBytes": 1242049,
     "byExtension": {
       "mjs": {
         "files": 77,
-        "bytes": 1240685
+        "bytes": 1242049
       },
       "mjs.map": {
         "files": 67,
-        "bytes": 6817364
+        "bytes": 6817367
       },
       "d.mts": {
         "files": 33,
@@ -255,8 +255,8 @@
     },
     "full": {
       "raw": 1205936,
-      "gzip": 335817,
-      "brotli": 275371,
+      "gzip": 335772,
+      "brotli": 275051,
       "composition": {
         "firstPartyBytes": 1168922,
         "dependencyBytes": {
