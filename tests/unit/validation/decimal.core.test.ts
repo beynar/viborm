@@ -369,6 +369,38 @@ describe("decimal value boundary", () => {
     expect(iteratorReads).toBe(0);
   });
 
+  test("renders through no globally patched array iterator", () => {
+    // The snapshot is a fresh array, but `Array.prototype[Symbol.iterator]` is
+    // a global an application can replace: a render that walked the digits
+    // through it would be rendering whatever that hook yields, into the one
+    // canonical text cache keys, row keys, SQL literals and DDL defaults use.
+    const original = Array.prototype[Symbol.iterator];
+    let rendered: string | undefined;
+    let materialized: string | undefined;
+    try {
+      Object.defineProperty(Array.prototype, Symbol.iterator, {
+        configurable: true,
+        *value(this: unknown[]) {
+          for (let index = 0; index < this.length; index++) {
+            const member = this[index];
+            yield typeof member === "number" ? 9 : member;
+          }
+        },
+        writable: true,
+      });
+      rendered = canonicalizeDecimal(new Decimal("123.45"));
+      materialized = canonicalizeMaterializedDecimal(toDecimal("-1.5"));
+    } finally {
+      Object.defineProperty(Array.prototype, Symbol.iterator, {
+        configurable: true,
+        value: original,
+        writable: true,
+      });
+    }
+    expect(rendered).toBe("123.45");
+    expect(materialized).toBe("-1.5");
+  });
+
   test("reads each hostile Decimal datum once", () => {
     const reads = new Map<PropertyKey, number>();
     const candidate = new Proxy(new Decimal("1"), {

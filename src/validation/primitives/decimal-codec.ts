@@ -253,10 +253,19 @@ function snapshotDecimalCandidate(
   return { sign, exponent, digits: snapshot };
 }
 
-/** Render one trusted big.js coefficient as significant digits. */
+/**
+ * Render one trusted big.js coefficient as significant digits.
+ *
+ * Indexed, not iterated: the snapshot is trusted plain data, but
+ * `Array.prototype[Symbol.iterator]` is a mutable global, and a render that
+ * read the digits through it would be rendering whatever that hook returns.
+ */
 function renderDecimalDigits(digits: readonly number[]): string {
   let text = "";
-  for (const digit of digits) text += digit;
+  // biome-ignore lint/style/useForOf: `for...of` would read the digits through the mutable global array iterator; indexed access is the only form no hook can rewrite.
+  for (let index = 0; index < digits.length; index++) {
+    text += digits[index];
+  }
   return text;
 }
 
