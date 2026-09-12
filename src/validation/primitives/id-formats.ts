@@ -136,6 +136,17 @@ export function refuseId(
 // =============================================================================
 
 /**
+ * The most bytes one call to the entropy source will serve.
+ *
+ * `crypto.getRandomValues` refuses a request larger than this with a
+ * `QuotaExceededError` (Web Cryptography API §10.1), so it is the ceiling on
+ * every length a caller can choose. It is published because a DECLARATION that
+ * asks for more has to be refused where it is spelled, not at row-create time
+ * inside a closure.
+ */
+export const MAX_RANDOM_BYTES = 65_536;
+
+/**
  * `length` unpredictable bytes, or a refusal.
  *
  * The ONE entropy source in the identifier language. It is read at GENERATION

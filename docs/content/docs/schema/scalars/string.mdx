@@ -42,7 +42,7 @@ alongside it — and every value is drawn from `crypto.getRandomValues`. A runti
 that cannot provide secure randomness is refused rather than served a weaker
 identifier.
 
-Every generator accepts a prefix — `.ulid("user")` produces `"user-01ARZ..."`. For `.nanoid()`, the prefix is the second argument: `.nanoid(21, "user")`. A nanoid length must be a whole number greater than zero, refused at declaration.
+Every generator accepts a prefix — `.ulid("user")` produces `"user-01ARZ..."`. For `.nanoid()`, the prefix is the second argument: `.nanoid(21, "user")`. A nanoid length must be a whole number of characters between 1 and 65536 — one character costs one byte of entropy, and 65536 bytes is all `crypto.getRandomValues` serves in one call — refused at declaration.
 
 `.id()` is a key declaration that carries a default, not a generator of its own:
 it never replaces a format already spelled, so `.uuid("u").id()` and

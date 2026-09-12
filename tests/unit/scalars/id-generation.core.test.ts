@@ -28,7 +28,7 @@ const UUID_V7 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const USER_PREFIX = /^usr-/;
 const A_PREFIX = /^a-/;
-const NANOID_TOO_SMALL = /greater than zero/;
+const NANOID_LENGTH_BOUND = /between 1 and 65536/;
 const ID_PREFIX_CONFLICT = /already declares/;
 const ULID_EXHAUSTED = /2\^80/;
 const CUID_LENGTH_BOUND = /between 2 and 32/;
@@ -123,11 +123,28 @@ describe("nanoid", () => {
     expect(string().nanoid(8)["~"].state.autoGenerate?.length).toBe(8);
   });
 
+  /**
+   * Both ends, at DECLARATION. The upper one is the entropy source's per-call
+   * quota: a longer nanoid used to declare cleanly and then throw a platform
+   * `QuotaExceededError` from inside the closure, once per row.
+   */
   test("a length no id can have is refused at declaration", () => {
-    for (const length of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const length of [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      65_537,
+      2 ** 40,
+    ]) {
       expect(() => string().nanoid(length)).toThrowError(ValidationError);
+      expect(() => string().nanoid(length)).toThrowError(NANOID_LENGTH_BOUND);
     }
-    expect(() => string().nanoid(0)).toThrowError(NANOID_TOO_SMALL);
+  });
+
+  test("the longest length the entropy source serves still mints an id", () => {
+    expect(generate(string().nanoid(65_536))).toHaveLength(65_536);
   });
 });
 

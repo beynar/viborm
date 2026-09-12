@@ -571,14 +571,14 @@ describe("modifier legality", () => {
    * refusal is the builder's own message carried back to this node.
    */
   it("refuses a nanoid length no identifier can have", () => {
-    for (const length of [0, -1, 1.5]) {
+    for (const length of [0, -1, 1.5, 65_537]) {
       const error = refusal(
         withUserField({ type: "string", generate: { kind: "nanoid", length } })
       );
       expect(issues(error)).toEqual([
         "[J010] /models/user/fields/probe/generate",
       ]);
-      expect(error.issues[0]?.message).toContain("greater than zero");
+      expect(error.issues[0]?.message).toContain("between 1 and 65536");
     }
   });
 });

@@ -26,6 +26,7 @@ import {
   bytesToUuid,
   KSUID_PAYLOAD_LENGTH,
   ksuidBytes,
+  MAX_RANDOM_BYTES,
   randomBytes,
   refuseId,
   ULID_RANDOM_LENGTH,
@@ -159,13 +160,21 @@ const NANOID_ALPHABET =
 
 const NANOID_DEFAULT_LENGTH = 21;
 
+/**
+ * The lengths a nanoid can have, refused where the length is spelled.
+ *
+ * One character costs one byte of entropy, so the upper bound is the entropy
+ * source's own per-call quota: asking for more used to declare cleanly and then
+ * throw a raw `QuotaExceededError` from inside the closure, at row-create time,
+ * for every row.
+ */
 export const defaultNanoid = (length?: number, prefix?: string) => {
   const size = length ?? NANOID_DEFAULT_LENGTH;
-  if (!Number.isInteger(size) || size < 1) {
+  if (!Number.isInteger(size) || size < 1 || size > MAX_RANDOM_BYTES) {
     refuseId(
       "s.string().nanoid",
       "length",
-      `A nanoid length must be a whole number of characters greater than zero; received ${size}`
+      `A nanoid length must be a whole number of characters between 1 and ${MAX_RANDOM_BYTES}; received ${size}`
     );
   }
   return () => {

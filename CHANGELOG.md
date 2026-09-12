@@ -15,8 +15,10 @@ Versioning.
   optional in the create type as it already was at runtime. `.id()` no longer
   overrides a generator declared before it, and `.id(prefix)` after a generator
   is refused.
-- A nanoid length that is not a whole number greater than zero is refused at
-  declaration instead of silently producing empty identifiers.
+- A nanoid length outside the range a nanoid can have — not a whole number, or
+  outside 1 to 65536, the entropy source's own per-call quota — is refused at
+  declaration instead of silently producing empty identifiers or throwing a
+  platform error on every row.
 - PostgreSQL emits `DEFAULT gen_random_uuid()` only for an unprefixed `.uuid()`
   field.
 
