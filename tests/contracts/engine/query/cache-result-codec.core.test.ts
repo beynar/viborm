@@ -428,11 +428,15 @@ describe("compiled detached cache result codec", () => {
     });
     // A parsed result carries the value object; a string, a number and a
     // decimal-shaped document are all incoherent results, not values to accept.
+    // The last two are the two halves of that admission: an ordinary object is
+    // outside the one prototype family big.js gives its values, and a candidate
+    // inside the family still carries only the representation it was given —
+    // `[12]` is two characters of text where big.js packs one digit.
     for (const value of [
       "1.2",
       1.2,
-      { s: 1, e: 0, d: [12] },
-      { toStringTag: "[object Decimal]", s: 1, e: 0, d: [12] },
+      { s: 1, e: 0, c: [1, 2] },
+      Object.assign(Object.create(Decimal.prototype), { s: 1, e: 0, c: [12] }),
     ]) {
       expectBoundary(() => codec.snapshot([{ decimal: value }]), "snapshot");
     }
@@ -440,7 +444,7 @@ describe("compiled detached cache result codec", () => {
     const good = portableSnapshot(
       codec.snapshot([{ decimal: new Decimal("1.2") }])
     );
-    for (const stored of ["1.20", "+1.2", 1.2, { s: 1, e: 0, d: [12] }]) {
+    for (const stored of ["1.20", "+1.2", 1.2, { s: 1, e: 0, c: [1, 2] }]) {
       const corrupt = portableSnapshot(good);
       const entry = requireRows(requireRows(requireRows(corrupt)[0])[0]);
       entry[1] = stored;
