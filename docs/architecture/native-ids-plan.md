@@ -191,6 +191,24 @@ removed from those fields' filter types and refused at the engine boundary.
 Text-stored formats (nanoid, cuid) keep every string operator; their
 `equals/in/notIn` operands are domain values.
 
+> **AMENDED IN STAGE D (executed), twice.**
+>
+> The four predicates go by the FORMAT, not by the storage: a compact format
+> that takes the text-family override still loses them. The validation schema is
+> built before any adapter exists, so it cannot read `idStorageOf` without
+> threading a dialect into a layer that has none, and one filter type per field
+> rather than one per deployment is what keeps the type and the runtime saying
+> the same thing.
+>
+> A DERIVED domain narrows at RUN TIME only. A field's filter type is computed
+> from the field's own declaration and a foreign key has none; deriving it would
+> mean resolving the relation's `.references(...)` target at the type level and
+> threading whole-schema context into every per-model schema type, which is the
+> shape that collapses this estate's mutually-recursive model instantiations.
+> `tests/types/client/identifier-filter-narrowing.core.types.ts` pins both
+> halves — the declared key drops the four, the derived foreign key keeps them
+> in the type and is refused at run time.
+
 ### Physical storage
 
 | Format | PostgreSQL | MySQL | SQLite |
@@ -218,7 +236,7 @@ is refused at the schema boundary and by the schema-document reader.
 
 ### Engine seams (no format switch in the execution tree)
 
-Exactly five attachment points, each already single-owned:
+Exactly six attachment points, each already single-owned:
 
 1. Declaration: `ScalarState.autoGenerate` + the derived FK view; one lookup
    `idDomainOf(model, field)` beside `decimalDescriptorOf`.
@@ -234,6 +252,22 @@ Exactly five attachment points, each already single-owned:
    the adapter declares the physical promise (`idRepresentation`); the identity
    fast path is disabled for domain fields whose physical value differs from
    the public one.
+6. Aggregate: `builders/aggregate-utils.ts` `aggregateOperandExpression` — what
+   `MIN`/`MAX` run OVER, for the select list and for `having` alike. The
+   TRANSPORTED spelling, because PostgreSQL has neither `min(uuid)` nor
+   `max(bytea)` and JSON cannot hold binary; the answer is the same either way,
+   since every compact format's canonical text is fixed-width and lowercase and
+   its text order IS its byte order. The null guard travels inside it: SQLite's
+   `hex(NULL)` is the empty string and would win every `MIN`.
+
+   > **ADDED IN STAGE D (executed).** The stage found this seam by measurement
+   > and the plan is amended to name it rather than leave the contract and
+   > `src/query-engine/AGENTS.md` disagreeing.
+
+A PRIVATE column — a junction side, a polymorphic row carrier's id column —
+crosses seams 3, 4 and 5 like any other, and it NAMES the key it stands in for
+(`idColumnOfPrivate`) rather than reading its own scalar: those columns hold
+some model key's values, and that key's domain may be derived.
 
 Raw SQL stays physical. Cache keys use validated (normalized) args; snapshots
 hold public strings, so the snapshot revision does not move.

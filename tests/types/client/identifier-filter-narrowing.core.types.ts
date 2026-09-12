@@ -36,10 +36,21 @@ const account = s.model({
   short: s.string().nanoid(10),
   key: s.string().id(),
   label: s.string(),
+  posts: s.toMany(() => post),
+});
+
+/** A FOREIGN KEY, whose domain is derived rather than declared. */
+const post = s.model({
+  id: s.string().id().ulid(),
+  authorId: s.string(),
+  author: s
+    .toOne(() => account)
+    .fields("authorId")
+    .references("id"),
 });
 
 const client = createClient({
-  schema: { account },
+  schema: { account, post },
   driver: new PGliteDriver(),
 });
 
@@ -80,6 +91,38 @@ type UuidHasLte = Assert<Offers<"id", "lte">, true>;
 type UuidHasGt = Assert<Offers<"id", "gt">, true>;
 type UuidHasGte = Assert<Offers<"id", "gte">, true>;
 
+// ── A DERIVED domain narrows at RUN TIME only ──────────────────────────────
+// `authorId` holds prefixed uuids and its column is sixteen bytes, and the
+// runtime filter schema refuses `contains` on it exactly as it does on `id`.
+// The TYPE keeps the four, deliberately: a field's filter type is computed from
+// the field's OWN declaration, and a foreign key has none — deriving it would
+// mean resolving the relation's `.references(...)` target at the type level and
+// threading whole-schema context into every per-model schema type, which is the
+// shape that collapses this estate's mutually-recursive model instantiations.
+// So the narrowing the plan describes is a runtime narrowing for a derived
+// domain, and this pins that as the contract rather than leaving the two to
+// disagree silently.
+type PostWhere = NonNullable<
+  NonNullable<Parameters<typeof client.post.findMany>[0]>["where"]
+>;
+type ForeignKeyFilter = Extract<
+  NonNullable<PostWhere["authorId"]>,
+  { equals?: unknown }
+>;
+type ForeignKeyOffers<Operator extends string> =
+  Operator extends keyof ForeignKeyFilter ? true : false;
+type DerivedKeyKeepsContainsInTheType = Assert<
+  ForeignKeyOffers<"contains">,
+  true
+>;
+type DerivedKeyKeepsModeInTheType = Assert<ForeignKeyOffers<"mode">, true>;
+/** The DECLARED key on the same model still loses them. */
+type PostIdFilter = Extract<NonNullable<PostWhere["id"]>, { equals?: unknown }>;
+type DeclaredKeyDropsContains = Assert<
+  "contains" extends keyof PostIdFilter ? true : false,
+  false
+>;
+
 // ── The controls: every surface that KEEPS the four still offers them ──────
 type OrdinaryStringHasContains = Assert<Offers<"label", "contains">, true>;
 type OrdinaryStringHasMode = Assert<Offers<"label", "mode">, true>;
@@ -115,6 +158,9 @@ const compactIdentifierUsage = () => {
 
 export type {
   BareKeyHasContains,
+  DeclaredKeyDropsContains,
+  DerivedKeyKeepsContainsInTheType,
+  DerivedKeyKeepsModeInTheType,
   BareKeyHasEndsWith,
   CuidHasContains,
   KsuidHasNoStartsWith,
