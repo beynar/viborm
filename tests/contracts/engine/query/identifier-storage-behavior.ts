@@ -28,7 +28,10 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
+import { hydrateSchemaNames } from "@schema/hydration";
+import { resolveSchemaOrThrow } from "@schema/validation";
 import { sql } from "@sql";
+import { identifierConversionChecks } from "@src/migrations/identifier-conversion";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -125,6 +128,34 @@ export const identifierStorageSchema = (() => {
 
   return { account, post, tag, seat, article, memo, note };
 })();
+
+/**
+ * The legacy estate the conversion pre-checks are about: the SAME declaration a
+ * new schema would carry, over tables whose columns are still text.
+ */
+export const legacySchema = (() => {
+  const legacyUser = s
+    .model({
+      id: s.string().id().uuid("usr"),
+      name: s.string(),
+      notes: s.toMany(() => legacyNote),
+    })
+    .map("idp_legacy_users");
+  const legacyNote = s
+    .model({
+      id: s.string().id().ulid(),
+      userId: s.string().nullable(),
+      user: s
+        .toOne(() => legacyUser)
+        .fields("userId")
+        .references("id"),
+    })
+    .map("idp_legacy_notes");
+  return { legacyUser, legacyNote };
+})();
+
+hydrateSchemaNames(legacySchema);
+const legacyIndex = resolveSchemaOrThrow(legacySchema);
 
 // =============================================================================
 // VALUES
@@ -869,6 +900,107 @@ export function runIdentifierStorageBehavior(options: {
       await expect(
         client.account.findUnique({ where: { id: UUID_A } })
       ).rejects.toThrow();
+    });
+
+    // =========================================================================
+    // THE EXISTING DATABASE
+    // =========================================================================
+
+    /**
+     * The conversion pre-checks, against a real legacy estate.
+     *
+     * `identifierConversionChecks` renders three questions as SQL; only a
+     * database can say whether that SQL asks them. So this builds the estate
+     * each one is about — a text column holding an out-of-domain row, two
+     * spellings of one identifier, an out-of-domain foreign key and an orphan —
+     * runs every check, and expects every one to REFUSE. Then it removes
+     * exactly those rows and expects every one to pass.
+     *
+     * The SQL in `docs/content/docs/migration/identifiers.mdx` is this SQL.
+     */
+    describe("converting a legacy text column", () => {
+      const quote = (name: string) =>
+        options.dialect === "mysql" ? `\`${name}\`` : `"${name}"`;
+      const textColumn = options.dialect === "mysql" ? "varchar(191)" : "text";
+      const parentTable = quote("idp_legacy_users");
+      const childTable = quote("idp_legacy_notes");
+
+      const run = async (statement: string, params: unknown[] = []) =>
+        await driver._executeRaw<Record<string, unknown>>(statement, params);
+
+      /** One check's answer, through the coercion `evaluateCheck` performs. */
+      const answer = async (statement: string, params: unknown[]) => {
+        const result = await run(statement, params);
+        const value = Object.values(result.rows[0] ?? {})[0];
+        return value === true || value === 1 || value === 1n || value === "1";
+      };
+
+      const checks = identifierConversionChecks({
+        model: legacySchema.legacyUser,
+        field: "id",
+        dialect: options.dialect,
+        index: legacyIndex,
+      }).map((check) => ({
+        text: check.query.toStatement(
+          options.dialect === "postgresql" ? "$n" : "?"
+        ),
+        values: [...check.query.values],
+      }));
+
+      const answers = async () =>
+        await Promise.all(
+          checks.map((check) => answer(check.text, check.values))
+        );
+
+      beforeAll(async () => {
+        await run(`DROP TABLE IF EXISTS ${childTable}`);
+        await run(`DROP TABLE IF EXISTS ${parentTable}`);
+        await run(
+          `CREATE TABLE ${parentTable} (${quote("id")} ${textColumn} NOT NULL, ${quote("name")} ${textColumn} NOT NULL)`
+        );
+        await run(
+          `CREATE TABLE ${childTable} (${quote("id")} ${textColumn} NOT NULL, ${quote("userId")} ${textColumn})`
+        );
+        const bind = (position: number) =>
+          options.dialect === "postgresql" ? `$${position}` : "?";
+        const insert = async (table: string, one: string, two: string) => {
+          await run(`INSERT INTO ${table} VALUES (${bind(1)}, ${bind(2)})`, [
+            one,
+            two,
+          ]);
+        };
+        // Canonical, its uppercase ALIAS, and a row of the domain's own shape
+        // that is not a value of it.
+        await insert(parentTable, ACCOUNT_A, "canonical");
+        await insert(parentTable, `usr-${UUID_A.toUpperCase()}`, "alias");
+        await insert(parentTable, "usr-not-a-uuid", "invalid");
+        await insert(childTable, TAG_1, ACCOUNT_A);
+        await insert(childTable, TAG_2, ACCOUNT_B);
+        await insert(childTable, TAG_3, "garbage");
+      });
+
+      afterAll(async () => {
+        await run(`DROP TABLE IF EXISTS ${childTable}`);
+        await run(`DROP TABLE IF EXISTS ${parentTable}`);
+      });
+
+      test("every check refuses the estate it is about", async () => {
+        // [0] an out-of-domain key row, [1] two spellings of one identifier,
+        // [2] an out-of-domain foreign key, [3] one that names no parent.
+        expect(await answers()).toEqual([false, false, false, false]);
+      });
+
+      test("and passes once exactly those rows are gone", async () => {
+        await run(
+          `DELETE FROM ${parentTable} WHERE ${quote("name")} <> 'canonical'`
+        );
+        await run(
+          `DELETE FROM ${childTable} WHERE ${quote("userId")} <> ${options.dialect === "postgresql" ? "$1" : "?"}`,
+          [ACCOUNT_A]
+        );
+
+        expect(await answers()).toEqual([true, true, true, true]);
+      });
     });
   });
 }

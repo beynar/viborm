@@ -511,6 +511,8 @@ dependency-safe clear are compiled before anything is dropped.
 | Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
 | Identifier column type and physical form | `@schema/scalars/string/id-domain` `idStorageOf` — the three `mapScalarType`s derive from it |
+| Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
+| Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
@@ -531,6 +533,16 @@ type override is interpreted by the same function, and one the domain cannot
 live in is refused at the schema gate (F013), never mapped to a guess.
 `gen_random_uuid()` narrows accordingly: it produces a `uuid`, so a `.uuid()`
 field whose override makes it `bytea` gets no DDL default.
+
+An EXISTING text column is the other half of that. Nothing converts it
+automatically except PostgreSQL's `text` → `uuid`, and that one is a per-value
+cast: `identifier-conversion.ts` renders the three questions a conversion has to
+answer first (every row in the domain, no two rows folding together, every
+foreign key still finding its parent after the fold) as `trusted-read`
+`MigrationCheckInput`s the author runs, and emits one `DO` block before the
+generated cast so its failure names the count and the two routes instead of one
+offending row. The guard changes no outcome and owns nothing but the message;
+the refusal that does change an outcome is `binary-conversion.ts`.
 
 ## Public operation surface
 

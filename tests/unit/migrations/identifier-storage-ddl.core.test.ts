@@ -467,6 +467,40 @@ describe("a column becoming binary", () => {
       alter(postgresMigrationDriver, column("id", "text"), column("id", "uuid"))
     ).not.toThrow();
   });
+
+  test("…and it is preceded by the message the cast does not give", () => {
+    const statements = alter(
+      postgresMigrationDriver,
+      column("id", "text"),
+      column("id", "uuid")
+    );
+
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toContain("DO $viborm$");
+    expect(statements[0]).toContain(
+      "are not canonical uuid text, so this conversion would abort on them"
+    );
+    expect(statements[0]).toContain(
+      "A prefixed identifier is one of the shapes"
+    );
+    expect(statements[1]).toBe(
+      'ALTER TABLE "ids_things" ALTER COLUMN "id" TYPE uuid USING "id"::uuid'
+    );
+  });
+
+  test("every other type change is compiled without a guard", () => {
+    // The guard's whole coverage is the per-row uuid cast. A `varchar(n)`
+    // widening re-reads the same characters and has nothing to count.
+    expect(
+      alter(
+        postgresMigrationDriver,
+        column("title", "varchar(100)"),
+        column("title", "text")
+      )
+    ).toEqual([
+      'ALTER TABLE "ids_things" ALTER COLUMN "title" TYPE text USING "title"::text',
+    ]);
+  });
 });
 
 describe("what a differ sees", () => {

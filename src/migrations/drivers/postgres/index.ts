@@ -17,6 +17,10 @@ import {
   decimalConversionRequired,
   postgresDecimalFitsCheck,
 } from "../../decimal";
+import {
+  isPostgresTextToUuid,
+  postgresTextToUuidGuard,
+} from "../../identifier-conversion";
 import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 import {
   type AddColumnOperation,
@@ -721,6 +725,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
       // is qualified here too — in BOTH positions, since the `USING` cast names
       // the same type the column is being changed to.
       const newType = this.renderTypeToken(to.type, context);
+      // text → uuid is the ONE identifier conversion a dialect performs on its
+      // own, and the only one whose failure is per-row rather than structural.
+      // The guard changes no outcome — the cast below refuses the same estate —
+      // it replaces "invalid input syntax for type uuid" with the count and the
+      // two routes, before the transaction is spent.
+      if (isPostgresTextToUuid(from.type, newType)) {
+        statements.push(postgresTextToUuidGuard(table, col));
+      }
       statements.push(
         `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${newType} USING ${col}::${newType}`
       );
