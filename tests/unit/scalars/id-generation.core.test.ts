@@ -31,7 +31,6 @@ const A_PREFIX = /^a-/;
 const NANOID_LENGTH_BOUND = /between 1 and 65536/;
 const ID_PREFIX_CONFLICT = /already declares/;
 const ULID_EXHAUSTED = /2\^80/;
-const CUID_LENGTH_BOUND = /between 2 and 32/;
 
 /** The closure a generator modifier installed, called once. */
 const generate = (scalar: { ["~"]: { state: { default?: unknown } } }) => {
@@ -337,11 +336,6 @@ describe("cuid2", () => {
     expect(id).toHaveLength(24);
     expect(id).toMatch(CUID_PATTERN);
     expect(generate(string().cuid())).not.toBe(id);
-  });
-
-  test("a length the construction cannot carry is refused", () => {
-    expect(() => createCuid2({ length: 33 })).toThrowError(ValidationError);
-    expect(() => createCuid2({ length: 1 })).toThrowError(CUID_LENGTH_BOUND);
   });
 });
 

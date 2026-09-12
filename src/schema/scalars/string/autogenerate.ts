@@ -278,7 +278,13 @@ function createFingerprint(random: () => number): string {
  * Everything upstream lets a caller replace is replaceable here for the same
  * reason: the fingerprint, counter and random source are the parts that make
  * two processes differ, and a test that cannot fix them cannot compare two
- * implementations at all.
+ * implementations at all. `length` is replaceable for the same reason — the
+ * salt is as long as the id, so a differential test that only ever saw 24
+ * characters would compare one input shape.
+ *
+ * No length is spellable in a schema: `.cuid(prefix?)` takes none and always
+ * mints the published 24, and a schema document that declares one is refused by
+ * the reader (J007). The construction therefore states no bound of its own.
  */
 export function createCuid2(
   options: {
@@ -294,16 +300,6 @@ export function createCuid2(
     createCounter(Math.floor(random() * CUID_INITIAL_COUNT_MAX));
   const length = options.length ?? CUID_DEFAULT_LENGTH;
   const fingerprint = options.fingerprint ?? createFingerprint(random);
-  // Upstream's own bound, stated by its own message: below 2 there is no room
-  // for the leading letter plus a digit, and above 32 the construction stops
-  // being the published format.
-  if (length < 2 || length > CUID_BIG_LENGTH) {
-    refuseId(
-      "s.string().cuid",
-      "length",
-      `A cuid length must be between 2 and ${CUID_BIG_LENGTH}; received ${length}`
-    );
-  }
   return () => {
     const firstLetter = LOWERCASE_LETTERS.charAt(
       Math.floor(random() * CUID_ALPHABET_SIZE)

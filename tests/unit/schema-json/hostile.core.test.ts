@@ -555,7 +555,7 @@ describe("modifier legality", () => {
         )
       )
     ).toEqual(["[J007] /models/user/fields/probe/generate"]);
-    for (const kind of ["uuidv7", "ksuid"]) {
+    for (const kind of ["uuidv7", "ksuid", "cuid"]) {
       expect(
         issues(
           refusal(
