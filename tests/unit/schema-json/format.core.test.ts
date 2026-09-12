@@ -113,7 +113,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
   models: {
     user: {
       fields: {
-        id: { type: "string", id: true, generate: { kind: "ulid" } },
+        id: { type: "string", id: true },
         uid: { type: "string", generate: { kind: "uuid", prefix: "u" } },
         uid7: { type: "string", generate: { kind: "uuidv7", prefix: "v" } },
         ksuid: { type: "string", generate: { kind: "ksuid" } },
@@ -171,7 +171,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
     },
     post: {
       fields: {
-        id: { type: "string", id: true, generate: { kind: "ulid" } },
+        id: { type: "string", id: true },
         authorId: { type: "string" },
         author: {
           type: "toOne",
@@ -209,7 +209,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
       },
     },
     tag: {
-      fields: { id: { type: "string", id: true, generate: { kind: "ulid" } } },
+      fields: { id: { type: "string", id: true } },
     },
   },
   enums: { st: { values: ["a", "b"], name: "st" } },
@@ -479,5 +479,117 @@ describe("format", () => {
     expect(
       schema.post?.["~"].state.relations.author?.["~"].settleTarget()
     ).toBe(schema.user);
+  });
+});
+
+describe("a key is not a domain", () => {
+  const idDomainOf = (schema: Schema, model: string, field: string) =>
+    schema[model]?.["~"].state.scalars[field]?.["~"].state.autoGenerate;
+
+  it("states a bare `.id()` as the key it is, with no generator node", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id() }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+    });
+  });
+
+  it("keeps `.id(prefix)` a key across the round trip", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id("usr") }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+      generate: { kind: "ulid", prefix: "usr", implicit: true },
+    });
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: "usr",
+      implicit: true,
+    });
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it("keeps a NAMED `.ulid()` key a named format across the round trip", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id().ulid("usr") }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+      generate: { kind: "ulid", prefix: "usr" },
+    });
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: "usr",
+    });
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it("reads an implicit node with no prefix as the same bare key", () => {
+    const parsed = parseSchema({
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "ulid", implicit: true },
+            },
+          },
+        },
+      },
+    });
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: undefined,
+      implicit: true,
+    });
+  });
+
+  it("refuses `implicit` on a format `.id()` never installs", () => {
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: {
+                type: "string",
+                id: true,
+                generate: { kind: "uuid", implicit: true },
+              },
+            },
+          },
+        },
+      })
+    ).toThrowError(/generate\.implicit/);
+  });
+
+  it("ignores an explicitly false `implicit`, which claims nothing", () => {
+    const parsed = parseSchema({
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "ulid", implicit: false },
+            },
+          },
+        },
+      },
+    });
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: undefined,
+    });
   });
 });

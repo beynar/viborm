@@ -7,6 +7,7 @@
 import type { AnyModel } from "@schema/model";
 import type { ScalarState } from "@schema/scalars";
 import type { EnumValues } from "@validation/primitives/enum";
+import type { IdDomain } from "@validation/primitives/id-codec";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { lazyRecord } from "../lazy";
 import { type BigIntSchemas, buildBigIntSchema } from "./bigint";
@@ -85,8 +86,15 @@ export type GetScalarSchemas<
                             ? TimeSchemas<F, C>
                             : never;
 
+/**
+ * `derived` is the identifier domain a FOREIGN-KEY member inherits from the key
+ * it references. Only a string scalar can have one, and only when it declares
+ * none of its own — an FK that declares a domain disagreeing with its target is
+ * refused before any schema is built.
+ */
 export const getScalarSchemas = <F extends ScalarState>(
-  scalar: F
+  scalar: F,
+  derived?: IdDomain
 ): GetScalarSchemas<F> => {
   // biome-ignore lint/style/useDefaultSwitchClause: ScalarState.type makes this switch exhaustive.
   switch (scalar.type) {
@@ -132,7 +140,8 @@ export const getScalarSchemas = <F extends ScalarState>(
       ) as GetScalarSchemas<F>;
     case "string":
       return buildStringSchema(
-        scalar as ScalarState<"string">
+        scalar as ScalarState<"string">,
+        derived
       ) as GetScalarSchemas<F>;
     case "vector":
       return buildVectorSchema(
@@ -152,7 +161,10 @@ export const getScalarSchemas = <F extends ScalarState>(
 /**
  * Get all scalars schemas for a given model
  */
-export const getScalarsSchemas = <Source extends AnyModel>(source: Source) => {
+export const getScalarsSchemas = <Source extends AnyModel>(
+  source: Source,
+  derived?: ReadonlyMap<string, IdDomain>
+) => {
   // Build each field's schemas lazily: a field's create/update/filter schemas
   // are only constructed when that field is first referenced (e.g. via
   // `v.fromObject(scalars, "filter")` reading `scalars[field].filter`). This
@@ -162,7 +174,7 @@ export const getScalarsSchemas = <Source extends AnyModel>(source: Source) => {
   const scalars = source["~"].state.scalars;
   for (const scalar in scalars) {
     const state = scalars[scalar]!["~"].state;
-    builders[scalar] = () => getScalarSchemas(state);
+    builders[scalar] = () => getScalarSchemas(state, derived?.get(scalar));
   }
   return lazyRecord(builders) as GetScalarsSchemas<Source>;
 };

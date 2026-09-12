@@ -80,6 +80,21 @@ export interface AutoGenerate {
   kind: AutoGenerateType;
   prefix?: string | undefined;
   length?: number | undefined;
+  /**
+   * The caller did not NAME this format; `.id()` installed it.
+   *
+   * The distinction is what separates a key from a domain. `.ulid()` is an
+   * assertion about every value the field will ever hold — which is what lets
+   * VibORM admit those values, normalize their aliases and store them as
+   * sixteen bytes. `.id()` is an assertion about the KEY, carrying a generator
+   * so a caller need not supply one; the values it accepts are still whatever
+   * a string column accepts, and it stores them as text. `.ulid().id()` says
+   * both, and is a ULID key.
+   *
+   * It lives on the declaration record, beside `kind`, because it IS a fact
+   * about how this generator came to be declared — not a second scalar state.
+   */
+  implicit?: boolean | undefined;
 }
 
 /**

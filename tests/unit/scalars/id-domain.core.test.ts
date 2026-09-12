@@ -37,10 +37,23 @@ describe("the declared domain", () => {
     });
   });
 
-  test("`.id()` declares the ULID domain it installs", () => {
-    expect(idDomainOfState(stateOf(s.string().id()))).toMatchObject({
+  test("a bare `.id()` declares a KEY, not a domain", () => {
+    // The generator it installs was never NAMED by the caller, so it asserts
+    // nothing about the values the field will hold and narrows no storage.
+    expect(idDomainOfState(stateOf(s.string().id()))).toBeUndefined();
+    expect(idDomainOfState(stateOf(s.string().id("usr")))).toBeUndefined();
+  });
+
+  test("naming the format is what declares the domain a key carries", () => {
+    expect(idDomainOfState(stateOf(s.string().ulid().id()))).toMatchObject({
       format: "ulid",
     });
+    expect(idDomainOfState(stateOf(s.string().id().uuid("usr")))).toMatchObject(
+      {
+        format: "uuid",
+        prefix: "usr",
+      }
+    );
   });
 
   test("the prefix and the nanoid length come from the declaration", () => {

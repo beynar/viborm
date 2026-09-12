@@ -10,6 +10,7 @@ import type {
   VibSchema,
 } from "../types";
 import { isFunction } from "../value-guards";
+import { canonicalizeId, describeIdDomain } from "./id-codec";
 
 // =============================================================================
 // Core Validation Primitives
@@ -179,6 +180,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
     transform,
     schema,
     disallowZero,
+    idDomain,
   } = options;
 
   // Check what we have
@@ -201,6 +203,27 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
         );
       }
       return result;
+    };
+  }
+
+  // The identifier domain, BEFORE the custom schema and before the transform:
+  // a `.schema()` a caller attached to a `.uuid()` field reads the canonical
+  // spelling, and every identity-sensitive consumer downstream — cache key,
+  // captured row key, `fkEquals` — reads the same one. This is also the only
+  // place an alias is folded: two spellings enter, one identifier leaves.
+  if (idDomain) {
+    const domain = idDomain;
+    const expected = describeIdDomain(domain);
+    const prev = validate;
+    validate = (value): ValidationResult<any> => {
+      const result = prev(value);
+      if (result.issues) return result;
+      const canonical = canonicalizeId(
+        (result as { value: unknown }).value,
+        domain
+      );
+      if (canonical === undefined) return fail(`Expected ${expected}`);
+      return ok(canonical);
     };
   }
 

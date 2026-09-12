@@ -200,6 +200,18 @@ export interface GenerateDocument {
   kind: AutoGenerateType;
   prefix?: string;
   length?: number;
+  /**
+   * This ULID is the one `.id()` installs, not a format the caller named.
+   *
+   * The two declarations produce the same generator and a DIFFERENT field: a
+   * named `.ulid()` admits only ULIDs and stores sixteen bytes, while `.id()`
+   * declares a key whose values a string column holds as text. The document
+   * has to say which it was, or a round trip would silently promote every
+   * `.id()` into a domain and change its column.
+   *
+   * Only ever `true`, only ever beside `kind: "ulid"` and `id: true`.
+   */
+  implicit?: true;
 }
 
 /**

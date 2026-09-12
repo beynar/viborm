@@ -40,6 +40,7 @@ import type {
   VariantOneEntry,
 } from "../relation/types";
 import { thrownAsError } from "./error";
+import { deriveIdDomains } from "./id-domains";
 import { checkStoredReference } from "./rules/fk";
 import { getScalars } from "./rules/model-members";
 import {
@@ -364,11 +365,16 @@ export function resolveSchemaRelations(
   if (issues.some((entry) => entry.severity === "error")) {
     return { ok: false, issues };
   }
-  return {
-    ok: true,
-    index: buildIndex(registration.models, publication.slots),
-    issues,
-  };
+  const index = buildIndex(registration.models, publication.slots);
+  // Identifier domains are DERIVED from the edges just published, so they are
+  // derived here and not by a rule beside the gate: every consumer that threads
+  // the index reads them, and a schema whose foreign keys cannot agree on what
+  // a column holds must not become an index at all.
+  const identifiers = deriveIdDomains(index, context);
+  if (identifiers.issues.length > 0) {
+    return { ok: false, issues: [...issues, ...identifiers.issues] };
+  }
+  return { ok: true, index, issues };
 }
 
 interface Publication {

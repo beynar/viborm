@@ -154,7 +154,14 @@ describe("id", () => {
     expect(state.isUnique).toBe(true);
     expect(state.hasDefault).toBe(true);
     expect(state.optional).toBe(true);
-    expect(state.autoGenerate).toEqual({ kind: "ulid", prefix: undefined });
+    // `implicit` is the record that the caller declared a KEY, not a format:
+    // a `.id()` field admits whatever a string column admits and stores text,
+    // while `.ulid().id()` declares the domain and gets the compact column.
+    expect(state.autoGenerate).toEqual({
+      kind: "ulid",
+      prefix: undefined,
+      implicit: true,
+    });
   });
 
   test(".id() never replaces a generator already declared", () => {
@@ -206,6 +213,7 @@ describe("id", () => {
     expect(string().id("usr")["~"].state.autoGenerate).toEqual({
       kind: "ulid",
       prefix: "usr",
+      implicit: true,
     });
   });
 });

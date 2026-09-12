@@ -37,8 +37,14 @@ export interface DocsFenceCase {
   readonly document: SchemaDocument;
 }
 
+/** `.id().ulid()` — the format is NAMED, so the document states it. */
 const ULID = { type: "string", id: true, generate: { kind: "ulid" } } as const;
-const ID = { type: "string", id: true, generate: { kind: "ulid" } } as const;
+/**
+ * A bare `.id()` — a KEY declaration. The ULID it generates was never named by
+ * the caller, so `id: true` is the whole declaration and the document carries
+ * no `generate` node to read back as a named format.
+ */
+const ID = { type: "string", id: true } as const;
 const STRING = { type: "string" } as const;
 
 export const docsFenceCorpus: DocsFenceCase[] = [

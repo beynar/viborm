@@ -21,7 +21,7 @@ import {
   idByteLength,
   isIdFormat,
 } from "@validation/primitives/id-codec";
-import type { ScalarState } from "../common";
+import type { AutoGenerate, ScalarState } from "../common";
 import { MYSQL, type NativeType, PG, SQLITE } from "../native-types";
 
 // =============================================================================
@@ -32,6 +32,10 @@ const DOMAINS = new WeakMap<ScalarState, IdDomain>();
 
 /**
  * The identifier domain a scalar state declares, or `undefined`.
+ *
+ * Only a NAMED format declares one. `.id()` installs a ULID generator without
+ * naming a format (see {@link AutoGenerate.implicit}), so a `.id()` key has no
+ * domain: nothing admits its values and nothing narrows its storage.
  *
  * A LIST answers `undefined` deliberately, exactly as the decimal descriptor
  * lookup does: every path that asks this question — admission, parameter
@@ -52,6 +56,11 @@ export function idDomainOfState(
   if (existing) return existing;
   const generate = state.autoGenerate;
   if (generate === undefined || !isIdFormat(generate.kind)) return undefined;
+  // A format the caller did not NAME is not a domain the caller asserted:
+  // `.id()` declares a key and carries a generator for convenience, and its
+  // values stay whatever a string column holds. `.ulid().id()` names the
+  // format and gets the domain, the admission and the compact column.
+  if (generate.implicit === true) return undefined;
   const domain: IdDomain = {
     format: generate.kind,
     prefix: generate.prefix,

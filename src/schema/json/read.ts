@@ -134,7 +134,7 @@ const MODEL_KEYS = ["table", "fields", "indexes", "ids", "uniques", "omit"];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
 const NATIVE_KEYS = ["db", "type"];
-const GENERATE_KEYS = ["kind", "prefix", "length"];
+const GENERATE_KEYS = ["kind", "prefix", "length", "implicit"];
 const JUNCTION_KEYS = ["table", "source", "target", "onDelete", "onUpdate"];
 const VARIANT_JUNCTION_KEYS = ["table", "source", "target"];
 const SCALAR_FIELD_KEYS = [
@@ -980,6 +980,31 @@ function readGenerateNode(
   if (length !== undefined) {
     const size = asNumber(length, pointer(path, "length"), issues, "`length`");
     if (size !== undefined) declaration.length = size;
+  }
+  const implicit = member(node, "implicit", path, issues);
+  if (implicit !== undefined) {
+    const flag = asBoolean(
+      implicit,
+      pointer(path, "implicit"),
+      issues,
+      "`implicit`"
+    );
+    if (flag === true) {
+      // `implicit` says "this is the ULID `.id()` installs". It describes ONE
+      // declaration, so it belongs to one kind; on any other it would claim a
+      // generator `.id()` never installs and silently drop that format's
+      // domain, its admission and its compact column.
+      if (kind === "ulid") {
+        declaration.implicit = true;
+      } else {
+        addIssue(
+          issues,
+          pointer(path, "implicit"),
+          "J004",
+          '`generate.implicit` describes the ULID `.id()` installs, so it belongs only to `kind: "ulid"`'
+        );
+      }
+    }
   }
   return declaration;
 }

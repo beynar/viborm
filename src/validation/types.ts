@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
 import type { ArgsSchemas, ModelSchemas, ScalarSchemas } from "./model";
+import type { IdDomain } from "./primitives/id-codec";
 
 // =============================================================================
 // Core Type Utilities
@@ -100,6 +101,18 @@ export interface ScalarOptions<T, TOut = T, TSchemaOut = TOut> {
   default?: any | (() => any) | undefined;
   /** Internal create-input guard used by portable auto-increment scalars. */
   disallowZero?: boolean;
+  /**
+   * The identifier domain this value must belong to, for a string scalar that
+   * declares or derives one.
+   *
+   * Internal, like `disallowZero`: it is not a schema option a caller spells,
+   * it is the declaration the field already carries, threaded here so that ONE
+   * validator admits and normalizes — create, update, filter operand, cursor,
+   * unique selector and every nested-write key alike. Normalization happens
+   * BEFORE the custom `.schema()` and before anything identity-sensitive, so a
+   * `Usr-AB…` and a `usr-ab…` cannot become two cache keys for one row.
+   */
+  idDomain?: IdDomain | undefined;
   /** Transform function applied AFTER schema validation */
   transform?: ((value: TSchemaOut) => TOut) | undefined;
   /** Additional StandardSchema for extra validation. Its output flows to transform. */

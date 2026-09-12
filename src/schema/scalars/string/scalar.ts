@@ -112,7 +112,7 @@ export class StringScalar<State extends ScalarState<"string">> {
         isId: true,
         isUnique: true,
         hasDefault: true,
-        autoGenerate: { kind: "ulid", prefix },
+        autoGenerate: { kind: "ulid", prefix, implicit: true },
         default: generatorDefault(defaultUlid(prefix)),
         optional: true,
       }),

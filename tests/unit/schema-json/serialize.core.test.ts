@@ -469,7 +469,7 @@ describe("enum reference keys", () => {
     expect(Object.getOwnPropertyDescriptor(models, "__proto__")?.value).toEqual(
       {
         fields: {
-          id: { type: "string", id: true, generate: { kind: "ulid" } },
+          id: { type: "string", id: true },
         },
       }
     );
