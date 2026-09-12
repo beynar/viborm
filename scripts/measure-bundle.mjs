@@ -463,9 +463,19 @@ const main = async () => {
 
   const libraries = {};
   for (const [name, file] of LIBRARY_FIXTURES) {
+    // A library this package has REMOVED can no longer be priced: its fixture
+    // has nothing to resolve. The row stays, saying so, rather than
+    // disappearing — the before/after comparison is the whole point of the
+    // measurement, and a missing row would read as a measurement that was
+    // never taken.
+    const version = installedVersion(name);
+    if (version === null) {
+      libraries[name] = { available: false, reason: "not installed" };
+      continue;
+    }
     const measurement = await bundleFile(esbuild, join(fixtureDir, file));
     libraries[name] = {
-      version: installedVersion(name),
+      version,
       raw: measurement.raw,
       gzip: measurement.gzip,
       brotli: measurement.brotli,

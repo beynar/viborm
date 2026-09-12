@@ -213,10 +213,16 @@ String scalars support automatic ID generation:
 
 ```ts
 s.string().id().uuid()    // Generate UUIDv4
-s.string().id().ulid()    // Generate ULID (sortable)
+s.string().id().uuidv7()  // Generate UUIDv7 (time-sortable)
+s.string().id().ulid()    // Generate ULID (sortable, monotonic per process)
+s.string().id().ksuid()   // Generate KSUID (time-sortable)
 s.string().id().nanoid()  // Generate NanoID (short)
-s.string().id().cuid()    // Generate CUID
+s.string().id().cuid()    // Generate CUID2
 ```
+
+Every format is implemented here, from `crypto.getRandomValues`; the reversible
+text/bytes conversions live in `@validation/primitives/id-formats`. `.id()`
+installs a ULID only when no generator was declared, and never overrides one.
 
 Integer scalars support auto-increment:
 
