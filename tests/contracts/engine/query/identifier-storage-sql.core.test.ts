@@ -68,6 +68,8 @@ const REQUIRED_NULL = /required scalar is null/;
 const NOT_IN_DOMAIN = /identifier domain/;
 const DRIVER_SAID_SO = /the driver said so/;
 const PROVIDER_DECODE_FAILED = /provider scalar decoding failed/;
+/** `MIN("t"."id")` — the stored value aggregated directly, which is the shape this must NOT take. */
+const BARE_COLUMN_AGGREGATE = /MIN\("[a-z0-9]+"\."id"\)/;
 
 const bytesOf = (hex: string): Uint8Array =>
   Uint8Array.from({ length: hex.length / 2 }, (_, index) =>
@@ -297,7 +299,7 @@ describe("aggregating an identifier column", () => {
       )?.toStatement() ?? "";
     expect(pgSql).toContain("MIN(");
     expect(pgSql).toContain("CAST");
-    expect(pgSql).not.toMatch(/MIN\("[a-z0-9]+"\."id"\)/);
+    expect(pgSql).not.toMatch(BARE_COLUMN_AGGREGATE);
 
     const sqliteScope = scopeFor(sqlite, post);
     const sqliteSql =

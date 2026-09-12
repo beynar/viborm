@@ -172,14 +172,13 @@ async function columnTypes(
 /** The hex of one stored identifier, read through the RAW (physical) boundary. */
 async function storedHex(
   client: { $queryRaw: unknown },
-  dialect: IdentifierDialect,
   statement: unknown
 ): Promise<string> {
   const raw = client.$queryRaw as <T>(fragment: unknown) => Promise<T[]>;
   const rows = await raw<Record<string, unknown>>(statement);
   const value = Object.values(rows[0] ?? {})[0];
   if (typeof value === "string") {
-    return value.replace(/^\\x/, "").toLowerCase();
+    return value.replace(PG_HEX_PREFIX, "").toLowerCase();
   }
   if (value instanceof Uint8Array || Array.isArray(value)) {
     return [...(value as Iterable<number>)]
@@ -194,6 +193,9 @@ async function storedHex(
   return String(value);
 }
 
+const PG_HEX_PREFIX = /^\\x/;
+const CANONICAL_ULID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+
 const hexOf = (text: string): string => text.replaceAll("-", "").toLowerCase();
 
 // =============================================================================
@@ -207,8 +209,7 @@ export function runIdentifierStorageBehavior(options: {
 }): void {
   describe(`${options.name} identifier storage`, () => {
     const driver = options.createDriver();
-    // biome-ignore lint/suspicious/noExplicitAny: the client's generic surface is the subject, not the assertion.
-    const client: any = createClient({
+    const client = createClient({
       schema: identifierStorageSchema,
       driver,
     });
@@ -333,7 +334,6 @@ export function runIdentifierStorageBehavior(options: {
 
       const stored = await storedHex(
         client,
-        options.dialect,
         options.dialect === "postgresql"
           ? sql`SELECT encode(decode(replace("id"::text, '-', ''), 'hex'), 'hex') AS raw FROM idp_accounts WHERE "handle" = ${HANDLE_A}`
           : sql`SELECT HEX(id) AS raw FROM idp_accounts WHERE handle = ${HANDLE_A}`
@@ -347,26 +347,22 @@ export function runIdentifierStorageBehavior(options: {
       if (options.dialect === "postgresql") {
         const post = await storedHex(
           client,
-          options.dialect,
           sql`SELECT encode("id", 'hex') AS raw FROM idp_posts WHERE "title" = ${"first"}`
         );
         expect(post).toHaveLength(40);
         const tag = await storedHex(
           client,
-          options.dialect,
           sql`SELECT encode("id", 'hex') AS raw FROM idp_tags WHERE "name" = ${"alpha"}`
         );
         expect(tag).toHaveLength(32);
       } else {
         const post = await storedHex(
           client,
-          options.dialect,
           sql`SELECT HEX(id) AS raw FROM idp_posts WHERE title = ${"first"}`
         );
         expect(post).toHaveLength(40);
         const tag = await storedHex(
           client,
-          options.dialect,
           sql`SELECT HEX(id) AS raw FROM idp_tags WHERE name = ${"alpha"}`
         );
         expect(tag).toHaveLength(32);
@@ -578,7 +574,7 @@ export function runIdentifierStorageBehavior(options: {
 
     test("a generated identifier round-trips without ever being spelled", async () => {
       const created = await client.tag.create({ data: { name: "generated" } });
-      expect(created.id).toMatch(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
+      expect(created.id).toMatch(CANONICAL_ULID);
       const read = await client.tag.findUnique({ where: { id: created.id } });
       expect(read?.id).toBe(created.id);
       await client.tag.delete({ where: { id: created.id } });
@@ -593,6 +589,18 @@ export function runIdentifierStorageBehavior(options: {
         where: { handle: { contains: "StGXR8" } },
       });
       expect(matched.map((row: { id: string }) => row.id)).toEqual([ACCOUNT_A]);
+    });
+
+    test("pushing the same schema again plans nothing", async () => {
+      // The no-churn proof, and the only one that settles it: the differ
+      // compares the schema's own serialization against what INTROSPECTION
+      // recovers from the live database, so a compact column that round-trips
+      // as anything but itself shows up here as an `alterColumn` on every
+      // later push. `uuid`, `bytea`, `BINARY(16|20)` and `BLOB` all have to
+      // come back as the type they were created with.
+      const again = await syncLiveSchema(client, { dryRun: true });
+      expect(again.operations).toEqual([]);
+      expect(again.sql).toEqual([]);
     });
 
     test("_min and _max answer with the earliest and latest identifier", async () => {

@@ -482,6 +482,9 @@ describe("format", () => {
   });
 });
 
+/** The J004 a `generate.implicit` on a kind `.id()` never installs raises. */
+const IMPLICIT_ON_WRONG_KIND = /generate\.implicit/;
+
 describe("a key is not a domain", () => {
   const idDomainOf = (schema: Schema, model: string, field: string) =>
     schema[model]?.["~"].state.scalars[field]?.["~"].state.autoGenerate;
@@ -569,7 +572,7 @@ describe("a key is not a domain", () => {
           },
         },
       })
-    ).toThrowError(/generate\.implicit/);
+    ).toThrowError(IMPLICIT_ON_WRONG_KIND);
   });
 
   it("ignores an explicitly false `implicit`, which claims nothing", () => {

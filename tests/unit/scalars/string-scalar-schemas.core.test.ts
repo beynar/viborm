@@ -40,6 +40,9 @@ import {
 } from "valibot";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
+const CANONICAL_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type InferScalarInput<
   State extends ScalarState,
   Key extends keyof GetScalarSchemas<State>,
@@ -821,9 +824,7 @@ describe("Default Value Behavior", () => {
       const result = parse(schemas.create, undefined);
       if (result.issues) throw new Error("Expected success");
       expect(typeof result.value).toBe("string");
-      expect(result.value).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      );
+      expect(result.value).toMatch(CANONICAL_UUID);
     });
 
     test("ulid: type is optional, runtime uses generator", () => {
