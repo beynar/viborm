@@ -107,7 +107,10 @@ const compoundSelector = (
 ): CompoundSelectorSchema => {
   const members: Record<string, V.Schema> = {};
   for (const field of Object.keys(declared.entries)) {
-    members[field] = scalars[field]?.base ?? declared.entries[field]!;
+    // Every member IS a model scalar: `Model.id([...])` refuses a name that is
+    // not one, and the registry builds one schema per model scalar. There is
+    // no absent case to fall back for.
+    members[field] = scalars[field]!.base;
   }
   return v.object(members, { partial: false });
 };

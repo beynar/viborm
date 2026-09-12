@@ -267,13 +267,21 @@ export function checkVariantRowStorage(
   input.reservedIndexes.add(indexName);
 
   const referencedFields = new Map<string, string>();
-  const identities: Scalar[] = [];
-  // The first member that resolves a key IS the carrier's key: every variant
-  // agrees on what that column holds, or the carrier is refused below and by
-  // the identifier-domain derivation.
-  let carrierKey:
-    | { readonly model: Model<any>; readonly field: string }
-    | undefined;
+  /**
+   * Every variant's key, with the model that owns it.
+   *
+   * The FIRST is the carrier's own: its scalar types the private id column and
+   * its (model, field) is what that column names as the key whose domain its
+   * values carry. Every variant agrees on both or the carrier is refused — on
+   * the representation below, and on the identifier domain in the derivation,
+   * which is the one pass that can see a domain a variant DERIVES rather than
+   * declares.
+   */
+  const keys: {
+    readonly model: Model<any>;
+    readonly field: string;
+    readonly scalar: Scalar;
+  }[] = [];
   for (const member of input.members) {
     const primaryKey = singlePrimaryKey(member.target);
     if (!primaryKey) {
@@ -289,17 +297,20 @@ export function checkVariantRowStorage(
       continue;
     }
     referencedFields.set(member.variant, primaryKey.field);
-    identities.push(primaryKey.scalar);
-    carrierKey ??= { model: member.target, field: primaryKey.field };
+    keys.push({
+      model: member.target,
+      field: primaryKey.field,
+      scalar: primaryKey.scalar,
+    });
   }
 
-  const firstIdentity = identities[0];
+  const carrierKey = keys[0];
   const portable =
-    firstIdentity !== undefined &&
-    identities.every((scalar) =>
-      hasCompatibleVariantIdentity(firstIdentity, scalar)
+    carrierKey !== undefined &&
+    keys.every((key) =>
+      hasCompatibleVariantIdentity(carrierKey.scalar, key.scalar)
     );
-  if (identities.length > 0 && !portable) {
+  if (keys.length > 0 && !portable) {
     issues.push(
       issue(
         "P002",
@@ -316,7 +327,7 @@ export function checkVariantRowStorage(
   const nullable = input.optional;
   return {
     storage:
-      complete && firstIdentity
+      complete && carrierKey
         ? {
             typeColumn: {
               name: typeColumnName,
@@ -325,11 +336,12 @@ export function checkVariantRowStorage(
             },
             idColumn: {
               name: idColumnName,
-              scalar: firstIdentity,
+              // The scalar and the pair are ONE key read two ways, never two
+              // answers: the scalar types the column, the pair names the key
+              // whose domain its values carry.
+              scalar: carrierKey.scalar,
               nullable,
-              // `firstIdentity` is that same member's key, so the pair and the
-              // scalar are one fact read two ways, never two answers.
-              ...(carrierKey === undefined ? {} : { reference: carrierKey }),
+              reference: { model: carrierKey.model, field: carrierKey.field },
             },
             indexName,
           }

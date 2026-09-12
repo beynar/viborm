@@ -222,8 +222,8 @@ export function deriveIdDomains(
   for (const edge of resolvedEdges(index)) {
     if (edge.kind !== "variantRowCarrier") continue;
     const carrier = `${nameOf(ctx, edge.carrier.source)}.${edge.carrier.field}`;
+    // A published carrier has at least one member — the edge type says so.
     const [head, ...rest] = edge.members;
-    if (head === undefined) continue;
     const agreed = resolve(head.targetModel, head.referencedField);
     let agreedFrom = `${nameOf(ctx, head.targetModel)}.${head.referencedField}`;
     for (const member of rest) {
