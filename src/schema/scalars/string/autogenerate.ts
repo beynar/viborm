@@ -261,8 +261,12 @@ function hashBase36(input: string): string {
 function createFingerprint(random: () => number): string {
   const globals = Object.keys(globalThis).toString();
   const entropy = createEntropy(CUID_BIG_LENGTH, random);
-  const source = globals.length > 0 ? globals + entropy : entropy;
-  return hashBase36(source).substring(0, CUID_BIG_LENGTH);
+  // Upstream writes `globals.length > 0 ? globals + entropy : entropy`. The two
+  // arms are the same string — concatenating an empty `globals` IS `entropy` —
+  // so the condition names no case, and a branch whose unique coverage cannot
+  // be stated is one this codebase does not keep. The digest is unchanged,
+  // which the differential test against the pinned upstream package proves.
+  return hashBase36(globals + entropy).substring(0, CUID_BIG_LENGTH);
 }
 
 /**

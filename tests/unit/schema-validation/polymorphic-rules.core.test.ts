@@ -288,6 +288,53 @@ describe("polymorphic definition rules", () => {
     expect(codes(result).filter((code) => code === "P002")).toHaveLength(2);
   });
 
+  it("rejects variants whose keys hold different identifier domains", () => {
+    // The carrier stores every variant's key in ONE column, and that column's
+    // scalar is the first variant's. A uuid beside a ulid would be written
+    // through a codec that is not its own.
+    const uuidTarget = s.model({ id: s.string().id().uuid() });
+    const ulidTarget = s.model({ id: s.string().id().ulid() });
+    const prefixedTarget = s.model({ id: s.string().id().uuid("usr") });
+    const owner = s.model({
+      id: s.string().id(),
+      byFormat: s.toOne(
+        { uuid: () => uuidTarget, ulid: () => ulidTarget },
+        { values: { uuid: "uuid.v1", ulid: "ulid.v1" } }
+      ),
+      byPrefix: s.toOne(
+        { plain: () => uuidTarget, prefixed: () => prefixedTarget },
+        { values: { plain: "plain.v1", prefixed: "prefixed.v1" } }
+      ),
+    });
+
+    const result = validateSchema({
+      uuidTarget,
+      ulidTarget,
+      prefixedTarget,
+      owner,
+    });
+
+    expect(codes(result).filter((code) => code === "P002")).toHaveLength(2);
+  });
+
+  it("accepts variants whose keys hold the SAME identifier domain", () => {
+    const first = s.model({ id: s.string().id().uuid("usr") });
+    const second = s.model({ id: s.string().id().uuid("usr") });
+    const owner = s.model({
+      id: s.string().id(),
+      target: s.toOne(
+        { first: () => first, second: () => second },
+        { values: { first: "first.v1", second: "second.v1" } }
+      ),
+    });
+
+    expect(
+      codes(validateSchema({ first, second, owner })).filter(
+        (code) => code === "P002"
+      )
+    ).toEqual([]);
+  });
+
   it("lets an ordinary inverse bind one polymorphic member", () => {
     const post = s.model({
       id: s.string().id(),

@@ -180,6 +180,35 @@ describe("a foreign key inherits its target's domain", () => {
     });
   });
 
+  test("a reference cycle with no declaration on it has no domain", () => {
+    // `a.peerId` derives from `b.mateId`, which derives from `a.peerId`. The
+    // walk marks a field in progress while its targets resolve, so the cycle
+    // closes on the declaration each arm carries — here, none.
+    const a = s.model({
+      id: s.string().id(),
+      peerId: s.string().unique().nullable(),
+      peer: s
+        .toOne(() => b)
+        .name("peer")
+        .fields("peerId")
+        .references("mateId"),
+      mates: s.toOne(() => b).name("mate"),
+    });
+    const b = s.model({
+      id: s.string().id(),
+      mateId: s.string().unique().nullable(),
+      mate: s
+        .toOne(() => a)
+        .name("mate")
+        .fields("mateId")
+        .references("peerId"),
+      peers: s.toOne(() => a).name("peer"),
+    });
+    const index = okIndex({ a, b });
+    expect(idDomainOf(a, "peerId", index)).toBeUndefined();
+    expect(idDomainOf(b, "mateId", index)).toBeUndefined();
+  });
+
   test("a plain key hands its foreign keys no domain", () => {
     const user = s.model({
       id: s.string().id(),
@@ -196,6 +225,34 @@ describe("a foreign key inherits its target's domain", () => {
     expect(idDomainOf(post, "authorId", okIndex({ user, post }))).toBe(
       undefined
     );
+  });
+
+  test("two references that AGREE settle on the one domain they name", () => {
+    const author = s.model({
+      id: s.string().id().uuid("p"),
+      posts: s.toMany(() => post).name("authored"),
+    });
+    const editor = s.model({
+      id: s.string().id().uuid("p"),
+      posts: s.toMany(() => post).name("edited"),
+    });
+    const post = s.model({
+      id: s.string().id(),
+      personId: s.string(),
+      author: s
+        .toOne(() => author)
+        .name("authored")
+        .fields("personId")
+        .references("id"),
+      editor: s
+        .toOne(() => editor)
+        .name("edited")
+        .fields("personId")
+        .references("id"),
+    });
+    expect(
+      idDomainOf(post, "personId", okIndex({ author, editor, post }))
+    ).toMatchObject({ format: "uuid", prefix: "p" });
   });
 
   test("the derivation is computed once per index", () => {
@@ -388,5 +445,19 @@ describe("a native type the domain cannot live in", () => {
   test("a field with no domain keeps every override it ever had", () => {
     const user = s.model({ id: s.string(PG.INT.INTEGER).id() });
     expect(refusal({ user })).toEqual([]);
+  });
+});
+
+describe("without a schema context", () => {
+  test("an issue still names the field it is about", () => {
+    // `idDomainsOf` derives from an index alone — it drops issues, so it needs
+    // no names — and `deriveIdDomains` is exported for the same shape. The
+    // marker falls back to the model's own hydrated name, and to a neutral
+    // word for a model that was never registered under one.
+    const user = s.model({ id: s.string(PG.INT.INTEGER).id().uuid() });
+    const index = new Map([[user, new Map()]]);
+    const issue = deriveIdDomains(index).issues[0];
+    expect(issue?.code).toBe("F013");
+    expect(issue?.message).toContain("model.id");
   });
 });

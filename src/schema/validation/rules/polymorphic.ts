@@ -10,6 +10,7 @@
 // The mandatory relation-definition gate is its only caller.
 
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
+import { sameIdDomain } from "@validation/primitives/id-codec";
 import { isValidSchemaIdentifier } from "../../identifier";
 import { getModelKeyCatalog, type Model } from "../../model";
 import { automaticForeignKeyIndexName } from "../../relation/helpers";
@@ -22,6 +23,7 @@ import {
 import type { VariantJunctionOverride } from "../../relation/types";
 import { string } from "../../scalars";
 import type { Scalar } from "../../scalars/base";
+import { idDomainOfState } from "../../scalars/string/id-domain";
 import { thrownAsError } from "../error";
 import type { ResolvedVariantRowStorage } from "../relation-resolution";
 import type {
@@ -340,6 +342,16 @@ function hasCompatibleVariantIdentity(
     candidateState.array === true ||
     candidate["~"].nativeType !== undefined ||
     candidateState.type !== firstState.type
+  ) {
+    return false;
+  }
+  // An identifier DOMAIN is part of the representation, not decoration: the
+  // carrier's one id column stores every variant's key, and a `uuid` variant
+  // beside a `ulid` one asks that column to be sixteen bytes of two different
+  // things. The column's own scalar is the first variant's, so a second variant
+  // that disagrees would be written through a codec that is not its own.
+  if (
+    !sameIdDomain(idDomainOfState(firstState), idDomainOfState(candidateState))
   ) {
     return false;
   }
