@@ -413,10 +413,10 @@ describe("compiled detached cache result codec", () => {
       codec.snapshot([{ decimal: new Decimal("7.5") }])
     );
     const hit = requireRecord(requireRows(codec.materialize(snapshot))[0]);
-    // decimal.js values are conventionally immutable, not frozen: a caller can
+    // big.js values are conventionally immutable, not frozen: a caller can
     // still write the internals of the instance it was handed. The next hit
     // reads the stored TEXT, so nothing it did survives.
-    Object.assign(requireDecimal(hit.decimal), { d: [9], e: 0 });
+    Object.assign(requireDecimal(hit.decimal), { c: [9], e: 0 });
 
     const next = requireRecord(requireRows(codec.materialize(snapshot))[0]);
     expect(requireDecimal(next.decimal).eq("7.5")).toBe(true);
