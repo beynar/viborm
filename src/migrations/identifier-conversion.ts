@@ -17,7 +17,11 @@
  *     lowercase as ALIASES, so a text column may hold two spellings of one
  *     identifier. Compact storage holds the canonical one, so those two rows
  *     become one value — violating a unique key, or silently merging two rows
- *     where there is none. `ksuid` has no aliases and gets no such check.
+ *     where there is none. `ksuid` has no aliases and gets no such check. Asked
+ *     of the key AND of every referencing column that is a complete key of its
+ *     own model, because that column carries its own unique constraint through
+ *     the same fold; a non-unique foreign key holds repeats by design and is
+ *     never asked.
  *  3. **Every foreign key still finds its parent after the fold.** The FK
  *     column converts with its own normalization, so agreement has to be proven
  *     against the NORMALIZED sets rather than the stored text.
@@ -27,6 +31,17 @@
  * accepts as `originChecks` on a manual transition. Run them by hand, or put
  * them in front of your own conversion migration; they are the same SQL either
  * way.
+ *
+ * Every IDENTITY comparison these checks make is asked of BYTES, because the
+ * column they are about answers in bytes. MySQL 8's default collation is
+ * `utf8mb4_0900_ai_ci`, where `=` folds case and accents: a bare
+ * `p.id = c.userId` there answers TRUE for a KSUID pair that a `BINARY(20)`
+ * column will hold as two different values, so an estate certified ready came
+ * out of the conversion with a foreign key naming no parent. `CAST(… AS BINARY)`
+ * pins it, and it pins across character sets where `COLLATE utf8mb4_bin` raises
+ * on a `latin1` column. The grammar match is deliberately NOT cast: MySQL's
+ * `REGEXP` refuses a binary operand outright, and every pattern here already
+ * spells both cases, so nothing is lost.
  *
  * Pure and connection-free, like every other module in this layer: it renders
  * SQL, it never executes it.
@@ -41,7 +56,12 @@
 import { type Sql, sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
-import { type AnyModel, getColumnName, getTableName } from "../schema/model";
+import {
+  type AnyModel,
+  getColumnName,
+  getModelKeyCatalog,
+  getTableName,
+} from "../schema/model";
 import { idDomainOf } from "../schema/validation/id-domains";
 import {
   type ResolvedRelationIndex,
@@ -145,6 +165,17 @@ function payloadSql(column: Sql, domain: IdDomain): Sql {
   return sql`substr(${column}, ${int(prefix.length + 2)})`;
 }
 
+/**
+ * One comparison operand, asked as the bytes the compact column will hold.
+ *
+ * Only MySQL needs it, and only because its default collation answers a
+ * different question than the column will: see the module note above. Not
+ * applied to `REGEXP`, which refuses a binary operand.
+ */
+function bytesSql(expression: Sql, dialect: Dialect): Sql {
+  return dialect === "mysql" ? sql`CAST(${expression} AS BINARY)` : expression;
+}
+
 /** Whether one stored value is a value of the domain. */
 function admitsSql(column: Sql, domain: IdDomain, dialect: Dialect): Sql {
   const pattern = patternOf(domain);
@@ -159,14 +190,60 @@ function admitsSql(column: Sql, domain: IdDomain, dialect: Dialect): Sql {
   const sized = sql`${width}(${payload}) = ${int(pattern.length)} AND ${matches}`;
   const prefix = domain.prefix;
   if (!prefix) return sized;
-  return sql`substr(${column}, 1, ${int(prefix.length + 1)}) = ${`${prefix}-`} AND ${sized}`;
+  const spelled = bytesSql(
+    sql`substr(${column}, 1, ${int(prefix.length + 1)})`,
+    dialect
+  );
+  return sql`${spelled} = ${`${prefix}-`} AND ${sized}`;
 }
 
-/** The canonical spelling of one stored value, for a format that has aliases. */
-function foldSql(column: Sql, domain: IdDomain): Sql {
+/**
+ * The canonical spelling of one stored value, as the bytes it will become:
+ * the alias fold for a format that has one, then the dialect's byte pin.
+ */
+function foldSql(column: Sql, domain: IdDomain, dialect: Dialect): Sql {
   const fold = patternOf(domain).fold;
   const payload = payloadSql(column, domain);
-  return fold === undefined ? payload : sql`${sql.raw(fold)}(${payload})`;
+  return bytesSql(
+    fold === undefined ? payload : sql`${sql.raw(fold)}(${payload})`,
+    dialect
+  );
+}
+
+/**
+ * `COUNT(col) = COUNT(DISTINCT fold(col))`: the question a UNIQUE column has to
+ * answer before its aliases collapse into one another.
+ */
+function foldCollisionCheck(
+  from: Sql,
+  column: Sql,
+  domain: IdDomain,
+  dialect: Dialect
+): MigrationCheckInput {
+  return {
+    kind: "trusted-read",
+    query: sql`SELECT COUNT(${column}) = COUNT(DISTINCT ${foldSql(column, domain, dialect)}) AS ok FROM ${from}`,
+    equals: true,
+  };
+}
+
+/**
+ * Whether this column is, BY ITSELF, a complete key of its own model.
+ *
+ * The fold question belongs to every column that carries a uniqueness
+ * constraint through it, and a referencing column often does: the one-to-one
+ * child whose primary key IS its foreign key is the ordinary shape, and a
+ * `.unique()` foreign key is the other. Asking it of a plain many-side foreign
+ * key would refuse every healthy estate on earth — repeats there are the
+ * relation — so the catalog decides, not the fact of being a reference.
+ *
+ * `referenceableKeys` is the right catalog rather than the addressable one: a
+ * total unique INDEX no selector can name still refuses a duplicate.
+ */
+function isSingleColumnKey(model: AnyModel, field: string): boolean {
+  return getModelKeyCatalog(model).referenceableKeys.some(
+    (key) => key.length === 1 && key[0] === field
+  );
 }
 
 /** `SELECT NOT EXISTS (…)`, the shape every row check takes. */
@@ -224,12 +301,9 @@ export function identifierConversionChecks(
       sql`${key} IS NOT NULL AND NOT (${admitsSql(key, domain, dialect)})`
     ),
   ];
-  if (patternOf(domain).fold !== undefined) {
-    checks.push({
-      kind: "trusted-read",
-      query: sql`SELECT COUNT(${key}) = COUNT(DISTINCT ${foldSql(key, domain)}) AS ok FROM ${parent}`,
-      equals: true,
-    });
+  const folds = patternOf(domain).fold !== undefined;
+  if (folds) {
+    checks.push(foldCollisionCheck(parent, key, domain, dialect));
   }
   for (const reference of referencingColumns(request, index)) {
     const child = fromSql(reference.model, dialect, namespace, "c");
@@ -238,10 +312,15 @@ export function identifierConversionChecks(
       noRowWhere(
         child,
         sql`${fk} IS NOT NULL AND NOT (${admitsSql(fk, domain, dialect)})`
-      ),
+      )
+    );
+    if (folds && isSingleColumnKey(reference.model, reference.field)) {
+      checks.push(foldCollisionCheck(child, fk, domain, dialect));
+    }
+    checks.push(
       noRowWhere(
         child,
-        sql`${fk} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${parent} WHERE ${foldSql(key, domain)} = ${foldSql(fk, domain)})`
+        sql`${fk} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${parent} WHERE ${foldSql(key, domain, dialect)} = ${foldSql(fk, domain, dialect)})`
       )
     );
   }

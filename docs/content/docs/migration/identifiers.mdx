@@ -93,7 +93,11 @@ an estate that has drifted.
    lowercase as *aliases*: a text column can hold two spellings of one
    identifier, and compact storage holds one. Those rows become one value —
    violating a primary key, or silently merging two rows where there is none.
-   `ksuid` has no aliases and gets no such check.
+   `ksuid` has no aliases and gets no such check. Asked of the key, and of every
+   referencing column that is a complete key of its own model — the one-to-one
+   child whose primary key *is* its foreign key carries its own unique
+   constraint through the same fold. A plain many-side foreign key is never
+   asked: repeats there are the relation.
 3. **Every referencing foreign key still finds its parent after the fold.** The
    FK column normalizes too, so agreement is proven against the normalized sets.
 
@@ -138,12 +142,21 @@ MySQL spells the same three with `CHAR_LENGTH` and `REGEXP`; SQLite has no
 text table seeded with exactly the rows each check is about: every check refuses
 that estate and every check passes once those rows are gone.
 
-Two limits worth knowing. On MySQL the comparisons follow the column's
-collation, so a case-insensitive one (the 8.0 default) admits a prefix whose
-case differs, which VibORM's own admission refuses. And the checks cover model
-FIELDS: a many-to-many **junction table's** own columns and a **polymorphic row
-carrier's** id column hold a key's values too, and convert by the same recipe,
-but they have no `(model, field)` to name them by and are not rendered for you.
+Every identity comparison above asks a question of BYTES, which is the question
+the compact column will answer. On MySQL that needs saying out loud: the 8.0
+default collation is `utf8mb4_0900_ai_ci`, where `=` folds case, so each
+comparison is wrapped in `CAST(… AS BINARY)`. Without it a `KSUID` foreign key
+differing from its parent only in case was certified ready and then had no
+parent at all once both columns were `BINARY(20)`.
+
+Two limits worth knowing. The fold check covers a column that is a key **by
+itself**; an identifier that is one member of a *compound* unique can still
+collide with a sibling row that agrees on the other members, and no portable
+single-statement form asks that (SQLite has no `COUNT(DISTINCT a, b)`). And the
+checks cover model FIELDS: a many-to-many **junction table's** own columns and a
+**polymorphic row carrier's** id column hold a key's values too, and convert by
+the same recipe, but they have no `(model, field)` to name them by and are not
+rendered for you.
 
 ## PostgreSQL
 
@@ -310,8 +323,8 @@ Plainly:
 - The pre-checks are rendered, not run. Nothing executes them for you unless you
   pass them to `generate()` as `originChecks`.
 - Junction and polymorphic carrier columns are not enumerated for you.
-- On MySQL, whether the prefix comparison is case-sensitive is the collation's
-  decision, not VibORM's.
+- The fold check is asked of single-column keys only; an identifier inside a
+  compound unique is not covered.
 
 ## After the conversion
 

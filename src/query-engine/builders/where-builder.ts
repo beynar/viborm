@@ -16,6 +16,10 @@ import type { ScalarState } from "@schema/scalars";
 import { isSql, type Sql, sql } from "@sql";
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import {
+  describeIdDomain,
+  sameIdDomain,
+} from "@validation/primitives/id-codec";
+import {
   createChildScope,
   getColumnName,
   isScalarField,
@@ -37,7 +41,7 @@ import {
   buildGeoPointEquality,
   buildGeoPointWithin,
 } from "./geo-point-builder";
-import { idColumnOf } from "./id-field";
+import { type IdColumn, idColumnOf } from "./id-field";
 import { buildJsonFilter } from "./json-filter-builder";
 import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
 import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
@@ -423,6 +427,7 @@ function fieldRefColumn(
     );
   }
   assertComparableDecimalDomains(ctx, fieldName, scalarState, payload.field);
+  assertComparableIdStorage(ctx, fieldName, payload.field);
   return ctx.adapter.identifiers.column(
     alias,
     getColumnName(ctx.model, payload.field)
@@ -458,6 +463,66 @@ function assertComparableDecimalDomains(
       `'${fieldName}' is decimal(${own.precision},${own.scale}) and '${referencedField}' is ` +
       `decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they ` +
       "declare the same precision and scale."
+  );
+}
+
+/** What a column physically holds for one public value, in one phrase. */
+function describeIdStorage(column: IdColumn | undefined): string {
+  if (column === undefined) return "plain string text";
+  const stored =
+    column.representation === "text"
+      ? "as its own text"
+      : column.representation === "uuid"
+        ? "as a uuid payload"
+        : "as payload bytes";
+  return `${describeIdDomain(column.domain)}, stored ${stored}`;
+}
+
+/**
+ * Two columns compare as columns only when one public value has ONE physical
+ * spelling in both of them.
+ *
+ * Compact storage is what makes this decidable here and nowhere earlier. The
+ * interned filter schemas are model-blind, so `checkRef` compares `ScalarType`
+ * and arity — and `'string' === 'string'` for an identifier field and an
+ * ordinary one. Physically they are not the same column: a `.uuid("usr")` key
+ * holds sixteen bytes with no prefix, a plain `s.string()` beside it holds
+ * `usr-a0eebc99-…` as text, and `bytes = text` is a comparison no row can
+ * satisfy. Measured on SQLite before this ran: the same query returned `[]`
+ * where the identical schema with text storage returned the row.
+ *
+ * TEXT against TEXT is left alone, deliberately and in both directions: a
+ * `nanoid` column stores exactly the string it shows, so comparing it with an
+ * ordinary string column asks the question it appears to ask and answers it
+ * correctly. What is refused is a difference in STORAGE — one side compact or
+ * `uuid`-typed and the other not — and two compact columns whose domains
+ * differ, where equal payload bytes stand for different public values (one
+ * prefix against another) and the comparison would answer TRUE for two rows a
+ * caller reads as unequal.
+ */
+function assertComparableIdStorage(
+  ctx: QueryScope,
+  fieldName: string,
+  referencedField: string
+): void {
+  const own = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
+  const other = idColumnOf(
+    ctx.adapter,
+    ctx.model,
+    referencedField,
+    ctx.relations
+  );
+  const representation = own?.representation ?? "text";
+  if (representation === (other?.representation ?? "text")) {
+    if (representation === "text") return;
+    if (sameIdDomain(own?.domain, other?.domain)) return;
+  }
+  const model = ctx.model["~"].names.ts ?? "unknown";
+  throw new QueryEngineError(
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${model}': ` +
+      `'${fieldName}' is ${describeIdStorage(own)} and '${referencedField}' is ` +
+      `${describeIdStorage(other)}. Two columns compare only when one value has the ` +
+      "same physical spelling in both."
   );
 }
 

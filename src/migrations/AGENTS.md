@@ -544,6 +544,17 @@ generated cast so its failure names the count and the two routes instead of one
 offending row. The guard changes no outcome and owns nothing but the message;
 the refusal that does change an outcome is `binary-conversion.ts`.
 
+Two rules govern what that module renders. The fold question is asked of every
+column that carries a UNIQUENESS constraint through the fold — the key, and a
+referencing column that is by itself a complete key of its own model — and never
+of a plain many-side foreign key, whose repeats are the relation. And every
+IDENTITY comparison is asked of bytes: on MySQL each one is wrapped in
+`CAST(… AS BINARY)`, because the default `utf8mb4_0900_ai_ci` answers `=` with a
+case fold the `BINARY(n)` column will not, which certified an estate whose
+foreign key named no parent after the conversion. The grammar match stays
+uncast — MySQL's `REGEXP` refuses a binary operand, and every pattern already
+spells both cases.
+
 ## Public operation surface
 
 The migration client exposes only these operation nouns:

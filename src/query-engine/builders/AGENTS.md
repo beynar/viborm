@@ -35,6 +35,7 @@ adapter methods for dialect syntax and keep values parameterized.
 | `set-builder.ts` | UPDATE assignments |
 | `where-unique-builder.ts` | unique-selector SQL |
 | `decimal-field.ts` | descriptor lookup and provider-bounded widened-sum domains; no decimal value conversion |
+| `id-field.ts` | one identifier column's domain and its adapter-chosen representation, and the single binding every identifier operand takes |
 
 ## Builder contract
 

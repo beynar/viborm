@@ -152,6 +152,36 @@ export const legacySchema = (() => {
   return { legacyUser, legacyNote };
 })();
 
+/**
+ * The legacy estate for a format with NO aliases.
+ *
+ * `ksuid` folds nothing, so its foreign-key agreement correlates the two
+ * columns themselves — the one comparison a collation can answer differently
+ * from the column that will replace it. On MySQL 8's default
+ * `utf8mb4_0900_ai_ci` a bare `=` called two KSUIDs differing only in case one
+ * value; `BINARY(20)` calls them two, so the conversion left a foreign key
+ * naming no parent.
+ */
+export const legacyKsuidSchema = (() => {
+  const legacyTick = s
+    .model({
+      id: s.string().id().ksuid(),
+      legs: s.toMany(() => legacyLeg),
+    })
+    .map("idp_legacy_ticks");
+  const legacyLeg = s
+    .model({
+      id: s.string().id().ulid(),
+      tickId: s.string().nullable(),
+      tick: s
+        .toOne(() => legacyTick)
+        .fields("tickId")
+        .references("id"),
+    })
+    .map("idp_legacy_legs");
+  return { legacyTick, legacyLeg };
+})();
+
 // =============================================================================
 // VALUES
 // =============================================================================
@@ -167,6 +197,10 @@ const ACCOUNT_C = `usr-${UUID_C}`;
 const POST_1 = "0ujtsYcgvSTl8PAuAdqWYSMnLOv";
 const POST_2 = "1srOrx2ZWZBpBUvZwXKQmoEYga2";
 const POST_3 = "2Hg5JeMVxLVfDLdDLZJMYPRGrqp";
+
+/** `POST_1`'s letters in the other case: base62 is case-SENSITIVE, so this is
+ * a different KSUID and every byte comparison must say so. */
+const POST_1_CASE_VARIANT = "0UJTSyCGVstL8paUaDQwysmNlov";
 
 /** Three ULIDs in ascending canonical-text order. */
 const TAG_1 = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -947,6 +981,94 @@ export function runIdentifierStorageBehavior(options: {
           checks.map((check) => answer(check.text, check.values))
         );
 
+      const bind = (position: number) =>
+        options.dialect === "postgresql" ? `$${position}` : "?";
+
+      const insert = async (table: string, one: string, two: string) => {
+        await run(`INSERT INTO ${table} VALUES (${bind(1)}, ${bind(2)})`, [
+          one,
+          two,
+        ]);
+      };
+
+      /** A key row and a foreign-key row, each in exactly one condition. */
+      const CANONICAL_KEY: readonly [string, string] = [ACCOUNT_A, "canonical"];
+      const ALIAS_KEY: readonly [string, string] = [
+        `usr-${UUID_A.toUpperCase()}`,
+        "alias",
+      ];
+      const INVALID_KEY: readonly [string, string] = [
+        "usr-not-a-uuid",
+        "invalid",
+      ];
+      const CANONICAL_FK: readonly [string, string] = [TAG_1, ACCOUNT_A];
+      const INVALID_FK: readonly [string, string] = [TAG_2, "garbage"];
+      const ORPHAN_FK: readonly [string, string] = [TAG_3, ACCOUNT_B];
+
+      /**
+       * ONE estate per defect, and one combined estate at the end.
+       *
+       * Seeding every defect at once cannot show that each check answers its
+       * OWN question: two checks that tested each other's defect are false in
+       * that estate and true once it is cleaned, so the suite would admit them.
+       * Each row below is the discriminating one — the vector says which check
+       * moved, and every other check stays true.
+       */
+      const estates: readonly {
+        name: string;
+        parents: readonly (readonly [string, string])[];
+        children: readonly (readonly [string, string])[];
+        expected: readonly boolean[];
+      }[] = [
+        {
+          name: "a clean estate passes every check",
+          parents: [CANONICAL_KEY],
+          children: [CANONICAL_FK],
+          expected: [true, true, true, true],
+        },
+        {
+          name: "one key row outside the domain moves only check 1",
+          parents: [CANONICAL_KEY, INVALID_KEY],
+          children: [CANONICAL_FK],
+          expected: [false, true, true, true],
+        },
+        {
+          name: "two spellings of one key move only check 2",
+          parents: [CANONICAL_KEY, ALIAS_KEY],
+          children: [CANONICAL_FK],
+          expected: [true, false, true, true],
+        },
+        {
+          // Honestly two: a foreign key that is not a value of the domain also
+          // names no parent, whatever the parent table holds.
+          name: "a foreign key outside the domain moves checks 3 and 4",
+          parents: [CANONICAL_KEY],
+          children: [CANONICAL_FK, INVALID_FK],
+          expected: [true, true, false, false],
+        },
+        {
+          name: "a foreign key that names no parent moves only check 4",
+          parents: [CANONICAL_KEY],
+          children: [CANONICAL_FK, ORPHAN_FK],
+          expected: [true, true, true, false],
+        },
+        {
+          // MySQL 8's default collation folds case in `=`, so before the
+          // comparison was pinned to bytes this row was admitted here and
+          // refused by VibORM's own admission afterwards.
+          name: "a key whose PREFIX differs in case moves only check 1",
+          parents: [CANONICAL_KEY, [`USR-${UUID_B}`, "prefix-case"]],
+          children: [CANONICAL_FK],
+          expected: [false, true, true, true],
+        },
+        {
+          name: "all four defects at once refuse all four checks",
+          parents: [CANONICAL_KEY, ALIAS_KEY, INVALID_KEY],
+          children: [CANONICAL_FK, INVALID_FK, ORPHAN_FK],
+          expected: [false, false, false, false],
+        },
+      ];
+
       beforeAll(async () => {
         await run(`DROP TABLE IF EXISTS ${childTable}`);
         await run(`DROP TABLE IF EXISTS ${parentTable}`);
@@ -956,22 +1078,6 @@ export function runIdentifierStorageBehavior(options: {
         await run(
           `CREATE TABLE ${childTable} (${quote("id")} ${textColumn} NOT NULL, ${quote("userId")} ${textColumn})`
         );
-        const bind = (position: number) =>
-          options.dialect === "postgresql" ? `$${position}` : "?";
-        const insert = async (table: string, one: string, two: string) => {
-          await run(`INSERT INTO ${table} VALUES (${bind(1)}, ${bind(2)})`, [
-            one,
-            two,
-          ]);
-        };
-        // Canonical, its uppercase ALIAS, and a row of the domain's own shape
-        // that is not a value of it.
-        await insert(parentTable, ACCOUNT_A, "canonical");
-        await insert(parentTable, `usr-${UUID_A.toUpperCase()}`, "alias");
-        await insert(parentTable, "usr-not-a-uuid", "invalid");
-        await insert(childTable, TAG_1, ACCOUNT_A);
-        await insert(childTable, TAG_2, ACCOUNT_B);
-        await insert(childTable, TAG_3, "garbage");
       });
 
       afterAll(async () => {
@@ -979,22 +1085,107 @@ export function runIdentifierStorageBehavior(options: {
         await run(`DROP TABLE IF EXISTS ${parentTable}`);
       });
 
-      test("every check refuses the estate it is about", async () => {
-        // [0] an out-of-domain key row, [1] two spellings of one identifier,
-        // [2] an out-of-domain foreign key, [3] one that names no parent.
-        expect(await answers()).toEqual([false, false, false, false]);
+      for (const estate of estates) {
+        test(estate.name, async () => {
+          await run(`DELETE FROM ${childTable}`);
+          await run(`DELETE FROM ${parentTable}`);
+          for (const [id, name] of estate.parents) {
+            await insert(parentTable, id, name);
+          }
+          for (const [id, userId] of estate.children) {
+            await insert(childTable, id, userId);
+          }
+
+          expect(await answers()).toEqual(estate.expected);
+        });
+      }
+    });
+
+    /**
+     * The same conversion, for a format whose agreement check has no fold.
+     *
+     * This is the arm a collation decides. `ksuid` compares the two columns
+     * directly, so the question "does this child still name a parent" is asked
+     * of whatever `=` means on this dialect — and on MySQL's default that is
+     * not what the `BINARY(20)` column will mean. Executed, not rendered:
+     * nothing but a live database can say which answer this SQL gives.
+     */
+    describe("converting a legacy text column with no aliases", () => {
+      const quote = (name: string) =>
+        options.dialect === "mysql" ? `\`${name}\`` : `"${name}"`;
+      const textColumn = options.dialect === "mysql" ? "varchar(191)" : "text";
+      const parentTable = quote("idp_legacy_ticks");
+      const childTable = quote("idp_legacy_legs");
+
+      const run = async (statement: string, params: unknown[] = []) =>
+        await driver._executeRaw<Record<string, unknown>>(statement, params);
+
+      const answer = async (statement: string, params: unknown[]) => {
+        const result = await run(statement, params);
+        const value = Object.values(result.rows[0] ?? {})[0];
+        return value === true || value === 1 || value === 1n || value === "1";
+      };
+
+      const checks = identifierConversionChecks({
+        schema: legacyKsuidSchema,
+        model: legacyKsuidSchema.legacyTick,
+        field: "id",
+        dialect: options.dialect,
+      }).map((check) => ({
+        text: check.query.toStatement(
+          options.dialect === "postgresql" ? "$n" : "?"
+        ),
+        values: [...check.query.values],
+      }));
+
+      const answers = async () =>
+        await Promise.all(
+          checks.map((check) => answer(check.text, check.values))
+        );
+
+      const seed = async (parent: string, child: string) => {
+        await run(`DELETE FROM ${childTable}`);
+        await run(`DELETE FROM ${parentTable}`);
+        const bind = (position: number) =>
+          options.dialect === "postgresql" ? `$${position}` : "?";
+        await run(`INSERT INTO ${parentTable} VALUES (${bind(1)})`, [parent]);
+        await run(`INSERT INTO ${childTable} VALUES (${bind(1)}, ${bind(2)})`, [
+          TAG_1,
+          child,
+        ]);
+      };
+
+      beforeAll(async () => {
+        await run(`DROP TABLE IF EXISTS ${childTable}`);
+        await run(`DROP TABLE IF EXISTS ${parentTable}`);
+        await run(
+          `CREATE TABLE ${parentTable} (${quote("id")} ${textColumn} NOT NULL)`
+        );
+        await run(
+          `CREATE TABLE ${childTable} (${quote("id")} ${textColumn} NOT NULL, ${quote("tickId")} ${textColumn})`
+        );
       });
 
-      test("and passes once exactly those rows are gone", async () => {
-        await run(
-          `DELETE FROM ${parentTable} WHERE ${quote("name")} <> 'canonical'`
-        );
-        await run(
-          `DELETE FROM ${childTable} WHERE ${quote("userId")} <> ${options.dialect === "postgresql" ? "$1" : "?"}`,
-          [ACCOUNT_A]
-        );
+      afterAll(async () => {
+        await run(`DROP TABLE IF EXISTS ${childTable}`);
+        await run(`DROP TABLE IF EXISTS ${parentTable}`);
+      });
 
-        expect(await answers()).toEqual([true, true, true, true]);
+      test("three checks, and a clean estate passes all three", async () => {
+        // No collision question: the format has no aliases to collide.
+        expect(checks).toHaveLength(3);
+        await seed(POST_1, POST_1);
+
+        expect(await answers()).toEqual([true, true, true]);
+      });
+
+      test("a foreign key differing only in CASE names no parent", async () => {
+        // `POST_1_CASE_VARIANT` is a value of the domain — check 2 stays
+        // true — and it is a DIFFERENT identifier from `POST_1`, which only the
+        // agreement check can say.
+        await seed(POST_1, POST_1_CASE_VARIANT);
+
+        expect(await answers()).toEqual([true, true, false]);
       });
     });
   });

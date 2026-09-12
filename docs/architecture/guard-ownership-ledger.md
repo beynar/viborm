@@ -1969,3 +1969,58 @@ conjunct in `getDefaultExpression`. `idDomainOfState` answers a domain only when
 `state.autoGenerate` is defined, so the conjunct can never be the arm that
 fails; `idDomain !== undefined` beside it already carries it, and the branch it
 added was unreachable.
+
+## Addendum — the existing database (Stage F, identifier conversion)
+
+Three refusals were added. One of them changes no outcome at all, and says so
+here so that a later reader neither deletes it as redundant nor promotes it to a
+second gate.
+
+**The PostgreSQL `text` → `uuid` guard (`migrations/identifier-conversion.ts`
+`postgresTextToUuidGuard`, emitted into the generated alteration).** Unique
+coverage: **the message, and nothing else.** `ALTER COLUMN … TYPE uuid USING
+col::uuid` already fails on the first row that is not canonical uuid text — the
+transaction aborts and the column is left as it was — so the outcome with this
+`DO` block and without it is the same outcome. What the cast alone cannot say is
+how many rows are in the way and what the author's two routes are, and a
+PREFIXED domain is the case that needs saying most: `usr-a0ee…` is not uuid
+text, no `USING substring(col from 5)::uuid` is ever generated for it (the
+snapshot carries the column TYPE, never the domain), and PostgreSQL's own error
+names one offending value and no route at all. It is deliberately NOT a second
+refusal beside `binary-conversion.ts`: that one stops a conversion that would
+otherwise SUCCEED and destroy the data, and this one stops nothing.
+
+**`identifierConversionChecks` on a field with no compactly stored domain
+(same file).** Unique coverage: a caller who named a field that has no text
+conversion to check — a `nanoid`, a `cuid`, or a plain string — for whom the
+honest return value is an empty list and the honest reading of an empty list is
+"this estate is ready". Every other refusal in this program protects a value;
+this one protects an ANSWER, and it is the only place that can: the list is
+handed to `generate()` as `originChecks`, where zero checks pass vacuously and
+the conversion proceeds. It is not `F013` (a native type the domain cannot live
+in) and not `FK012` (two answers to what a column holds): both of those are
+schema facts decided at resolution, and this one is a fact about the call.
+
+**`assertComparableIdStorage` (`query-engine/builders/where-builder.ts`,
+reached from `fieldRefColumn`).** Unique coverage: a FIELD REFERENCE operand
+whose column does not spell one public value the way the filtered column does —
+one side compact or `uuid`-typed and the other plain text, or two compact
+columns of different domains, where equal payload bytes stand for different
+public values. `checkRef` in `validation/primitives/operand.ts` compares
+`ScalarType` and arity over interned, model-blind filter schemas, and
+`'string' === 'string'` for an identifier field and an ordinary one; the where
+builder is the first boundary that holds the model and can ask what each column
+physically holds. It is the identifier twin of
+`assertComparableDecimalDomains`, which sits on the same line for the same
+reason, and it is NOT the `encodeIdValue` pair: those cover a VALUE arriving at
+a binding, and a reference binds no value at all — it lowers a second column.
+
+Measured before it existed, on in-process SQLite: `where: { id: { equals:
+refs.plain } }` over a row whose `id` and `plain` hold the same public string
+returned `[]`, because `id` holds sixteen bytes and `plain` holds the text. A
+silent wrong answer, in both directions, on a seam the codebase already names.
+
+TEXT against TEXT is left alone in both directions, deliberately: a `nanoid`
+column stores exactly the string it shows, so comparing it with an ordinary
+string column asks the question it appears to ask. A refusal there would have no
+case to name.

@@ -101,14 +101,42 @@ describe("identifier conversion pre-checks", () => {
       `SELECT NOT EXISTS (SELECT 1 FROM "posts" AS c WHERE c."authorId" IS NOT NULL AND NOT (substr(c."authorId", 1, 4) = 'usr-' AND length(substr(c."authorId", 5)) = 36 AND substr(c."authorId", 5) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) AS ok`,
       `SELECT NOT EXISTS (SELECT 1 FROM "posts" AS c WHERE c."authorId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "user" AS p WHERE lower(substr(p."id", 5)) = lower(substr(c."authorId", 5)))) AS ok`,
       `SELECT NOT EXISTS (SELECT 1 FROM "profile" AS c WHERE c."id" IS NOT NULL AND NOT (substr(c."id", 1, 4) = 'usr-' AND length(substr(c."id", 5)) = 36 AND substr(c."id", 5) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) AS ok`,
+      // `profile.id` is the child's OWN primary key, so its aliases collapse
+      // into each other exactly as the parent's do. `posts.authorId` above is a
+      // many-side foreign key and gets no such question: repeats there are the
+      // relation, and asking it would refuse every healthy estate.
+      `SELECT COUNT(c."id") = COUNT(DISTINCT lower(substr(c."id", 5))) AS ok FROM "profile" AS c`,
       `SELECT NOT EXISTS (SELECT 1 FROM "profile" AS c WHERE c."id" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "user" AS p WHERE lower(substr(p."id", 5)) = lower(substr(c."id", 5)))) AS ok`,
     ]);
+  });
+
+  test("a unique referencing column is asked the fold question; a plain one is not", () => {
+    const checks = checksFor(user, "id", "postgresql");
+    const collisions = checks.filter((check) =>
+      check.includes("COUNT(DISTINCT")
+    );
+
+    expect(collisions).toEqual([
+      `SELECT COUNT(p."id") = COUNT(DISTINCT lower(substr(p."id", 5))) AS ok FROM "user" AS p`,
+      `SELECT COUNT(c."id") = COUNT(DISTINCT lower(substr(c."id", 5))) AS ok FROM "profile" AS c`,
+    ]);
+    expect(collisions.some((check) => check.includes("authorId"))).toBe(false);
+  });
+
+  test("a ksuid reference is asked no fold question, unique column or not", () => {
+    // The format has no aliases, so nothing folds and nothing can collide —
+    // for the key, for a unique reference, or for a plain one.
+    expect(
+      checksFor(ticket, "id", "postgresql").some((check) =>
+        check.includes("COUNT(DISTINCT")
+      )
+    ).toBe(false);
   });
 
   test("the child whose key IS the foreign key names both sides", () => {
     // Without the aliases this correlation reads `"id" = "id"` and proves
     // nothing at all: `profile.id` and `user.id` are one spelling.
-    expect(checksFor(user, "id", "postgresql")[5]).toContain(
+    expect(checksFor(user, "id", "postgresql")[6]).toContain(
       `WHERE lower(substr(p."id", 5)) = lower(substr(c."id", 5))`
     );
   });
@@ -143,6 +171,43 @@ describe("identifier conversion pre-checks", () => {
     expect(checksFor(post, "id", "mysql")[0]).toBe(
       "SELECT NOT EXISTS (SELECT 1 FROM `posts` AS p WHERE p.`id` IS NOT NULL AND NOT (CHAR_LENGTH(p.`id`) = 26 AND p.`id` REGEXP '^[0-7][0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{25}$')) AS ok"
     );
+  });
+
+  test("MySQL asks every IDENTITY comparison of bytes, and the grammar of text", () => {
+    // `utf8mb4_0900_ai_ci` is MySQL 8's default: a bare `=` there answers TRUE
+    // for two values a BINARY(n) column holds as different bytes, which
+    // certifies an estate whose foreign key names no parent after the
+    // conversion. Measured on the project's container, where the unfolded
+    // ksuid correlation answered `ok = 1` for a child holding a different
+    // KSUID in a different case.
+    const uuidChecks = checksFor(user, "id", "mysql");
+    expect(uuidChecks[0]).toContain(
+      "CAST(substr(p.`id`, 1, 4) AS BINARY) = 'usr-'"
+    );
+    expect(uuidChecks[1]).toBe(
+      "SELECT COUNT(p.`id`) = COUNT(DISTINCT CAST(lower(substr(p.`id`, 5)) AS BINARY)) AS ok FROM `user` AS p"
+    );
+    expect(uuidChecks[3]).toContain(
+      "WHERE CAST(lower(substr(p.`id`, 5)) AS BINARY) = CAST(lower(substr(c.`authorId`, 5)) AS BINARY)"
+    );
+    // The unfolded format is the one the collation actually broke.
+    expect(checksFor(ticket, "id", "mysql")[2]).toContain(
+      "WHERE CAST(p.`id` AS BINARY) = CAST(c.`ticketId` AS BINARY)"
+    );
+    // The grammar match is NOT cast: MySQL's REGEXP refuses a binary operand,
+    // and every pattern here already spells both cases.
+    expect(checksFor(ticket, "id", "mysql")[0]).toContain(
+      "p.`id` REGEXP '^[0-9A-Za-z]{27}$'"
+    );
+  });
+
+  test("PostgreSQL and SQLite compare the column itself, uncast", () => {
+    // Both compare text by bytes already; a cast there would be a second
+    // spelling of the same question and would break `citext` besides.
+    expect(checksFor(user, "id", "postgresql").join("\n")).not.toContain(
+      "CAST("
+    );
+    expect(checksFor(user, "id", "sqlite").join("\n")).not.toContain("CAST(");
   });
 
   test("SQLite has no REGEXP, so the grammar is spelled as a GLOB", () => {
