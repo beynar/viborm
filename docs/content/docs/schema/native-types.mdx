@@ -65,6 +65,15 @@ Without a native type override, scalars map to these column types:
 | `MYSQL.STRING.BIT(n)` | `BIT(n)` |
 | `SQLITE.STRING.TEXT` | `TEXT` (only option) |
 
+A string field that NAMES an identifier format — `.uuid()`, `.uuidv7()`,
+`.ulid()`, `.ksuid()`, `.nanoid()`, `.cuid()` — chooses its own column, so the
+override is narrower there than on an ordinary string: it may name a text-family
+column (which keeps text storage with the format still validated, the opt-out
+for a column that already holds text) or a binary one of that format's exact
+width. Anything else is refused where it is declared, with a message naming the
+spellings the format does accept. See
+[String](/docs/schema/scalars/string#storage).
+
 ## Integer
 
 | Constant | Column type |
