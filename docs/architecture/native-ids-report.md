@@ -187,12 +187,35 @@ Every statement on that page was executed: see Validation below.
 
 | Gate | Result |
 |---|---|
-| `pnpm test:types` | (see below) |
-| `pnpm test:core` | (see below) |
+| `pnpm test:types` | no diagnostics — "TypeScript (whole estate, native): 5.58s wall, 5357.4 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified." |
+| `pnpm test:core` | `Test Files 508 passed (508)` / `Tests 10349 passed (10349)` — Stage D's tip was 507 files / 10332 |
 | `pnpm test:package` | 10 passed (10) — exports smoke, public-surface golden, dependency-types smoke, OTel-absent, TS 5.8 floor |
 | `pnpm package:lint` | `publint --strict`: "All good!" · `attw --pack . --profile esm-only`: exit 0, 53 green resolutions, only the ignored `node10`/`node16-cjs` notices |
 | `pnpm test:all` | `EXIT=0` — 754 passing test-file lines, zero `FAIL` / `failed` / `ELIFECYCLE` lines in the whole log, ending on `✓ \|package\| tests/package/package.test.ts (10 tests)` |
 | `pnpm test:coverage:policy` | pass 11 / pass 16 / pass 6, fail 0 |
+
+Coverage floors, none lowered:
+
+| Subsystem | statements | branches | functions | lines | floors |
+|---|---|---|---|---|---|
+| `migrations` | 98.71% | 97.36% | 100% | 98.71% | 98 / 97.3 / 98 / 98 |
+| `validation` | 100% | 100% | 100% | 100% | 100 in all four |
+| `schema` | 100% | 100% | 100% | 100% | 100 in all four |
+| query-engine core | 99.04% | 97.95% | 100% | 99.04% | 98 / 97.9 / 98 / 98 |
+
+`src/migrations/identifier-conversion.ts` is at 100% in all four metrics. Two
+coverage facts are worth recording rather than hiding: the conversion walk had
+three arms nothing exercised (a ksuid key's unfolded foreign-key agreement, a
+compound reference whose second member names another key, and an edge whose
+owner is its second endpoint beside a junction edge the walk passes over), and
+the new compound-selector test was the first caller of `registry.validate` in
+the validation lane's four projects, which left that boundary's no-field issue
+and its optional-argument answer newly reachable and unmeasured. Both sets are
+asserted now.
+
+Biome over the whole estate reports the same 26 errors and 3 warnings with and
+without this branch's working tree — every one of them in a file this program
+did not touch. The eleven files it did change are clean.
 
 ### The built package
 
