@@ -44,12 +44,30 @@ const profile = s.model({
     .references("id"),
 });
 
-const ticket = s.model({
-  id: s.string().id().ksuid(),
-  subject: s.string(),
-});
+/** A ksuid key, with a COMPOUND reference to it: one member of that reference
+ * names this key and the other does not. */
+const ticket = s
+  .model({
+    id: s.string().ksuid(),
+    wing: s.string(),
+    subject: s.string(),
+    bookings: s.toMany(() => booking),
+  })
+  .id(["id", "wing"]);
 
-const schema = { user, post, profile, ticket };
+const booking = s
+  .model({
+    id: s.string().id(),
+    ticketId: s.string(),
+    ticketWing: s.string(),
+    ticket: s
+      .toOne(() => ticket)
+      .fields("ticketId", "ticketWing")
+      .references("id", "wing"),
+  })
+  .map("bookings");
+
+const schema = { booking, post, profile, ticket, user };
 
 /** The refusal's own words, so a reworded message cannot pass this test. */
 const NO_COMPACT_DOMAIN = /only uuid, uuidv7, ulid and ksuid change storage/;
@@ -102,10 +120,23 @@ describe("identifier conversion pre-checks", () => {
     ]);
   });
 
-  test("a ksuid key has no aliases, so it has no collision check", () => {
+  test("a ksuid key has no aliases, so nothing is folded anywhere", () => {
+    // Not just no collision check: the foreign-key agreement compares the
+    // columns THEMSELVES, because for this format one value has one spelling.
     expect(checksFor(ticket, "id", "postgresql")).toEqual([
       `SELECT NOT EXISTS (SELECT 1 FROM "ticket" AS p WHERE p."id" IS NOT NULL AND NOT (length(p."id") = 27 AND p."id" ~ '^[0-9A-Za-z]{27}$')) AS ok`,
+      `SELECT NOT EXISTS (SELECT 1 FROM "bookings" AS c WHERE c."ticketId" IS NOT NULL AND NOT (length(c."ticketId") = 27 AND c."ticketId" ~ '^[0-9A-Za-z]{27}$')) AS ok`,
+      `SELECT NOT EXISTS (SELECT 1 FROM "bookings" AS c WHERE c."ticketId" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "ticket" AS p WHERE p."id" = c."ticketId")) AS ok`,
     ]);
+  });
+
+  test("a compound reference contributes only the member that names this key", () => {
+    // `booking.ticket` references (id, wing); `ticketWing` holds no identifier
+    // and must not be checked as one. And `user`'s own foreign keys belong to
+    // another key entirely, so they contribute nothing here.
+    const checks = checksFor(ticket, "id", "postgresql");
+    expect(checks.some((check) => check.includes("ticketWing"))).toBe(false);
+    expect(checks.some((check) => check.includes("authorId"))).toBe(false);
   });
 
   test("MySQL spells the width and the match its own way", () => {
@@ -153,6 +184,54 @@ describe("identifier conversion pre-checks", () => {
     expect(() => checksFor(profile, "id", "postgresql")).not.toThrow();
     expect(() => checksFor(user, "handle", "postgresql")).toThrow(
       NO_COMPACT_DOMAIN
+    );
+  });
+});
+
+/**
+ * A reference the edge records in the other order.
+ *
+ * An edge's two endpoints are canonically ordered; whether the FOREIGN KEY's
+ * owner is the first or the second of them is a fact about the schema, not
+ * about the reference. Both orders have to find the same referencing column,
+ * and the schema above only produces one of them.
+ */
+describe("identifier conversion pre-checks — the other endpoint order", () => {
+  const aaTarget = s
+    .model({
+      id: s.string().id().uuid(),
+      marks: s.toMany(() => zzOwner),
+      // A junction edge beside the foreign key: its columns are private
+      // storage with no (model, field), so it contributes nothing here — and
+      // the walk has to pass over it rather than read `reference` off it.
+      peers: s.toMany(() => zzOwner).name("peers"),
+    })
+    .map("aa_targets");
+  const zzOwner = s
+    .model({
+      id: s.string().id(),
+      targetId: s.string(),
+      target: s
+        .toOne(() => aaTarget)
+        .fields("targetId")
+        .references("id"),
+      peers: s.toMany(() => aaTarget).name("peers"),
+    })
+    .map("zz_owners");
+  const otherSchema = { aaTarget, zzOwner };
+
+  test("the referencing column is found whichever end owns the key", () => {
+    const checks = identifierConversionChecks({
+      schema: otherSchema,
+      model: aaTarget,
+      field: "id",
+      dialect: "postgresql",
+    }).map((check) => rendered(check.query));
+
+    expect(checks).toHaveLength(4);
+    expect(checks[2]).toContain(`FROM "zz_owners" AS c`);
+    expect(checks[3]).toContain(
+      `NOT EXISTS (SELECT 1 FROM "aa_targets" AS p WHERE lower(p."id") = lower(c."targetId"))`
     );
   });
 });

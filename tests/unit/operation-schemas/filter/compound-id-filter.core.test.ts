@@ -223,6 +223,23 @@ describe("Compound ID Filter - a derived member beside a declared one", () => {
     ).toThrow(ValidationError);
   });
 
+  test("runtime: the boundary answers for a payload with no shape at all", () => {
+    // The tests above reach `registry.validate` — the throwing boundary a
+    // client calls — through a well-formed payload. Its other two answers are
+    // an issue that belongs to no field, and an operation whose whole argument
+    // is optional.
+    try {
+      registry.validate("seat", "findUnique", "not-an-object");
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ValidationError);
+      expect((error as ValidationError).issues).toEqual([
+        { path: "", message: "Expected object" },
+      ]);
+    }
+    expect(registry.validate("seat", "findMany", undefined)).toEqual({});
+  });
+
   test("runtime: two spellings of one key make one cache key", () => {
     const keyFor = (roomId: string, slotId: string) =>
       generateCacheKey(
