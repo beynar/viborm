@@ -51,15 +51,23 @@ junction side, a polymorphic row carrier's id column. Both answer
 the same ULID and the engine is not allowed to know which dialect it is building
 for.
 
-Exactly five seams touch it, and there is no format switch anywhere else:
+These seams touch it, and there is no format switch anywhere else:
 
 | Seam | Owner |
 | --- | --- |
 | Parameter | `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
 | Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
-| Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value |
+| Aggregate | `builders/aggregate-utils.ts` — `MIN`/`MAX` run over the TRANSPORTED value, through the same `projectIdBytes`; see below |
+| Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value. `parseAggregate` takes the same lookup |
 | Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
 | DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
+
+`MIN`/`MAX` aggregate the spelling the column TRAVELS in, not the one it is
+stored in, and the answer is the same: every compact format's canonical text is
+fixed-width and lowercase, so its text order IS its byte order. Two facts force
+it independently — PostgreSQL 16 has no `min(uuid)` and no `max(bytea)`, and
+JSON cannot hold binary — and the null guard travels inside the aggregate with
+it, because SQLite's `hex(NULL)` is the empty string and would win every `MIN`.
 
 A SUBSTRING is not a value of the domain: `contains`/`startsWith`/`endsWith`
 bind their operand through `scalarValueLiteral`'s explicit substring escape

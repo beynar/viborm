@@ -113,6 +113,8 @@ cursor pagination — because the byte order of all four compact formats IS thei
 canonical text order (and, for `uuidv7`, `ulid` and `ksuid`, their time order).
 `nanoid` and `cuid` stay text and keep every string operator; only their
 `equals` / `in` / `notIn` operands have to be values of the domain.
+`_min` and `_max` answer with the earliest and latest identifier, for the same
+reason ordering works, and `_count` and `groupBy` are unaffected.
 
 **Keeping a text column.** A [native type](/docs/schema/native-types) from the
 text family opts out of compact storage while keeping the domain validated —
