@@ -210,8 +210,9 @@ function assertApplicationGeneratedValues(
         continue;
       }
       throw new QueryEngineError(
-        `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
-          "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
+        `Auto-generated value '${genType}' for field '${fieldName}' reached the row builder undefined. ` +
+          "An application-generated default is materialized by the field's create schema, so a missing " +
+          "value here means the row bypassed validation; supply the value explicitly or let the database own it."
       );
     }
   }

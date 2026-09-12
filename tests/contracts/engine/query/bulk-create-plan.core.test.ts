@@ -38,7 +38,7 @@ const HETEROGENEOUS_ROWS_PATTERN =
   /Heterogeneous insert rows require grouped execution/;
 const EXPLICIT_ZERO_PATTERN = /Explicit zero is not portable.*'id'/;
 const GENERATED_ULID_REQUIRED_PATTERN =
-  /Auto-generated value 'ulid'.*must be provided explicitly/;
+  /Auto-generated value 'ulid' for field 'id' reached the row builder undefined/;
 const ANY_NULL_PATTERN = /AnyNull matches both nulls/;
 const MISSING_DECIMAL_DESCRIPTOR_PATTERN =
   /has no declared precision and scale/;

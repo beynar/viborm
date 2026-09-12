@@ -6,6 +6,7 @@
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
@@ -415,21 +416,28 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // PostgreSQL uses "true"/"false" for booleans which is the base default
 
   /**
-   * PostgreSQL supports native UUID generation via gen_random_uuid().
-   * This is more efficient than generating UUIDs at the application level.
+   * The only generator PostgreSQL can run itself.
+   *
+   * `gen_random_uuid()` (PostgreSQL 13+) produces exactly what `.uuid()`
+   * produces — but ONLY when no prefix is declared: a prefixed field's public
+   * value is `prefix-payload`, and a column default that wrote the bare payload
+   * would disagree with every row the application inserts. No other format has
+   * a server-side equivalent: `uuidv7()` arrives in PostgreSQL 18, and ULID,
+   * KSUID, NanoID and CUID2 have none at all, so those fields carry no DDL
+   * default and the application's own generator remains their single owner.
    */
   protected override getAutoGenerateExpression(
     autoGenerate: import("@schema/scalars").ScalarState["autoGenerate"]
   ): string | undefined {
     switch (autoGenerate?.kind) {
       case "uuid":
-        // gen_random_uuid() is available in PostgreSQL 13+ (pgcrypto extension in older versions)
-        return "gen_random_uuid()";
+        return hasIdPrefix(autoGenerate.prefix)
+          ? undefined
+          : "gen_random_uuid()";
       case "now":
         // Use database-level NOW() for consistent timestamps
         return "NOW()";
       default:
-        // Other types (ulid, nanoid, cuid, increment, updatedAt) handled elsewhere
         return undefined;
     }
   }
