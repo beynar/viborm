@@ -37,6 +37,7 @@ import {
   buildGeoPointEquality,
   buildGeoPointWithin,
 } from "./geo-point-builder";
+import { idColumnOf } from "./id-field";
 import { buildJsonFilter } from "./json-filter-builder";
 import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
 import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
@@ -328,6 +329,7 @@ function buildScalarFilter(
   positivePolarity: boolean
 ): Sql | undefined {
   const scalarState = getScalarState(ctx, fieldName);
+  const idColumn = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
 
   // Resolve field name to actual column name (handles .map() overrides)
   const columnName = getColumnName(ctx.model, fieldName);
@@ -358,7 +360,12 @@ function buildScalarFilter(
     if (opValue === undefined) {
       continue;
     }
-    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    assertSupportedScalarFilterOperator(
+      fieldName,
+      scalarState,
+      op,
+      idColumn?.domain
+    );
     if (op === "mode") continue;
 
     const condition = buildFilterOperation(
@@ -516,6 +523,7 @@ function buildFilterOperation(
   positivePolarity = true
 ): Sql {
   const { adapter } = ctx;
+  const idColumn = idColumnOf(adapter, ctx.model, fieldName, ctx.relations);
   const lit = (v: unknown) => {
     if (isFieldRef(v)) {
       // Reached only from an operator the schemas do NOT open to references
@@ -537,9 +545,14 @@ function buildFilterOperation(
   const containmentCandidate = (members: unknown[]): Sql =>
     scalarValueLiteral(ctx, fieldName, members);
   const isInsensitive = mode === "insensitive";
+  // A COMPACTLY STORED identifier is not text, whatever its scalar type says:
+  // its column holds bytes or a `uuid`, and collating or ASCII-folding it would
+  // ask the database to compare a value it never spelled as characters.
   const isTextScalar =
     !scalarState.array &&
-    (scalarState.type === "string" || scalarState.type === "enum");
+    (scalarState.type === "string" || scalarState.type === "enum") &&
+    idColumn?.representation !== "bytes" &&
+    idColumn?.representation !== "uuid";
   const exactTextColumn = isTextScalar
     ? adapter.expressions.caseSensitiveText(column)
     : column;
@@ -877,6 +890,7 @@ function buildScalarFilterObject(
   positivePolarity = true
 ): Sql {
   const scalarState = getScalarState(ctx, fieldName);
+  const idColumn = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
   const conditions: Sql[] = [];
 
   // Nested filter may also have mode
@@ -887,7 +901,12 @@ function buildScalarFilterObject(
     if (value === undefined) {
       continue;
     }
-    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    assertSupportedScalarFilterOperator(
+      fieldName,
+      scalarState,
+      op,
+      idColumn?.domain
+    );
     if (op === "mode") continue;
 
     const condition = buildFilterOperation(

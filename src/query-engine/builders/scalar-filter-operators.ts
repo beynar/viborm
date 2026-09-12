@@ -1,4 +1,8 @@
 import type { ScalarState, ScalarType } from "@schema/scalars";
+import {
+  type IdDomain,
+  isCompactIdFormat,
+} from "@validation/primitives/id-codec";
 import { QueryEngineError } from "../types";
 
 const BASE_FILTER_OPERATORS = new Set(["equals", "not"]);
@@ -13,6 +17,17 @@ const SET_MEMBERSHIP_FILTER_OPERATORS = new Set([
 ]);
 const SET_MEMBERSHIP_SCALAR_TYPES: Set<ScalarType> = new Set(["enum", "blob"]);
 const COMPARISON_FILTER_OPERATORS = new Set([
+  "equals",
+  "not",
+  "in",
+  "notIn",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+]);
+/** {@link STRING_FILTER_OPERATORS} without the four that read a value as text. */
+const COMPACT_ID_FILTER_OPERATORS = new Set([
   "equals",
   "not",
   "in",
@@ -75,9 +90,21 @@ const COMPARISON_SCALAR_TYPES: Set<ScalarType> = new Set([
 export function assertSupportedScalarFilterOperator(
   fieldName: string,
   scalarState: ScalarState,
-  operation: string
+  operation: string,
+  idDomain?: IdDomain
 ): void {
-  if (isSupportedScalarFilterOperator(scalarState, operation)) return;
+  if (isSupportedScalarFilterOperator(scalarState, operation, idDomain)) return;
+
+  if (
+    idDomain !== undefined &&
+    STRING_FILTER_OPERATORS.has(operation) &&
+    !COMPACT_ID_FILTER_OPERATORS.has(operation)
+  ) {
+    throw new QueryEngineError(
+      `Filter operation '${operation}' reads '${fieldName}' as text, but a ${idDomain.format} column stores the identifier itself, not the text it is written as. ` +
+        "Equality, set membership, ordering and cursors are exact on it; substring predicates are not."
+    );
+  }
 
   throw new QueryEngineError(
     `Unsupported filter operation '${operation}' for ${scalarState.type} scalar '${fieldName}'.`
@@ -86,14 +113,22 @@ export function assertSupportedScalarFilterOperator(
 
 function isSupportedScalarFilterOperator(
   scalarState: ScalarState,
-  operation: string
+  operation: string,
+  idDomain: IdDomain | undefined
 ): boolean {
   if (scalarState.array) {
     return LIST_FILTER_OPERATORS.has(operation);
   }
 
   if (scalarState.type === "string") {
-    return STRING_FILTER_OPERATORS.has(operation);
+    // A COMPACTLY STORED identifier keeps every operator the column can answer
+    // exactly and loses the four that read it as text. The validation schema
+    // already removed them from the type and from what it admits; this is the
+    // engine boundary's own statement of the same fact, for a program that
+    // reaches the builder without one.
+    return idDomain !== undefined && isCompactIdFormat(idDomain.format)
+      ? COMPACT_ID_FILTER_OPERATORS.has(operation)
+      : STRING_FILTER_OPERATORS.has(operation);
   }
 
   if (SET_MEMBERSHIP_SCALAR_TYPES.has(scalarState.type)) {

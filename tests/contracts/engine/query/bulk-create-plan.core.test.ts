@@ -192,7 +192,7 @@ describe("bulk create planning", () => {
     ).toThrow(GENERATED_ULID_REQUIRED_PATTERN);
     expect(
       buildValues(scopeFor(new PostgresAdapter(), generatedText), {
-        id: "01JTESTVALUE",
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         label: "provided",
       }).columns
     ).toEqual(["id", "label"]);

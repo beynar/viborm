@@ -6,6 +6,7 @@ import type {
   GeoPoint,
   GeoPolygon,
 } from "@validation/primitives/geo-values";
+import type { IdRepresentation } from "@validation/primitives/id-codec";
 import type { DatabaseAdapterCapabilities } from "./adapter-capabilities";
 import type { ArithmeticTarget, CastType } from "./adapter-core-types";
 import type { AdapterResultParser } from "./adapter-result-parser";
@@ -171,6 +172,26 @@ export interface DatabaseAdapter {
      * column the same physical kind of number.
      */
     decimal: (canonical: string, descriptor: DecimalDescriptor) => Sql;
+    /**
+     * Identifier operand, in the PHYSICAL representation its column holds.
+     *
+     * The value arrives already encoded by the codec — canonical public text,
+     * canonical UUID text, or the payload's own bytes — so nothing here reads a
+     * format, a prefix or an alphabet. What the dialect owns is the BINDING: a
+     * PostgreSQL `uuid` column takes text and wants the operand typed as
+     * `uuid`, because an untyped text operand against a `uuid` column is
+     * `operator does not exist: uuid = text`; a `bytea`, `BINARY(n)` or `BLOB`
+     * column takes the bytes as an ordinary binary parameter, which every
+     * driver already serializes for blob scalars.
+     *
+     * Separate from {@link DatabaseAdapter.literals.value} for the reason
+     * `decimal` is: the operand and the column have to be ONE physical kind, and
+     * a generic parameter leaves that to inference at every site.
+     */
+    id: (
+      physical: string | Uint8Array,
+      representation: IdRepresentation
+    ) => Sql;
   };
 
   /**
@@ -291,6 +312,18 @@ export interface DatabaseAdapter {
 
     /** Cast a deferred value into one fixed-decimal field's exact domain. */
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor) => Sql;
+
+    /**
+     * Cast a DEFERRED identifier into its column's physical type.
+     *
+     * The sibling of {@link DatabaseAdapter.expressions.decimalCast}, and
+     * needed for the same reason: a relation key whose value does not exist at
+     * build time — a `Ref` into a located parent's captured column — cannot go
+     * through `literals.id`, and the generic `text` cast names a type the
+     * column does not have. `CAST($1 AS TEXT)` against a PostgreSQL `uuid`
+     * column is the 42804 this exists to avoid.
+     */
+    idCast: (expr: Sql, representation: IdRepresentation) => Sql;
 
     // Utility
     coalesce: (...exprs: Sql[]) => Sql;

@@ -28,6 +28,12 @@ import {
 } from "./decimal-field";
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { buildGeoPointValue } from "./geo-point-builder";
+import {
+  encodeIdValue,
+  type IdColumn,
+  idColumnOf,
+  idColumnOfScalar,
+} from "./id-field";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
   type PolymorphicStorageValue,
@@ -260,7 +266,17 @@ export function buildScalarSqlValue(
   value: unknown
 ): Sql {
   const field = model["~"].state.scalars[fieldName];
-  return buildScalarSqlValueForScalar(ctx, field, fieldName, value);
+  // A model field's identifier domain may be DERIVED — a foreign key carries
+  // its target's — so it is read against the model, through the index the
+  // scope already threads. A private column's scalar IS the referenced key's
+  // and answers for itself below.
+  return buildScalarSqlValueForScalar(
+    ctx,
+    field,
+    fieldName,
+    value,
+    idColumnOf(ctx.adapter, model, fieldName, ctx.relations)
+  );
 }
 
 /** Lower a value against an explicit destination scalar, including private columns. */
@@ -268,7 +284,8 @@ export function buildScalarSqlValueForScalar(
   ctx: QueryScope,
   field: Scalar | undefined,
   fieldName: string,
-  value: unknown
+  value: unknown,
+  idColumn: IdColumn | undefined = idColumnOfScalar(ctx.adapter, field)
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
@@ -324,6 +341,16 @@ export function buildScalarSqlValueForScalar(
           value,
           decimalDescriptorOfScalar(field)
         );
+  }
+
+  // An identifier binds in the PHYSICAL form its column holds: the payload's
+  // bytes, a canonical uuid, or the public string. The prefix is a fact of the
+  // declaration and is never stored.
+  if (idColumn !== undefined) {
+    return ctx.adapter.literals.id(
+      encodeIdValue(fieldName, value, idColumn),
+      idColumn.representation
+    );
   }
 
   return ctx.adapter.literals.value(value);
@@ -526,6 +553,23 @@ export function scalarValueLiteral(
           value,
           decimalDescriptorOf(ctx.model, fieldName)
         );
+  }
+  if (value !== null && value !== undefined) {
+    // Every comparison, cursor bound and assignment operand for an identifier
+    // field is the same physical value its column holds — the one binding
+    // `buildScalarSqlValue` writes with.
+    const idColumn = idColumnOf(
+      ctx.adapter,
+      ctx.model,
+      fieldName,
+      ctx.relations
+    );
+    if (idColumn !== undefined) {
+      return ctx.adapter.literals.id(
+        encodeIdValue(fieldName, value, idColumn),
+        idColumn.representation
+      );
+    }
   }
   return ctx.adapter.literals.value(value);
 }

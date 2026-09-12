@@ -28,8 +28,14 @@ const bytes = (hex: string): Uint8Array =>
     Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
   );
 
-const hexOf = (value: Uint8Array): string =>
-  [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+/** The hex of whatever bytes a call produced, and a readable miss when it did not. */
+const hexOf = (value: string | Uint8Array | undefined): string =>
+  value instanceof Uint8Array
+    ? [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+    : `not bytes: ${String(value)}`;
+
+const widthOf = (value: string | Uint8Array | undefined): number =>
+  value instanceof Uint8Array ? value.length : -1;
 
 describe("the domain vocabulary", () => {
   test("the six string generators name a domain and the other three do not", () => {
@@ -245,11 +251,8 @@ describe("physical encoding", () => {
     expect(hexOf(encodePhysicalId(UUID, domain("uuid"), "bytes"))).toBe(
       "a0eebc999c0b4ef8bb6d6bb9bd380a11"
     );
-    const ulidBytes = encodePhysicalId(ULID, domain("ulid"), "bytes");
-    expect(ulidBytes).toBeInstanceOf(Uint8Array);
-    expect((ulidBytes as Uint8Array).length).toBe(16);
-    const ksuidBytes = encodePhysicalId(KSUID, domain("ksuid"), "bytes");
-    expect((ksuidBytes as Uint8Array).length).toBe(20);
+    expect(widthOf(encodePhysicalId(ULID, domain("ulid"), "bytes"))).toBe(16);
+    expect(widthOf(encodePhysicalId(KSUID, domain("ksuid"), "bytes"))).toBe(20);
   });
 
   test("the declared prefix is never stored", () => {
@@ -402,7 +405,7 @@ describe("the shared binary shape normalization", () => {
   test("a typed view is copied out of its buffer, never aliased into it", () => {
     const buffer = new Uint8Array([1, 2, 3, 4]);
     const view = buffer.subarray(1, 3);
-    const normalized = normalizeBinaryValue(view).bytes!;
+    const normalized = normalizeBinaryValue(view).bytes;
     expect(hexOf(normalized)).toBe("0203");
     buffer[1] = 9;
     expect(hexOf(normalized)).toBe("0203");

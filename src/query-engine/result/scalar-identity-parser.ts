@@ -32,14 +32,30 @@ const numberGuard: IdentityGuard = (value) =>
  * coerce (a bigint arrives as a string, dates as Date/strings, enums need a
  * membership check) and return `undefined` — the full parser owns them.
  *
+ * A field with an identifier DOMAIN is excluded whatever its storage; see the
+ * guard below.
+ *
  * A DECIMAL is excluded for a stronger reason than coercion: no provider value
  * is ever its public form. Every selected decimal materializes a fresh
  * `Decimal` from the codec's canonical text, so there is no raw value the full
  * parser would return unchanged and nothing for a guard to shortcut.
  */
-export function identityGuardFor(scalar: Scalar): IdentityGuard | undefined {
+export function identityGuardFor(
+  scalar: Scalar,
+  hasIdDomain: boolean
+): IdentityGuard | undefined {
   const state = scalar["~"].state;
   if (state.array === true) {
+    return undefined;
+  }
+  // An IDENTIFIER field is excluded for the same reason a decimal is: no
+  // provider value is reliably its public form. A compact column returns bytes
+  // or hex; a prefixed one returns a payload the prefix is re-applied to; and
+  // even a text-stored, unprefixed domain may hold an ALIAS — an uppercase
+  // UUID written out of band — which the full parser normalizes and a guard
+  // that answered `typeof value === "string"` would hand back unchanged, as two
+  // spellings of one row key.
+  if (hasIdDomain) {
     return undefined;
   }
   switch (state.type) {

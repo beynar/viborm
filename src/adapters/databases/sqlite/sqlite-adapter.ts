@@ -1,12 +1,14 @@
 import { unsupportedVector } from "@errors";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import type { NativeType } from "@schema/scalars/native-types";
+import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
 import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
   encodePhysicalDecimal,
 } from "@validation/primitives/decimal-codec";
+import type { IdRepresentation } from "@validation/primitives/id-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
@@ -302,6 +304,14 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // parse, not a float one.
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "coefficient")} AS INTEGER)`,
+
+    // Every compact domain is a `BLOB` here and takes the payload's bytes as
+    // the ordinary binary parameter a blob scalar already binds; a text-stored
+    // domain takes the public string unchanged.
+    id: (
+      physical: string | Uint8Array,
+      _representation: IdRepresentation
+    ): Sql => sql`${physical}`,
   };
 
   // ============================================================
@@ -400,6 +410,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // select this physical cast without naming the destination domain.
     decimalCast: (expr: Sql, _descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS INTEGER)`,
+
+    idCast: (expr: Sql, representation: IdRepresentation): Sql =>
+      sql`CAST(${expr} AS ${sql.raw(
+        representation === "bytes" ? "BLOB" : "TEXT"
+      )})`,
 
     // SQLite type mappings
     cast: createCastExpression({
@@ -856,6 +871,11 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // The same reading the `dateTime` literal above lowers through, so a column
     // is read back in the vocabulary it was written in.
     dateTimeRepresentation: sqliteDateTimePhysicalForm,
+
+    // Derived from the ONE storage owner, so the column the migration creates
+    // and the value this reads back cannot be two decisions.
+    idRepresentation: (domain, nativeType) =>
+      idStorageOf(domain, nativeType, "sqlite")?.representation ?? "text",
 
     parseResult: (
       _raw: unknown,

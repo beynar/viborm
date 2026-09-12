@@ -29,6 +29,7 @@ import {
   type VariantCarrierSlot,
 } from "../types";
 import { buildDistanceExpression } from "./distance-builder";
+import { idColumnOf } from "./id-field";
 import {
   type BuildIncludeOptions,
   type BuildNestedSelection,
@@ -244,12 +245,14 @@ function buildSelectPairs(
         const scalar = scalars[fieldName];
         const columnName = getColumnName(ctx.model, fieldName);
         const column = ctx.adapter.identifiers.column(alias, columnName);
-        const scalarType = scalar?.["~"].state.type;
         pairs.push([
           fieldName,
-          scalarType === "decimal" || scalarType === "point"
-            ? projectScalarForTransport(ctx.adapter, scalar, column)
-            : column,
+          projectScalarForTransport(
+            ctx.adapter,
+            scalar,
+            column,
+            idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations)
+          ),
         ]);
         continue;
       }
@@ -324,12 +327,14 @@ function buildSelectPairs(
       const scalar = scalars[fieldName];
       const columnName = getColumnName(ctx.model, fieldName);
       const column = ctx.adapter.identifiers.column(alias, columnName);
-      const scalarType = scalar?.["~"].state.type;
       pairs.push([
         fieldName,
-        scalarType === "decimal" || scalarType === "point"
-          ? projectScalarForTransport(ctx.adapter, scalar, column)
-          : column,
+        projectScalarForTransport(
+          ctx.adapter,
+          scalar,
+          column,
+          idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations)
+        ),
       ]);
     }
   }

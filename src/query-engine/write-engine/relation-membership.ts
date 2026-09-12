@@ -5,6 +5,7 @@ import {
   buildPolymorphicMembershipPredicate,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import { idColumnOfScalar } from "../builders/id-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   type BoundPolymorphicMembership,
@@ -762,7 +763,9 @@ export function membershipProjection(
         projectScalarForTransport(
           adapter,
           column.scalar,
-          adapter.identifiers.column(rootAlias, column.name)
+          adapter.identifiers.column(rootAlias, column.name),
+          // A row carrier's id column carries the referenced key's own scalar.
+          idColumnOfScalar(adapter, column.scalar)
         ),
         column.name
       )

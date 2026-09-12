@@ -4,6 +4,12 @@ import { isSql, type Sql } from "@sql";
 import { dateTimeNativeTypeOf } from "../builders/datetime-field";
 import { decimalDescriptorOfScalar } from "../builders/decimal-field";
 import {
+  encodeIdValue,
+  type IdColumn,
+  idColumnOf,
+  idColumnOfScalar,
+} from "../builders/id-field";
+import {
   decimalLiteral,
   getScalarCastTypeForScalar,
   getScalarTypeForScalar,
@@ -74,7 +80,12 @@ export function referenceSql(
     engine,
     model["~"].state.scalars[field],
     field,
-    value
+    value,
+    // A foreign key's identifier domain is DERIVED from the key it references,
+    // so it is read against the model. This is the one relation-key lowering
+    // that reaches an FK column, which is exactly where a derived domain has
+    // to be known.
+    idColumnOf(engine.adapter, model, field, engine.relations)
   );
 }
 
@@ -83,8 +94,26 @@ export function referenceScalarSql(
   engine: QueryEngine,
   scalar: Scalar | undefined,
   field: string,
-  value: unknown
+  value: unknown,
+  idColumn: IdColumn | undefined = idColumnOfScalar(engine.adapter, scalar)
 ): Sql {
+  if (idColumn !== undefined) {
+    // A CONCRETE identifier takes the same physical binding every other write
+    // of this column takes — bytes for a compact column, canonical uuid text
+    // for a PostgreSQL `uuid`. A DEFERRED one cannot be encoded (its value does
+    // not exist yet), so it is cast into the column's physical type instead:
+    // the generic `text` cast names a type the column does not have, which is
+    // the same defect the temporal branch below was fixed for.
+    return isConcreteFkValue(value)
+      ? engine.adapter.literals.id(
+          encodeIdValue(field, value, idColumn),
+          idColumn.representation
+        )
+      : engine.adapter.expressions.idCast(
+          engine.adapter.literals.value(value),
+          idColumn.representation
+        );
+  }
   const decimal = decimalDescriptorOfScalar(scalar);
   if (decimal !== undefined) {
     if (isConcreteFkValue(value)) {

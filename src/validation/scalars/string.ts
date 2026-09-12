@@ -99,18 +99,31 @@ type CompactIdFilterSchema<
 type CompactIdKind = "uuid" | "uuidv7" | "ulid" | "ksuid";
 
 /**
- * Whether this state DECLARES one of the four compact identifier formats.
+ * Whether this state NAMES one of the four compact identifier formats.
  *
- * Wrapped in a tuple so the check does not distribute: a field that declares no
- * generator has the whole `AutoGenerateType` union here, and a distributing
- * conditional would answer `boolean` for it — which is neither arm and would
- * offer a plain `s.string()` the narrowed filter.
+ * Three arms, and each one is a real case:
+ *
+ *  - No generator at all. `NonNullable<undefined>` is `never`, and `never`
+ *    vacuously extends everything, so a plain `s.string()` would otherwise be
+ *    handed the narrowed filter its column has no reason for.
+ *  - `.id()`'s implicit ULID. It declares a KEY, not a format, so the field
+ *    keeps text storage and every string operator; narrowing here would offer
+ *    a type the runtime schema does not enforce.
+ *  - A named format, which is the only `true`.
+ *
+ * Each check is wrapped in a tuple so it cannot distribute: an undeclared field
+ * carries the whole `AutoGenerateType` union, and a distributing conditional
+ * answers `boolean` for it — neither arm.
  */
 type DeclaresCompactId<F extends ScalarState<"string">> = [
-  NonNullable<F["autoGenerate"]>["kind"],
-] extends [CompactIdKind]
-  ? true
-  : false;
+  NonNullable<F["autoGenerate"]>,
+] extends [never]
+  ? false
+  : [NonNullable<F["autoGenerate"]>["implicit"]] extends [true]
+    ? false
+    : [NonNullable<F["autoGenerate"]>["kind"]] extends [CompactIdKind]
+      ? true
+      : false;
 
 const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S

@@ -15,6 +15,7 @@ import {
   buildCountAggregate,
 } from "../builders/aggregate-utils";
 import { decimalDescriptorOf } from "../builders/decimal-field";
+import { idColumnOf } from "../builders/id-field";
 import { projectScalarForTransport } from "../builders/scalar-transport";
 import { buildSingleOrder } from "../builders/sort-order-builder";
 import { buildWhere } from "../builders/where-builder";
@@ -173,7 +174,8 @@ function buildGroupByColumns(
         projectScalarForTransport(
           adapter,
           ctx.model["~"].state.scalars[field],
-          column
+          column,
+          idColumnOf(adapter, ctx.model, field, ctx.relations)
         ),
         field
       )

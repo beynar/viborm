@@ -3,6 +3,7 @@ import { publicOperationName } from "@errors";
 import type { Model } from "@schema/model";
 import type { AnyRelation } from "@schema/relation";
 import type { Scalar } from "@schema/scalars";
+import type { IdColumn } from "../builders/id-field";
 import type { AggregateResultName } from "../result-aliases";
 import type {
   ExpectedAggregateResultShape,
@@ -21,11 +22,18 @@ export interface RowValueParsers {
     operation: Operation,
     shape: ExpectedResultShape
   ): CompiledRowParser;
+  /**
+   * `idColumn` is the identifier domain and physical form of the column this
+   * value came from — the caller's answer, not the scalar's, because a foreign
+   * key DERIVES its domain from the key it references and the physical form is
+   * the adapter's promise. It is looked up once per compiled row program.
+   */
   parseField(
     scalar: Scalar,
     value: unknown,
     operation: Operation,
-    captureRowKey?: (value: unknown) => void
+    captureRowKey?: (value: unknown) => void,
+    idColumn?: IdColumn
   ): unknown;
   /**
    * `(source, field)` is the CONTEXTUAL SLOT identity — the whole identity of a

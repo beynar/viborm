@@ -14,6 +14,7 @@ import { numericDateTimeForm } from "@validation/primitives/datetime-physical-co
 import { toDecimal } from "@validation/primitives/decimal-codec";
 import { isString } from "@validation/value-guards";
 import { dateTimeNativeTypeOf } from "../builders/datetime-field";
+import { decodeIdValue, type IdColumn, idColumnOf } from "../builders/id-field";
 import {
   type ExpectedPolymorphicResultShape,
   type ExpectedResultShape,
@@ -116,6 +117,19 @@ export class ResultParser {
   readonly model: Model<any>;
   readonly driver: AnyDriver | undefined;
   private readonly fieldChains = new WeakMap<Scalar, FieldParser>();
+  /**
+   * Identifier chains, keyed by the scalar AND the column it decodes.
+   *
+   * One `s.string()` can be two different identifier columns: a foreign key
+   * DERIVES its domain from the key it references, so the same scalar reached
+   * through two models decodes differently, and the physical form is the
+   * adapter's answer rather than the scalar's. The scalar alone is therefore
+   * not an identity for this chain, and {@link fieldChains} must not hold it.
+   */
+  private readonly idFieldChains = new WeakMap<
+    Scalar,
+    Map<string, FieldParser>
+  >();
   /**
    * Keyed by the CONTEXTUAL SLOT, `(source model, field)` — never by the
    * relation object alone.
@@ -449,7 +463,8 @@ export class ResultParser {
     return this.captureResultChain;
   }
 
-  private getFieldChain(scalar: Scalar): FieldParser {
+  private getFieldChain(scalar: Scalar, idColumn?: IdColumn): FieldParser {
+    if (idColumn !== undefined) return this.getIdFieldChain(scalar, idColumn);
     const existing = this.fieldChains.get(scalar);
     if (existing) return existing;
     const chain = this.createFieldChain(scalar, false);
@@ -457,13 +472,46 @@ export class ResultParser {
     return chain;
   }
 
+  private getIdFieldChain(scalar: Scalar, idColumn: IdColumn): FieldParser {
+    let byColumn = this.idFieldChains.get(scalar);
+    if (byColumn === undefined) {
+      byColumn = new Map();
+      this.idFieldChains.set(scalar, byColumn);
+    }
+    const { domain, representation } = idColumn;
+    const key = `${domain.format}|${domain.prefix ?? ""}|${domain.length ?? ""}|${representation}`;
+    const existing = byColumn.get(key);
+    if (existing) return existing;
+    const chain = this.createFieldChain(scalar, false, idColumn);
+    byColumn.set(key, chain);
+    return chain;
+  }
+
+  /**
+   * The identifier column one model field is, or `undefined`.
+   *
+   * Asked once per compiled row program, never per row: the answer depends only
+   * on the field's declaration, the schema's resolved references and the
+   * adapter's storage promise, all of which are fixed for the life of this
+   * parse boundary.
+   */
+  idColumnFor(model: Model<any>, field: string): IdColumn | undefined {
+    return idColumnOf(this.adapter, model, field, this.relations);
+  }
+
   /** Decode one explicit scalar and return its private captured representation. */
   parseCapturedField(
     scalar: Scalar,
     value: unknown,
-    operation: Operation
+    operation: Operation,
+    idColumn?: IdColumn
   ): unknown {
-    return this.getFieldChain(scalar)(value, operation, undefined, false);
+    return this.getFieldChain(scalar, idColumn)(
+      value,
+      operation,
+      undefined,
+      false
+    );
   }
 
   private getWidenedSumChain(scalar: Scalar): FieldParser {
@@ -530,10 +578,19 @@ export class ResultParser {
       getRowParser: (model, row, operation, shape) =>
         this.getNestedRowParser(model, row, operation, shape, parsers),
       parseField: captureOnly
-        ? (scalar, value, operation) =>
-            this.getFieldChain(scalar)(value, operation, undefined, false)
-        : (scalar, value, operation, captureRowKey) =>
-            this.getFieldChain(scalar)(value, operation, captureRowKey),
+        ? (scalar, value, operation, _captureRowKey, idColumn) =>
+            this.getFieldChain(scalar, idColumn)(
+              value,
+              operation,
+              undefined,
+              false
+            )
+        : (scalar, value, operation, captureRowKey, idColumn) =>
+            this.getFieldChain(scalar, idColumn)(
+              value,
+              operation,
+              captureRowKey
+            ),
       parseRelation: (source, field, relation, value, operation, shape) =>
         this.getRelationChain(
           source,
@@ -710,7 +767,11 @@ export class ResultParser {
    * Every other leaf — including `_avg`, `_min` and `_max`, which the database
    * already answered inside the field's domain — takes the field decode.
    */
-  private createFieldChain(scalar: Scalar, widenedSum: boolean): FieldParser {
+  private createFieldChain(
+    scalar: Scalar,
+    widenedSum: boolean,
+    idColumn?: IdColumn
+  ): FieldParser {
     const provider = this.providerName;
     const state = scalar["~"].state;
     const scalarType = state.type;
@@ -781,6 +842,54 @@ export class ResultParser {
           }
         : undefined;
 
+    /**
+     * The one identifier decode, compiled once per (scalar, column).
+     *
+     * It runs INSTEAD of the generic string arm, never before it: the string
+     * parser's job is to prove a value is the public type, and a physical
+     * identifier is not one — sixteen bytes, a hex carrier or a bare payload
+     * would each pass a `typeof` check and mean something else. Whatever comes
+     * back from the provider, the public value is the canonical string of this
+     * domain with its declared prefix re-applied, which is also what a captured
+     * row key holds: a primitive string, the same one `fkEquals` compares.
+     */
+    const parseIdScalar: FieldParser | undefined =
+      idColumn === undefined || widenedSum
+        ? undefined
+        : (value, operation, captureRowKey) => {
+            if (value === undefined) {
+              return malformedScalarValue(
+                provider,
+                operation,
+                scalarType,
+                "the value is absent"
+              );
+            }
+            if (value === null) {
+              if (!isNullable) {
+                return malformedScalarValue(
+                  provider,
+                  operation,
+                  scalarType,
+                  "a required scalar is null"
+                );
+              }
+              captureRowKey?.(null);
+              return null;
+            }
+            const decoded = decodeIdValue(value, idColumn);
+            if (decoded === undefined) {
+              return malformedScalarValue(
+                provider,
+                operation,
+                scalarType,
+                "the value is not in this column's declared identifier domain"
+              );
+            }
+            captureRowKey?.(decoded);
+            return decoded;
+          };
+
     // This existing proof means every scalar crosses the adapter unchanged and
     // no driver field middleware exists. Compile the ordinary decimal directly
     // to its descriptor-aware codec instead of paying two passthrough
@@ -804,6 +913,29 @@ export class ResultParser {
       }
     };
     const driverParseField = this.driver?.result?.parseField;
+
+    if (parseIdScalar) {
+      return (value, operation, captureRowKey) => {
+        if (value === undefined || value === null) {
+          return parseIdScalar(value, operation, captureRowKey);
+        }
+        let transformed: unknown;
+        try {
+          transformed = driverParseField
+            ? driverParseField(value, scalarType, adapterDecode)
+            : adapterDecode(value, scalarType);
+        } catch (error) {
+          if (isVibORMError(error)) throw error;
+          return malformedScalarValue(
+            provider,
+            operation,
+            scalarType,
+            "provider scalar decoding failed"
+          );
+        }
+        return parseIdScalar(transformed, operation, captureRowKey);
+      };
+    }
 
     if (!widenedSum && scalarType !== "decimal") {
       const defaultParse = (value: unknown, operation: Operation) =>
