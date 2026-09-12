@@ -167,9 +167,9 @@ BEGIN;
 
 -- 0. the guard VibORM emits ahead of its own generated cast
 DO $viborm$ DECLARE invalid bigint; BEGIN
-  SELECT count(*) INTO invalid FROM cvt_users
-   WHERE id IS NOT NULL AND id !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
-  IF invalid > 0 THEN RAISE EXCEPTION 'VibORM: % row(s) …', invalid; END IF;
+  SELECT count(*) INTO invalid FROM "cvt_users"
+   WHERE "id" IS NOT NULL AND "id" !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+  IF invalid > 0 THEN RAISE EXCEPTION 'VibORM: % row(s) of "cvt_users"."id" …', invalid; END IF;
 END $viborm$;
 
 -- 1. a text default cannot survive the type change
@@ -193,10 +193,21 @@ Executed against the project's PostgreSQL 16 container. What it showed:
 
 - Step 1 is not optional. Without it, step 3 fails with
   `default for column "id" cannot be cast automatically to type uuid`.
-- On a dirty estate the guard raises
-  `VibORM: 1 row(s) of cvt_users.id are not canonical uuid text, so this
-  conversion would abort on them.` — where the cast alone would have named one
-  offending value and nothing about the choice you have.
+- On a dirty estate the guard raises, in full:
+
+  ```text
+  VibORM: 1 row(s) of "cvt_users"."id" are not canonical uuid text, so this
+  conversion would abort on them. A prefixed identifier is one of the shapes
+  that fails here: only the payload is stored, and no generated statement
+  strips a prefix. Convert the rows yourself — add the uuid column, write the
+  payloads into it, drop the old column and rename — or keep the column as it
+  is with a text-family native type, which validates the domain without
+  changing storage.
+  ```
+
+  The identifier is spelled with the quotes the generated statement carries;
+  the cast alone would have named one offending value and nothing about the
+  choice you have.
 - The `uuid` type **normalizes case on the way in**: `B1FFCD88-…` came back as
   `b1ffcd88-…`. That is exactly why pre-check 2 exists — two rows differing only
   in case survive as text and collide as `uuid`.

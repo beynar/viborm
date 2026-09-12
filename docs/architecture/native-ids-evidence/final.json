@@ -1,534 +1,633 @@
 {
-  "schemaVersion": 1,
-  "commit": "bc3755b48509ce6c5dd93314ec7d8d7258b34dc8",
-  "tool": {
-    "esbuild": "0.28.1",
-    "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
-    "bundleOptions": {
-      "bundle": true,
-      "format": "esm",
-      "platform": "node",
-      "target": "es2022",
-      "minify": true,
-      "treeShaking": true,
-      "external": [
-        "pg",
-        "postgres",
-        "mysql2",
-        "better-sqlite3",
-        "@libsql/client",
-        "@neondatabase/serverless",
-        "@planetscale/database",
-        "@electric-sql/pglite",
-        "@cloudflare/workers-types",
-        "@opentelemetry/api",
-        "commander",
-        "@clack/prompts",
-        "bun",
-        "bun:sqlite",
-        "bun:sql"
-      ]
-    },
-    "gzipLevel": 9,
-    "brotliQuality": 11
+ "schemaVersion": 1,
+ "commit": "bb8de17bb2bcc63cbb8904c7abba9ae0c075766c",
+ "tool": {
+  "esbuild": "0.28.1",
+  "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
+  "bundleOptions": {
+   "bundle": true,
+   "format": "esm",
+   "platform": "node",
+   "target": "es2022",
+   "minify": true,
+   "treeShaking": true,
+   "external": [
+    "pg",
+    "postgres",
+    "mysql2",
+    "better-sqlite3",
+    "@libsql/client",
+    "@neondatabase/serverless",
+    "@planetscale/database",
+    "@electric-sql/pglite",
+    "@cloudflare/workers-types",
+    "@opentelemetry/api",
+    "commander",
+    "@clack/prompts",
+    "bun",
+    "bun:sqlite",
+    "bun:sql"
+   ]
   },
-  "dist": {
-    "files": 175,
-    "totalBytes": 8998203,
-    "runtimeMjsBytes": 1266076,
-    "byExtension": {
-      "mjs": {
-        "files": 76,
-        "bytes": 1266076
-      },
-      "mjs.map": {
-        "files": 66,
-        "bytes": 6991213
-      },
-      "d.mts": {
-        "files": 33,
-        "bytes": 740914
-      }
-    }
+  "gzipLevel": 9,
+  "brotliQuality": 11
+ },
+ "dist": {
+  "files": 175,
+  "totalBytes": 9006224,
+  "runtimeMjsBytes": 1267016,
+  "byExtension": {
+   "mjs": {
+    "files": 76,
+    "bytes": 1267016
+   },
+   "mjs.map": {
+    "files": 66,
+    "bytes": 6998294
+   },
+   "d.mts": {
+    "files": 33,
+    "bytes": 740914
+   }
+  }
+ },
+ "fixtures": {
+  "ids-only": {
+   "raw": 99126,
+   "gzip": 30502,
+   "brotli": 26887,
+   "composition": {
+    "firstPartyBytes": 87561,
+    "dependencyBytes": {
+     "@noble/hashes": 4600,
+     "big.js": 6940
+    },
+    "topInputs": [
+     {
+      "name": "dist/v-*.mjs",
+      "bytes": 17578
+     },
+     {
+      "name": "dist/to-many-*.mjs",
+      "bytes": 16955
+     },
+     {
+      "name": "dist/datetime-values-*.mjs",
+      "bytes": 16678
+     },
+     {
+      "name": "dist/registration-preflight-*.mjs",
+      "bytes": 15483
+     },
+     {
+      "name": "dist/diagnostics-*.mjs",
+      "bytes": 11577
+     },
+     {
+      "name": "node_modules/big.js/big.mjs",
+      "bytes": 6940
+     },
+     {
+      "name": "dist/base-*.mjs",
+      "bytes": 5515
+     },
+     {
+      "name": "node_modules/@noble/hashes/sha3.js",
+      "bytes": 2808
+     },
+     {
+      "name": "dist/sql-*.mjs",
+      "bytes": 1618
+     },
+     {
+      "name": "node_modules/@noble/hashes/utils.js",
+      "bytes": 1381
+     },
+     {
+      "name": "dist/validation-*.mjs",
+      "bytes": 1048
+     },
+     {
+      "name": "dist/value-guards-*.mjs",
+      "bytes": 533
+     }
+    ]
+   }
   },
-  "fixtures": {
-    "ids-only": {
-      "raw": 99126,
-      "gzip": 30502,
-      "brotli": 26887,
-      "composition": {
-        "firstPartyBytes": 87561,
-        "dependencyBytes": {
-          "@noble/hashes": 4600,
-          "big.js": 6940
-        },
-        "topInputs": [
-          {
-            "name": "dist/v-*.mjs",
-            "bytes": 17578
-          },
-          {
-            "name": "dist/to-many-*.mjs",
-            "bytes": 16955
-          },
-          {
-            "name": "dist/datetime-values-*.mjs",
-            "bytes": 16678
-          },
-          {
-            "name": "dist/registration-preflight-*.mjs",
-            "bytes": 15483
-          },
-          {
-            "name": "dist/diagnostics-*.mjs",
-            "bytes": 11577
-          },
-          {
-            "name": "node_modules/big.js/big.mjs",
-            "bytes": 6940
-          },
-          {
-            "name": "dist/base-*.mjs",
-            "bytes": 5515
-          },
-          {
-            "name": "node_modules/@noble/hashes/sha3.js",
-            "bytes": 2808
-          },
-          {
-            "name": "dist/sql-*.mjs",
-            "bytes": 1618
-          },
-          {
-            "name": "node_modules/@noble/hashes/utils.js",
-            "bytes": 1381
-          },
-          {
-            "name": "dist/validation-*.mjs",
-            "bytes": 1048
-          },
-          {
-            "name": "dist/value-guards-*.mjs",
-            "bytes": 533
-          }
-        ]
-      }
+  "decimal-only": {
+   "raw": 98971,
+   "gzip": 30485,
+   "brotli": 26895,
+   "composition": {
+    "firstPartyBytes": 87400,
+    "dependencyBytes": {
+     "@noble/hashes": 4600,
+     "big.js": 6940
     },
-    "decimal-only": {
-      "raw": 98971,
-      "gzip": 30485,
-      "brotli": 26895,
-      "composition": {
-        "firstPartyBytes": 87400,
-        "dependencyBytes": {
-          "@noble/hashes": 4600,
-          "big.js": 6940
-        },
-        "topInputs": [
-          {
-            "name": "dist/v-*.mjs",
-            "bytes": 17578
-          },
-          {
-            "name": "dist/to-many-*.mjs",
-            "bytes": 16955
-          },
-          {
-            "name": "dist/datetime-values-*.mjs",
-            "bytes": 16678
-          },
-          {
-            "name": "dist/registration-preflight-*.mjs",
-            "bytes": 15483
-          },
-          {
-            "name": "dist/diagnostics-*.mjs",
-            "bytes": 11577
-          },
-          {
-            "name": "node_modules/big.js/big.mjs",
-            "bytes": 6940
-          },
-          {
-            "name": "dist/base-*.mjs",
-            "bytes": 5515
-          },
-          {
-            "name": "node_modules/@noble/hashes/sha3.js",
-            "bytes": 2808
-          },
-          {
-            "name": "dist/sql-*.mjs",
-            "bytes": 1618
-          },
-          {
-            "name": "node_modules/@noble/hashes/utils.js",
-            "bytes": 1381
-          },
-          {
-            "name": "dist/validation-*.mjs",
-            "bytes": 1048
-          },
-          {
-            "name": "dist/value-guards-*.mjs",
-            "bytes": 533
-          }
-        ]
-      }
-    },
-    "pg-representative": {
-      "raw": 844860,
-      "gzip": 230488,
-      "brotli": 190814,
-      "composition": {
-        "firstPartyBytes": 833257,
-        "dependencyBytes": {
-          "@noble/hashes": 4600,
-          "big.js": 6971
-        },
-        "topInputs": [
-          {
-            "name": "dist/pending-operation-*.mjs",
-            "bytes": 499438
-          },
-          {
-            "name": "dist/validation-*.mjs",
-            "bytes": 50244
-          },
-          {
-            "name": "dist/validator-*.mjs",
-            "bytes": 38800
-          },
-          {
-            "name": "dist/driver-*.mjs",
-            "bytes": 37250
-          },
-          {
-            "name": "dist/client-*.mjs",
-            "bytes": 35000
-          },
-          {
-            "name": "dist/datetime-values-*.mjs",
-            "bytes": 29315
-          },
-          {
-            "name": "dist/v-*.mjs",
-            "bytes": 17878
-          },
-          {
-            "name": "dist/to-many-*.mjs",
-            "bytes": 17040
-          },
-          {
-            "name": "dist/registration-preflight-*.mjs",
-            "bytes": 16438
-          },
-          {
-            "name": "dist/normalized-result-*.mjs",
-            "bytes": 12039
-          },
-          {
-            "name": "dist/diagnostics-*.mjs",
-            "bytes": 11791
-          },
-          {
-            "name": "dist/driver-*.mjs",
-            "bytes": 11468
-          }
-        ]
-      }
-    },
-    "full": {
-      "raw": 1205023,
-      "gzip": 333353,
-      "brotli": 272535,
-      "composition": {
-        "firstPartyBytes": 1192126,
-        "dependencyBytes": {
-          "@noble/hashes": 4600,
-          "big.js": 6971
-        },
-        "topInputs": [
-          {
-            "name": "dist/pending-operation-*.mjs",
-            "bytes": 501007
-          },
-          {
-            "name": "dist/client-*.mjs",
-            "bytes": 279899
-          },
-          {
-            "name": "dist/validation-*.mjs",
-            "bytes": 50285
-          },
-          {
-            "name": "dist/validator-*.mjs",
-            "bytes": 38867
-          },
-          {
-            "name": "dist/driver-*.mjs",
-            "bytes": 37266
-          },
-          {
-            "name": "dist/client-*.mjs",
-            "bytes": 35018
-          },
-          {
-            "name": "dist/schema/json.mjs",
-            "bytes": 30498
-          },
-          {
-            "name": "dist/datetime-values-*.mjs",
-            "bytes": 29807
-          },
-          {
-            "name": "dist/v-*.mjs",
-            "bytes": 17841
-          },
-          {
-            "name": "dist/to-many-*.mjs",
-            "bytes": 17040
-          },
-          {
-            "name": "dist/registration-preflight-*.mjs",
-            "bytes": 16599
-          },
-          {
-            "name": "dist/extension-*.mjs",
-            "bytes": 13210
-          }
-        ]
-      }
-    }
+    "topInputs": [
+     {
+      "name": "dist/v-*.mjs",
+      "bytes": 17578
+     },
+     {
+      "name": "dist/to-many-*.mjs",
+      "bytes": 16955
+     },
+     {
+      "name": "dist/datetime-values-*.mjs",
+      "bytes": 16678
+     },
+     {
+      "name": "dist/registration-preflight-*.mjs",
+      "bytes": 15483
+     },
+     {
+      "name": "dist/diagnostics-*.mjs",
+      "bytes": 11577
+     },
+     {
+      "name": "node_modules/big.js/big.mjs",
+      "bytes": 6940
+     },
+     {
+      "name": "dist/base-*.mjs",
+      "bytes": 5515
+     },
+     {
+      "name": "node_modules/@noble/hashes/sha3.js",
+      "bytes": 2808
+     },
+     {
+      "name": "dist/sql-*.mjs",
+      "bytes": 1618
+     },
+     {
+      "name": "node_modules/@noble/hashes/utils.js",
+      "bytes": 1381
+     },
+     {
+      "name": "dist/validation-*.mjs",
+      "bytes": 1048
+     },
+     {
+      "name": "dist/value-guards-*.mjs",
+      "bytes": 533
+     }
+    ]
+   }
   },
-  "libraries": {
-    "@paralleldrive/cuid2": {
-      "version": "3.3.0",
-      "raw": 24432,
-      "gzip": 10889,
-      "brotli": 9896,
-      "dependencyBytes": {
-        "@noble/hashes": 4600,
-        "@paralleldrive/cuid2": 1174,
-        "bignumber.js": 18625
-      }
+  "pg-representative": {
+   "raw": 845521,
+   "gzip": 230673,
+   "brotli": 191218,
+   "composition": {
+    "firstPartyBytes": 833918,
+    "dependencyBytes": {
+     "@noble/hashes": 4600,
+     "big.js": 6971
     },
-    "nanoid": {
-      "available": false,
-      "reason": "not installed"
-    },
-    "ulidx": {
-      "available": false,
-      "reason": "not installed"
-    },
-    "big.js": {
-      "version": "7.0.1",
-      "raw": 6916,
-      "gzip": 3004,
-      "brotli": 2750,
-      "dependencyBytes": {
-        "big.js": 6858
-      }
-    },
-    "decimal.js": {
-      "available": false,
-      "reason": "no longer installed"
-    }
+    "topInputs": [
+     {
+      "name": "dist/pending-operation-*.mjs",
+      "bytes": 500099
+     },
+     {
+      "name": "dist/validation-*.mjs",
+      "bytes": 50244
+     },
+     {
+      "name": "dist/validator-*.mjs",
+      "bytes": 38800
+     },
+     {
+      "name": "dist/driver-*.mjs",
+      "bytes": 37250
+     },
+     {
+      "name": "dist/client-*.mjs",
+      "bytes": 35000
+     },
+     {
+      "name": "dist/datetime-values-*.mjs",
+      "bytes": 29315
+     },
+     {
+      "name": "dist/v-*.mjs",
+      "bytes": 17878
+     },
+     {
+      "name": "dist/to-many-*.mjs",
+      "bytes": 17040
+     },
+     {
+      "name": "dist/registration-preflight-*.mjs",
+      "bytes": 16438
+     },
+     {
+      "name": "dist/normalized-result-*.mjs",
+      "bytes": 12039
+     },
+     {
+      "name": "dist/diagnostics-*.mjs",
+      "bytes": 11791
+     },
+     {
+      "name": "dist/driver-*.mjs",
+      "bytes": 11468
+     }
+    ]
+   }
   },
-  "loc": {
-    "total": {
-      "files": 552,
-      "code": 120721,
-      "comment": 32600,
-      "blank": 10742
+  "full": {
+   "raw": 1205957,
+   "gzip": 333624,
+   "brotli": 272467,
+   "composition": {
+    "firstPartyBytes": 1193060,
+    "dependencyBytes": {
+     "@noble/hashes": 4600,
+     "big.js": 6971
     },
-    "perDirectory": {
-      "(root)": {
-        "files": 6,
-        "code": 164,
-        "comment": 132,
-        "blank": 23
-      },
-      "adapters": {
-        "files": 17,
-        "code": 2594,
-        "comment": 1993,
-        "blank": 569
-      },
-      "cache": {
-        "files": 11,
-        "code": 1630,
-        "comment": 478,
-        "blank": 195
-      },
-      "cli": {
-        "files": 4,
-        "code": 590,
-        "comment": 120,
-        "blank": 70
-      },
-      "client": {
-        "files": 17,
-        "code": 5385,
-        "comment": 1150,
-        "blank": 437
-      },
-      "drivers": {
-        "files": 44,
-        "code": 8896,
-        "comment": 1983,
-        "blank": 824
-      },
-      "errors": {
-        "files": 11,
-        "code": 2199,
-        "comment": 502,
-        "blank": 221
-      },
-      "extensions": {
-        "files": 9,
-        "code": 3019,
-        "comment": 109,
-        "blank": 259
-      },
-      "instrumentation": {
-        "files": 11,
-        "code": 1481,
-        "comment": 459,
-        "blank": 210
-      },
-      "migrations": {
-        "files": 84,
-        "code": 22027,
-        "comment": 5164,
-        "blank": 1958
-      },
-      "query-engine": {
-        "files": 147,
-        "code": 46325,
-        "comment": 11540,
-        "blank": 2978
-      },
-      "schema": {
-        "files": 80,
-        "code": 11349,
-        "comment": 3622,
-        "blank": 1148
-      },
-      "sql": {
-        "files": 3,
-        "code": 188,
-        "comment": 117,
-        "blank": 44
-      },
-      "validation": {
-        "files": 108,
-        "code": 14874,
-        "comment": 5231,
-        "blank": 1806
-      }
-    }
+    "topInputs": [
+     {
+      "name": "dist/pending-operation-*.mjs",
+      "bytes": 501668
+     },
+     {
+      "name": "dist/client-*.mjs",
+      "bytes": 280172
+     },
+     {
+      "name": "dist/validation-*.mjs",
+      "bytes": 50285
+     },
+     {
+      "name": "dist/validator-*.mjs",
+      "bytes": 38867
+     },
+     {
+      "name": "dist/driver-*.mjs",
+      "bytes": 37266
+     },
+     {
+      "name": "dist/client-*.mjs",
+      "bytes": 35018
+     },
+     {
+      "name": "dist/schema/json.mjs",
+      "bytes": 30498
+     },
+     {
+      "name": "dist/datetime-values-*.mjs",
+      "bytes": 29807
+     },
+     {
+      "name": "dist/v-*.mjs",
+      "bytes": 17841
+     },
+     {
+      "name": "dist/to-many-*.mjs",
+      "bytes": 17040
+     },
+     {
+      "name": "dist/registration-preflight-*.mjs",
+      "bytes": 16599
+     },
+     {
+      "name": "dist/extension-*.mjs",
+      "bytes": 13210
+     }
+    ]
+   }
+  }
+ },
+ "libraries": {
+  "@paralleldrive/cuid2": {
+   "version": "3.3.0",
+   "raw": 24432,
+   "gzip": 10889,
+   "brotli": 9896,
+   "dependencyBytes": {
+    "@noble/hashes": 4600,
+    "@paralleldrive/cuid2": 1174,
+    "bignumber.js": 18625
+   }
   },
-  "databaseStorage": {
-    "note": "Added after the bundle run, from the throwaway scripts named below; `node scripts/measure-bundle.mjs` does not produce this block and would drop it on a rerun.",
-    "rows": 200000,
-    "commands": [
-      "node scratchpad/measure-storage/pg-storage.mjs   # PostgreSQL 16, 127.0.0.1:5434",
-      "node scratchpad/measure-storage/mysql-storage.mjs # MySQL 8, 127.0.0.1:3307"
-    ],
+  "nanoid": {
+   "available": false,
+   "reason": "not installed"
+  },
+  "ulidx": {
+   "available": false,
+   "reason": "not installed"
+  },
+  "big.js": {
+   "version": "7.0.1",
+   "raw": 6916,
+   "gzip": 3004,
+   "brotli": 2750,
+   "dependencyBytes": {
+    "big.js": 6858
+   }
+  },
+  "decimal.js": {
+   "available": false,
+   "reason": "no longer installed"
+  }
+ },
+ "loc": {
+  "total": {
+   "files": 552,
+   "code": 120795,
+   "comment": 32665,
+   "blank": 10747
+  },
+  "perDirectory": {
+   "(root)": {
+    "files": 6,
+    "code": 164,
+    "comment": 132,
+    "blank": 23
+   },
+   "adapters": {
+    "files": 17,
+    "code": 2594,
+    "comment": 1993,
+    "blank": 569
+   },
+   "cache": {
+    "files": 11,
+    "code": 1630,
+    "comment": 478,
+    "blank": 195
+   },
+   "cli": {
+    "files": 4,
+    "code": 590,
+    "comment": 120,
+    "blank": 70
+   },
+   "client": {
+    "files": 17,
+    "code": 5385,
+    "comment": 1150,
+    "blank": 437
+   },
+   "drivers": {
+    "files": 44,
+    "code": 8896,
+    "comment": 1983,
+    "blank": 824
+   },
+   "errors": {
+    "files": 11,
+    "code": 2199,
+    "comment": 502,
+    "blank": 221
+   },
+   "extensions": {
+    "files": 9,
+    "code": 3019,
+    "comment": 109,
+    "blank": 259
+   },
+   "instrumentation": {
+    "files": 11,
+    "code": 1481,
+    "comment": 459,
+    "blank": 210
+   },
+   "migrations": {
+    "files": 84,
+    "code": 22061,
+    "comment": 5206,
+    "blank": 1961
+   },
+   "query-engine": {
+    "files": 147,
+    "code": 46365,
+    "comment": 11563,
+    "blank": 2980
+   },
+   "schema": {
+    "files": 80,
+    "code": 11349,
+    "comment": 3622,
+    "blank": 1148
+   },
+   "sql": {
+    "files": 3,
+    "code": 188,
+    "comment": 117,
+    "blank": 44
+   },
+   "validation": {
+    "files": 108,
+    "code": 14874,
+    "comment": 5231,
+    "blank": 1806
+   }
+  }
+ },
+ "databaseStorage": {
+  "note": "Produced by `node scripts/measure-id-storage.mjs`; `measure-bundle.mjs` knows nothing about this key and drops it on a rerun. `runs` is always a list: every run is a full load of fresh values into fresh tables, so a size that moves between runs is a size no single run may be quoted for. `insertMs` is one wall time per table and is a direction, not a benchmark.",
+  "rows": 200000,
+  "commands": [
+   "PG_TEST_CONNECTION_STRING=… MYSQL_TEST_CONNECTION_STRING=… node scripts/measure-id-storage.mjs --rows 200000 --repeat 2"
+  ],
+  "runs": [
+   {
     "postgres": {
-      "sizes": "pg_total_relation_size / pg_relation_size / pg_indexes_size, after VACUUM ANALYZE",
-      "tables": {
-        "sz_ulid_text": {
-          "totalBytes": 25239552,
-          "heapBytes": 15237120,
-          "indexBytes": 9961472,
-          "rows": 200000,
-          "insertMs": 1105
-        },
-        "sz_ulid_bytea": {
-          "totalBytes": 20234240,
-          "heapBytes": 12050432,
-          "indexBytes": 8142848,
-          "rows": 200000,
-          "insertMs": 677
-        },
-        "sz_uuid_text": {
-          "totalBytes": 35127296,
-          "heapBytes": 16891904,
-          "indexBytes": 18194432,
-          "rows": 200000,
-          "insertMs": 1535
-        },
-        "sz_uuid_native": {
-          "totalBytes": 21602304,
-          "heapBytes": 12050432,
-          "indexBytes": 9510912,
-          "rows": 200000,
-          "insertMs": 998
-        }
+     "sizes": "pg_total_relation_size / pg_relation_size / pg_indexes_size, after VACUUM ANALYZE",
+     "tables": {
+      "sz_ulid_text": {
+       "totalBytes": 25321472,
+       "heapBytes": 15319040,
+       "indexBytes": 9961472,
+       "rows": 200000,
+       "insertMs": 615
+      },
+      "sz_ulid_bytea": {
+       "totalBytes": 21839872,
+       "heapBytes": 13656064,
+       "indexBytes": 8142848,
+       "rows": 200000,
+       "insertMs": 503
+      },
+      "sz_uuid_text": {
+       "totalBytes": 32645120,
+       "heapBytes": 16891904,
+       "indexBytes": 15712256,
+       "rows": 200000,
+       "insertMs": 757
+      },
+      "sz_uuid_native": {
+       "totalBytes": 20332544,
+       "heapBytes": 12050432,
+       "indexBytes": 8241152,
+       "rows": 200000,
+       "insertMs": 685
       }
+     }
     },
     "mysql": {
-      "sizes": "information_schema.TABLES DATA_LENGTH / INDEX_LENGTH, after ANALYZE TABLE; InnoDB clusters on the primary key, so a primary-key identifier has INDEX_LENGTH 0 and the `_sec` tables carry the same identifier as a secondary UNIQUE index instead",
-      "tables": {
-        "sz_ulid_text": {
-          "dataLength": 13172736,
-          "indexLength": 0,
-          "totalBytes": 13172736,
-          "rows": 200000,
-          "insertMs": 856
-        },
-        "sz_ulid_binary": {
-          "dataLength": 11059200,
-          "indexLength": 0,
-          "totalBytes": 11059200,
-          "rows": 200000,
-          "insertMs": 700
-        },
-        "sz_uuid_text": {
-          "dataLength": 19480576,
-          "indexLength": 0,
-          "totalBytes": 19480576,
-          "rows": 200000,
-          "insertMs": 1092
-        },
-        "sz_uuid_binary": {
-          "dataLength": 19447808,
-          "indexLength": 0,
-          "totalBytes": 19447808,
-          "rows": 200000,
-          "insertMs": 765
-        },
-        "sz_ulid_text_sec": {
-          "dataLength": 15220736,
-          "indexLength": 8962048,
-          "totalBytes": 24182784,
-          "rows": 200000,
-          "insertMs": 1062
-        },
-        "sz_ulid_binary_sec": {
-          "dataLength": 13123584,
-          "indexLength": 6832128,
-          "totalBytes": 19955712,
-          "rows": 200000,
-          "insertMs": 767
-        },
-        "sz_uuid_text_sec": {
-          "dataLength": 17350656,
-          "indexLength": 19480576,
-          "totalBytes": 36831232,
-          "rows": 200000,
-          "insertMs": 1191
-        },
-        "sz_uuid_binary_sec": {
-          "dataLength": 13123584,
-          "indexLength": 10010624,
-          "totalBytes": 23134208,
-          "rows": 200000,
-          "insertMs": 913
-        }
+     "sizes": "information_schema.TABLES DATA_LENGTH / INDEX_LENGTH, after ANALYZE TABLE; InnoDB clusters on the primary key, so a primary-key identifier has INDEX_LENGTH 0 and the `_sec` tables carry the same identifier as a secondary UNIQUE index instead",
+     "tables": {
+      "sz_ulid_text": {
+       "dataLength": 14221312,
+       "indexLength": 0,
+       "totalBytes": 14221312,
+       "rows": 200000,
+       "insertMs": 862
+      },
+      "sz_ulid_text_sec": {
+       "dataLength": 15220736,
+       "indexLength": 8962048,
+       "totalBytes": 24182784,
+       "rows": 200000,
+       "insertMs": 1031
+      },
+      "sz_ulid_binary": {
+       "dataLength": 11059200,
+       "indexLength": 0,
+       "totalBytes": 11059200,
+       "rows": 200000,
+       "insertMs": 876
+      },
+      "sz_ulid_binary_sec": {
+       "dataLength": 13123584,
+       "indexLength": 6832128,
+       "totalBytes": 19955712,
+       "rows": 200000,
+       "insertMs": 973
+      },
+      "sz_uuid_text": {
+       "dataLength": 25788416,
+       "indexLength": 0,
+       "totalBytes": 25788416,
+       "rows": 200000,
+       "insertMs": 1112
+      },
+      "sz_uuid_text_sec": {
+       "dataLength": 17350656,
+       "indexLength": 19480576,
+       "totalBytes": 36831232,
+       "rows": 200000,
+       "insertMs": 1254
+      },
+      "sz_uuid_binary": {
+       "dataLength": 18399232,
+       "indexLength": 0,
+       "totalBytes": 18399232,
+       "rows": 200000,
+       "insertMs": 940
+      },
+      "sz_uuid_binary_sec": {
+       "dataLength": 13123584,
+       "indexLength": 10010624,
+       "totalBytes": 23134208,
+       "rows": 200000,
+       "insertMs": 994
       }
+     }
     }
-  }
+   },
+   {
+    "postgres": {
+     "sizes": "pg_total_relation_size / pg_relation_size / pg_indexes_size, after VACUUM ANALYZE",
+     "tables": {
+      "sz_ulid_text": {
+       "totalBytes": 25321472,
+       "heapBytes": 15319040,
+       "indexBytes": 9961472,
+       "rows": 200000,
+       "insertMs": 661
+      },
+      "sz_ulid_bytea": {
+       "totalBytes": 21839872,
+       "heapBytes": 13656064,
+       "indexBytes": 8142848,
+       "rows": 200000,
+       "insertMs": 534
+      },
+      "sz_uuid_text": {
+       "totalBytes": 32546816,
+       "heapBytes": 16891904,
+       "indexBytes": 15613952,
+       "rows": 200000,
+       "insertMs": 815
+      },
+      "sz_uuid_native": {
+       "totalBytes": 20799488,
+       "heapBytes": 12050432,
+       "indexBytes": 8708096,
+       "rows": 200000,
+       "insertMs": 738
+      }
+     }
+    },
+    "mysql": {
+     "sizes": "information_schema.TABLES DATA_LENGTH / INDEX_LENGTH, after ANALYZE TABLE; InnoDB clusters on the primary key, so a primary-key identifier has INDEX_LENGTH 0 and the `_sec` tables carry the same identifier as a secondary UNIQUE index instead",
+     "tables": {
+      "sz_ulid_text": {
+       "dataLength": 14221312,
+       "indexLength": 0,
+       "totalBytes": 14221312,
+       "rows": 200000,
+       "insertMs": 966
+      },
+      "sz_ulid_text_sec": {
+       "dataLength": 15220736,
+       "indexLength": 8962048,
+       "totalBytes": 24182784,
+       "rows": 200000,
+       "insertMs": 1052
+      },
+      "sz_ulid_binary": {
+       "dataLength": 11059200,
+       "indexLength": 0,
+       "totalBytes": 11059200,
+       "rows": 200000,
+       "insertMs": 863
+      },
+      "sz_ulid_binary_sec": {
+       "dataLength": 13123584,
+       "indexLength": 6832128,
+       "totalBytes": 19955712,
+       "rows": 200000,
+       "insertMs": 947
+      },
+      "sz_uuid_text": {
+       "dataLength": 25804800,
+       "indexLength": 0,
+       "totalBytes": 25804800,
+       "rows": 200000,
+       "insertMs": 1023
+      },
+      "sz_uuid_text_sec": {
+       "dataLength": 17350656,
+       "indexLength": 18432000,
+       "totalBytes": 35782656,
+       "rows": 200000,
+       "insertMs": 1127
+      },
+      "sz_uuid_binary": {
+       "dataLength": 18399232,
+       "indexLength": 0,
+       "totalBytes": 18399232,
+       "rows": 200000,
+       "insertMs": 885
+      },
+      "sz_uuid_binary_sec": {
+       "dataLength": 13123584,
+       "indexLength": 10010624,
+       "totalBytes": 23134208,
+       "rows": 200000,
+       "insertMs": 1013
+      }
+     }
+    }
+   }
+  ]
+ }
 }
