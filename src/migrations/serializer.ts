@@ -28,6 +28,8 @@ import {
   describeDecimalProviderLimitRefusal,
   findDecimalProviderLimitRefusal,
 } from "../schema/scalars/decimal/provider-limits";
+import { idDomainOfState } from "../schema/scalars/string/id-domain";
+import { idDomainOf } from "../schema/validation/id-domains";
 import {
   type ResolvedRelationEdge,
   type ResolvedRelationIndex,
@@ -266,7 +268,14 @@ export function serializeResolvedModels(
           );
         }
       } else {
-        columnType = migrationDriver.mapScalarType(scalar, scalarState);
+        // A foreign key's identifier domain is DERIVED from the key it
+        // references, so it is read against the model through the same
+        // resolved index this serialization is already built from.
+        columnType = migrationDriver.mapScalarType(
+          scalar,
+          scalarState,
+          idDomainOf(model, fieldName, index)
+        );
       }
 
       const columnDef: ColumnDef = {
@@ -441,9 +450,13 @@ export function serializeResolvedModels(
         },
         {
           name: storage.idColumn.name,
+          // The carrier's id column IS the referenced key's own scalar, so its
+          // domain is that key's declaration and nothing derives here. Every
+          // variant's key agrees by P002 or this storage does not exist.
           type: migrationDriver.mapScalarType(
             storage.idColumn.scalar,
-            idScalarState
+            idScalarState,
+            idDomainOfState(idScalarState)
           ),
           nullable: storage.idColumn.nullable,
         }
@@ -953,7 +966,13 @@ function getPrimaryKeyFieldDefs(
     return {
       field,
       column: model["~"].getFieldName(field).sql,
-      type: migrationDriver.mapScalarType(scalar, scalarState),
+      // A junction column carries the referenced primary key's own scalar, so
+      // it inherits that key's storage without a second derivation.
+      type: migrationDriver.mapScalarType(
+        scalar,
+        scalarState,
+        idDomainOfState(scalarState)
+      ),
     };
   });
 }

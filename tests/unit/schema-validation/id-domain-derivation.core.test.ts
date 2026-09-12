@@ -1,6 +1,7 @@
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { Model } from "@schema/model";
+import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
 import {
   deriveIdDomains,
   idDomainOf,
@@ -333,8 +334,59 @@ describe("a schema with no relations", () => {
     const index = okIndex({ user });
     const derivation = deriveIdDomains(index);
     expect(derivation.issues).toEqual([]);
-    expect(derivation.domains.size).toBe(0);
-    // The declared domain is still the lookup's answer.
+    expect(derivation.domains.get(user)?.get("id")).toMatchObject({
+      format: "uuid",
+    });
     expect(idDomainOf(user, "id", index)).toMatchObject({ format: "uuid" });
+  });
+});
+
+describe("a native type the domain cannot live in", () => {
+  test("is refused with the spellings it accepts", () => {
+    const user = s.model({ id: s.string(PG.INT.INTEGER).id().uuid() });
+    const issue = refusal({ user }).find((entry) => entry.code === "F013");
+    expect(issue?.message).toContain("user.id");
+    expect(issue?.message).toContain("a uuid value");
+    expect(issue?.message).toContain("integer");
+    expect(issue?.repair).toContain("uuid, bytea, text");
+  });
+
+  test("a text-family override is accepted and keeps the domain", () => {
+    const user = s.model({ id: s.string(PG.STRING.VARCHAR(36)).id().uuid() });
+    expect(refusal({ user })).toEqual([]);
+  });
+
+  test("a binary override of the wrong width is refused", () => {
+    const user = s.model({ id: s.string(MYSQL.BLOB.BINARY(16)).id().ksuid() });
+    expect(refusal({ user }).some((entry) => entry.code === "F013")).toBe(true);
+  });
+
+  test("an override for another dialect is checked against that dialect", () => {
+    const user = s.model({ id: s.string(SQLITE.BLOB.BLOB).id().uuid() });
+    expect(refusal({ user })).toEqual([]);
+  });
+
+  test("a DERIVED foreign key is checked too", () => {
+    const user = s.model({
+      id: s.string().id().uuid(),
+      posts: s.toMany(() => post),
+    });
+    const post = s.model({
+      id: s.string().id(),
+      authorId: s.string(PG.INT.INTEGER),
+      author: s
+        .toOne(() => user)
+        .fields("authorId")
+        .references("id"),
+    });
+    const issue = refusal({ user, post }).find(
+      (entry) => entry.code === "F013"
+    );
+    expect(issue?.field).toBe("authorId");
+  });
+
+  test("a field with no domain keeps every override it ever had", () => {
+    const user = s.model({ id: s.string(PG.INT.INTEGER).id() });
+    expect(refusal({ user })).toEqual([]);
   });
 });

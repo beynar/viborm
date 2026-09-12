@@ -1,3 +1,5 @@
+import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
+import type { IdDomain } from "@validation/primitives/id-codec";
 /**
  * PostgreSQL Migration Driver
  *
@@ -385,8 +387,22 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+  mapScalarType(
+    scalar: Scalar,
+    scalarState: ScalarState,
+    idDomain?: IdDomain
+  ): string {
     const nativeType = scalar["~"].nativeType;
+
+    // An identifier column's type is the ONE storage owner's answer, override
+    // included — which is also why the override is not read separately here: a
+    // spelling this domain cannot live in was refused at the schema boundary,
+    // and a text-family one keeps text storage with the domain still admitted.
+    const idStorage =
+      idDomain === undefined
+        ? undefined
+        : idStorageOf(idDomain, nativeType, "pg");
+    if (idStorage) return idStorage.columnType;
 
     // If a native type is specified and it's for PostgreSQL, use it
     if (nativeType && nativeType.db === "pg") {
@@ -426,11 +442,33 @@ export class PostgresMigrationDriver extends MigrationDriver {
    * KSUID, NanoID and CUID2 have none at all, so those fields carry no DDL
    * default and the application's own generator remains their single owner.
    */
+  override getDefaultExpression(
+    scalar: Scalar,
+    scalarState: ScalarState
+  ): string | undefined {
+    // `gen_random_uuid()` produces a `uuid`, so a column that does not hold one
+    // cannot take it as a default. A `.uuid()` field whose native type override
+    // makes it `bytea` is exactly that column: the value would be a type error
+    // at DDL time, and the application generator is already its single owner.
+    const idDomain = idDomainOfState(scalarState);
+    if (
+      scalarState.autoGenerate !== undefined &&
+      idDomain !== undefined &&
+      idStorageOf(idDomain, scalar["~"].nativeType, "pg")?.representation ===
+        "bytes"
+    ) {
+      return undefined;
+    }
+    return super.getDefaultExpression(scalar, scalarState);
+  }
+
   protected override getAutoGenerateExpression(
     autoGenerate: import("@schema/scalars").ScalarState["autoGenerate"]
   ): string | undefined {
     switch (autoGenerate?.kind) {
       case "uuid":
+        // `.id()`'s implicit ULID never reaches here (its kind is `ulid`), and
+        // a NAMED `.uuid()` gets the database default only unprefixed.
         return hasIdPrefix(autoGenerate.prefix)
           ? undefined
           : "gen_random_uuid()";

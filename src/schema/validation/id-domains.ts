@@ -34,7 +34,12 @@ import {
   sameIdDomain,
 } from "@validation/primitives/id-codec";
 import type { Model } from "../model";
-import { idDomainOfState } from "../scalars/string/id-domain";
+import type { NativeType } from "../scalars/native-types";
+import {
+  describeIdNativeTypes,
+  idDomainOfState,
+  idStorageOf,
+} from "../scalars/string/id-domain";
 import type { ResolvedRelationIndex } from "./relation-resolution";
 import { resolvedEdges } from "./relation-resolution";
 import type { SchemaValidationIssue, ValidationContext } from "./types";
@@ -195,7 +200,60 @@ export function deriveIdDomains(
     for (const field of byField.keys()) resolve(model, field);
   }
 
+  // Every model the index registers, so a declared domain on a relationless
+  // model is checked too. The resolved index holds one slot map per registered
+  // model, including an empty one.
+  for (const model of index.keys()) {
+    const scalars = model["~"].state.scalars;
+    for (const field of Object.keys(scalars)) {
+      const domain = resolve(model, field);
+      if (domain === undefined) continue;
+      refuseUnusableNativeType(
+        model,
+        field,
+        scalars[field]?.["~"].nativeType,
+        domain,
+        ctx,
+        issues
+      );
+    }
+  }
+
   return { domains, issues };
+}
+
+/**
+ * Refuse a native type override the declared domain cannot live in.
+ *
+ * The override says what the COLUMN is; the domain says what the column holds.
+ * `varchar(26)` holds a ULID as text, `BINARY(16)` holds its bytes, and
+ * `INTEGER` holds neither — and nothing downstream can repair that choice: the
+ * migration would emit the column the override named and the engine would bind
+ * the value the domain named, which is a table that refuses every row.
+ *
+ * Dialect-blind, because the override names its own dialect. It is checked HERE
+ * rather than in the advisory rule list because `skipValidation` may drop
+ * advice and must not be able to drop this.
+ */
+function refuseUnusableNativeType(
+  model: Model<any>,
+  field: string,
+  nativeType: NativeType | undefined,
+  domain: IdDomain,
+  ctx: ValidationContext | undefined,
+  issues: SchemaValidationIssue[]
+): void {
+  if (nativeType === undefined) return;
+  if (idStorageOf(domain, nativeType, nativeType.db) !== undefined) return;
+  const marker = `${nameOf(ctx, model)}.${field}`;
+  issues.push({
+    code: "F013",
+    message: `'${marker}' holds ${describeIdDomain(domain)}, which cannot live in the ${nativeType.db} column '${nativeType.type}'.`,
+    severity: "error",
+    model: nameOf(ctx, model),
+    field,
+    repair: `Declare '${marker}' with one of: ${describeIdNativeTypes(domain.format, nativeType.db)} — or drop the native type and take the automatic column.`,
+  });
 }
 
 /** `describeIdDomain`, extended to the absence of one. */

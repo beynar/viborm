@@ -11,6 +11,7 @@ import {
   decimalDefaultText,
   decimalListDefaultText,
 } from "@validation/primitives/decimal-codec";
+import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type {
@@ -248,7 +249,18 @@ export abstract class MigrationDriver {
    * @param scalarState - The scalar state with type info
    * @returns The native column type string
    */
-  abstract mapScalarType(scalar: Scalar, scalarState: ScalarState): string;
+  /**
+   * `idDomain` is the identifier domain this column holds, which a foreign key
+   * DERIVES from the key it references and therefore cannot be read off the
+   * scalar. The physical type comes from the one storage owner
+   * ({@link idStorageOf}), so the column this creates and the parameter the
+   * engine binds into it are one decision.
+   */
+  abstract mapScalarType(
+    scalar: Scalar,
+    scalarState: ScalarState,
+    idDomain?: IdDomain
+  ): string;
 
   /**
    * Final pass over a serialized table before diffing/DDL generation.
