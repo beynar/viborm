@@ -203,10 +203,10 @@ Run 2 reproduces every MySQL cell above byte for byte except one: the
 `VARCHAR(191)` UUID primary key read 24,723,456 rather than 25,772,032, one
 extent lower, which makes the clustered-UUID saving **−25.58%** there instead of
 −28.61%. Read that pair as "roughly a quarter", and read nothing about a
-clustered random key failing to save — it saves on both runs, and at N=50,000 in
-an independent re-measurement as well.
+clustered random key failing to save: it saves on both runs.
 
-Every shape saves, on both engines, between 14% and 46%.
+Every shape saves on both engines — 13.75% to 37.39% of total size, and up to
+46.77% of the index side.
 
 **Insert walls are a direction with a wide band, and one pair flips.** They are
 single wall times for a batched load; across the two runs the same table moves
