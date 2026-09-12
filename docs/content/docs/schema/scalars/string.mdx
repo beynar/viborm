@@ -123,6 +123,11 @@ runtime saying the same thing.
 `_min` and `_max` answer with the earliest and latest identifier, for the same
 reason ordering works, and `_count` and `groupBy` are unaffected.
 
+**An existing table.** A column that already holds text has two routes: keep it
+(below) or convert the rows. Both, with the per-dialect recipes and the
+pre-check queries VibORM renders for them, are on
+[Converting identifier columns](/docs/migration/identifiers).
+
 **Keeping a text column.** A [native type](/docs/schema/native-types) from the
 text family opts out of compact storage while keeping the domain validated —
 this is the route for a column that already holds text:

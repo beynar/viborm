@@ -40,12 +40,14 @@
 
 import { type Sql, sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { hydrateSchemaNames } from "../schema/hydration";
 import { type AnyModel, getColumnName, getTableName } from "../schema/model";
 import { idDomainOf } from "../schema/validation/id-domains";
 import {
   type ResolvedRelationIndex,
   resolvedEdges,
 } from "../schema/validation/relation-resolution";
+import { resolveSchemaOrThrow } from "../schema/validation/validator";
 import { createIdentifierQuoter } from "../sql/identifiers";
 import {
   type IdDomain,
@@ -56,11 +58,15 @@ import type { MigrationCheckInput } from "./v1-types";
 
 /** The key whose text column is being converted, and the schema it lives in. */
 export interface IdentifierConversionRequest {
+  /**
+   * The WHOLE schema, not just the model: a foreign key's domain is derived
+   * from the resolved topology, and so is the list of columns that reference
+   * this key. Resolved here, exactly as `serializeModels` resolves it.
+   */
+  readonly schema: Record<string, AnyModel>;
   readonly model: AnyModel;
   readonly field: string;
   readonly dialect: Dialect;
-  /** The resolved index, which is where a foreign key's domain is derived. */
-  readonly index: ResolvedRelationIndex;
   /** PostgreSQL's target namespace, when the estate is bound to one. */
   readonly namespace?: string | undefined;
 }
@@ -172,10 +178,11 @@ const noRowWhere = (from: Sql, predicate: Sql): MigrationCheckInput => ({
 
 /** Every foreign-key column that holds this key's values. */
 function referencingColumns(
-  request: IdentifierConversionRequest
+  request: IdentifierConversionRequest,
+  index: ResolvedRelationIndex
 ): { model: AnyModel; field: string }[] {
   const columns: { model: AnyModel; field: string }[] = [];
-  for (const edge of resolvedEdges(request.index)) {
+  for (const edge of resolvedEdges(index)) {
     if (edge.kind !== "foreignKey") continue;
     const other =
       edge.endpoints[0] === edge.owner ? edge.endpoints[1] : edge.endpoints[0];
@@ -200,7 +207,9 @@ export function identifierConversionChecks(
   request: IdentifierConversionRequest
 ): readonly MigrationCheckInput[] {
   const { model, field, dialect, namespace } = request;
-  const domain = idDomainOf(model, field, request.index);
+  hydrateSchemaNames(request.schema);
+  const index = resolveSchemaOrThrow(request.schema);
+  const domain = idDomainOf(model, field, index);
   if (domain === undefined || !isCompactIdFormat(domain.format)) {
     throw new MigrationError(
       `'${getTableName(model)}.${getColumnName(model, field)}' has no compactly stored identifier domain, so it has no text conversion to check: only uuid, uuidv7, ulid and ksuid change storage.`,
@@ -222,7 +231,7 @@ export function identifierConversionChecks(
       equals: true,
     });
   }
-  for (const reference of referencingColumns(request)) {
+  for (const reference of referencingColumns(request, index)) {
     const child = fromSql(reference.model, dialect, namespace, "c");
     const fk = columnSql(reference.model, reference.field, dialect, "c");
     checks.push(

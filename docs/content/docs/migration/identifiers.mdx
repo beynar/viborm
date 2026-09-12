@@ -1,0 +1,321 @@
+---
+title: Converting identifier columns
+description: Moving an existing text column onto compact identifier storage, per dialect, with the pre-checks that make it safe
+icon: key
+---
+
+Naming an identifier format — `.uuid()`, `.uuidv7()`, `.ulid()`, `.ksuid()` —
+is a promise about every value of the field, and VibORM takes advantage of it by
+storing the identifier rather than the text you spell it as (see
+[String](/docs/schema/scalars/string#storage)). For a **new** table nothing is
+required of you: the column is created as `uuid`, `bytea`, `BINARY(n)` or
+`BLOB` and every read and write goes through it.
+
+For a table that **already holds text**, this page is the whole story.
+
+## The two routes, and what is automated
+
+VibORM automates exactly one conversion, and refuses the rest:
+
+| From → to | What happens |
+|---|---|
+| PostgreSQL `text` → `uuid` | Generated. The cast is real, per value; a `DO` guard runs first and names what would fail |
+| any text → `bytea` / `BLOB` / `BINARY(n)` | **Refused** where it is generated |
+| a text-family native type | No conversion at all — the column stays, the domain is still validated |
+
+The refusal is not caution, it is arithmetic. Nothing can re-read stored text as
+bytes: PostgreSQL's `USING col::bytea` writes the ASCII of the old value,
+SQLite's rebuild copies it verbatim (`typeof()` still answers `'text'` inside a
+`BLOB` column), and MySQL's `MODIFY … BINARY(16)` fails with `Data too long` in
+a strict `sql_mode` and silently truncates in a lax one. Measured, on the
+MySQL 8 container this page's recipes were run against:
+
+```text
+ALTER TABLE cvt_blind MODIFY COLUMN id BINARY(16)
+strict     → ERROR 1406 (22001): Data too long for column 'id' at row 1
+non-strict → 2 rows, Warnings: 2
+             SELECT HEX(id), LENGTH(id) FROM cvt_blind
+             → 61306565626339392D396330622D3465 | 16   ("a0eebc99-9c0b-4e")
+```
+
+So you have two routes.
+
+### Route 1 — keep the column, keep the domain
+
+A [native type](/docs/schema/native-types) from the text family opts out of
+compact storage while every value is still admitted and normalized:
+
+```ts
+const user = s.model({
+  id: s.string(PG.STRING.VARCHAR(40)).id().uuid("usr"),
+});
+```
+
+Nothing migrates, nothing is rewritten, and `contains`/`startsWith`/`endsWith`
+stay gone (the four predicates go by the FORMAT, not by the storage). This is
+the right answer for a column you do not want to touch.
+
+### Route 2 — convert the rows
+
+The rest of this page. Run the pre-checks, convert with your dialect's recipe,
+then push: the differ compares the declaration against live introspection, so a
+column that converted correctly plans nothing.
+
+## The pre-checks
+
+Three things have to be true before any route-2 conversion, and VibORM renders
+all three as SQL for you:
+
+```ts
+import { identifierConversionChecks } from "viborm/migrations";
+
+const checks = identifierConversionChecks({
+  schema, // the whole schema: a foreign key's domain is derived from it
+  model: schema.user,
+  field: "id",
+  dialect: "postgresql",
+});
+
+for (const check of checks) {
+  console.log(check.query.toStatement("$n"), check.query.values);
+}
+```
+
+Each is a `trusted-read` `MigrationCheckInput`: one row, one boolean column,
+`equals: true`. Run them yourself, or hand them to `generate()` as the
+`originChecks` of a manual transition so the conversion refuses to apply against
+an estate that has drifted.
+
+1. **No row is outside the domain.** The prefix is matched whole and the payload
+   against the format's own grammar and width. A row that is not a value of the
+   domain is a row no route can carry.
+2. **No two rows fold together.** `uuid` accepts uppercase and `ulid` accepts
+   lowercase as *aliases*: a text column can hold two spellings of one
+   identifier, and compact storage holds one. Those rows become one value —
+   violating a primary key, or silently merging two rows where there is none.
+   `ksuid` has no aliases and gets no such check.
+3. **Every referencing foreign key still finds its parent after the fold.** The
+   FK column normalizes too, so agreement is proven against the normalized sets.
+
+For `user.id` declared `.uuid("usr")`, with `note.userId` referencing it, that
+renders (PostgreSQL; parameters inlined here for reading):
+
+```sql
+-- 1. every key row is a value of the domain
+SELECT NOT EXISTS (
+  SELECT 1 FROM "idp_legacy_users" AS p
+  WHERE p."id" IS NOT NULL AND NOT (
+    substr(p."id", 1, 4) = 'usr-'
+    AND length(substr(p."id", 5)) = 36
+    AND substr(p."id", 5) ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+  )
+) AS ok;
+
+-- 2. no two key rows fold to one identifier
+SELECT COUNT(p."id") = COUNT(DISTINCT lower(substr(p."id", 5))) AS ok
+FROM "idp_legacy_users" AS p;
+
+-- 3a. every foreign key row is a value of the domain
+SELECT NOT EXISTS (
+  SELECT 1 FROM "idp_legacy_notes" AS c
+  WHERE c."userId" IS NOT NULL AND NOT ( /* the same predicate */ )
+) AS ok;
+
+-- 3b. and still names a parent after normalization
+SELECT NOT EXISTS (
+  SELECT 1 FROM "idp_legacy_notes" AS c
+  WHERE c."userId" IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM "idp_legacy_users" AS p
+    WHERE lower(substr(p."id", 5)) = lower(substr(c."userId", 5))
+  )
+) AS ok;
+```
+
+MySQL spells the same three with `CHAR_LENGTH` and `REGEXP`; SQLite has no
+`REGEXP`, so each grammar becomes a `GLOB` of repeated character classes
+(`[0-9a-fA-F][0-9a-fA-F]…`). All of it is executed on all three dialects by
+`tests/contracts/engine/query/identifier-storage-behavior.ts`, over a legacy
+text table seeded with exactly the rows each check is about: every check refuses
+that estate and every check passes once those rows are gone.
+
+Two limits worth knowing. On MySQL the comparisons follow the column's
+collation, so a case-insensitive one (the 8.0 default) admits a prefix whose
+case differs, which VibORM's own admission refuses. And the checks cover model
+FIELDS: a many-to-many **junction table's** own columns and a **polymorphic row
+carrier's** id column hold a key's values too, and convert by the same recipe,
+but they have no `(model, field)` to name them by and are not rendered for you.
+
+## PostgreSQL
+
+The one dialect with a native conversion, for `uuid` only.
+
+```sql
+BEGIN;
+
+-- 0. the guard VibORM emits ahead of its own generated cast
+DO $viborm$ DECLARE invalid bigint; BEGIN
+  SELECT count(*) INTO invalid FROM cvt_users
+   WHERE id IS NOT NULL AND id !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+  IF invalid > 0 THEN RAISE EXCEPTION 'VibORM: % row(s) …', invalid; END IF;
+END $viborm$;
+
+-- 1. a text default cannot survive the type change
+ALTER TABLE cvt_users ALTER COLUMN id DROP DEFAULT;
+
+-- 2. the referencing constraints come off, because both sides change type
+ALTER TABLE cvt_notes DROP CONSTRAINT "cvt_notes_userId_fkey";
+
+-- 3. parent and children convert
+ALTER TABLE cvt_users ALTER COLUMN id TYPE uuid USING id::uuid;
+ALTER TABLE cvt_notes ALTER COLUMN "userId" TYPE uuid USING "userId"::uuid;
+
+-- 4. and the constraints go back
+ALTER TABLE cvt_notes
+  ADD CONSTRAINT "cvt_notes_userId_fkey" FOREIGN KEY ("userId") REFERENCES cvt_users(id);
+
+COMMIT;
+```
+
+Executed against the project's PostgreSQL 16 container. What it showed:
+
+- Step 1 is not optional. Without it, step 3 fails with
+  `default for column "id" cannot be cast automatically to type uuid`.
+- On a dirty estate the guard raises
+  `VibORM: 1 row(s) of cvt_users.id are not canonical uuid text, so this
+  conversion would abort on them.` — where the cast alone would have named one
+  offending value and nothing about the choice you have.
+- The `uuid` type **normalizes case on the way in**: `B1FFCD88-…` came back as
+  `b1ffcd88-…`. That is exactly why pre-check 2 exists — two rows differing only
+  in case survive as text and collide as `uuid`.
+
+`DEFAULT gen_random_uuid()` can go back on afterwards, and VibORM emits it for
+an unprefixed `.uuid()` field. There is no equivalent for `uuidv7`, for a
+prefixed domain, or for any other format.
+
+### A prefixed uuid, and ULID or KSUID
+
+Neither has an in-SQL conversion, on any dialect. `bytea` needs the payload's
+bytes, and only your client can produce them:
+
+```sql
+ALTER TABLE cvt_notes ADD COLUMN id_bin bytea;
+-- then, per row, from the application: UPDATE cvt_notes SET id_bin = $1 WHERE id = $2
+--   $1 = the 16 (ULID, UUID) or 20 (KSUID) payload bytes
+ALTER TABLE cvt_notes DROP CONSTRAINT cvt_notes_pkey, DROP COLUMN id;
+ALTER TABLE cvt_notes RENAME COLUMN id_bin TO id;
+ALTER TABLE cvt_notes ALTER COLUMN id SET NOT NULL, ADD PRIMARY KEY (id);
+```
+
+Verified: `octet_length(id_bin) = 16`, `encode(id_bin,'hex') =
+01563e3ab5d3d6764c61efb99302bd5b` — the same bytes VibORM's own codec writes for
+`01ARZ3NDEKTSV4RRFFQ69G5FAV`. VibORM does not ship a batch converter; a loop
+over `findMany` + `$executeRaw` in your own script is the whole of it. A
+`substring(col from 5)::uuid` for the prefixed case is also never generated: the
+migration snapshot carries the column TYPE and not the domain, so no generated
+statement knows a prefix is there.
+
+## MySQL
+
+Stepwise, in one transaction if your storage engine allows it, and always with
+the foreign keys off first. `UNHEX(REPLACE(…))` converts a uuid **in the
+database**; every other format needs the client.
+
+```sql
+ALTER TABLE cvt_notes DROP FOREIGN KEY cvt_notes_user;
+
+ALTER TABLE cvt_users ADD COLUMN id_bin BINARY(16);
+UPDATE cvt_users SET id_bin = UNHEX(REPLACE(id, '-', ''));          -- uuid only
+ALTER TABLE cvt_notes ADD COLUMN userId_bin BINARY(16);
+UPDATE cvt_notes SET userId_bin = UNHEX(REPLACE(userId, '-', ''));
+
+ALTER TABLE cvt_users
+  DROP PRIMARY KEY, DROP COLUMN id,
+  CHANGE COLUMN id_bin id BINARY(16) NOT NULL, ADD PRIMARY KEY (id);
+ALTER TABLE cvt_notes
+  DROP COLUMN userId, CHANGE COLUMN userId_bin userId BINARY(16);
+
+ALTER TABLE cvt_notes ADD CONSTRAINT cvt_notes_user
+  FOREIGN KEY (userId) REFERENCES cvt_users(id);
+```
+
+Executed against the project's MySQL 8 container:
+`HEX(id)` came back `A0EEBC999C0B4EF8BB6D6BB9BD380A11`, `LENGTH(id) = 16`, and
+`information_schema` reported `binary(16)` on both sides. For a **prefixed**
+uuid use `UNHEX(REPLACE(SUBSTRING(id, 5), '-', ''))`. For ULID and KSUID the
+`UPDATE` takes a client-side buffer instead:
+
+```ts
+await connection.query("UPDATE cvt_notes SET id_bin = ? WHERE id = ?", [
+  payloadBytes, // 16 for ULID, 20 for KSUID
+  publicIdentifier,
+]);
+```
+
+Measured the same way: `HEX(id) = 01563E3AB5D3D6764C61EFB99302BD5B`,
+`LENGTH(id) = 16`, `COLUMN_TYPE = binary(16)`.
+
+KSUID columns are `BINARY(20)`, not 16. A `BINARY(n)` of the wrong width is
+refused where the native type is declared, not at conversion time.
+
+## SQLite
+
+SQLite alters nothing in place: the conversion is a table **rebuild**, the same
+shape VibORM's own SQLite driver uses.
+
+```sql
+PRAGMA foreign_keys = OFF;
+
+CREATE TABLE __new_cvt_users (id BLOB NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+-- per row, from the application:
+--   INSERT INTO __new_cvt_users (id, name) VALUES (?, ?)   -- ? = payload bytes
+DROP TABLE cvt_users;
+ALTER TABLE __new_cvt_users RENAME TO cvt_users;
+
+PRAGMA foreign_keys = ON;
+PRAGMA foreign_key_check;
+```
+
+`INSERT … SELECT` is the one thing that must NOT be used here. Executed:
+copying the text column verbatim into the `BLOB` column left
+`typeof(id) = 'text'`, `length(id) = 40`, `hex(id) =
+7573722D4130454542…` — the ASCII of `usr-A0EEBC99…`. No error, and every later
+read refused.
+
+With the payload decoded client-side instead: `typeof(id) = 'blob'`,
+`length(id) = 16`, `hex(id) = A0EEBC999C0B4EF8BB6D6BB9BD380A11`, and
+`pragma_table_info` reports `BLOB`.
+
+**Rebuild every referencing table in the same pass.** After converting only the
+parent, `PRAGMA foreign_key_check` reported
+`{table: cvt_notes, parent: cvt_users}` — the child still held text. Converting
+both, with the ULID decoded to `01563E3AB5D3D6764C61EFB99302BD5B`, left
+`foreign_key_check` empty.
+
+### D1
+
+D1 executes batches without an enclosing transaction, so VibORM refuses a
+**relation-bearing rebuild** there: a SQLite table rebuild that has to drop and
+recreate foreign keys cannot be made atomic on that platform. That refusal is
+unchanged by identifier storage, and it applies to this conversion like any
+other rebuild. Convert a D1 database from a script that owns the failure
+handling, or keep the text column with a `TEXT` native type.
+
+## What is not automated
+
+Plainly:
+
+- No dialect converts ULID, KSUID, or a prefixed uuid in SQL. The payload bytes
+  come from your client, one `UPDATE`/`INSERT` per row.
+- VibORM ships no batch converter and no `--convert` flag.
+- The pre-checks are rendered, not run. Nothing executes them for you unless you
+  pass them to `generate()` as `originChecks`.
+- Junction and polymorphic carrier columns are not enumerated for you.
+- On MySQL, whether the prefix comparison is case-sensitive is the collation's
+  decision, not VibORM's.
+
+## After the conversion
+
+Push or generate as usual. An unchanged declaration over a correctly converted
+column produces **no diff**: the differ compares the schema against live
+introspection, so any column that did not round-trip as itself would appear as
+an `alterColumn` immediately.

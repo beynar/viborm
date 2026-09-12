@@ -236,8 +236,24 @@ to "what does this column hold":
 - one column reached through several references whose keys disagree — a shared
   foreign key, a compound member, or a set of polymorphic variants.
 
+Both are schema errors with the code `FK012`, and both name the two references
+that disagreed and what each of them holds.
+
 Declaring the same format the target declares is allowed and changes nothing.
 Declaring nothing is the normal spelling.
+
+One asymmetry to know about. A DERIVED domain narrows at RUN TIME only: the
+declared key loses `contains` / `startsWith` / `endsWith` / `mode` from its
+filter TYPE, while the foreign key keeps them in the type and is refused when
+the query runs. A field's filter type is computed from the field's own
+declaration, and a foreign key has none — deriving it would mean resolving
+`.references(...)` at the type level and threading whole-schema context through
+every per-model type. Declare the format on the foreign key too if you want the
+editor to say so; it changes nothing else.
+
+Converting an existing text column onto the storage a derived domain implies is
+[Converting identifier columns](/docs/migration/identifiers) — the foreign key
+converts with the key it references, not separately.
 
 ## Pages
 

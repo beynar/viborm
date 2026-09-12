@@ -11,11 +11,9 @@
  */
 
 import { MigrationError } from "@errors";
-import { identifierConversionChecks } from "@src/migrations/identifier-conversion";
 import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
-import { resolveSchemaOrThrow } from "@schema/validation";
 import type { Sql } from "@sql";
+import { identifierConversionChecks } from "@src/migrations/identifier-conversion";
 import { describe, expect, test } from "vitest";
 
 const user = s.model({
@@ -52,8 +50,9 @@ const ticket = s.model({
 });
 
 const schema = { user, post, profile, ticket };
-hydrateSchemaNames(schema);
-const index = resolveSchemaOrThrow(schema);
+
+/** The refusal's own words, so a reworded message cannot pass this test. */
+const NO_COMPACT_DOMAIN = /only uuid, uuidv7, ulid and ksuid change storage/;
 
 /** One check rendered as the statement a reviewer reads, parameters inlined. */
 const rendered = (query: Sql): string =>
@@ -70,7 +69,7 @@ const checksFor = (
   field: string,
   dialect: "postgresql" | "mysql" | "sqlite"
 ): string[] =>
-  identifierConversionChecks({ model, field, dialect, index }).map((check) =>
+  identifierConversionChecks({ schema, model, field, dialect }).map((check) =>
     rendered(check.query)
   );
 
@@ -123,22 +122,24 @@ describe("identifier conversion pre-checks", () => {
 
   test("PostgreSQL qualifies the table with the bound namespace", () => {
     const [first] = identifierConversionChecks({
+      schema,
       model: ticket,
       field: "id",
       dialect: "postgresql",
-      index,
       namespace: "app",
     });
 
-    expect(first?.query.toStatement("$n")).toContain(`FROM "app"."ticket" AS p`);
+    expect(first?.query.toStatement("$n")).toContain(
+      `FROM "app"."ticket" AS p`
+    );
   });
 
   test("every check is one trusted read that must answer true", () => {
     for (const check of identifierConversionChecks({
+      schema,
       model: user,
       field: "id",
       dialect: "postgresql",
-      index,
     })) {
       expect(check.kind).toBe("trusted-read");
       expect(check.equals).toBe(true);
@@ -151,7 +152,7 @@ describe("identifier conversion pre-checks", () => {
     );
     expect(() => checksFor(profile, "id", "postgresql")).not.toThrow();
     expect(() => checksFor(user, "handle", "postgresql")).toThrow(
-      /only uuid, uuidv7, ulid and ksuid change storage/
+      NO_COMPACT_DOMAIN
     );
   });
 });

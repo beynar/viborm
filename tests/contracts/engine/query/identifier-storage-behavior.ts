@@ -28,8 +28,6 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { s } from "@schema";
-import { hydrateSchemaNames } from "@schema/hydration";
-import { resolveSchemaOrThrow } from "@schema/validation";
 import { sql } from "@sql";
 import { identifierConversionChecks } from "@src/migrations/identifier-conversion";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -153,9 +151,6 @@ export const legacySchema = (() => {
     .map("idp_legacy_notes");
   return { legacyUser, legacyNote };
 })();
-
-hydrateSchemaNames(legacySchema);
-const legacyIndex = resolveSchemaOrThrow(legacySchema);
 
 // =============================================================================
 // VALUES
@@ -936,10 +931,10 @@ export function runIdentifierStorageBehavior(options: {
       };
 
       const checks = identifierConversionChecks({
+        schema: legacySchema,
         model: legacySchema.legacyUser,
         field: "id",
         dialect: options.dialect,
-        index: legacyIndex,
       }).map((check) => ({
         text: check.query.toStatement(
           options.dialect === "postgresql" ? "$n" : "?"
