@@ -219,7 +219,21 @@ export function runIdentifierStorageBehavior(options: {
     });
 
     beforeAll(async () => {
-      await syncLiveSchema(client, { force: true, forceReset: true });
+      // Push WHEN THE TABLES ARE NOT THERE, the idiom the other live behavior
+      // suites use: a sibling's drop-everything reset may have removed them
+      // between two runs, and re-running the DDL against existing tables errors
+      // on the SQLite family. A force-reset here would be worse than either —
+      // it plans from the empty snapshot, which is not this suite's to decide
+      // for the tables its neighbours own.
+      const present = await client.tag
+        .findMany({ take: 1 })
+        .then(() => true)
+        .catch(() => false);
+      if (!present) await syncLiveSchema(client);
+      await client.post.deleteMany({});
+      await client.seat.deleteMany({});
+      await client.tag.deleteMany({});
+      await client.account.deleteMany({});
 
       await client.account.createMany({
         data: [
