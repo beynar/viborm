@@ -18,13 +18,6 @@
  *
  * Usage:
  *   node scripts/measure-bundle.mjs [--out <path>] [--print]
- *
- * Environment:
- *   VIBORM_BIGJS_DIR  Directory holding an unpacked big.js (the directory that
- *                     contains its package.json). big.js is NOT a dependency of
- *                     this package; when the variable is unset or the directory
- *                     is missing, the big.js row records `available: false`
- *                     instead of failing.
  */
 
 import { execFileSync } from "node:child_process";
@@ -242,38 +235,22 @@ const LIBRARY_FIXTURES = [
   ["@paralleldrive/cuid2", "lib/cuid2.mjs"],
   ["nanoid", "lib/nanoid.mjs"],
   ["ulidx", "lib/ulidx.mjs"],
-  ["decimal.js", "lib/decimal.mjs"],
+  ["big.js", "lib/big.mjs"],
 ];
+
+/**
+ * Libraries this program REMOVED. Their fixtures stay so the thing being
+ * dropped can still be priced beside its replacement, but they are measured
+ * only while the package is still installed: once it leaves package.json the
+ * bundle would fail to resolve, and a row that cannot be produced is reported
+ * as absent rather than silently omitted.
+ */
+const REMOVED_LIBRARY_FIXTURES = [["decimal.js", "lib/decimal.mjs"]];
 
 const installedVersion = (name) => {
   const manifest = join(repoRoot, "node_modules", name, "package.json");
   if (!existsSync(manifest)) return null;
   return JSON.parse(readFileSync(manifest, "utf8")).version ?? null;
-};
-
-/**
- * big.js is deliberately NOT in package.json. Point VIBORM_BIGJS_DIR at an
- * unpacked tarball (`npm pack big.js@latest` then `tar xzf`) to price it.
- */
-const measureBigJs = async (esbuild) => {
-  const dir = process.env.VIBORM_BIGJS_DIR;
-  if (!(dir && existsSync(join(dir, "package.json")))) {
-    return { available: false, reason: "VIBORM_BIGJS_DIR unset or empty" };
-  }
-  const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-  const measurement = await bundleFile(
-    esbuild,
-    join(fixtureDir, "lib", "big.mjs"),
-    // The fixture imports "big.js" by name; resolve it to the unpacked copy.
-    { alias: { "big.js": join(dir, manifest.module ?? "big.mjs") } }
-  );
-  return {
-    available: true,
-    version: manifest.version ?? null,
-    raw: measurement.raw,
-    gzip: measurement.gzip,
-    brotli: measurement.brotli,
-  };
 };
 
 // ---------------------------------------------------------------------------
@@ -474,7 +451,22 @@ const main = async () => {
       dependencyBytes: measurement.composition.dependencyBytes,
     };
   }
-  libraries["big.js"] = await measureBigJs(esbuild);
+  for (const [name, file] of REMOVED_LIBRARY_FIXTURES) {
+    const version = installedVersion(name);
+    if (version === null) {
+      libraries[name] = { available: false, reason: "no longer installed" };
+      continue;
+    }
+    const measurement = await bundleFile(esbuild, join(fixtureDir, file));
+    libraries[name] = {
+      available: true,
+      version,
+      raw: measurement.raw,
+      gzip: measurement.gzip,
+      brotli: measurement.brotli,
+      dependencyBytes: measurement.composition.dependencyBytes,
+    };
+  }
 
   const report = {
     schemaVersion: 1,
