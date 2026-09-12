@@ -16,6 +16,7 @@
  * Also tests branded type preservation for each variant.
  */
 
+import { s } from "@schema";
 import type { ScalarState } from "@schema/scalars/common";
 import { string } from "@schema/scalars/string/scalar";
 import {
@@ -24,7 +25,11 @@ import {
   type Prettify,
   parse,
 } from "@validation";
-import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
+import {
+  type GetScalarSchemas,
+  getScalarSchemas,
+  getScalarsSchemas,
+} from "@validation/scalars";
 import {
   type Brand as BRAND,
   brand,
@@ -858,5 +863,140 @@ describe("Default Value Behavior", () => {
       expect(typeof result.value).toBe("string");
       expect(result.value.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe("a declared identifier domain", () => {
+  const UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const CUID = "tz4a98xxat96iws9zmbrgj3a";
+
+  const admitted = (schema: unknown, value: unknown) => {
+    const result = parse(schema as never, value);
+    return result.issues ? undefined : result.value;
+  };
+
+  test("create, update and filter admit only the domain's values", () => {
+    const schemas = getScalarSchemas(string().uuid("usr")["~"].state);
+    expect(admitted(schemas.create, `usr-${UUID}`)).toBe(`usr-${UUID}`);
+    expect(admitted(schemas.create, UUID)).toBeUndefined();
+    // The update schema normalizes the shorthand into `{ set }`.
+    expect(admitted(schemas.update, `usr-${UUID}`)).toEqual({
+      set: `usr-${UUID}`,
+    });
+    expect(admitted(schemas.update, UUID)).toBeUndefined();
+    expect(admitted(schemas.filter, { equals: `usr-${UUID}` })).toEqual({
+      equals: `usr-${UUID}`,
+    });
+    expect(admitted(schemas.filter, { equals: "nope" })).toBeUndefined();
+  });
+
+  test("an alias normalizes once, on the way in", () => {
+    const schemas = getScalarSchemas(string().uuid("usr")["~"].state);
+    expect(admitted(schemas.create, `usr-${UUID.toUpperCase()}`)).toBe(
+      `usr-${UUID}`
+    );
+    const ulid = getScalarSchemas(string().ulid()["~"].state);
+    expect(admitted(ulid.create, "01arz3ndektsv4rrffq69g5fav")).toBe(
+      "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    );
+  });
+
+  test("the refusal names the domain it expected", () => {
+    const schemas = getScalarSchemas(string().nanoid(8, "n")["~"].state);
+    const result = parse(schemas.create as never, "bad");
+    expect(result.issues?.[0]?.message).toBe(
+      "Expected a nanoid value of length 8 prefixed 'n-'"
+    );
+  });
+
+  test("a compact format's filter drops the four text predicates", () => {
+    const compact = getScalarSchemas(string().uuid()["~"].state);
+    expect(admitted(compact.filter, { contains: "a0ee" })).toBeUndefined();
+    expect(admitted(compact.filter, { startsWith: "a0ee" })).toBeUndefined();
+    expect(admitted(compact.filter, { endsWith: "0a11" })).toBeUndefined();
+    expect(admitted(compact.filter, { mode: "insensitive" })).toBeUndefined();
+    // Everything the column can answer exactly is still there.
+    expect(admitted(compact.filter, { in: [UUID], notIn: [] })).toEqual({
+      in: [UUID],
+      notIn: [],
+    });
+    expect(admitted(compact.filter, { lt: UUID, gte: UUID })).toEqual({
+      lt: UUID,
+      gte: UUID,
+    });
+  });
+
+  test("a TEXT-stored format keeps every string operator", () => {
+    const text = getScalarSchemas(string().cuid()["~"].state);
+    expect(admitted(text.filter, { contains: "tz4a" })).toEqual({
+      contains: "tz4a",
+    });
+    expect(admitted(text.filter, { equals: CUID })).toEqual({ equals: CUID });
+    // Its equality operand is still a value of the domain.
+    expect(admitted(text.filter, { equals: "tz4a" })).toBeUndefined();
+  });
+
+  test("a bare `.id()` names no format and admits what a string admits", () => {
+    const key = getScalarSchemas(string().id()["~"].state);
+    expect(admitted(key.create, "anything at all")).toBe("anything at all");
+    expect(admitted(key.filter, { contains: "any" })).toEqual({
+      contains: "any",
+    });
+  });
+
+  test("a LIST of strings has no domain, whatever it declares", () => {
+    const list = getScalarSchemas(string().uuid().array()["~"].state);
+    expect(admitted(list.create, ["anything"])).toEqual(["anything"]);
+  });
+
+  test("a DERIVED domain admits on a field that declares nothing", () => {
+    const derived = getScalarSchemas(string()["~"].state, {
+      format: "uuid",
+      prefix: "usr",
+    });
+    expect(admitted(derived.create, `usr-${UUID}`)).toBe(`usr-${UUID}`);
+    expect(admitted(derived.create, UUID)).toBeUndefined();
+    expect(admitted(derived.filter, { contains: "usr" })).toBeUndefined();
+    // A field that declares its OWN domain ignores the derived one; a schema
+    // where the two disagree never resolves (FK012).
+    const declared = getScalarSchemas(string().ulid()["~"].state, {
+      format: "uuid",
+      prefix: "usr",
+    });
+    expect(admitted(declared.create, "01ARZ3NDEKTSV4RRFFQ69G5FAV")).toBe(
+      "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    );
+  });
+
+  test("a model's scalars take the domains their foreign keys derive", () => {
+    const model = s.model({
+      id: s.string().id(),
+      authorId: s.string(),
+      label: s.string(),
+    });
+    const withDerived = getScalarsSchemas(
+      model,
+      new Map([["authorId", { format: "uuid", prefix: "usr" } as const]])
+    );
+    expect(admitted(withDerived.authorId.create, `usr-${UUID}`)).toBe(
+      `usr-${UUID}`
+    );
+    expect(admitted(withDerived.authorId.create, UUID)).toBeUndefined();
+    // A field the map does not name is untouched.
+    expect(admitted(withDerived.label.create, "anything")).toBe("anything");
+    // And without a map, nothing derives.
+    expect(admitted(getScalarsSchemas(model).authorId.create, UUID)).toBe(UUID);
+  });
+
+  test("two fields share a filter tree exactly when they share a domain", () => {
+    const first = getScalarSchemas(string().uuid("usr")["~"].state).filter;
+    const same = getScalarSchemas(string().uuid("usr")["~"].state).filter;
+    const otherPrefix = getScalarSchemas(
+      string().uuid("org")["~"].state
+    ).filter;
+    const noDomain = getScalarSchemas(string()["~"].state).filter;
+    expect(first).toBe(same);
+    expect(first).not.toBe(otherPrefix);
+    expect(first).not.toBe(noDomain);
   });
 });

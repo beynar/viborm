@@ -172,6 +172,9 @@ describe("admission", () => {
       undefined
     );
     expect(canonicalizeId(ULID.slice(1), domain("ulid"))).toBeUndefined();
+    // The FIRST character is read before the rest, so an excluded letter there
+    // is its own refusal rather than a digit out of range.
+    expect(canonicalizeId(`I${ULID.slice(1)}`, domain("ulid"))).toBeUndefined();
   });
 
   test("a nanoid is admitted at its declared length over its own alphabet", () => {

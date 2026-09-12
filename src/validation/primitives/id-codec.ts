@@ -267,20 +267,19 @@ export function idByteLength(format: IdFormat): number | undefined {
   }
 }
 
-/** The public text a compact format's bytes name, or `undefined` on a bad width. */
+/**
+ * The public text a compact format's bytes name, or `undefined` on a bad width.
+ *
+ * The width guard is what makes the rest total: a text format has no byte
+ * width, so `bytes.length !== undefined` is always true and `nanoid`/`cuid`
+ * never reach the conversions below. A `default` arm here would be a case no
+ * call can produce.
+ */
 function textOfBytes(bytes: Uint8Array, format: IdFormat): string | undefined {
   if (bytes.length !== idByteLength(format)) return undefined;
-  switch (format) {
-    case "uuid":
-    case "uuidv7":
-      return bytesToUuid(bytes);
-    case "ulid":
-      return bytesToUlid(bytes);
-    case "ksuid":
-      return bytesToKsuid(bytes);
-    default:
-      return undefined;
-  }
+  if (format === "ulid") return bytesToUlid(bytes);
+  if (format === "ksuid") return bytesToKsuid(bytes);
+  return bytesToUuid(bytes);
 }
 
 /**
