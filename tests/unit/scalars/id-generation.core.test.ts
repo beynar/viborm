@@ -183,6 +183,25 @@ describe("id", () => {
     expect(() => string().id("b")).not.toThrow();
   });
 
+  /**
+   * An empty string is how a caller spells "no prefix" everywhere else
+   * (`hasIdPrefix`), so it names nothing here either and contradicts nothing.
+   */
+  test('.id("") after a generator is a key declaration, not a second prefix', () => {
+    const prefixed = string().uuid("a").id("");
+    expect(prefixed["~"].state.autoGenerate).toEqual({
+      kind: "uuid",
+      prefix: "a",
+    });
+    expect(prefixed["~"].state.isId).toBe(true);
+    expect(generate(prefixed)).toMatch(A_PREFIX);
+    expect(string().uuid().id("")["~"].state.autoGenerate).toEqual({
+      kind: "uuid",
+      prefix: undefined,
+    });
+    expect(generate(string().id().id(""))).not.toContain("-");
+  });
+
   test(".id(prefix) with no generator declared prefixes the ULID", () => {
     expect(generate(string().id("usr"))).toMatch(USER_PREFIX);
     expect(string().id("usr")["~"].state.autoGenerate).toEqual({

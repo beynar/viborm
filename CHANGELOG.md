@@ -14,7 +14,7 @@ Versioning.
 - `s.string().id()` now sets `hasDefault`, so a generated primary key is
   optional in the create type as it already was at runtime. `.id()` no longer
   overrides a generator declared before it, and `.id(prefix)` after a generator
-  is refused.
+  is refused (`.id("")` names no prefix, so it stays a plain key declaration).
 - A nanoid length outside the range a nanoid can have — not a whole number, or
   outside 1 to 65536, the entropy source's own per-call quota — is refused at
   declaration instead of silently producing empty identifiers or throwing a

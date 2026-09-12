@@ -2,7 +2,7 @@
 // Standalone scalar class with State generic pattern
 
 import type { StandardSchemaOf } from "@standard-schema/spec";
-import { refuseId } from "@validation/primitives/id-formats";
+import { hasIdPrefix, refuseId } from "@validation/primitives/id-formats";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -80,7 +80,9 @@ export class StringScalar<State extends ScalarState<"string">> {
    * `.uuid("a").id()` is a prefixed UUID primary key, exactly like
    * `.id().uuid("a")`. A PREFIX passed after a generator is refused instead of
    * silently winning or silently losing — `.uuid("a").id("b")` names two
-   * prefixes for one field and only its author knows which was meant.
+   * prefixes for one field and only its author knows which was meant. What
+   * counts as a prefix is `hasIdPrefix`'s answer, here as everywhere: `.id("")`
+   * names none, so it contradicts nothing and is a plain key declaration.
    *
    * `hasDefault` is part of the declaration: a field whose id the runtime
    * generates must be optional in the create TYPE too.
@@ -88,11 +90,11 @@ export class StringScalar<State extends ScalarState<"string">> {
   id(prefix?: string) {
     const declared = this.state.autoGenerate;
     if (declared !== undefined) {
-      if (prefix !== undefined) {
+      if (hasIdPrefix(prefix)) {
         refuseId(
           "s.string().id",
           "prefix",
-          `This field already declares a '${declared.kind}' generator${declared.prefix ? ` with the prefix '${declared.prefix}'` : ""}. Spell the prefix on that generator instead of on \`.id()\``
+          `This field already declares a '${declared.kind}' generator${declared.prefix ? ` with the prefix '${declared.prefix}'` : ""}. A prefix is spelled once, on the call that declares the format`
         );
       }
       return new StringScalar(
