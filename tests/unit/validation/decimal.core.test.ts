@@ -612,6 +612,18 @@ describe("big.js configuration cannot move a VibORM answer", () => {
     expect(accepted(new Decimal("1.50"))).toBe("1.5");
   });
 
+  test("later arithmetic on a VibORM value follows the application's settings", () => {
+    // The other direction of the same contract: VibORM hands back an instance
+    // of the constructor the application owns, so the application's `DP`/`RM`
+    // govern every operation it performs on that instance afterwards.
+    const value = toDecimal("1");
+    Decimal.RM = 0;
+    Decimal.DP = 2;
+    expect(value.div("3").toString()).toBe("0.33");
+    Decimal.DP = 5;
+    expect(value.div("3").toString()).toBe("0.33333");
+  });
+
   test("bounds the trusted cache renderer before it renders", () => {
     const outsideBound = toDecimal("1");
     Object.defineProperty(outsideBound, "e", { value: 1_000_001 });
