@@ -14,6 +14,7 @@ import {
 import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import { refuseBinaryReencoding } from "../binary-conversion";
 import type {
   ColumnDef,
   DiffOperation,
@@ -1019,6 +1020,18 @@ export abstract class MigrationDriver {
       case "renameColumn":
         return this.compileRenameColumn(operation, context);
       case "alterColumn":
+        // Asked HERE rather than in each driver's `compileAlterColumn`: the
+        // question is one — "can this dialect re-read the stored bytes as the
+        // new type?" — and three copies of it would drift the way the three
+        // conversion routes already did (PostgreSQL cast, SQLite rebuild,
+        // MySQL MODIFY, each silently wrong in its own way).
+        refuseBinaryReencoding(
+          operation.tableName,
+          operation.columnName,
+          operation.from.type,
+          operation.to.type,
+          this.dialect
+        );
         return this.compileAlterColumn(operation, context);
       case "createIndex":
         return this.compileCreateIndex(operation, context);

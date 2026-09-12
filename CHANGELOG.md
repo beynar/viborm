@@ -51,14 +51,30 @@ are whatever a string column holds, and it is still stored as text.
   normalized and stored exactly as that key is, with no declaration of its own.
   Declaring a DIFFERENT domain on a foreign key than its target has, or reaching
   one column through references whose keys disagree, is a schema error (FK012).
+- **Four operators go by the FORMAT, not by the storage.** A compact format that
+  takes the text-family override below still loses them: the validation schema
+  is built before any adapter exists, so it cannot know which dialect the field
+  will be bound to, and one filter type per field rather than one per deployment
+  is what keeps the type and the runtime saying the same thing.
 - **Existing databases.** A table whose identifier column already holds text
   keeps working if you say so: a text-family native type
-  (`s.string(PG.STRING.VARCHAR(40)).uuid()`, `TEXT`, `citext`, `CHAR(n)`, …)
-  opts out of compact storage while keeping the domain validated. Otherwise the
-  column type changes and the differ plans a destructive `alterColumn`; the
-  conversion of existing rows is not yet automated. A native type the domain
-  cannot live in is refused where it is declared (F013), with a message naming
-  the spellings that format does accept.
+  (`s.string(PG.STRING.VARCHAR(40)).uuid()`, `TEXT`, `citext`, MySQL `CHAR(n)`,
+  …) opts out of compact storage while keeping the domain validated.
+  PostgreSQL's `char(n)` is not among them — `character(n)` blank-pads to its
+  full width, so no value of the domain would ever be returned. A native type
+  the domain cannot live in is refused where it is declared (F013), with a
+  message naming the spellings that format does accept.
+
+  Otherwise the column type changes and the differ plans a destructive
+  `alterColumn` — and that alteration is now **refused** rather than run.
+  Nothing can re-read stored text as bytes: PostgreSQL's `USING col::bytea`
+  would write the ASCII of the old value, SQLite's table rebuild would copy it
+  verbatim into the `BLOB`, and MySQL would truncate or pad it to the declared
+  width, each leaving an estate no read can return. Convert the rows yourself —
+  add the new column, write the decoded values into it, drop the old one and
+  rename — or take the text-family override above. PostgreSQL's `text` → `uuid`
+  leg still runs: `col::uuid` is a real per-value conversion that succeeds for
+  an estate of canonical uuids and aborts the transaction for one that is not.
 
 ### Decimal API change (breaking)
 

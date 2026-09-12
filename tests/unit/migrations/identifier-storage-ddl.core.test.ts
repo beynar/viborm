@@ -376,6 +376,99 @@ describe("the DDL default", () => {
   });
 });
 
+/**
+ * The one conversion no dialect can perform. Every `ALTER COLUMN` is a blind
+ * re-reading of the stored bytes; when the target is a BINARY column the only
+ * cast on offer re-encodes the source's own spelling, and the three routes were
+ * each silently wrong in their own way — PostgreSQL wrote the ASCII of the old
+ * text through `USING col::bytea`, SQLite's rebuild copied it verbatim into a
+ * `BLOB`, MySQL truncated or padded to the declared width.
+ */
+const BINARY_REENCODING_REFUSAL =
+  /no dialect can re-read the stored values as bytes/;
+
+describe("a column becoming binary", () => {
+  const column = (name: string, type: string): ColumnDef => ({
+    name,
+    type,
+    nullable: false,
+  });
+  const alter = (
+    driver: MigrationDriver,
+    from: ColumnDef,
+    to: ColumnDef
+  ): readonly string[] =>
+    driver.compileStatements(
+      {
+        type: "alterColumn",
+        tableName: "ids_things",
+        columnName: from.name,
+        from,
+        to,
+      },
+      {
+        destination: "live",
+        currentSchema: {
+          tables: [
+            {
+              name: "ids_things",
+              columns: [from],
+              indexes: [],
+              foreignKeys: [],
+              uniqueConstraints: [],
+            },
+          ],
+          enums: [],
+        },
+      }
+    );
+
+  test.each([
+    [postgresMigrationDriver, "text", "bytea"],
+    [mysqlMigrationDriver, "VARCHAR(191)", "BINARY(16)"],
+    [sqlite3MigrationDriver, "TEXT", "BLOB"],
+  ] as const)("%# refuses text to binary", (driver, fromType, toType) => {
+    expect(() =>
+      alter(driver, column("id", fromType), column("id", toType))
+    ).toThrowError(BINARY_REENCODING_REFUSAL);
+  });
+
+  test("the refusal names the manual route and the text-family opt-out", () => {
+    try {
+      alter(
+        postgresMigrationDriver,
+        column("id", "text"),
+        column("id", "bytea")
+      );
+      throw new Error("expected a refusal");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("Convert the rows yourself");
+      expect(message).toContain("text-family native type");
+    }
+  });
+
+  test("a width change inside the binary family still compiles", () => {
+    // Both sides binary re-reads the same bytes as the same bytes, which is the
+    // property the refusal requires — it is not a ban on binary columns.
+    expect(() =>
+      alter(
+        mysqlMigrationDriver,
+        column("payload", "VARBINARY(100)"),
+        column("payload", "VARBINARY(200)")
+      )
+    ).not.toThrow();
+  });
+
+  test("PostgreSQL's uuid target is a real conversion and is left alone", () => {
+    // `col::uuid` succeeds for an estate of canonical uuids and aborts the whole
+    // transaction for one that is not, leaving the column as it was.
+    expect(() =>
+      alter(postgresMigrationDriver, column("id", "text"), column("id", "uuid"))
+    ).not.toThrow();
+  });
+});
+
 describe("what a differ sees", () => {
   test("an unchanged declaration produces no diff on any dialect", async () => {
     for (const driver of drivers) {

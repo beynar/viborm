@@ -244,10 +244,24 @@ hold public strings, so the snapshot revision does not move.
 - Existing text columns: the differ plans `text → native` as a destructive
   `alterColumn` needing consent (existing machinery). The generated program
   executes the conversion only where the database can do it losslessly in SQL
-  (PostgreSQL unprefixed uuid via `USING col::uuid`, guarded by a row-format
-  pre-check); every other text→binary conversion is **refused** with a
-  message naming the manual route and the text-override opt-out. A blind
-  `USING col::bytea` would re-encode text bytes, so it is never emitted.
+  (PostgreSQL unprefixed uuid via `USING col::uuid`); every other text→binary
+  conversion is **refused** with a message naming the manual route and the
+  text-override opt-out. A blind `USING col::bytea` would re-encode text bytes,
+  so it is never emitted.
+
+  > **AMENDED IN STAGE D (executed).** The refusal is stated in COLUMN TYPES,
+  > not in identifier domains: `migrations/binary-conversion.ts`, reached from
+  > the one `alterColumn` dispatch, refuses any alteration whose target is this
+  > dialect's raw-bytes column and whose source is not. A snapshot carries no
+  > logical marker saying "this BLOB decodes identifiers" and needs none — a
+  > verbatim copy into a binary column is unreadable whatever the column holds,
+  > and one refusal at the dispatch is what kept the three conversion routes
+  > (PostgreSQL cast, SQLite rebuild, MySQL MODIFY) from being wrong three
+  > different ways. The PostgreSQL `uuid` leg carries no row-format PRE-CHECK:
+  > `col::uuid` is a real per-value conversion that succeeds for an estate of
+  > canonical uuids and aborts the whole transaction for one that is not,
+  > leaving the column as it was — a pre-check would buy a better message, not
+  > a different outcome, and Stage F may add it.
 - Pre-check queries (invalid rows, prefix mismatch, normalization collisions,
   FK-set agreement) are provided as `trusted-read` checks for manual
   transitions.

@@ -1933,6 +1933,28 @@ whether what came back is a value of THIS column, and it is the one refusal that
 catches an estate whose rows were written under a different reading (a migration
 that re-encoded text into a binary column is exactly that).
 
+**The binary-conversion refusal (`migrations/binary-conversion.ts`, reached
+from the one `alterColumn` dispatch in `migrations/drivers/base.ts`).** Unique
+coverage: an altered column whose TARGET type is this dialect's raw-bytes column
+and whose source type is not. Every generated `ALTER COLUMN` is a blind
+re-reading of the stored bytes, which is exact when the two types share a
+reading and data loss the moment the target is binary: PostgreSQL's
+`USING col::bytea` writes the ASCII of the old text, SQLite's rebuild copies the
+value verbatim into the `BLOB`, MySQL truncates or pads to the declared width in
+a non-strict `sql_mode`. All three were measured, and all three produced an
+estate no read could return.
+
+It is stated in COLUMN TYPES rather than in identifier domains on purpose: the
+snapshot carries no logical marker saying "this BLOB decodes identifiers", and
+it needs none — a verbatim copy into a binary column is unreadable whatever the
+column holds. It is one refusal at the dispatch rather than three in the three
+conversion routes, which is how those routes came to be wrong three different
+ways. Both sides binary is a WIDTH change and passes: re-reading the same bytes
+as the same bytes is the property the refusal requires. PostgreSQL's `uuid`
+target passes too — `col::uuid` is a real per-value conversion that succeeds for
+an estate of canonical uuids and aborts the transaction for one that is not,
+leaving the column as it was.
+
 **Deleted, not added.** `createFingerprint`'s
 `globals.length > 0 ? globals + entropy : entropy`
 (`schema/scalars/string/autogenerate.ts`) is gone. Its two arms are the same
