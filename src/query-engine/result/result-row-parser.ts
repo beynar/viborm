@@ -439,7 +439,8 @@ export function createRowParser(
           column.name,
           value,
           scalars,
-          column.expected
+          column.expected,
+          (field) => ctx.idColumnFor(model, field)
         );
       };
       continue;

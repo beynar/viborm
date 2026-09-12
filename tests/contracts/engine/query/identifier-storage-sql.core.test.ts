@@ -3,6 +3,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { D1Driver } from "@drivers/d1";
+import { buildAggregateColumn } from "@query-engine/builders/aggregate-utils";
 import {
   decodeIdValue,
   encodeIdValue,
@@ -277,6 +278,51 @@ describe("projecting an identifier column", () => {
       scope.rootAlias
     );
     expect(select.toStatement().toUpperCase()).toContain("HEX(");
+  });
+});
+
+describe("aggregating an identifier column", () => {
+  test("MIN/MAX run over the TRANSPORTED value, not the stored one", () => {
+    // PostgreSQL 16 has neither `min(uuid)` nor `max(bytea)`, and JSON cannot
+    // hold binary, so the aggregate is taken over the spelling the column
+    // travels in. It is the same answer: every compact format's canonical text
+    // is fixed-width lowercase, so its text order IS its byte order.
+    const pgScope = scopeFor(pg, user);
+    const pgSql =
+      buildAggregateColumn(
+        pgScope,
+        { id: true },
+        pgScope.rootAlias,
+        "min"
+      )?.toStatement() ?? "";
+    expect(pgSql).toContain("MIN(");
+    expect(pgSql).toContain("CAST");
+    expect(pgSql).not.toMatch(/MIN\("[a-z0-9]+"\."id"\)/);
+
+    const sqliteScope = scopeFor(sqlite, post);
+    const sqliteSql =
+      buildAggregateColumn(
+        sqliteScope,
+        { id: true },
+        sqliteScope.rootAlias,
+        "max"
+      )?.toStatement() ?? "";
+    expect(sqliteSql.toUpperCase()).toContain("HEX(");
+    // The null guard sits INSIDE the aggregate: SQLite's `hex(NULL)` is the
+    // empty string, which would otherwise win every MIN.
+    expect(sqliteSql.toUpperCase()).toContain("CASE");
+  });
+
+  test("a field with no identifier domain aggregates the column itself", () => {
+    const scope = scopeFor(sqlite, post);
+    const statement =
+      buildAggregateColumn(
+        scope,
+        { title: true },
+        scope.rootAlias,
+        "min"
+      )?.toStatement() ?? "";
+    expect(statement.toUpperCase()).not.toContain("HEX(");
   });
 });
 

@@ -10,6 +10,8 @@ import { getColumnName } from "../context";
 import { getAggregateResultKey } from "../result-aliases";
 import type { QueryScope } from "../types";
 import { decimalDescriptorOf } from "./decimal-field";
+import { idColumnOf } from "./id-field";
+import { projectIdBytes } from "./scalar-transport";
 
 /**
  * Aggregate function types
@@ -116,10 +118,32 @@ export function buildAggregateColumn(
     // result scale elsewhere. `_sum` deliberately keeps plain `SUM` — its
     // answer may exceed the field's precision, which is a widened decode
     // question and not a SQL one — and `_min`/`_max` stay in the field domain.
+    // An identifier is aggregated in the vocabulary it TRAVELS in, not the one
+    // it is stored in — the transport spelling is applied to the column and
+    // `MIN`/`MAX` run over that. Two reasons, and either alone decides it:
+    //
+    //  · PostgreSQL 16 has no `min(uuid)` and no `max(bytea)` at all, so
+    //    aggregating the stored value does not compile (measured: "function
+    //    min(uuid) does not exist");
+    //  · JSON cannot hold binary, so the carrier could not have carried the
+    //    answer even where the aggregate exists.
+    //
+    // It is the same answer either way: every compact format's canonical text
+    // is fixed-width and lowercase, so its text order IS its byte order. The
+    // null guard inside the transport is what keeps a NULL row out of the
+    // aggregate — SQLite's `hex(NULL)` is the empty string, which would
+    // otherwise win every `MIN`.
+    const idColumn = idColumnOf(adapter, ctx.model, field, ctx.relations);
+    const operand =
+      idColumn === undefined || idColumn.representation === "text"
+        ? column
+        : idColumn.representation === "bytes"
+          ? projectIdBytes(adapter, column, true)
+          : adapter.expressions.cast(column, "text");
     let expr =
       decimal && aggType === "avg"
-        ? adapter.aggregates.decimalAvg(column, decimal)
-        : aggFn(column);
+        ? adapter.aggregates.decimalAvg(operand, decimal)
+        : aggFn(operand);
     // BigInt/Decimal aggregates lose precision as JSON numbers — cast to
     // TEXT like select-builder does; the result parser converts back
     const scalarType = scalars[field]?.["~"].state.type;

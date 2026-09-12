@@ -56,12 +56,19 @@ export interface RowValueParsers {
     operation: Operation,
     shape: ExpectedPolymorphicResultShape
   ): unknown;
+  /**
+   * `idColumnFor` answers which identifier column one aggregated field IS, for
+   * the same reason `parseField` takes an `idColumn`: a `_min`/`_max` over a
+   * byte-stored identifier arrives as the hex its transport spelled it in, and
+   * a foreign key's domain is not readable off the scalar.
+   */
   parseAggregate(
     operation: Operation,
     key: AggregateResultName,
     raw: unknown,
     scalars: Record<string, Scalar>,
-    expected?: ExpectedAggregateResultShape
+    expected?: ExpectedAggregateResultShape,
+    idColumnFor?: IdColumnLookup
   ): unknown;
 }
 
@@ -74,8 +81,12 @@ export function decodeRelationCarrier(value: unknown): unknown {
 export type ParseScalarField = (
   scalar: Scalar,
   value: unknown,
-  operation: Operation
+  operation: Operation,
+  idColumn?: IdColumn
 ) => unknown;
+
+/** The identifier column one field of the active model is, if it is one. */
+export type IdColumnLookup = (field: string) => IdColumn | undefined;
 
 export function malformedResult(
   ctx: ResultParser,

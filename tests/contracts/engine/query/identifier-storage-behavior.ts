@@ -595,6 +595,44 @@ export function runIdentifierStorageBehavior(options: {
       expect(matched.map((row: { id: string }) => row.id)).toEqual([ACCOUNT_A]);
     });
 
+    test("_min and _max answer with the earliest and latest identifier", async () => {
+      // Byte order IS canonical text order, so MIN/MAX over the column answer
+      // the same question they answered when it was text — and they answer it
+      // as the PUBLIC string, prefix included.
+      const aggregate = await client.post.aggregate({
+        _count: true,
+        _min: { id: true },
+        _max: { id: true },
+      });
+      expect(aggregate._count).toBe(3);
+      expect(aggregate._min.id).toBe(POST_1);
+      expect(aggregate._max.id).toBe(POST_3);
+
+      const prefixed = await client.account.aggregate({ _min: { id: true } });
+      expect(prefixed._min.id).toBe(ACCOUNT_A);
+
+      // An aggregate over NO rows is null, which the hex transport has to
+      // preserve — SQLite's `hex(NULL)` is the empty string.
+      const empty = await client.post.aggregate({
+        where: { title: "nothing matches this" },
+        _min: { id: true },
+      });
+      expect(empty._min.id).toBeNull();
+    });
+
+    test("groupBy groups by the public identifier", async () => {
+      const groups = await client.tag.groupBy({
+        by: ["id"],
+        _count: true,
+        orderBy: { id: "asc" },
+      });
+      expect(groups.map((row: { id: string }) => row.id)).toEqual([
+        TAG_1,
+        TAG_2,
+        TAG_3,
+      ]);
+    });
+
     test("a value outside the declared domain is refused, not stored", async () => {
       await expect(
         client.tag.create({ data: { id: "not-a-ulid", name: "bad" } })

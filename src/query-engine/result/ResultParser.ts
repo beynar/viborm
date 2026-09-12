@@ -606,7 +606,7 @@ export class ResultParser {
           operation,
           shape
         ),
-      parseAggregate: (operation, key, raw, scalars, expected) =>
+      parseAggregate: (operation, key, raw, scalars, expected, idColumnFor) =>
         parseAggregateResult(
           this,
           operation,
@@ -614,14 +614,26 @@ export class ResultParser {
           raw,
           scalars,
           expected,
-          parsers.parseField,
+          // An aggregate leaf captures no row key, so the fourth argument of
+          // `ParseScalarField` is the identifier column rather than a capture
+          // callback. Adapting here keeps the two shapes from being one loose
+          // signature that silently accepts either.
+          (scalar, value, aggregateOperation, idColumn) =>
+            parsers.parseField(
+              scalar,
+              value,
+              aggregateOperation,
+              undefined,
+              idColumn
+            ),
           (scalar, value, aggregateOperation) =>
             this.getWidenedSumChain(scalar)(
               value,
               aggregateOperation,
               undefined,
               !captureOnly
-            )
+            ),
+          idColumnFor
         ),
     };
     return parsers;

@@ -52,26 +52,41 @@ export function projectScalarForTransport(
   // `include`, and the nine drivers' nine binary shapes stop being a variable.
   // A `uuid` column and a text-stored domain already travel as text.
   if (idColumn?.representation === "bytes") {
-    const hex = adapter.expressions.blobToHex(expression);
-    // A NULLABLE binary column needs the same null guard the point projection
-    // needs, and for a sharper reason than symmetry: SQLite's `hex(NULL)` is
-    // the EMPTY STRING, not NULL. Without this a null foreign key comes back
-    // as `''`, which reads as a zero-byte identifier — measured live on
-    // sqlite3, where every create through a model with a nullable identifier
-    // foreign key failed to decode its own returned row.
-    return state?.nullable === true
-      ? adapter.expressions.caseWhen(
-          [
-            {
-              when: adapter.operators.isNull(expression),
-              then: adapter.literals.null(),
-            },
-          ],
-          hex
-        )
-      : hex;
+    return projectIdBytes(adapter, expression, state?.nullable === true);
   }
   return decimalDescriptorOfState(state)
     ? adapter.expressions.cast(expression, "text")
     : expression;
+}
+
+/**
+ * One byte-stored identifier expression, spelled for transport.
+ *
+ * `nullable` is a fact about the EXPRESSION, not only about the column: a
+ * `MIN()` over no rows is null however the column is declared, which is why the
+ * aggregate site passes `true` unconditionally.
+ *
+ * The null guard is not symmetry with the point projection, it is a measured
+ * requirement: SQLite's `hex(NULL)` is the EMPTY STRING, not NULL, so without
+ * it a null identifier comes back as `''` and reads as a zero-byte identifier.
+ * Falsified live on sqlite3, where every create through a model with a nullable
+ * identifier foreign key failed to decode its own returned row.
+ */
+export function projectIdBytes(
+  adapter: DatabaseAdapter,
+  expression: Sql,
+  nullable: boolean
+): Sql {
+  const hex = adapter.expressions.blobToHex(expression);
+  return nullable
+    ? adapter.expressions.caseWhen(
+        [
+          {
+            when: adapter.operators.isNull(expression),
+            then: adapter.literals.null(),
+          },
+        ],
+        hex
+      )
+    : hex;
 }
