@@ -23,7 +23,7 @@ import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { decimal, int, number } from "@schema/scalars";
 import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { sql } from "@sql";
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type InferInput, type InferOutput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import Decimal from "big.js";
@@ -1102,7 +1102,7 @@ const MONEY = { precision: 10, scale: 2 } as const;
 const decimalValueSchema = (
   check: (value: Decimal) => boolean,
   message: string
-): StandardSchemaOf<Decimal> => ({
+): StandardSchemaV1<Decimal> => ({
   "~standard": {
     version: 1,
     vendor: "number-scalar-schemas",

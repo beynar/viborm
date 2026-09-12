@@ -1,7 +1,7 @@
 // BigInt Scalar
 // Standalone scalar class with State generic pattern
 
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -78,7 +78,7 @@ export class BigIntScalar<State extends ScalarState<"bigint">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<bigint>>(schema: S) {
+  schema<S extends StandardSchemaV1<bigint>>(schema: S) {
     return new BigIntScalar(
       updateState(this, {
         schema,

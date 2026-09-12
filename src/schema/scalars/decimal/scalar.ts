@@ -1,4 +1,4 @@
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import v from "@validation/primitives/v";
 import type Big from "big.js";
@@ -147,7 +147,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
    * LAST, so a custom schema can narrow the domain but never escape it, and it
    * cannot change the value family the field reads back as.
    */
-  schema<S extends StandardSchemaOf<Big>>(schema: S) {
+  schema<S extends StandardSchemaV1<Big>>(schema: S) {
     const base = v.decimal<{
       nullable: State["nullable"];
       array: State["array"];
