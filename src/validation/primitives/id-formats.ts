@@ -91,6 +91,29 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CROCKFORD_ALIASED = CROCKFORD + CROCKFORD.toLowerCase();
 
 /**
+ * NanoID's URL-safe alphabet: 64 characters, so one random byte selects one
+ * character through `byte & 63` with no bias and no rejection sampling.
+ *
+ * It lives HERE, beside the fixed-width alphabets, because a declared nanoid
+ * field has to ADMIT the values it generates: the storage codec spells the
+ * grammar from the same 64 characters the generator draws from, and two copies
+ * of an alphabet is exactly how a generated value comes to be refused by its
+ * own field.
+ */
+export const NANOID_ALPHABET =
+  "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
+
+/** The length `.nanoid()` takes when the declaration names none. */
+export const NANOID_DEFAULT_LENGTH = 21;
+
+/**
+ * The one spelling a CUID2 has: a lowercase letter then 23 lowercase
+ * alphanumerics, which is what this port's generator emits at its fixed length
+ * of 24 and what upstream's own validator accepts.
+ */
+export const CUID_TEXT = /^[a-z][0-9a-z]{23}$/;
+
+/**
  * KSUID's base62 alphabet, in ASCII order. The order is load-bearing: it makes
  * the text sort exactly as the bytes sort, which is what makes a KSUID
  * time-sortable as a string.

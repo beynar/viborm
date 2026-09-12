@@ -27,6 +27,8 @@ import {
   KSUID_PAYLOAD_LENGTH,
   ksuidBytes,
   MAX_RANDOM_BYTES,
+  NANOID_ALPHABET,
+  NANOID_DEFAULT_LENGTH,
   randomBytes,
   refuseId,
   ULID_RANDOM_LENGTH,
@@ -150,15 +152,6 @@ export const defaultKsuid = (prefix?: string) => () =>
 // =============================================================================
 // NANOID
 // =============================================================================
-
-/**
- * NanoID's URL-safe alphabet: 64 characters, so one random byte selects one
- * character through `byte & 63` with no bias and no rejection sampling.
- */
-const NANOID_ALPHABET =
-  "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
-
-const NANOID_DEFAULT_LENGTH = 21;
 
 /**
  * The lengths a nanoid can have, refused where the length is spelled.
