@@ -5,6 +5,8 @@
  * constraints as single keys with nested field objects.
  */
 
+import { generateCacheKey } from "@cache/key";
+import { ValidationError } from "@errors";
 import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
@@ -168,5 +170,69 @@ describe("Compound ID Filter - identifier members", () => {
         tenantId_slug: { tenantId: UUID, slug: "x" },
       })
     ).toBeUndefined();
+  });
+});
+
+/**
+ * The MIXED compound: one member derives its domain from the key it references
+ * and the other declares its own. Both halves have to be rebuilt from the
+ * FIELD's schema for this selector to work at all — the declaration snapshot
+ * has neither — and the proof that they were is identity, not admission: two
+ * spellings of one row's key hash to ONE cache key, which is what a selector
+ * built from `state.base` could not do for either member.
+ */
+describe("Compound ID Filter - a derived member beside a declared one", () => {
+  const UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+  const room = s.model({
+    id: s.string().id().uuid("rm"),
+    seats: s.toMany(() => seat),
+  });
+  const seat = s
+    .model({
+      roomId: s.string(),
+      slotId: s.string().ulid(),
+      label: s.string(),
+      room: s
+        .toOne(() => room)
+        .fields("roomId")
+        .references("id"),
+    })
+    .id(["roomId", "slotId"]);
+  const registry = createSchemaRegistry({ room, seat });
+
+  const selector = (roomId: string, slotId: string) => ({
+    where: { roomId_slotId: { roomId, slotId } },
+  });
+
+  test("runtime: both members normalize their alias", () => {
+    expect(
+      registry.validate("seat", "findUnique", {
+        ...selector(`rm-${UUID.toUpperCase()}`, ULID.toLowerCase()),
+      })
+    ).toEqual(selector(`rm-${UUID}`, ULID));
+  });
+
+  test("runtime: either member outside its domain is a ValidationError", () => {
+    expect(() =>
+      registry.validate("seat", "findUnique", selector(UUID, ULID))
+    ).toThrow(ValidationError);
+    expect(() =>
+      registry.validate("seat", "findUnique", selector(`rm-${UUID}`, "nope"))
+    ).toThrow(ValidationError);
+  });
+
+  test("runtime: two spellings of one key make one cache key", () => {
+    const keyFor = (roomId: string, slotId: string) =>
+      generateCacheKey(
+        "seat",
+        "findUnique",
+        registry.validate("seat", "findUnique", selector(roomId, slotId))
+      );
+
+    expect(keyFor(`rm-${UUID.toUpperCase()}`, ULID.toLowerCase())).toBe(
+      keyFor(`rm-${UUID}`, ULID)
+    );
   });
 });
