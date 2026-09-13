@@ -9,7 +9,7 @@ import {
   materializePhysicalDecimal,
   materializePhysicalWidenedSum,
 } from "@validation/primitives/decimal-codec";
-import type Decimal from "decimal.js";
+import type Big from "big.js";
 
 /**
  * The result boundary's half of the one decimal codec.
@@ -116,7 +116,7 @@ export function decodeDecimalValue(
 export function materializeDecimalValue(
   value: unknown,
   column: DecimalColumn
-): Decimal | undefined {
+): Big | undefined {
   return materializePhysicalDecimal(
     value,
     column.descriptor,
@@ -172,7 +172,7 @@ export function decodeWidenedSumValue(
 export function materializeWidenedSumValue(
   value: unknown,
   column: DecimalColumn
-): Decimal | undefined {
+): Big | undefined {
   return materializePhysicalWidenedSum(
     value,
     column.descriptor,

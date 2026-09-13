@@ -23,6 +23,7 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/count-result-carrier.core.test.ts",
   "tests/contracts/engine/query/cursor-pagination-sql.core.test.ts",
   "tests/contracts/engine/query/cursor-order-normalization-boundaries.core.test.ts",
+  "tests/contracts/engine/query/identifier-storage-sql.core.test.ts",
   "tests/contracts/engine/query/decimal-cache-identity.core.test.ts",
   "tests/contracts/engine/query/decimal-capture-materialization.core.test.ts",
   "tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts",

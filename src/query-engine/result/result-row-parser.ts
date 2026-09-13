@@ -338,8 +338,15 @@ export function createRowParser(
       // GeoPoint. Keep the row on the copy policy so a malformed later row
       // cannot leave an executor-proven or parser-owned source row mutated.
       if (scalar["~"].state.type === "point") mayReuseContainer = false;
+      // An identifier decode replaces the physical value with the public
+      // string — hex, bytes or a bare payload become `usr-01H…` — so the row
+      // takes the same copy policy for the same reason.
+      const idColumn = ctx.idColumnFor(model, key);
+      if (idColumn !== undefined) mayReuseContainer = false;
       const captureRowKey = rowKeys?.fields.has(key) === true;
-      const guard = identityEnabled ? identityGuardFor(scalar) : undefined;
+      const guard = identityEnabled
+        ? identityGuardFor(scalar, idColumn !== undefined)
+        : undefined;
       if (guard) {
         identityGuards[i] = guard;
         steps[i] = (result, value, keyRow) => {
@@ -358,7 +365,8 @@ export function createRowParser(
               ? (parsed) => {
                   keyRow[key] = parsed;
                 }
-              : undefined
+              : undefined,
+            idColumn
           );
         };
       } else {
@@ -372,7 +380,8 @@ export function createRowParser(
               ? (parsed) => {
                   keyRow[key] = parsed;
                 }
-              : undefined
+              : undefined,
+            idColumn
           );
         };
       }
@@ -430,7 +439,8 @@ export function createRowParser(
           column.name,
           value,
           scalars,
-          column.expected
+          column.expected,
+          (field) => ctx.idColumnFor(model, field)
         );
       };
       continue;

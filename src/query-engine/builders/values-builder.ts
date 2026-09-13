@@ -28,6 +28,12 @@ import {
 } from "./decimal-field";
 import { shouldOmitInsertValue } from "./generated-scalar";
 import { buildGeoPointValue } from "./geo-point-builder";
+import {
+  type IdColumn,
+  idColumnOf,
+  idColumnOfPrivate,
+  idLiteral,
+} from "./id-field";
 import { planInsertRowShapes } from "./insert-row-shapes";
 import {
   type PolymorphicStorageValue,
@@ -88,7 +94,13 @@ function lowerPolymorphicStorage(
   for (const { column, value } of members) {
     columns.push(column.name);
     sqlValues.push(
-      buildScalarSqlValueForScalar(ctx, column.scalar, column.name, value)
+      buildScalarSqlValueForScalar(
+        ctx,
+        column.scalar,
+        column.name,
+        value,
+        idColumnOfPrivate(ctx.adapter, column.reference, ctx.relations)
+      )
     );
   }
   return { columns, values: sqlValues };
@@ -210,8 +222,9 @@ function assertApplicationGeneratedValues(
         continue;
       }
       throw new QueryEngineError(
-        `Auto-generated value '${genType}' for field '${fieldName}' must be provided explicitly or ` +
-          "handled by the database. Application-level ID generation (uuid, ulid, cuid) is not yet implemented."
+        `Auto-generated value '${genType}' for field '${fieldName}' reached the row builder undefined. ` +
+          "An application-generated default is materialized by the field's create schema, so a missing " +
+          "value here means the row bypassed validation; supply the value explicitly or let the database own it."
       );
     }
   }
@@ -259,15 +272,33 @@ export function buildScalarSqlValue(
   value: unknown
 ): Sql {
   const field = model["~"].state.scalars[fieldName];
-  return buildScalarSqlValueForScalar(ctx, field, fieldName, value);
+  // A model field's identifier domain may be DERIVED — a foreign key carries
+  // its target's — so it is read against the model, through the index the
+  // scope already threads. A private column's scalar IS the referenced key's
+  // and answers for itself below.
+  return buildScalarSqlValueForScalar(
+    ctx,
+    field,
+    fieldName,
+    value,
+    idColumnOf(ctx.adapter, model, fieldName, ctx.relations)
+  );
 }
 
-/** Lower a value against an explicit destination scalar, including private columns. */
+/**
+ * Lower a value against an explicit destination scalar, including private columns.
+ *
+ * The destination's identifier column is a PARAMETER and has no default: the
+ * scalar alone cannot answer it (a private column's domain belongs to the key
+ * it stands in for, and a foreign key's is derived), so every caller names the
+ * column it is writing into and there is no silent declared-only fallback.
+ */
 export function buildScalarSqlValueForScalar(
   ctx: QueryScope,
   field: Scalar | undefined,
   fieldName: string,
-  value: unknown
+  value: unknown,
+  idColumn: IdColumn | undefined
 ): Sql {
   if (value === undefined || value === null) {
     return ctx.adapter.literals.null();
@@ -323,6 +354,13 @@ export function buildScalarSqlValueForScalar(
           value,
           decimalDescriptorOfScalar(field)
         );
+  }
+
+  // An identifier binds in the PHYSICAL form its column holds: the payload's
+  // bytes, a canonical uuid, or the public string. The prefix is a fact of the
+  // declaration and is never stored.
+  if (idColumn !== undefined) {
+    return idLiteral(ctx.adapter, fieldName, value, idColumn);
   }
 
   return ctx.adapter.literals.value(value);
@@ -486,7 +524,8 @@ export function decimalListValue(
 export function scalarValueLiteral(
   ctx: QueryScope,
   fieldName: string,
-  value: unknown
+  value: unknown,
+  options: { readonly substring?: boolean } = {}
 ): Sql {
   const sentinel = jsonNullKindOf(value);
   if (sentinel) {
@@ -525,6 +564,25 @@ export function scalarValueLiteral(
           value,
           decimalDescriptorOf(ctx.model, fieldName)
         );
+  }
+  // A SUBSTRING is not a value of the field's domain and never was: `contains:
+  // "StGXR8"` asks about part of a nanoid, not about a nanoid. Only a
+  // TEXT-stored domain can be asked such a question at all — a compact one
+  // refuses the four text predicates outright — so the column holds the public
+  // string and the fragment binds as the fragment it is.
+  if (value !== null && value !== undefined && options.substring !== true) {
+    // Every comparison, cursor bound and assignment operand for an identifier
+    // field is the same physical value its column holds — the one binding
+    // `buildScalarSqlValue` writes with.
+    const idColumn = idColumnOf(
+      ctx.adapter,
+      ctx.model,
+      fieldName,
+      ctx.relations
+    );
+    if (idColumn !== undefined) {
+      return idLiteral(ctx.adapter, fieldName, value, idColumn);
+    }
   }
   return ctx.adapter.literals.value(value);
 }

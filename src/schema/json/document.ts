@@ -194,12 +194,24 @@ export interface EnumFieldDocument extends NativeScalarFieldModifiers {
 
 /**
  * A generator declaration. `kind` names the scalar method that installs it, so
- * the seven tokens are the seven methods and there is no second table.
+ * the nine tokens are the nine methods and there is no second table.
  */
 export interface GenerateDocument {
   kind: AutoGenerateType;
   prefix?: string;
   length?: number;
+  /**
+   * This ULID is the one `.id()` installs, not a format the caller named.
+   *
+   * The two declarations produce the same generator and a DIFFERENT field: a
+   * named `.ulid()` admits only ULIDs and stores sixteen bytes, while `.id()`
+   * declares a key whose values a string column holds as text. The document
+   * has to say which it was, or a round trip would silently promote every
+   * `.id()` into a domain and change its column.
+   *
+   * Only ever `true`, only ever beside `kind: "ulid"` and `id: true`.
+   */
+  implicit?: true;
 }
 
 /**

@@ -1248,7 +1248,7 @@ export function ormOwnedDecimalWrapperEntries(
         ts.isImportDeclaration(statement) &&
         ts.isStringLiteral(statement.moduleSpecifier)
       ) ||
-      statement.moduleSpecifier.text !== "decimal.js"
+      statement.moduleSpecifier.text !== "big.js"
     ) {
       continue;
     }
@@ -1273,17 +1273,16 @@ export function ormOwnedDecimalWrapperEntries(
   }
   let admittedConstructorExports = 0;
   walk(source, (node) => {
+    // big.js's second constructor is a ZERO-ARGUMENT call of the binding
+    // itself (`Big()` returns a new constructor). ARITY is the whole
+    // distinction: `Big(x)` is the same call expression with one argument and
+    // returns a VALUE, so counting every call of the binding would count the
+    // ordinary construction path as a wrapper.
     if (
       ts.isCallExpression(node) &&
-      ((ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.expression) &&
-        decimalConstructorBindings.has(node.expression.expression.text) &&
-        node.expression.name.text === "clone") ||
-        (ts.isElementAccessExpression(node.expression) &&
-          ts.isIdentifier(node.expression.expression) &&
-          decimalConstructorBindings.has(node.expression.expression.text) &&
-          ts.isStringLiteral(node.expression.argumentExpression) &&
-          node.expression.argumentExpression.text === "clone"))
+      node.arguments.length === 0 &&
+      ts.isIdentifier(node.expression) &&
+      decimalConstructorBindings.has(node.expression.text)
     ) {
       add(counts, "decimalCloneCall");
     }
@@ -1292,7 +1291,7 @@ export function ormOwnedDecimalWrapperEntries(
       ts.isImportDeclaration(node) &&
       !node.importClause?.isTypeOnly &&
       ts.isStringLiteral(node.moduleSpecifier) &&
-      node.moduleSpecifier.text === "decimal.js"
+      node.moduleSpecifier.text === "big.js"
     ) {
       add(counts, "decimalRuntimeImport");
     }
@@ -1331,7 +1330,7 @@ export function ormOwnedDecimalWrapperEntries(
         !node.isTypeOnly &&
         node.moduleSpecifier !== undefined &&
         ts.isStringLiteral(node.moduleSpecifier) &&
-        node.moduleSpecifier.text === "decimal.js" &&
+        node.moduleSpecifier.text === "big.js" &&
         hasRuntimeNamedExport;
       const exportsNamedDecimal =
         !node.isTypeOnly &&

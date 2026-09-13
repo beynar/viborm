@@ -6,6 +6,7 @@ import type { ResultParser } from "./ResultParser";
 import { classifyAggregateLeaf } from "./result-aggregate-leaf";
 import { parseCountValue } from "./result-count-parser";
 import {
+  type IdColumnLookup,
   isResultRow,
   malformedResult,
   type ParseScalarField,
@@ -20,7 +21,8 @@ export function parseAggregateResult(
   scalars: Record<string, Scalar>,
   expected: ExpectedAggregateResultShape | undefined,
   parseField: ParseScalarField,
-  parseWidenedSum: ParseScalarField
+  parseWidenedSum: ParseScalarField,
+  idColumnFor?: IdColumnLookup
 ): unknown {
   if (raw === undefined) {
     return malformedResult(
@@ -115,7 +117,7 @@ export function parseAggregateResult(
     }
     result[field] =
       leaf.kind === "scalar"
-        ? parseField(leaf.scalar, fieldValue, operation)
+        ? parseField(leaf.scalar, fieldValue, operation, idColumnFor?.(field))
         : parseAggregateNumber(ctx, operation, field, fieldValue);
   }
   return result;

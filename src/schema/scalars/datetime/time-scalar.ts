@@ -1,7 +1,7 @@
 // Time Scalar
 // Standalone scalar class with State generic pattern
 
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
@@ -78,7 +78,7 @@ export class TimeScalar<State extends ScalarState<"time">> {
     );
   }
 
-  schema<S extends StandardSchemaOf<string>>(schema: S) {
+  schema<S extends StandardSchemaV1<string>>(schema: S) {
     return new TimeScalar(
       updateState(this, {
         schema,

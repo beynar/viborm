@@ -38,6 +38,54 @@ candidates, then hand the resulting `Sql` container to the adapter. Builders
 must not recreate member conversion or grow one SQL fragment and bind per
 member.
 
+## Identifier semantics
+
+A field whose format the caller NAMED — `.uuid()`, `.uuidv7()`, `.ulid()`,
+`.ksuid()`, `.nanoid()`, `.cuid()` — carries a DOMAIN, and a foreign key derives
+its target's. `builders/id-field.ts` is the one lookup: `idColumnOf(adapter,
+model, field, relations)` for a model field (a foreign key needs the index), and
+`idColumnOfPrivate(adapter, reference, relations)` for a private column — a
+junction side, a polymorphic row carrier's id column — which NAMES the key it
+stands in for and resolves it through that same lookup, because that key's own
+domain may be derived (the one-to-one child whose primary key is its parent
+foreign key) and because derivation is keyed by (model, field), never by a
+scalar instance two models may share. Both answer
+`{ domain, representation }`, and the REPRESENTATION is the adapter's
+(`result.idRepresentation`): `bytea` on PostgreSQL and `BINARY(16)` on MySQL are
+the same ULID and the engine is not allowed to know which dialect it is building
+for.
+
+These seams touch it, and there is no format switch anywhere else:
+
+| Seam | Owner |
+| --- | --- |
+| Parameter | `builders/id-field.ts` `idLiteral` — the ONE binding, reached by `builders/values-builder.ts` (`buildScalarSqlValue`, `scalarValueLiteral`) and `write-engine/fragment-builders.ts` (`referenceScalarSql`), through `adapter.literals.id` / `expressions.idCast` |
+| Projection | `builders/scalar-transport.ts` — a byte column travels as lowercase hex, flat and inside a JSON carrier alike |
+| Aggregate | `builders/aggregate-utils.ts` `aggregateOperandExpression` — what an aggregate runs OVER, for the select list and for `having` alike; `MIN`/`MAX` take the TRANSPORTED value through the same `projectIdBytes`; see below |
+| Decode | `result/ResultParser.ts`, one chain per (scalar, column); the generic string arm never sees a physical value. `parseAggregate` takes the same lookup |
+| Operators | `builders/scalar-filter-operators.ts` and `builders/where-builder.ts` |
+| DDL | `src/migrations` — same `idStorageOf` the adapter's promise comes from |
+
+A DEFERRED identifier — a `Ref` into a step output — is the transport spelling,
+because a step output is a row the driver returned. `expressions.idCast` is the
+inverse of that transport, not a plain cast: it decodes the lowercase hex a byte
+column travels as. The two are one round trip and neither moves alone.
+
+`MIN`/`MAX` aggregate the spelling the column TRAVELS in, not the one it is
+stored in, and the answer is the same: every compact format's canonical text is
+fixed-width and lowercase, so its text order IS its byte order. Two facts force
+it independently — PostgreSQL 16 has no `min(uuid)` and no `max(bytea)`, and
+JSON cannot hold binary — and the null guard travels inside the aggregate with
+it, because SQLite's `hex(NULL)` is the empty string and would win every `MIN`.
+
+A SUBSTRING is not a value of the domain: `contains`/`startsWith`/`endsWith`
+bind their operand through `scalarValueLiteral`'s explicit substring escape
+hatch, and only a text-stored domain can reach them at all. A compactly stored
+column is never collated or ASCII-folded as text, the identity fast path is off
+for every domain field, and a decoded row takes the copy policy. Captured row
+keys stay primitive canonical strings — what `fkEquals`, deduplication and the
+identity map compare. Raw SQL stays physical.
+
 ## DateTime semantics
 
 DateTime planning carries the scalar's declared SQLite physical form; it never
@@ -751,6 +799,7 @@ the existing guard; it does not add a statement or round trip.
 | `write-engine/relation-membership.ts` | child-held membership and value provenance |
 | `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
 | `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |
+| `builders/id-field.ts` | the one identifier-domain and physical-form lookup, and the encode/decode the seams share |
 | `result/polymorphic-result-parser.ts` | strict discriminator dispatch and orphan semantics |
 
 Keep the internal adapter batch-reference lowering and `JunctionStatements` as

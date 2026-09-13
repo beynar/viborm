@@ -1,4 +1,4 @@
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation";
 import v from "@validation/primitives/v";
 import {
@@ -51,7 +51,7 @@ export class JsonScalar<
     );
   }
 
-  schema<S extends StandardSchemaOf<JsonValue>>(schema: S) {
+  schema<S extends StandardSchemaV1<JsonValue>>(schema: S) {
     return new JsonScalar(
       updateState(this, {
         schema,

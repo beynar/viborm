@@ -23,10 +23,10 @@ import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { decimal, int, number } from "@schema/scalars";
 import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { sql } from "@sql";
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type InferInput, type InferOutput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import {
   type Brand,
   brand,
@@ -1102,7 +1102,7 @@ const MONEY = { precision: 10, scale: 2 } as const;
 const decimalValueSchema = (
   check: (value: Decimal) => boolean,
   message: string
-): StandardSchemaOf<Decimal> => ({
+): StandardSchemaV1<Decimal> => ({
   "~standard": {
     version: 1,
     vendor: "number-scalar-schemas",
@@ -1181,8 +1181,12 @@ describe("Decimal Scalar", () => {
         expect(parse(schemas.base, "abc").issues).toBeDefined();
         expect(parse(schemas.base, Number.NaN).issues).toBeDefined();
         expect(parse(schemas.base, null).issues).toBeDefined();
+        // big.js constructs no NaN at all — `new Decimal(Number.NaN)` throws —
+        // so the Decimal-family value that reaches this boundary is a forged
+        // one with an incomplete representation.
+        expect(() => new Decimal(Number.NaN)).toThrow();
         expect(
-          parse(schemas.base, new Decimal(Number.NaN)).issues
+          parse(schemas.base, Object.create(Decimal.prototype)).issues
         ).toBeDefined();
       });
 
@@ -1485,7 +1489,7 @@ describe("Decimal Scalar", () => {
     describe("whole-cent price validation", () => {
       const scalar = decimal(MONEY).schema(
         decimalValueSchema(
-          (value) => value.times(100).mod(1).isZero(),
+          (value) => value.times(100).mod(1).eq(0),
           "a price must be a whole number of cents"
         )
       );

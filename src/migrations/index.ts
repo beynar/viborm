@@ -22,6 +22,8 @@ export type {
   WritableMigrations,
 } from "./client";
 export { createMigrationClient } from "./client";
+export type { IdentifierConversionRequest } from "./identifier-conversion";
+export { identifierConversionChecks } from "./identifier-conversion";
 export type {
   GraphResult,
   ListResult,
@@ -61,6 +63,7 @@ export type {
   GenerateV1Options as GenerateOptions,
   ManualMigrationInput,
   ManualTransitionInput,
+  MigrationCheckInput,
   MigrationEstateDescriptorV1,
   MigrationStateManifestV1,
   PushConsent,

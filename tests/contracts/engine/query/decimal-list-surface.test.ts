@@ -27,7 +27,7 @@ import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import {
   afterAll,
   beforeAll,

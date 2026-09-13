@@ -108,7 +108,7 @@ order; a producer that sorts keys destroys it.
 | `nullable`, `array`, `id`, `unique` | the matching modifier |
 | `column` | `.map(columnName)` |
 | `default` | a literal default — see [Defaults](#defaults) |
-| `generate` | `{ "kind": "uuid" \| "ulid" \| "nanoid" \| "cuid" \| "increment" \| "now" \| "updatedAt", "prefix"?, "length"? }` |
+| `generate` | `{ "kind": "uuid" \| "uuidv7" \| "ulid" \| "ksuid" \| "nanoid" \| "cuid" \| "increment" \| "now" \| "updatedAt", "prefix"?, "length"? }` |
 | `enum` | an `enums` reference, or the values inline — `type: "enum"` only |
 | `dimension` | `.dimension(n)` — vectors |
 | `withoutTimezone` | `.withoutTimezone()` — `datetime` and `time` |
@@ -280,7 +280,7 @@ That includes an untagged value on a tagged domain: `"default": "42"` on a
 Three things, each with a named alternative.
 
 **Function defaults.** `.default(() => …)` is arbitrary code. Use one of the
-seven `generate` kinds, a literal default, or a database-side default through
+nine `generate` kinds, a literal default, or a database-side default through
 `native`.
 
 A generator installs a closure of its own, so `.uuid()` alone serializes as

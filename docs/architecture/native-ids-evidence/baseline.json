@@ -1,0 +1,466 @@
+{
+  "schemaVersion": 1,
+  "commit": "fc69297b8cf00253a93493074d6c2b0420c08cf5",
+  "tool": {
+    "esbuild": "0.28.1",
+    "esbuildSource": "node_modules/.pnpm/esbuild@0.28.1",
+    "bundleOptions": {
+      "bundle": true,
+      "format": "esm",
+      "platform": "node",
+      "target": "es2022",
+      "minify": true,
+      "treeShaking": true,
+      "external": [
+        "pg",
+        "postgres",
+        "mysql2",
+        "better-sqlite3",
+        "@libsql/client",
+        "@neondatabase/serverless",
+        "@planetscale/database",
+        "@electric-sql/pglite",
+        "@cloudflare/workers-types",
+        "@opentelemetry/api",
+        "commander",
+        "@clack/prompts",
+        "bun",
+        "bun:sqlite",
+        "bun:sql"
+      ]
+    },
+    "gzipLevel": 9,
+    "brotliQuality": 11
+  },
+  "dist": {
+    "files": 177,
+    "totalBytes": 8789065,
+    "runtimeMjsBytes": 1242391,
+    "byExtension": {
+      "mjs": {
+        "files": 77,
+        "bytes": 1242391
+      },
+      "mjs.map": {
+        "files": 67,
+        "bytes": 6819045
+      },
+      "d.mts": {
+        "files": 33,
+        "bytes": 727629
+      }
+    }
+  },
+  "fixtures": {
+    "ids-only": {
+      "raw": 142234,
+      "gzip": 48951,
+      "brotli": 42000,
+      "composition": {
+        "firstPartyBytes": 81415,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "@paralleldrive/cuid2": 1174,
+          "bignumber.js": 18872,
+          "decimal.js": 32211,
+          "layerr": 1538,
+          "nanoid": 435,
+          "ulidx": 1964
+        },
+        "topInputs": [
+          {
+            "name": "node_modules/decimal.js/decimal.mjs",
+            "bytes": 32211
+          },
+          {
+            "name": "node_modules/bignumber.js/bignumber.mjs",
+            "bytes": 18872
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17561
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17017
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 13187
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 12767
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11578
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5527
+          },
+          {
+            "name": "node_modules/@noble/hashes/sha3.js",
+            "bytes": 2808
+          },
+          {
+            "name": "node_modules/ulidx/dist/node/index.js",
+            "bytes": 1964
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "node_modules/@noble/hashes/utils.js",
+            "bytes": 1381
+          }
+        ]
+      }
+    },
+    "decimal-only": {
+      "raw": 142079,
+      "gzip": 48940,
+      "brotli": 42018,
+      "composition": {
+        "firstPartyBytes": 81254,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "@paralleldrive/cuid2": 1174,
+          "bignumber.js": 18872,
+          "decimal.js": 32211,
+          "layerr": 1538,
+          "nanoid": 435,
+          "ulidx": 1964
+        },
+        "topInputs": [
+          {
+            "name": "node_modules/decimal.js/decimal.mjs",
+            "bytes": 32211
+          },
+          {
+            "name": "node_modules/bignumber.js/bignumber.mjs",
+            "bytes": 18872
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17561
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17017
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 13187
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 12767
+          },
+          {
+            "name": "dist/diagnostics-*.mjs",
+            "bytes": 11578
+          },
+          {
+            "name": "dist/base-*.mjs",
+            "bytes": 5527
+          },
+          {
+            "name": "node_modules/@noble/hashes/sha3.js",
+            "bytes": 2808
+          },
+          {
+            "name": "node_modules/ulidx/dist/node/index.js",
+            "bytes": 1964
+          },
+          {
+            "name": "dist/sql-*.mjs",
+            "bytes": 1618
+          },
+          {
+            "name": "node_modules/@noble/hashes/utils.js",
+            "bytes": 1381
+          }
+        ]
+      }
+    },
+    "pg-representative": {
+      "raw": 873930,
+      "gzip": 244999,
+      "brotli": 202950,
+      "composition": {
+        "firstPartyBytes": 812866,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "@paralleldrive/cuid2": 1174,
+          "bignumber.js": 19005,
+          "decimal.js": 32316,
+          "layerr": 1538,
+          "nanoid": 435,
+          "ulidx": 1964
+        },
+        "topInputs": [
+          {
+            "name": "dist/pending-operation-*.mjs",
+            "bytes": 497220
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 49478
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37266
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 35304
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 34999
+          },
+          {
+            "name": "node_modules/decimal.js/decimal.mjs",
+            "bytes": 32316
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 22942
+          },
+          {
+            "name": "node_modules/bignumber.js/bignumber.mjs",
+            "bytes": 19005
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17793
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17044
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 14118
+          },
+          {
+            "name": "dist/normalized-result-*.mjs",
+            "bytes": 12058
+          }
+        ]
+      }
+    },
+    "full": {
+      "raw": 1231900,
+      "gzip": 346358,
+      "brotli": 283510,
+      "composition": {
+        "firstPartyBytes": 1169484,
+        "dependencyBytes": {
+          "@noble/hashes": 4600,
+          "@paralleldrive/cuid2": 1174,
+          "bignumber.js": 19005,
+          "decimal.js": 32373,
+          "layerr": 1538,
+          "nanoid": 435,
+          "ulidx": 1964
+        },
+        "topInputs": [
+          {
+            "name": "dist/pending-operation-*.mjs",
+            "bytes": 498643
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 275312
+          },
+          {
+            "name": "dist/validation-*.mjs",
+            "bytes": 49518
+          },
+          {
+            "name": "dist/driver-*.mjs",
+            "bytes": 37266
+          },
+          {
+            "name": "dist/validator-*.mjs",
+            "bytes": 35581
+          },
+          {
+            "name": "dist/client-*.mjs",
+            "bytes": 35019
+          },
+          {
+            "name": "node_modules/decimal.js/decimal.mjs",
+            "bytes": 32373
+          },
+          {
+            "name": "dist/schema/json.mjs",
+            "bytes": 30069
+          },
+          {
+            "name": "dist/datetime-values-*.mjs",
+            "bytes": 23434
+          },
+          {
+            "name": "node_modules/bignumber.js/bignumber.mjs",
+            "bytes": 19005
+          },
+          {
+            "name": "dist/v-*.mjs",
+            "bytes": 17793
+          },
+          {
+            "name": "dist/scalar-*.mjs",
+            "bytes": 17044
+          }
+        ]
+      }
+    }
+  },
+  "libraries": {
+    "@paralleldrive/cuid2": {
+      "version": "3.3.0",
+      "raw": 24432,
+      "gzip": 10889,
+      "brotli": 9896,
+      "dependencyBytes": {
+        "@noble/hashes": 4600,
+        "@paralleldrive/cuid2": 1174,
+        "bignumber.js": 18625
+      }
+    },
+    "nanoid": {
+      "version": "5.1.16",
+      "raw": 439,
+      "gzip": 356,
+      "brotli": 299,
+      "dependencyBytes": {
+        "nanoid": 409
+      }
+    },
+    "ulidx": {
+      "version": "2.4.1",
+      "raw": 3455,
+      "gzip": 1558,
+      "brotli": 1386,
+      "dependencyBytes": {
+        "layerr": 1519,
+        "ulidx": 1904
+      }
+    },
+    "decimal.js": {
+      "version": "10.6.0",
+      "raw": 32071,
+      "gzip": 12852,
+      "brotli": 11199,
+      "dependencyBytes": {
+        "decimal.js": 32010
+      }
+    },
+    "big.js": {
+      "available": true,
+      "version": "7.0.1",
+      "raw": 6916,
+      "gzip": 3004,
+      "brotli": 2750
+    }
+  },
+  "loc": {
+    "total": {
+      "files": 544,
+      "code": 118726,
+      "comment": 31180,
+      "blank": 10544
+    },
+    "perDirectory": {
+      "(root)": {
+        "files": 6,
+        "code": 164,
+        "comment": 130,
+        "blank": 23
+      },
+      "adapters": {
+        "files": 17,
+        "code": 2539,
+        "comment": 1915,
+        "blank": 558
+      },
+      "cache": {
+        "files": 11,
+        "code": 1630,
+        "comment": 478,
+        "blank": 195
+      },
+      "cli": {
+        "files": 4,
+        "code": 590,
+        "comment": 120,
+        "blank": 70
+      },
+      "client": {
+        "files": 17,
+        "code": 5385,
+        "comment": 1150,
+        "blank": 437
+      },
+      "drivers": {
+        "files": 44,
+        "code": 8896,
+        "comment": 1983,
+        "blank": 824
+      },
+      "errors": {
+        "files": 11,
+        "code": 2199,
+        "comment": 502,
+        "blank": 221
+      },
+      "extensions": {
+        "files": 9,
+        "code": 3019,
+        "comment": 109,
+        "blank": 259
+      },
+      "instrumentation": {
+        "files": 11,
+        "code": 1481,
+        "comment": 459,
+        "blank": 210
+      },
+      "migrations": {
+        "files": 82,
+        "code": 21698,
+        "comment": 4975,
+        "blank": 1931
+      },
+      "query-engine": {
+        "files": 146,
+        "code": 45973,
+        "comment": 11300,
+        "blank": 2965
+      },
+      "schema": {
+        "files": 78,
+        "code": 10721,
+        "comment": 3201,
+        "blank": 1086
+      },
+      "sql": {
+        "files": 3,
+        "code": 188,
+        "comment": 117,
+        "blank": 44
+      },
+      "validation": {
+        "files": 105,
+        "code": 14243,
+        "comment": 4741,
+        "blank": 1721
+      }
+    }
+  }
+}

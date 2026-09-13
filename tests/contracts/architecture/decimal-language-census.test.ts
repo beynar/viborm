@@ -317,7 +317,7 @@ export const s = { decimal, money: decimal };
   });
 
   it("allows type-only Decimal exports from each shipped public entry", () => {
-    const rootWitness = `export { default as Decimal } from "decimal.js";
+    const rootWitness = `export { default as Decimal } from "big.js";
 export type { DecimalScalar } from "./schema/scalars";
 `;
     expect(secondDecimalModeEntries("src/index.ts", rootWitness)).toEqual([]);
@@ -487,9 +487,9 @@ describe("decimal-language census: no ORM-owned wrapper", () => {
     expect(census.ormOwnedWrapper).toEqual([]);
   });
 
-  it("detects a runtime Decimal.clone second constructor", () => {
-    const witness = `import Decimal from "decimal.js";
-const Exact = Decimal.clone({ defaults: true });
+  it("detects a runtime zero-argument second constructor", () => {
+    const witness = `import Decimal from "big.js";
+const Exact = Decimal();
 `;
     expect(
       ormOwnedDecimalWrapperEntries(
@@ -502,8 +502,8 @@ const Exact = Decimal.clone({ defaults: true });
   });
 
   it("detects a second constructor through a renamed Decimal import", () => {
-    const witness = `import ExactDecimal from "decimal.js";
-const Exact = ExactDecimal.clone({ defaults: true });
+    const witness = `import ExactDecimal from "big.js";
+const Exact = ExactDecimal();
 `;
     expect(
       ormOwnedDecimalWrapperEntries(
@@ -515,6 +515,23 @@ const Exact = ExactDecimal.clone({ defaults: true });
     ]);
   });
 
+  it("does not count an ordinary construction as a second constructor", () => {
+    // ARITY is the whole distinction in big.js: the same call expression with
+    // one argument builds a VALUE. A detector that counted it would report the
+    // codec's own construction path as an ORM-owned wrapper, and one that
+    // counted neither would be an absence assertion that cannot go red.
+    const witness = `import Decimal from "big.js";
+const value = Decimal("1.5");
+const constructed = new Decimal("1.5");
+`;
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-codec.ts",
+        witness
+      )
+    ).toEqual([]);
+  });
+
   it("requires exactly the root Decimal constructor export", () => {
     expect(ormOwnedDecimalWrapperEntries("src/index.ts", "")).toEqual([
       "src/index.ts decimalConstructorExportCount 1",
@@ -522,24 +539,24 @@ const Exact = ExactDecimal.clone({ defaults: true });
     expect(
       ormOwnedDecimalWrapperEntries(
         "src/index.ts",
-        'export { default as Decimal } from "decimal.js";'
+        'export { default as Decimal } from "big.js";'
       )
     ).toEqual([]);
     expect(
       ormOwnedDecimalWrapperEntries(
         "src/index.ts",
-        'export { default as Decimal, default as Money } from "decimal.js";'
+        'export { default as Decimal, default as Money } from "big.js";'
       )
     ).toEqual(["src/index.ts decimalConstructorExportSpelling 1"]);
   });
 
-  it("detects declarations and a decimal.js re-export outside the root", () => {
-    const witness = `import DecimalRuntime from "decimal.js";
+  it("detects declarations and a big.js re-export outside the root", () => {
+    const witness = `import DecimalRuntime from "big.js";
 class Decimal {}
 interface DecimalWrapper {}
 type DecimalValue = string;
 const VibDecimal = class {};
-export { default as Decimal } from "decimal.js";
+export { default as Decimal } from "big.js";
 // class DecimalManager would be a second ORM-owned wrapper.
 `;
     expect(
@@ -555,7 +572,7 @@ export { default as Decimal } from "decimal.js";
   });
 
   it("detects constructor re-exports hidden behind another public name", () => {
-    const witness = `export { default as Money } from "decimal.js";
+    const witness = `export { default as Money } from "big.js";
 export { Decimal as Exact } from "./values";
 `;
     expect(
@@ -563,8 +580,8 @@ export { Decimal as Exact } from "./values";
     ).toEqual(["src/client/money.ts decimalConstructorExport 2"]);
   });
 
-  it("does not treat type-only decimal.js exports as a constructor", () => {
-    const witness = `export type { default as DecimalType, Decimal as ExactDecimalType } from "decimal.js";
+  it("does not treat type-only big.js exports as a constructor", () => {
+    const witness = `export type { default as DecimalType, Decimal as ExactDecimalType } from "big.js";
 export { type Decimal as ExactType } from "./values";
 `;
     expect(
@@ -572,8 +589,8 @@ export { type Decimal as ExactType } from "./values";
     ).toEqual([]);
   });
 
-  it("detects a renamed class that owns a Decimal.js value", () => {
-    const witness = `import type Decimal from "decimal.js";
+  it("detects a renamed class that owns a big.js value", () => {
+    const witness = `import type Decimal from "big.js";
 export class Money {
   constructor(readonly value: Decimal) {}
 }
@@ -583,8 +600,8 @@ export class Money {
     ).toEqual(["src/client/decimal-money.ts decimalValueCarrier:Money 1"]);
   });
 
-  it("detects a renamed class that owns an array of Decimal.js values", () => {
-    const witness = `import type { Decimal as ExactDecimal } from "decimal.js";
+  it("detects a renamed class that owns an array of big.js values", () => {
+    const witness = `import type { Decimal as ExactDecimal } from "big.js";
 export class MoneyLedger {
   readonly values: ExactDecimal[] = [];
 }
@@ -594,8 +611,8 @@ export class MoneyLedger {
     ).toEqual(["src/client/money-ledger.ts decimalValueCarrier:MoneyLedger 1"]);
   });
 
-  it("detects a renamed class that owns a ReadonlyArray of Decimal.js values", () => {
-    const witness = `import type { default as ExactDecimal } from "decimal.js";
+  it("detects a renamed class that owns a ReadonlyArray of big.js values", () => {
+    const witness = `import type { default as ExactDecimal } from "big.js";
 export class MoneyLedger {
   readonly values: ReadonlyArray<ExactDecimal> = [];
 }
@@ -605,8 +622,8 @@ export class MoneyLedger {
     ).toEqual(["src/client/money-ledger.ts decimalValueCarrier:MoneyLedger 1"]);
   });
 
-  it("detects a renamed class whose parameter property owns Decimal.js values", () => {
-    const witness = `import type { Decimal as ExactDecimal } from "decimal.js";
+  it("detects a renamed class whose parameter property owns big.js values", () => {
+    const witness = `import type { Decimal as ExactDecimal } from "big.js";
 export class MoneyLedger {
   constructor(readonly values: readonly [ExactDecimal]) {}
 }

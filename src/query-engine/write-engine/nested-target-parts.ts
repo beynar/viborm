@@ -1,5 +1,6 @@
 import { QueryEngineError } from "@errors";
 import { getPrimaryKeyFields } from "../builders/correlation-utils";
+import { idColumnOfPrivate } from "../builders/id-field";
 import type { PolymorphicStorageValue } from "../builders/polymorphic-mutation";
 import {
   bindRelation,
@@ -752,7 +753,12 @@ export function buildPolymorphicParentCreateManyPart(input: {
       engine,
       relation.membership.storage.idColumn.scalar,
       relation.membership.storage.idColumn.name,
-      null
+      null,
+      idColumnOfPrivate(
+        engine.adapter,
+        relation.membership.storage.idColumn.reference,
+        engine.relations
+      )
     ),
   };
   const stepIds = buildCreateManyPlan(

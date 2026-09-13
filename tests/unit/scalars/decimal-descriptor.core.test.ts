@@ -2,7 +2,7 @@ import { ValidationError, VibORMErrorCode } from "@errors";
 import { decimal } from "@schema/scalars";
 import { normalizeDecimalDefault } from "@schema/scalars/decimal/descriptor";
 import { getScalarSchemas } from "@validation/scalars";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 // `s.decimal({ precision, scale })` is the first scalar factory that reads a
@@ -321,17 +321,23 @@ describe("decimal descriptor", () => {
   it("refuses a forged Decimal candidate as a default", () => {
     // The default is normalized through the field codec at definition time, so
     // a forgery that rendered as non-numeric text would be frozen into model
-    // metadata and into every DDL default derived from it.
-    expect(
-      refusal(() =>
-        decimal(domain()).default({
-          toStringTag: "[object Decimal]",
-          s: 1,
-          e: 0,
-          d: [Number.NaN],
-        } as never)
-      ).source
-    ).toMatchObject({ kind: "schema-builder", builder: "s.decimal" });
+    // metadata and into every DDL default derived from it. Both halves of the
+    // codec's admission are witnessed: an ordinary object is outside the one
+    // prototype family big.js gives its values, and a candidate INSIDE that
+    // family is still only the representation it carries — `[NaN]` renders as
+    // the word, not as a digit.
+    for (const forged of [
+      { s: 1, e: 0, c: [1] },
+      Object.assign(Object.create(Decimal.prototype), {
+        s: 1,
+        e: 0,
+        c: [Number.NaN],
+      }),
+    ]) {
+      expect(
+        refusal(() => decimal(domain()).default(forged as never)).source
+      ).toMatchObject({ kind: "schema-builder", builder: "s.decimal" });
+    }
   });
 
   describe("a custom schema survives every modifier order", () => {
@@ -794,10 +800,16 @@ describe("decimal descriptor", () => {
         () => decimal(domain()).default("abc" as never),
       ],
       [
-        "a non-finite Decimal",
+        // big.js constructs no non-finite value, so a Decimal-family value
+        // fails here only as a forgery: this one is incomplete, and the
+        // corrupt-coefficient forgery is witnessed above.
+        "an incomplete Decimal representation",
         () =>
           decimal(domain()).default(
-            new Decimal(Number.POSITIVE_INFINITY) as never
+            Object.assign(Object.create(Decimal.prototype), {
+              s: 1,
+              e: 0,
+            }) as never
           ),
       ],
     ])("refuses %s at the declaration", (_name, build) => {

@@ -1,7 +1,7 @@
 import { DecimalScalar, PG, s } from "@src/schema";
 import type { InferInput } from "@validation";
 import v from "@validation/primitives/v";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 
 const nullableName = s.string().nullable().default("anonymous");
 type NullableName = InferInput<(typeof nullableName)["~"]["state"]["base"]>;

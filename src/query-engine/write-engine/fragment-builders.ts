@@ -1,8 +1,14 @@
 import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
-import { isSql, type Sql } from "@sql";
+import type { Sql } from "@sql";
 import { dateTimeNativeTypeOf } from "../builders/datetime-field";
 import { decimalDescriptorOfScalar } from "../builders/decimal-field";
+import {
+  type IdColumn,
+  idColumnOf,
+  idLiteral,
+  isConcreteIdValue,
+} from "../builders/id-field";
 import {
   decimalLiteral,
   getScalarCastTypeForScalar,
@@ -13,12 +19,11 @@ import type { QueryEngine } from "../query-engine";
 import type { QueryScope } from "../types";
 import { uniqueConflictTarget } from "../unique-conflict-target";
 import { upsertPremiseChanged } from "./messages";
-import {
-  type Failure,
-  type GuardStep,
-  isOperationValueReference,
-  type Postcondition,
-  type TargetConstraintPin,
+import type {
+  Failure,
+  GuardStep,
+  Postcondition,
+  TargetConstraintPin,
 } from "./OperationFragment";
 
 /**
@@ -74,20 +79,35 @@ export function referenceSql(
     engine,
     model["~"].state.scalars[field],
     field,
-    value
+    value,
+    // A foreign key's identifier domain is DERIVED from the key it references,
+    // so it is read against the model. This is the one relation-key lowering
+    // that reaches an FK column, which is exactly where a derived domain has
+    // to be known.
+    idColumnOf(engine.adapter, model, field, engine.relations)
   );
 }
 
-/** Destination-aware deferred value lowering for private and public columns. */
+/**
+ * Destination-aware deferred value lowering for private and public columns.
+ *
+ * The identifier column has no default for the same reason the value builder's
+ * has none: a private column's domain is the domain of the key it stands in
+ * for, which its scalar cannot answer.
+ */
 export function referenceScalarSql(
   engine: QueryEngine,
   scalar: Scalar | undefined,
   field: string,
-  value: unknown
+  value: unknown,
+  idColumn: IdColumn | undefined
 ): Sql {
+  if (idColumn !== undefined) {
+    return idLiteral(engine.adapter, field, value, idColumn);
+  }
   const decimal = decimalDescriptorOfScalar(scalar);
   if (decimal !== undefined) {
-    if (isConcreteFkValue(value)) {
+    if (isConcreteIdValue(value)) {
       // The DOMAIN travels with the value: on SQLite it is what turns the
       // logical key into the coefficient the referenced column stores.
       return decimalLiteral(engine.adapter, field, value, decimal);
@@ -99,7 +119,7 @@ export function referenceScalarSql(
   }
   const cast = getScalarCastTypeForScalar(scalar);
   if (
-    isConcreteFkValue(value) &&
+    isConcreteIdValue(value) &&
     getScalarTypeForScalar(scalar) === "datetime" &&
     typeof value === "string"
   ) {
@@ -110,17 +130,6 @@ export function referenceScalarSql(
   }
   const sqlValue = engine.adapter.literals.value(value);
   return cast ? engine.adapter.expressions.cast(sqlValue, cast) : sqlValue;
-}
-
-/** A value whose spelling is knowable NOW — not a deferred symbol, not a
- *  pre-built fragment, not the absent value of a nullable FK. */
-function isConcreteFkValue(value: unknown): boolean {
-  return (
-    value !== null &&
-    value !== undefined &&
-    !isSql(value) &&
-    !isOperationValueReference(value)
-  );
 }
 
 /**

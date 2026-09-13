@@ -122,7 +122,8 @@ ordering, pagination, cursor, and selection clauses describe a larger query.
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
 shape and the one field-aware decimal codec. It owns the accepted
 `Decimal | string | number` input grammar, configuration-independent Decimal
-snapshot/render, exact one-constructor materialization, canonical private text, descriptor validation,
+snapshot/render over big.js's `s`/`e`/`c` internals, exact one-constructor
+materialization, canonical private text, descriptor validation,
 logical/coefficient conversion, provider scalar/list encode/decode, widened
 sum decode, and fresh public Decimal construction. Import it by direct path;
 do not add a barrel cycle, another structural descriptor, or a second
@@ -136,11 +137,13 @@ reads this table before provider I/O; no dialect invents a wider local domain.
 
 `v.decimal()` emits canonical private text because operation identity, row keys,
 cursors, and cache keys need value equality. A custom schema observes a
-`Decimal`; the codec snapshots its complete, bounded, finite observable
-numerical representation, then the descriptor validates that snapshot last.
-Decimal.js provides no unforgeable constructor-history witness, so this boundary
-does not claim historical provenance. Public result materialization happens
-later at the typed result leaf.
+`Decimal`; the codec snapshots its complete, bounded observable numerical
+representation, then the descriptor validates that snapshot last. big.js
+provides no constructor-history witness at all — no `isDecimal`, and one shared
+prototype across every constructor it builds — so this boundary does not claim
+historical provenance. Nor does big.js clamp an exponent, so the codec's
+`MAX_RENDER_EXPONENT` ceiling is the only bound on a rendering's length. Public
+result materialization happens later at the typed result leaf.
 
 A literal decimal default crosses that complete field codec once at declaration
 and is retained as trusted canonical output. The decimal create schema applies
@@ -343,7 +346,46 @@ them when the boundary needs stronger semantics such as a plain prototype,
 finite/integer values, promise-like behavior, safe reads from hostile values,
 or recursive JSON validation. Native array identity remains `Array.isArray`.
 
-### Rule 7: One Typed Validation Error Surface
+### Rule 7: One Identifier Codec, Below Every Boundary
+
+`primitives/id-codec.ts` owns the identifier DOMAIN: which strings belong to
+`{ format, prefix?, length? }`, what their canonical spelling is
+(`canonicalizeId`), and the two physical conversions (`encodePhysicalId` /
+`decodePhysicalId`). It is PURE and dialect-blind — it takes an
+`IdRepresentation` (`"text"` / `"uuid"` / `"bytes"`), never a provider — which is
+what lets the validation schemas admit with the same code the write path encodes
+with. Choosing the representation belongs one layer up, to
+`@schema/scalars/string/id-domain`'s `idStorageOf`; do not teach this module a
+column type.
+
+Admission is chained ONCE, in `buildValidator`, from the internal
+`ScalarOptions.idDomain` (a sibling of `disallowZero`): after the base type
+check and BEFORE a caller's `.schema()` and any transform, so a custom validator
+sees the canonical spelling and every identity-sensitive consumer downstream —
+cache key, captured row key, `fkEquals` — sees one spelling per identifier.
+`scalars/string.ts` is the one place that passes it: from the field's own
+declaration, or from the domain a FOREIGN KEY derives, which the registry reads
+off the resolved index and threads through `getScalarsSchemas`. The four
+compact formats also build a filter without `contains`/`startsWith`/`endsWith`/
+`mode`, and `scalarInternKey` carries the domain so two fields share a filter
+tree only when they share a domain.
+
+EVERY operand the field takes is built from that domain-carrying base, not only
+the comparison ones: `in`/`notIn` take a domain-carrying array (a module-level
+list schema can hold no field's domain), and a compound selector's members are
+rebuilt from the field's schema in `model/core/filter.ts` rather than read from
+the pre-domain base `Model.id([...])` snapshotted at declaration time. An
+operand that skips admission is refused later as an engine error — the wrong
+boundary — and, worse, an unfolded alias hashes ONE identifier to two cache
+keys, which is what normalizing at the args boundary exists to prevent.
+
+`primitives/binary-shapes.ts` is the one normalization of every driver's binary
+spelling — `Buffer`, `Uint8Array`, `ArrayBuffer`, a byte array, PostgreSQL's
+`\x…`, MySQL's `base64:typeNNN:…`, plain hex. It REPORTS rather than throws: the
+blob result parser and the id codec owe different messages, so the wording
+belongs to them and only the classification belongs here.
+
+### Rule 8: One Typed Validation Error Surface
 `ValidationError.source` identifies the boundary that refused the value:
 `operation`, `registry`, `schema-builder`, or `json-schema`. Operation failures
 use V4001 and Prisma P2009. All other runtime-validation sources use V4002 and

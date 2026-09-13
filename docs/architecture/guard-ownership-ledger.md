@@ -1837,3 +1837,190 @@ The witness that used to order these two — `operation-construction-witnesses.t
 "RelationUpsertPart :814 — a mismatched-arity child FK is refused UPSTREAM" —
 is deleted with its schema, and the file carries a ledger comment naming the
 construction refusal that replaced it.
+
+## Addendum — the identifier domain (Stage D, native identifiers)
+
+Four refusals were added and one was narrowed. Each one's unique coverage is
+stated below, because a guard whose coverage cannot be named is one this
+codebase does not keep.
+
+**`FK012` — two answers to "what does this column hold"
+(`schema/validation/id-domains.ts`, in the GATE).** Unique coverage: a column
+whose identifier domain is reached through more than one path and disagrees — a
+foreign key whose own declaration contradicts its target, one column shared by
+two references whose keys are different formats or prefixes, a compound member
+whose target disagrees. Nothing downstream can repair it: the migration would
+create one column while the engine bound values of another domain into it. It
+lives in the gate rather than in the advisory rule list because
+`skipValidation` may drop advice and must not be able to drop this. It is NOT a
+second `FK003`: that one compares scalar TYPE, array shape, decimal domain and
+SQLite datetime form; two `string` columns that pass it can still hold different
+identifier domains.
+
+**`F013` — a native type the domain cannot live in (same file, same gate).**
+Unique coverage: a declared or derived identifier field whose native type
+override is, for its own dialect, neither a text-family column nor a binary one
+of that format's exact width (nor `uuid` for the two uuid formats). It is
+dialect-blind — the override names its own dialect — and it is not the
+native-catalog spelling check (`J011`), which asks whether the type exists at
+all rather than whether this domain fits in it.
+
+PostgreSQL's `char(n)` is NOT in that text family, though it is an ordinary
+string override: `character(n)` blank-pads to its full width, so a 36-character
+uuid in a `char(40)` column reads back with four trailing spaces and no value of
+the domain is ever returned — measured live, where both the write and every
+later read answered "not in this column's declared identifier domain". MySQL's
+`CHAR(n)` strips the padding on the way out and keeps its place in that
+dialect's list. This narrows F013's accepted set; it adds no second check.
+
+**`P002` widened — variants must agree on their identifier domain
+(`schema/validation/id-domains.ts`).** Unique coverage: two variant targets
+whose keys are both `string` but HOLD different formats or prefixes. The row
+carrier stores every variant's key in ONE column, so a `uuid` beside a `ulid`
+would be written through a codec that is not its own. It is the same statement
+the storage rule already makes for scalar type and for the decimal descriptor,
+in a third representation fact — not a new guard, one more clause of an existing
+one, and it keeps that clause's code.
+
+It is computed in the DERIVATION rather than beside the rule's other clauses
+because the answer may be derived: a variant whose primary key is its parent
+foreign key declares nothing and still holds uuids, and the storage rule runs
+while the index it would have to ask is still being built. Compared as
+declarations it both over-refused (two variants that hold one domain, one
+declaring and one deriving it) and under-refused (two variants that derive
+domains which differ — the shape that types the carrier column from one variant
+and writes another's key through it).
+
+**`J004` on `generate.implicit` (`schema/json/read.ts`).** Unique coverage: a
+document that marks a generator implicit where `.id()` could not have installed
+it — on another KIND, or without the `id` flag. `implicit` says "this ULID is
+the one `.id()` installs", which is one kind beside one flag. On another kind it
+would claim a generator that does not exist and silently drop that format's
+domain, its admission and its compact column. Without `id` the interpreter
+installs nothing at all — its `.id()` arm needs the flag and its `applyGenerate`
+arm stands down for an implicit node — so the declared generator vanishes and
+the field round-trips as a bare `{"type":"string"}`. Not reachable from
+`serializeSchema`, which writes `implicit` only for an `.id()` field; reachable
+from any hand-authored or externally produced document.
+
+**The engine's text-predicate refusal
+(`query-engine/builders/scalar-filter-operators.ts`).** Not a new guard: the
+existing `assertSupportedScalarFilterOperator` gains a narrower operator set for
+a compactly stored identifier, and a message that says why rather than
+"unsupported". The validation schema already removed the four operators from the
+type and from what it admits; this is the same fact restated at the boundary a
+trusted internal program can reach without one, exactly as every other entry in
+that function is.
+
+**The encode-side refusals (`query-engine/builders/id-field.ts`
+`encodeIdValue`).** Two, and each names a case the other cannot. `Identifier
+field '…' received <typeof>`: a NON-STRING reached a binding for a column whose
+values are strings — a value that never crossed the field's schema, which is the
+only thing that could have typed it (a `set` inside an atomic update object, a
+connect-derived foreign key, a relation-correlated key lowered by
+`referenceSql`). `… received a value outside its declared <format> domain`: a
+string that IS a string and is not one of this column's, on those same paths. It
+is the closing move `decimalLiteral` already makes for the same reason and at
+the same seam — a value with no bytes has no binding, and writing one would
+store a row no read could return.
+
+**The decode-side refusal (`query-engine/result/ResultParser.ts`
+`createFieldChain`).** Unique coverage: a PHYSICAL value the column's codec
+cannot name — bytes of the wrong width, text outside the domain, a shape no
+driver spelling normalizes. It is not the generic malformed-string arm beside
+it, which asks only whether the driver returned a string at all; this one asks
+whether what came back is a value of THIS column, and it is the one refusal that
+catches an estate whose rows were written under a different reading (a migration
+that re-encoded text into a binary column is exactly that).
+
+**The binary-conversion refusal (`migrations/binary-conversion.ts`, reached
+from the one `alterColumn` dispatch in `migrations/drivers/base.ts`).** Unique
+coverage: an altered column whose TARGET type is this dialect's raw-bytes column
+and whose source type is not. Every generated `ALTER COLUMN` is a blind
+re-reading of the stored bytes, which is exact when the two types share a
+reading and data loss the moment the target is binary: PostgreSQL's
+`USING col::bytea` writes the ASCII of the old text, SQLite's rebuild copies the
+value verbatim into the `BLOB`, MySQL truncates or pads to the declared width in
+a non-strict `sql_mode`. All three were measured, and all three produced an
+estate no read could return.
+
+It is stated in COLUMN TYPES rather than in identifier domains on purpose: the
+snapshot carries no logical marker saying "this BLOB decodes identifiers", and
+it needs none — a verbatim copy into a binary column is unreadable whatever the
+column holds. It is one refusal at the dispatch rather than three in the three
+conversion routes, which is how those routes came to be wrong three different
+ways. Both sides binary is a WIDTH change and passes: re-reading the same bytes
+as the same bytes is the property the refusal requires. PostgreSQL's `uuid`
+target passes too — `col::uuid` is a real per-value conversion that succeeds for
+an estate of canonical uuids and aborts the transaction for one that is not,
+leaving the column as it was.
+
+**Deleted, not added.** `createFingerprint`'s
+`globals.length > 0 ? globals + entropy : entropy`
+(`schema/scalars/string/autogenerate.ts`) is gone. Its two arms are the same
+string — concatenating an empty `globals` IS `entropy` — so the condition named
+no case and its unique coverage could not be stated. It was carried over from
+upstream CUID2 and was the one uncovered branch in the whole schema subsystem at
+the stage baseline (`32af0e16`: branches 99.95%). The digest is unchanged, which
+the differential test against the pinned upstream package proves.
+
+So is the PostgreSQL migration driver's `scalarState.autoGenerate !== undefined`
+conjunct in `getDefaultExpression`. `idDomainOfState` answers a domain only when
+`state.autoGenerate` is defined, so the conjunct can never be the arm that
+fails; `idDomain !== undefined` beside it already carries it, and the branch it
+added was unreachable.
+
+## Addendum — the existing database (Stage F, identifier conversion)
+
+Three refusals were added. One of them changes no outcome at all, and says so
+here so that a later reader neither deletes it as redundant nor promotes it to a
+second gate.
+
+**The PostgreSQL `text` → `uuid` guard (`migrations/identifier-conversion.ts`
+`postgresTextToUuidGuard`, emitted into the generated alteration).** Unique
+coverage: **the message, and nothing else.** `ALTER COLUMN … TYPE uuid USING
+col::uuid` already fails on the first row that is not canonical uuid text — the
+transaction aborts and the column is left as it was — so the outcome with this
+`DO` block and without it is the same outcome. What the cast alone cannot say is
+how many rows are in the way and what the author's two routes are, and a
+PREFIXED domain is the case that needs saying most: `usr-a0ee…` is not uuid
+text, no `USING substring(col from 5)::uuid` is ever generated for it (the
+snapshot carries the column TYPE, never the domain), and PostgreSQL's own error
+names one offending value and no route at all. It is deliberately NOT a second
+refusal beside `binary-conversion.ts`: that one stops a conversion that would
+otherwise SUCCEED and destroy the data, and this one stops nothing.
+
+**`identifierConversionChecks` on a field with no compactly stored domain
+(same file).** Unique coverage: a caller who named a field that has no text
+conversion to check — a `nanoid`, a `cuid`, or a plain string — for whom the
+honest return value is an empty list and the honest reading of an empty list is
+"this estate is ready". Every other refusal in this program protects a value;
+this one protects an ANSWER, and it is the only place that can: the list is
+handed to `generate()` as `originChecks`, where zero checks pass vacuously and
+the conversion proceeds. It is not `F013` (a native type the domain cannot live
+in) and not `FK012` (two answers to what a column holds): both of those are
+schema facts decided at resolution, and this one is a fact about the call.
+
+**`assertComparableIdStorage` (`query-engine/builders/where-builder.ts`,
+reached from `fieldRefColumn`).** Unique coverage: a FIELD REFERENCE operand
+whose column does not spell one public value the way the filtered column does —
+one side compact or `uuid`-typed and the other plain text, or two compact
+columns of different domains, where equal payload bytes stand for different
+public values. `checkRef` in `validation/primitives/operand.ts` compares
+`ScalarType` and arity over interned, model-blind filter schemas, and
+`'string' === 'string'` for an identifier field and an ordinary one; the where
+builder is the first boundary that holds the model and can ask what each column
+physically holds. It is the identifier twin of
+`assertComparableDecimalDomains`, which sits on the same line for the same
+reason, and it is NOT the `encodeIdValue` pair: those cover a VALUE arriving at
+a binding, and a reference binds no value at all — it lowers a second column.
+
+Measured before it existed, on in-process SQLite: `where: { id: { equals:
+refs.plain } }` over a row whose `id` and `plain` hold the same public string
+returned `[]`, because `id` holds sixteen bytes and `plain` holds the text. A
+silent wrong answer, in both directions, on a seam the codebase already names.
+
+TEXT against TEXT is left alone in both directions, deliberately: a `nanoid`
+column stores exactly the string it shows, so comparing it with an ordinary
+string column asks the question it appears to ask. A refusal there would have no
+case to name.

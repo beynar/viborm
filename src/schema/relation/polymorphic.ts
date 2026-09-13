@@ -8,6 +8,7 @@
 // `.optional()` and owns no public foreign key, and a member-junction variant
 // to-many names one junction per variant through an exact `.through(...)` map.
 
+import type { Model } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import { isValidSchemaIdentifier } from "../identifier";
 import {
@@ -499,4 +500,24 @@ export interface PolymorphicStorageColumn {
   readonly name: string;
   readonly scalar: Scalar;
   readonly nullable: boolean;
+  /**
+   * The KEY this private column stands in for, when it stands in for one.
+   *
+   * A row carrier's id column holds every variant's primary key, and what
+   * those keys hold — an identifier domain above all — may be DERIVED rather
+   * than declared: the ordinary one-to-one child whose primary key IS its
+   * parent foreign key declares nothing and still holds uuids. The scalar
+   * alone cannot answer that (derivation is keyed by model and field, never by
+   * a scalar instance two models may share), so the column carries the pair
+   * the one lookup takes. Every variant's key agrees on the answer or the
+   * carrier does not exist — that agreement is what the identifier-domain
+   * derivation refuses when it fails — so the FIRST member's key is the
+   * carrier's key.
+   *
+   * The type discriminator column stands in for no key and carries none.
+   */
+  readonly reference?: {
+    readonly model: Model<any>;
+    readonly field: string;
+  };
 }

@@ -5,6 +5,7 @@ import {
   buildPrimaryKeyWhereUnique,
   getPrimaryKeyFields,
 } from "../builders/correlation-utils";
+import { idColumnOfPrivate } from "../builders/id-field";
 import { projectScalarForTransport } from "../builders/scalar-transport";
 import { buildScalarSqlValueForScalar } from "../builders/values-builder";
 import { buildFindUnique } from "../operations/find-unique";
@@ -65,7 +66,10 @@ export function targetProjectionColumns(
       projectScalarForTransport(
         scope.adapter,
         column.scalar,
-        scope.adapter.identifiers.column(qualifier, column.name)
+        scope.adapter.identifiers.column(qualifier, column.name),
+        // A private column is projected in the same physical vocabulary it is
+        // bound in, or the probe publishes bytes the decode has no column for.
+        idColumnOfPrivate(scope.adapter, column.reference, scope.relations)
       ),
       column.name
     ),
@@ -279,7 +283,7 @@ export function readRowKey(
  * as the public `Decimal` — see {@link ResultParser.parseRowsWithRowKeys}. That
  * is the whole reason this file needs no decimal branch: the value is already
  * one spelling per value, and rendering a `Decimal` here instead would key on
- * `toString()`, which an application's own `Decimal.set({ toExpPos })` moves.
+ * `toString()`, which an application's own `Big.PE` moves.
  */
 export function rowKeyToken(
   model: Model<any>,
@@ -502,7 +506,13 @@ export function capturedTargetColumnPredicate(
       ? scope.adapter.operators.isNull(target)
       : scope.adapter.operators.eq(
           target,
-          buildScalarSqlValueForScalar(scope, column.scalar, column.name, value)
+          buildScalarSqlValueForScalar(
+            scope,
+            column.scalar,
+            column.name,
+            value,
+            idColumnOfPrivate(scope.adapter, column.reference, scope.relations)
+          )
         );
   });
   if (predicates.length === 0) return undefined;

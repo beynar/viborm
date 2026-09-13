@@ -11,7 +11,7 @@ import { s } from "@schema";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { type JsonValue, v } from "@validation";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const ENUM_ERROR_PATTERN = /enum/i;
@@ -811,9 +811,12 @@ describe("decimal results are fresh exact values", () => {
   test("a negative zero and a padded zero are the same canonical value", () => {
     // Canonicalization is what makes text equality a value equality: `-0.00`
     // and `0` name one number, so a row key built from either is one key.
-    expect(decimalAt("money", "-0.00").isZero()).toBe(true);
-    expect(decimalAt("money", "-0.00").isNegative()).toBe(false);
-    expect(decimalAt("money", "-0").isZero()).toBe(true);
+    expect(decimalAt("money", "-0.00").eq(0)).toBe(true);
+    // big.js keeps a minus on zero — `new Decimal("-0").s` is -1 — so a
+    // positive sign here witnesses that canonicalization stripped the sign
+    // BEFORE construction rather than that the library dropped it.
+    expect(decimalAt("money", "-0.00").s).toBe(1);
+    expect(decimalAt("money", "-0").eq(0)).toBe(true);
   });
 
   test("scale is a domain limit, not a spelling", () => {

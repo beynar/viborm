@@ -18,7 +18,7 @@ import { sql } from "@sql";
 import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { beforeAll, describe, expect, test } from "vitest";
 
 const MONEY = Object.freeze({ precision: 16, scale: 2 });

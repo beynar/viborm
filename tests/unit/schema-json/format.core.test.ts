@@ -28,6 +28,8 @@ function completeSurface(): Schema {
     .model({
       id: s.string().id(),
       uid: s.string().uuid("u"),
+      uid7: s.string().uuidv7("v"),
+      ksuid: s.string().ksuid(),
       nano: s.string().nanoid(8, "n"),
       cuid: s.string().cuid("c"),
       // Two order pins. `.nullable()` installs `default: null` as a side
@@ -111,8 +113,10 @@ const COMPLETE_SURFACE: SchemaDocument = {
   models: {
     user: {
       fields: {
-        id: { type: "string", id: true, generate: { kind: "ulid" } },
+        id: { type: "string", id: true },
         uid: { type: "string", generate: { kind: "uuid", prefix: "u" } },
+        uid7: { type: "string", generate: { kind: "uuidv7", prefix: "v" } },
+        ksuid: { type: "string", generate: { kind: "ksuid" } },
         nano: {
           type: "string",
           generate: { kind: "nanoid", prefix: "n", length: 8 },
@@ -167,7 +171,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
     },
     post: {
       fields: {
-        id: { type: "string", id: true, generate: { kind: "ulid" } },
+        id: { type: "string", id: true },
         authorId: { type: "string" },
         author: {
           type: "toOne",
@@ -205,7 +209,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
       },
     },
     tag: {
-      fields: { id: { type: "string", id: true, generate: { kind: "ulid" } } },
+      fields: { id: { type: "string", id: true } },
     },
   },
   enums: { st: { values: ["a", "b"], name: "st" } },
@@ -475,5 +479,143 @@ describe("format", () => {
     expect(
       schema.post?.["~"].state.relations.author?.["~"].settleTarget()
     ).toBe(schema.user);
+  });
+});
+
+/** The J004 a `generate.implicit` on a kind `.id()` never installs raises. */
+const IMPLICIT_ON_WRONG_KIND = /generate\.implicit/;
+
+describe("a key is not a domain", () => {
+  const idDomainOf = (schema: Schema, model: string, field: string) =>
+    schema[model]?.["~"].state.scalars[field]?.["~"].state.autoGenerate;
+
+  it("states a bare `.id()` as the key it is, with no generator node", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id() }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+    });
+  });
+
+  it("keeps `.id(prefix)` a key across the round trip", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id("usr") }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+      generate: { kind: "ulid", prefix: "usr", implicit: true },
+    });
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: "usr",
+      implicit: true,
+    });
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it("keeps a NAMED `.ulid()` key a named format across the round trip", () => {
+    const document = serializeSchema({
+      user: s.model({ id: s.string().id().ulid("usr") }),
+    });
+    expect(document.models.user?.fields.id).toEqual({
+      type: "string",
+      id: true,
+      generate: { kind: "ulid", prefix: "usr" },
+    });
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: "usr",
+    });
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it("reads an implicit node with no prefix as the same bare key", () => {
+    const parsed = parseSchema({
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "ulid", implicit: true },
+            },
+          },
+        },
+      },
+    });
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: undefined,
+      implicit: true,
+    });
+  });
+
+  it("refuses `implicit` on a format `.id()` never installs", () => {
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: {
+                type: "string",
+                id: true,
+                generate: { kind: "uuid", implicit: true },
+              },
+            },
+          },
+        },
+      })
+    ).toThrowError(IMPLICIT_ON_WRONG_KIND);
+  });
+
+  it("refuses `implicit` on a field that is not a key", () => {
+    // `implicit` says "this is the ULID `.id()` installs", and without `id` the
+    // interpreter installs nothing at all: its `.id()` arm needs the flag and
+    // its `applyGenerate` arm stands down for an implicit node. Accepted, the
+    // field came back a bare `{"type":"string"}` with no generator, no default
+    // and no domain — a declaration silently dropped.
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: {
+                type: "string",
+                generate: { kind: "ulid", implicit: true },
+              },
+            },
+          },
+        },
+      })
+    ).toThrowError(IMPLICIT_ON_WRONG_KIND);
+  });
+
+  it("ignores an explicitly false `implicit`, which claims nothing", () => {
+    const parsed = parseSchema({
+      version: 1,
+      models: {
+        user: {
+          fields: {
+            id: {
+              type: "string",
+              id: true,
+              generate: { kind: "ulid", implicit: false },
+            },
+          },
+        },
+      },
+    });
+    expect(idDomainOf(parsed, "user", "id")).toEqual({
+      kind: "ulid",
+      prefix: undefined,
+    });
   });
 });

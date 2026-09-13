@@ -70,20 +70,20 @@ Keep audited input as a string or `Decimal` end to end.
 
 ### Equality in tests
 
-Compare decimal values with `.eq()`, `.cmp()`, or another Decimal.js comparison
+Compare decimal values with `.eq()`, `.cmp()`, or another big.js comparison
 method. Do not use `===`: every selected scalar and list member is a fresh value.
 
 VibORM constructs results with the one `Decimal` constructor exported from
 `viborm`. A returned value therefore satisfies both `instanceof Decimal` and
-`value.constructor === Decimal`. Result construction temporarily isolates only
-the constructor's exponent range, so a narrow application `minE` or `maxE`
-cannot turn a stored exact value into zero or infinity. The previous range is
-restored before the value is returned. Application arithmetic then uses the
-complete current `Decimal` configuration, while built-in field-domain
+`value.constructor === Decimal`. Construction from a string reads no `Decimal`
+static at all — `DP`, `RM`, `NE` and `PE` reach only arithmetic and formatting,
+and `strict` reaches only primitive-number input — so no application setting can
+turn a stored exact value into something else. Application arithmetic then uses
+the complete current `Decimal` configuration, while built-in field-domain
 validation, SQL, storage, cache identity, migrations, result decoding, and
 database rounding remain configuration-independent.
 
-Use Decimal.js comparison methods for the semantic assertion:
+Use big.js comparison methods for the semantic assertion:
 
 ```ts
 expect(row.total.eq(new Decimal("1.2"))).toBe(true);
@@ -96,12 +96,14 @@ not depend on JSON or structured cloning to preserve a Decimal prototype.
 ## Custom validation
 
 `.schema()` observes a `Decimal`, not the private canonical text. It may refine
-that value or return another complete, bounded, finite Decimal.js numerical
-representation. Decimal.js has no unforgeable constructor-history witness, so
-VibORM validates and snapshots the observable numerical representation instead
-of claiming historical provenance. The field descriptor is validated last, so
-a custom schema cannot return a string, number, tag-only, incomplete, or
-malformed representation, NaN, infinity, or a value outside the field domain.
+that value or return another complete, bounded big.js numerical representation.
+big.js has no constructor-history witness at all — it has no `isDecimal`, and
+every constructor it builds shares one prototype — so VibORM validates and
+snapshots the observable numerical representation instead of claiming historical
+provenance. The field descriptor is validated last, so a custom schema cannot
+return a string, number, an incomplete or malformed representation, a value
+whose exponent or digit count is outside the renderable ceiling, or a value
+outside the field domain.
 
 ```ts
 import { Decimal, s } from "viborm";
@@ -229,8 +231,9 @@ Cache snapshots, operation identity, cursors, and relation keys use canonical
 private strings. Every cache hit reconstructs fresh public `Decimal` instances;
 the cache never clones a Decimal prototype.
 
-Decimal.js configuration can affect custom `.schema()` code and arithmetic your
-application performs on returned values. It cannot change VibORM's built-in
+big.js configuration (`Decimal.DP`, `RM`, `NE`, `PE`, `strict`) can affect
+custom `.schema()` code and arithmetic your application performs on returned
+values. It cannot change VibORM's built-in
 field-domain validation, SQL, storage, cache identity, migrations, result
 decoding, or half-even database arithmetic.
 

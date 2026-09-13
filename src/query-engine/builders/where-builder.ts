@@ -16,6 +16,10 @@ import type { ScalarState } from "@schema/scalars";
 import { isSql, type Sql, sql } from "@sql";
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import {
+  describeIdDomain,
+  sameIdDomain,
+} from "@validation/primitives/id-codec";
+import {
   createChildScope,
   getColumnName,
   isScalarField,
@@ -37,6 +41,7 @@ import {
   buildGeoPointEquality,
   buildGeoPointWithin,
 } from "./geo-point-builder";
+import { type IdColumn, idColumnOf } from "./id-field";
 import { buildJsonFilter } from "./json-filter-builder";
 import { buildPolymorphicCollectionFilterSql } from "./polymorphic-collection-filter-builder";
 import { buildPolymorphicFilterSql } from "./polymorphic-read-builder";
@@ -328,6 +333,7 @@ function buildScalarFilter(
   positivePolarity: boolean
 ): Sql | undefined {
   const scalarState = getScalarState(ctx, fieldName);
+  const idColumn = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
 
   // Resolve field name to actual column name (handles .map() overrides)
   const columnName = getColumnName(ctx.model, fieldName);
@@ -358,7 +364,12 @@ function buildScalarFilter(
     if (opValue === undefined) {
       continue;
     }
-    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    assertSupportedScalarFilterOperator(
+      fieldName,
+      scalarState,
+      op,
+      idColumn?.domain
+    );
     if (op === "mode") continue;
 
     const condition = buildFilterOperation(
@@ -386,6 +397,16 @@ function buildScalarFilter(
 }
 
 /**
+ * The scope model's name as a refusal spells it.
+ *
+ * One owner for the fallback: hydration binds `names.ts`, and the three
+ * reference refusals in this file would otherwise each carry their own answer
+ * for the un-hydrated model no public path can produce.
+ */
+const scopeModelName = (ctx: QueryScope): string =>
+  ctx.model["~"].names.ts ?? "unknown";
+
+/**
  * Resolve a field reference against the CURRENT query scope.
  *
  * This is where Prisma's same-model rule lives. It is a resolution constraint,
@@ -405,9 +426,9 @@ function fieldRefColumn(
   const scopeModel = ctx.model["~"].names.ts;
   if (payload.model !== scopeModel) {
     throw new QueryEngineError(
-      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${
-        scopeModel ?? "unknown"
-      }': a field reference may only compare columns of the same model.`
+      `Field reference '${formatFieldRef(ref)}' cannot be used while filtering '${scopeModelName(
+        ctx
+      )}': a field reference may only compare columns of the same model.`
     );
   }
   if (!isScalarField(ctx.model, payload.field)) {
@@ -416,6 +437,7 @@ function fieldRefColumn(
     );
   }
   assertComparableDecimalDomains(ctx, fieldName, scalarState, payload.field);
+  assertComparableIdStorage(ctx, fieldName, payload.field);
   return ctx.adapter.identifiers.column(
     alias,
     getColumnName(ctx.model, payload.field)
@@ -445,12 +467,74 @@ function assertComparableDecimalDomains(
   const other = decimalDescriptorOf(ctx.model, referencedField);
   if (own === undefined || other === undefined) return;
   if (sameDecimalDescriptor(own, other)) return;
-  const model = ctx.model["~"].names.ts ?? "unknown";
   throw new QueryEngineError(
-    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${model}': ` +
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${scopeModelName(
+      ctx
+    )}': ` +
       `'${fieldName}' is decimal(${own.precision},${own.scale}) and '${referencedField}' is ` +
       `decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they ` +
       "declare the same precision and scale."
+  );
+}
+
+/** What a column physically holds for one public value, in one phrase. */
+function describeIdStorage(column: IdColumn | undefined): string {
+  if (column === undefined) return "plain string text";
+  const stored =
+    column.representation === "text"
+      ? "as its own text"
+      : column.representation === "uuid"
+        ? "as a uuid payload"
+        : "as payload bytes";
+  return `${describeIdDomain(column.domain)}, stored ${stored}`;
+}
+
+/**
+ * Two columns compare as columns only when one public value has ONE physical
+ * spelling in both of them.
+ *
+ * Compact storage is what makes this decidable here and nowhere earlier. The
+ * interned filter schemas are model-blind, so `checkRef` compares `ScalarType`
+ * and arity — and `'string' === 'string'` for an identifier field and an
+ * ordinary one. Physically they are not the same column: a `.uuid("usr")` key
+ * holds sixteen bytes with no prefix, a plain `s.string()` beside it holds
+ * `usr-a0eebc99-…` as text, and `bytes = text` is a comparison no row can
+ * satisfy. Measured on SQLite before this ran: the same query returned `[]`
+ * where the identical schema with text storage returned the row.
+ *
+ * TEXT against TEXT is left alone, deliberately and in both directions: a
+ * `nanoid` column stores exactly the string it shows, so comparing it with an
+ * ordinary string column asks the question it appears to ask and answers it
+ * correctly. What is refused is a difference in STORAGE — one side compact or
+ * `uuid`-typed and the other not — and two compact columns whose domains
+ * differ, where equal payload bytes stand for different public values (one
+ * prefix against another) and the comparison would answer TRUE for two rows a
+ * caller reads as unequal.
+ */
+function assertComparableIdStorage(
+  ctx: QueryScope,
+  fieldName: string,
+  referencedField: string
+): void {
+  const own = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
+  const other = idColumnOf(
+    ctx.adapter,
+    ctx.model,
+    referencedField,
+    ctx.relations
+  );
+  const representation = own?.representation ?? "text";
+  if (representation === (other?.representation ?? "text")) {
+    if (representation === "text") return;
+    if (sameIdDomain(own?.domain, other?.domain)) return;
+  }
+  throw new QueryEngineError(
+    `Field reference '${referencedField}' cannot be compared with '${fieldName}' on '${scopeModelName(
+      ctx
+    )}': ` +
+      `'${fieldName}' is ${describeIdStorage(own)} and '${referencedField}' is ` +
+      `${describeIdStorage(other)}. Two columns compare only when one value has the ` +
+      "same physical spelling in both."
   );
 }
 
@@ -516,7 +600,8 @@ function buildFilterOperation(
   positivePolarity = true
 ): Sql {
   const { adapter } = ctx;
-  const lit = (v: unknown) => {
+  const idColumn = idColumnOf(adapter, ctx.model, fieldName, ctx.relations);
+  const lit = (v: unknown, substring = false) => {
     if (isFieldRef(v)) {
       // Reached only from an operator the schemas do NOT open to references
       // (in/notIn/has/hasEvery/hasSome). Fail closed rather than bind the token.
@@ -531,15 +616,20 @@ function buildFilterOperation(
         `An SQL fragment is not supported by the '${operation}' filter on '${fieldName}'.`
       );
     }
-    return scalarValueLiteral(ctx, fieldName, v);
+    return scalarValueLiteral(ctx, fieldName, v, { substring });
   };
   /** A containment candidate crosses through the same whole-list owner as a write. */
   const containmentCandidate = (members: unknown[]): Sql =>
     scalarValueLiteral(ctx, fieldName, members);
   const isInsensitive = mode === "insensitive";
+  // A COMPACTLY STORED identifier is not text, whatever its scalar type says:
+  // its column holds bytes or a `uuid`, and collating or ASCII-folding it would
+  // ask the database to compare a value it never spelled as characters.
   const isTextScalar =
     !scalarState.array &&
-    (scalarState.type === "string" || scalarState.type === "enum");
+    (scalarState.type === "string" || scalarState.type === "enum") &&
+    idColumn?.representation !== "bytes" &&
+    idColumn?.representation !== "uuid";
   const exactTextColumn = isTextScalar
     ? adapter.expressions.caseSensitiveText(column)
     : column;
@@ -568,8 +658,9 @@ function buildFilterOperation(
   //    `tests/query-engine/field-reference-sql.test.ts` instead of being claimed
   //    as behavior no test could actually witness.
   /** Raw operand — pairs with a bare `column` LHS (ordered comparisons, LIKE-free text predicates). */
-  const plainOperand = (v: unknown) =>
-    operandExpression(ctx, fieldName, scalarState, v, alias) ?? lit(v);
+  const plainOperand = (v: unknown, substring = false) =>
+    operandExpression(ctx, fieldName, scalarState, v, alias) ??
+    lit(v, substring);
   /**
    * An enum column compared against ANOTHER COLUMN goes through text on every
    * dialect.
@@ -618,9 +709,9 @@ function buildFilterOperation(
       ? adapter.operators.exactTextEq(column, lit(v))
       : adapter.operators.eq(...exactComparison(v));
   /** Case-folded operand — pairs with `foldedTextColumn`. */
-  const foldedOperand = (v: unknown) => {
+  const foldedOperand = (v: unknown, substring = false) => {
     const expr = operandExpression(ctx, fieldName, scalarState, v, alias);
-    if (!expr) return adapter.expressions.asciiCaseFold(lit(v));
+    if (!expr) return adapter.expressions.asciiCaseFold(lit(v, substring));
     return isTextScalar
       ? adapter.expressions.caseSensitiveText(
           adapter.expressions.asciiCaseFold(expr)
@@ -785,15 +876,18 @@ function buildFilterOperation(
     // referenced column as naturally as a bound literal.
     case "contains": {
       return isInsensitive
-        ? adapter.operators.containsText(foldedTextColumn, foldedOperand(value))
-        : adapter.operators.containsText(column, plainOperand(value));
+        ? adapter.operators.containsText(
+            foldedTextColumn,
+            foldedOperand(value, true)
+          )
+        : adapter.operators.containsText(column, plainOperand(value, true));
     }
 
     case "startsWith": {
       if (isInsensitive) {
         return adapter.operators.startsWithText(
           foldedTextColumn,
-          foldedOperand(value)
+          foldedOperand(value, true)
         );
       }
       // A literal string operand is the only shape that can be escaped into a
@@ -811,13 +905,19 @@ function buildFilterOperation(
       if (typeof value === "string") {
         return adapter.operators.startsWithPrefix(column, value);
       }
-      return adapter.operators.startsWithText(column, plainOperand(value));
+      return adapter.operators.startsWithText(
+        column,
+        plainOperand(value, true)
+      );
     }
 
     case "endsWith": {
       return isInsensitive
-        ? adapter.operators.endsWithText(foldedTextColumn, foldedOperand(value))
-        : adapter.operators.endsWithText(column, plainOperand(value));
+        ? adapter.operators.endsWithText(
+            foldedTextColumn,
+            foldedOperand(value, true)
+          )
+        : adapter.operators.endsWithText(column, plainOperand(value, true));
     }
 
     // Array operations (for array/list scalars)
@@ -877,6 +977,7 @@ function buildScalarFilterObject(
   positivePolarity = true
 ): Sql {
   const scalarState = getScalarState(ctx, fieldName);
+  const idColumn = idColumnOf(ctx.adapter, ctx.model, fieldName, ctx.relations);
   const conditions: Sql[] = [];
 
   // Nested filter may also have mode
@@ -887,7 +988,12 @@ function buildScalarFilterObject(
     if (value === undefined) {
       continue;
     }
-    assertSupportedScalarFilterOperator(fieldName, scalarState, op);
+    assertSupportedScalarFilterOperator(
+      fieldName,
+      scalarState,
+      op,
+      idColumn?.domain
+    );
     if (op === "mode") continue;
 
     const condition = buildFilterOperation(

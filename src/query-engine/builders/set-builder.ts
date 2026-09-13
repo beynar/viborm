@@ -11,6 +11,7 @@ import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { getColumnName, getScalarFieldNames, isRelation } from "../context";
 import { QueryEngineError, type QueryScope } from "../types";
 import { decimalDescriptorOf } from "./decimal-field";
+import { idColumnOfPrivate } from "./id-field";
 import {
   type PolymorphicStorageValue,
   polymorphicStorageMembers,
@@ -80,7 +81,13 @@ function appendPolymorphicAssignments(
     assignments.push(
       ctx.adapter.set.assign(
         target,
-        buildScalarSqlValueForScalar(ctx, column.scalar, column.name, value)
+        buildScalarSqlValueForScalar(
+          ctx,
+          column.scalar,
+          column.name,
+          value,
+          idColumnOfPrivate(ctx.adapter, column.reference, ctx.relations)
+        )
       )
     );
   }

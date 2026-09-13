@@ -12,6 +12,7 @@ import type { Operation } from "@query-engine/types";
 import { ReadOperation } from "@query-engine/write-engine/ReadOperation";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
+import { createOfficialCacheNamespace } from "@src/cache/key";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   indexFor,
@@ -22,7 +23,7 @@ import type { JsonValue } from "@validation";
 import { createSchemaRegistry } from "@validation";
 import { validateJson } from "@validation/primitives/json";
 import { isRecord } from "@validation/value-guards";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const INCOMPLETE_CODEC_PATTERN = /incomplete/i;
@@ -214,12 +215,14 @@ function requireDecimal(value: unknown): Decimal {
  */
 function countDecimalConstructions(run: () => void): number {
   let count = 0;
-  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "d");
-  Object.defineProperty(Decimal.prototype, "d", {
+  // big.js names the coefficient `c`, and every construction path writes it
+  // exactly once — `parse` for a string or number, `n.c.slice()` for a copy.
+  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "c");
+  Object.defineProperty(Decimal.prototype, "c", {
     configurable: true,
     set(this: object, value: unknown) {
       count += 1;
-      Object.defineProperty(this, "d", {
+      Object.defineProperty(this, "c", {
         value,
         writable: true,
         enumerable: true,
@@ -230,8 +233,8 @@ function countDecimalConstructions(run: () => void): number {
   try {
     run();
   } finally {
-    if (previous) Object.defineProperty(Decimal.prototype, "d", previous);
-    else Reflect.deleteProperty(Decimal.prototype, "d");
+    if (previous) Object.defineProperty(Decimal.prototype, "c", previous);
+    else Reflect.deleteProperty(Decimal.prototype, "c");
   }
   return count;
 }
@@ -411,10 +414,10 @@ describe("compiled detached cache result codec", () => {
       codec.snapshot([{ decimal: new Decimal("7.5") }])
     );
     const hit = requireRecord(requireRows(codec.materialize(snapshot))[0]);
-    // decimal.js values are conventionally immutable, not frozen: a caller can
+    // big.js values are conventionally immutable, not frozen: a caller can
     // still write the internals of the instance it was handed. The next hit
     // reads the stored TEXT, so nothing it did survives.
-    Object.assign(requireDecimal(hit.decimal), { d: [9], e: 0 });
+    Object.assign(requireDecimal(hit.decimal), { c: [9], e: 0 });
 
     const next = requireRecord(requireRows(codec.materialize(snapshot))[0]);
     expect(requireDecimal(next.decimal).eq("7.5")).toBe(true);
@@ -426,11 +429,15 @@ describe("compiled detached cache result codec", () => {
     });
     // A parsed result carries the value object; a string, a number and a
     // decimal-shaped document are all incoherent results, not values to accept.
+    // The last two are the two halves of that admission: an ordinary object is
+    // outside the one prototype family big.js gives its values, and a candidate
+    // inside the family still carries only the representation it was given —
+    // `[12]` is two characters of text where big.js packs one digit.
     for (const value of [
       "1.2",
       1.2,
-      { s: 1, e: 0, d: [12] },
-      { toStringTag: "[object Decimal]", s: 1, e: 0, d: [12] },
+      { s: 1, e: 0, c: [1, 2] },
+      Object.assign(Object.create(Decimal.prototype), { s: 1, e: 0, c: [12] }),
     ]) {
       expectBoundary(() => codec.snapshot([{ decimal: value }]), "snapshot");
     }
@@ -438,7 +445,7 @@ describe("compiled detached cache result codec", () => {
     const good = portableSnapshot(
       codec.snapshot([{ decimal: new Decimal("1.2") }])
     );
-    for (const stored of ["1.20", "+1.2", 1.2, { s: 1, e: 0, d: [12] }]) {
+    for (const stored of ["1.20", "+1.2", 1.2, { s: 1, e: 0, c: [1, 2] }]) {
       const corrupt = portableSnapshot(good);
       const entry = requireRows(requireRows(requireRows(corrupt)[0])[0]);
       entry[1] = stored;
@@ -1197,5 +1204,58 @@ describe("coverage low value", () => {
       "snapshot"
     );
     expect(error.originalCause).toBeInstanceOf(Error);
+  });
+});
+
+describe("an identifier crosses the cache as its public string", () => {
+  /**
+   * The snapshot revision does NOT move for this program, and this is the
+   * evidence. A decimal bumped r2 → r3 because the same stored bytes changed
+   * MEANING — text in, value object out. An identifier's snapshot holds the
+   * same thing before and after: the public string the result parser produced.
+   * What changed is the PHYSICAL column beneath it, which no snapshot ever
+   * held, and the admission that normalizes an alias — which runs before the
+   * cache key is derived, so a pre-normalization key and a post-normalization
+   * key are different keys and no old entry is ever served under the new
+   * contract.
+   */
+  const account = s.model({
+    id: s.string().id().uuid("usr"),
+    slug: s.string().cuid(),
+    label: s.string(),
+  });
+  prepareSchema({ account });
+
+  const PUBLIC_ID = "usr-a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const PHYSICAL_ID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+  const SLUG = "tz4a98xxat96iws9zmbrgj3a";
+
+  test("the snapshot is the public string, not the physical value", () => {
+    const select = { select: { id: true, slug: true, label: true } };
+    const rows = parseResult(
+      parserFor(new PostgresAdapter(), account),
+      "findMany",
+      [{ id: PHYSICAL_ID, slug: SLUG, label: "a" }],
+      select
+    );
+    const codec = codecFor(account, "findMany", select);
+    const snapshot = portableSnapshot(codec.snapshot(rows));
+    // The snapshot is the structural encoding — entries, not objects — and the
+    // identifier rides in it as the plain public string it is.
+    expect(JSON.stringify(snapshot)).toContain(PUBLIC_ID);
+    expect(JSON.stringify(snapshot)).not.toContain(`"${PHYSICAL_ID}"`);
+    // And it comes back identical — a plain string on both sides, which is why
+    // the codec needed no identifier arm at all.
+    expect(codec.materialize(snapshot)).toEqual(rows);
+  });
+
+  test("the official snapshot revision is unchanged by this program", () => {
+    expect(
+      createOfficialCacheNamespace({
+        dialect: "postgresql",
+        namespace: "public",
+        version: undefined,
+      })
+    ).toContain(":r3:");
   });
 });

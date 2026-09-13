@@ -510,9 +510,50 @@ dependency-safe clear are compiled before anything is dropped.
 | History-free dialect-aware live planning/execution | `push/index.ts` |
 | Capability-sensitive migration client composition | `client.ts` |
 | Package export boundary | `index.ts` |
+| Identifier column type and physical form | `@schema/scalars/string/id-domain` `idStorageOf` — the three `mapScalarType`s derive from it |
+| Refusal of an alteration INTO a binary column | `binary-conversion.ts` `refuseBinaryReencoding`, from the one `alterColumn` dispatch |
+| Text→identifier conversion pre-checks, and the message PostgreSQL's `col::uuid` does not give | `identifier-conversion.ts` |
 
 If a new check cannot be assigned to exactly one row, fix the ownership before
 adding it. Consumers use trusted projections; they do not re-derive the fact.
+
+An identifier column is the clearest case of that last sentence. A declared
+format's column type is NOT a migration decision: `idStorageOf` is the same
+function the adapter's read promise and the engine's parameter binding derive
+from, so a column cannot be created as one thing and written as another. A
+foreign key's domain is derived — the serializer reads it from the resolved
+index it is already built over — and so is a junction column's and a
+polymorphic carrier's, because those hold the referenced KEY's values and that
+key may derive its own domain (the one-to-one child whose primary key is its
+parent foreign key). They are read through the same `idDomainOf(model, field,
+index)` every other column is, against the key each names; the scalar's own
+declaration answers "no domain" for a derived key and would emit a `text`
+column beside the `uuid` it references, which PostgreSQL refuses to key at all. A native
+type override is interpreted by the same function, and one the domain cannot
+live in is refused at the schema gate (F013), never mapped to a guess.
+`gen_random_uuid()` narrows accordingly: it produces a `uuid`, so a `.uuid()`
+field whose override makes it `bytea` gets no DDL default.
+
+An EXISTING text column is the other half of that. Nothing converts it
+automatically except PostgreSQL's `text` → `uuid`, and that one is a per-value
+cast: `identifier-conversion.ts` renders the three questions a conversion has to
+answer first (every row in the domain, no two rows folding together, every
+foreign key still finding its parent after the fold) as `trusted-read`
+`MigrationCheckInput`s the author runs, and emits one `DO` block before the
+generated cast so its failure names the count and the two routes instead of one
+offending row. The guard changes no outcome and owns nothing but the message;
+the refusal that does change an outcome is `binary-conversion.ts`.
+
+Two rules govern what that module renders. The fold question is asked of every
+column that carries a UNIQUENESS constraint through the fold — the key, and a
+referencing column that is by itself a complete key of its own model — and never
+of a plain many-side foreign key, whose repeats are the relation. And every
+IDENTITY comparison is asked of bytes: on MySQL each one is wrapped in
+`CAST(… AS BINARY)`, because the default `utf8mb4_0900_ai_ci` answers `=` with a
+case fold the `BINARY(n)` column will not, which certified an estate whose
+foreign key named no parent after the conversion. The grammar match stays
+uncast — MySQL's `REGEXP` refuses a binary operand, and every pattern already
+spells both cases.
 
 ## Public operation surface
 

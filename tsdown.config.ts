@@ -92,14 +92,16 @@ export default defineConfig({
     "commander",
     "pg",
     "@clack/prompts",
-    "@paralleldrive/cuid2",
-    "nanoid",
-    "ulidx",
-    // Bundling this would inline one Decimal class per entry point, and a
+    // SHA3-512 for CUID2. External for the same reason the three identifier
+    // packages it replaces were: it is a declared runtime dependency, so a
+    // consumer installs it once rather than receiving a second copy inlined
+    // into every entry that reaches the string scalar.
+    "@noble/hashes",
+    // Bundling this would inline one Big class per entry point, and a
     // `Decimal` handed back by "viborm" would not be the one "viborm/schema"
     // builds — `instanceof` fails across entries and there is no single public
     // constructor identity. `external` is not derived from `dependencies`.
-    "decimal.js",
+    "big.js",
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",

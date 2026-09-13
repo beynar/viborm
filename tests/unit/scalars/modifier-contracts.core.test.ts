@@ -15,17 +15,17 @@ import {
   vector,
 } from "@schema/scalars";
 import { isGeneratorDefault } from "@schema/scalars/common";
-import type { StandardSchemaOf } from "@standard-schema/spec";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
 import v from "@validation/primitives/v";
-import type Decimal from "decimal.js";
+import type Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 const nativeType = { db: "pg", type: "contract_type" } as const;
 const DOMAIN = { precision: 10, scale: 2 } as const;
 
 /** A Standard Schema over the decimal VALUE that accepts every Decimal. */
-const identityDecimalSchema = (): StandardSchemaOf<Decimal> => ({
+const identityDecimalSchema = (): StandardSchemaV1<Decimal> => ({
   "~standard": {
     version: 1,
     vendor: "modifier-contracts",
@@ -221,7 +221,7 @@ describe("scalar modifier contracts", () => {
 
   it("keeps an int custom schema active after nullable() rebuilds the base", () => {
     let runs = 0;
-    const schema: StandardSchemaOf<number> = {
+    const schema: StandardSchemaV1<number> = {
       "~standard": {
         version: 1,
         vendor: "modifier-contracts",

@@ -5,6 +5,7 @@ import {
   logicalToCoefficient,
 } from "@validation/primitives/decimal-codec";
 import { isRecord } from "@validation/value-guards";
+import { aggregateOperandExpression } from "../builders/aggregate-utils";
 import {
   decimalDescriptorOf,
   describeWidenedSumRefusal,
@@ -215,6 +216,11 @@ function buildFieldKeyedHaving(
     // Resolve field name to column name
     const columnName = getColumnName(ctx.model, fieldName);
     const column = adapter.identifiers.column(alias, columnName);
+    // The SELECT list and this clause aggregate the same column, so they read
+    // the same owner for what they aggregate OVER: an identifier is aggregated
+    // in its transported spelling, because PostgreSQL has no `min(uuid)` and no
+    // `min(bytea)` to aggregate the stored one with.
+    const aggregated = aggregateOperandExpression(ctx, fieldName, column);
 
     const aggregateValue = value as Record<string, unknown>;
     const decimal = decimalDescriptorOf(ctx.model, fieldName);
@@ -225,21 +231,21 @@ function buildFieldKeyedHaving(
       let aggExpr: Sql;
       switch (aggType) {
         case "_count":
-          aggExpr = adapter.aggregates.count(column);
+          aggExpr = adapter.aggregates.count(aggregated);
           break;
         case "_avg":
           aggExpr = decimal
-            ? adapter.aggregates.decimalAvg(column, decimal)
-            : adapter.aggregates.avg(column);
+            ? adapter.aggregates.decimalAvg(aggregated, decimal)
+            : adapter.aggregates.avg(aggregated);
           break;
         case "_sum":
-          aggExpr = adapter.aggregates.sum(column);
+          aggExpr = adapter.aggregates.sum(aggregated);
           break;
         case "_min":
-          aggExpr = adapter.aggregates.min(column);
+          aggExpr = adapter.aggregates.min(aggregated);
           break;
         case "_max":
-          aggExpr = adapter.aggregates.max(column);
+          aggExpr = adapter.aggregates.max(aggregated);
           break;
         default:
           // Not an aggregate type - ignore

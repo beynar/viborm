@@ -20,7 +20,7 @@ import {
   geoPointContract,
   setupGeoPointBehaviorSQLite,
 } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {

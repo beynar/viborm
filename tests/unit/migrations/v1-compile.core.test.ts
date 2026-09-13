@@ -18,7 +18,7 @@ import {
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { invertOperations } from "@src/migrations/invert";
 import { SqlAssembly } from "@src/migrations/sql-assembly";
-import Decimal from "decimal.js";
+import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 import {
   mysqlEstateDriver,

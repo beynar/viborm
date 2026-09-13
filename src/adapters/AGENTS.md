@@ -124,7 +124,32 @@ domains before assignment. Raw SQL deliberately sees the provider
 representation, including SQLite's scaled coefficient, and owns its session
 mode.
 
-### Rule 7: GeoPoint Is One Settled Protocol
+### Rule 7: An Identifier Is Three Dialect Facts And Nothing More
+
+A declared identifier format is stored as the identifier itself, and the adapter
+owns exactly three statements about that:
+
+| Member | What it says |
+| --- | --- |
+| `result.idRepresentation(domain, nativeType)` | what the column physically holds here — `"text"`, `"uuid"` or `"bytes"` |
+| `literals.id(physical, representation)` | how an operand in that form BINDS |
+| `expressions.idCast(expr, representation)` | how a DEFERRED value is cast into the column's type |
+
+All three derive from `@schema/scalars/string/id-domain`'s `idStorageOf`, which
+is also where the migration column type comes from — so the column a push
+creates and the parameter a write binds cannot be two decisions. Do not add a
+second per-format table, and do not read a format, a prefix or an alphabet in an
+adapter: the value arrives already encoded by the codec.
+
+A PostgreSQL `uuid` operand is TYPED (`CAST($1 AS UUID)`) because there is no
+`uuid = text` operator; every byte-stored column takes the payload as the
+ordinary binary parameter blob scalars already bind, so nine drivers' nine
+binary spellings stay the drivers' business. `idCast` exists for the same reason
+`decimalCast` does: a relation key whose value does not exist at build time
+cannot go through `literals.id`, and the generic `text` cast names a type the
+column does not have.
+
+### Rule 8: GeoPoint Is One Settled Protocol
 
 `DatabaseAdapter.geoPoint` is the sole GeoPoint SQL vocabulary: value,
 longitude, latitude, equality, inclusive bounds, and optional polygon/distance.
@@ -134,7 +159,7 @@ presence of the optional members proves the full query tier. Do not add a
 geospatial capability boolean, mutable member, strategy, generic geometry, or
 second parser.
 
-### Rule 8: List Updates Receive One Complete Container
+### Rule 9: List Updates Receive One Complete Container
 
 `DatabaseAdapter.set.push()` and `.unshift()` receive one already encoded `Sql`
 container, never loose JavaScript members. The query engine's scalar-value

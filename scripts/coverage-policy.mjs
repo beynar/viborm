@@ -19,7 +19,6 @@ const publicFiles = new Set([
   "src/clock.ts",
   "src/config.ts",
   "src/index.ts",
-  "src/standard-schema-spec.d.ts",
   "src/standardSchema.ts",
   "src/version.ts",
 ]);

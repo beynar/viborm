@@ -1,6 +1,10 @@
 import type { NativeType } from "@schema/scalars/native-types";
 import type { DateTimePhysicalForm } from "@validation/primitives/datetime-physical-codec";
 import type { DecimalPhysicalRepresentation } from "@validation/primitives/decimal-codec";
+import type {
+  IdDomain,
+  IdRepresentation,
+} from "@validation/primitives/id-codec";
 
 export interface AdapterResultParser {
   /**
@@ -79,6 +83,31 @@ export interface AdapterResultParser {
    * malformed rows every other list type refuses.
    */
   enumListRepresentation?: "arrayText";
+
+  /**
+   * How this dialect physically spells one identifier DOMAIN on a column that
+   * declares the given native type.
+   *
+   * `"text"` is the whole public string; `"uuid"` the payload as canonical UUID
+   * text, which is what a PostgreSQL `uuid` column returns; `"bytes"` the
+   * payload's own bytes, in whatever binary shape the driver spells them.
+   *
+   * A function of the DOMAIN and the field's own native type override, not a
+   * constant, because both move the answer: a ULID is `bytea` on PostgreSQL and
+   * `BINARY(16)` on MySQL, and a `varchar(26)` override keeps either one text
+   * while the domain stays admitted. It is DECLARED and never inferred for the
+   * same reason {@link AdapterResultParser.decimalRepresentation} is — sixteen
+   * bytes and a 36-character string are the same identifier, and a value cannot
+   * be read without knowing which promise produced it.
+   *
+   * Unset means the dialect stores every domain as text. Every shipped adapter
+   * declares it; the option exists so a custom adapter that keeps text columns
+   * is a complete adapter.
+   */
+  idRepresentation?: (
+    domain: IdDomain,
+    nativeType: NativeType | undefined
+  ) => IdRepresentation;
 
   /**
    * When `true`, {@link AdapterResultParser.parseField} performs NO

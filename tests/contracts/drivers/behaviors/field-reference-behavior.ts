@@ -51,6 +51,14 @@ const JSON_DATA_REFUSAL =
   /Field reference 'post\.payload' is not supported in JSON write data/;
 const DECIMAL_DOMAIN_REFUSAL =
   /Field reference 'rate' cannot be compared with 'fee' on 'post': 'fee' is decimal\(12,2\) and 'rate' is decimal\(12,4\)/;
+/** Two values of one compact domain, and its prefix is in neither column. */
+const TOKEN_A = "tok-a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
+const TOKEN_B = "tok-b1ffcd88-8d0a-4bf7-aa5c-5aa8ac270b22";
+
+const ID_STORAGE_REFUSAL =
+  /Field reference 'slug' cannot be compared with 'token' on 'post': 'token' is a uuid value prefixed 'tok-', stored as/;
+const ID_STORAGE_REFUSAL_REVERSED =
+  /Field reference 'token' cannot be compared with 'slug' on 'post': 'slug' is plain string text/;
 const ENUM_ORDER_REFUSAL =
   /is not supported on an enum field: PostgreSQL orders enum values by their declaration order/;
 
@@ -97,6 +105,12 @@ export function runFieldReferenceBehavior({
             fee: "10",
             discount: "9",
             rate: "10",
+            // The one row whose two identifier columns hold ONE value, and the
+            // one row whose text-stored identifier equals its plain echo.
+            token: TOKEN_A,
+            mirror: TOKEN_A,
+            handle: "same-text-12",
+            handleEcho: "same-text-12",
             authorId: "u1",
           },
           // views == likes, and fee == discount
@@ -109,6 +123,10 @@ export function runFieldReferenceBehavior({
             fee: "7.25",
             discount: "7.25",
             rate: "7.25",
+            token: TOKEN_A,
+            mirror: TOKEN_B,
+            handle: "same-text-12",
+            handleEcho: "other-text1",
             authorId: "u1",
           },
           // views < likes, and fee < discount
@@ -494,6 +512,50 @@ export function runFieldReferenceBehavior({
           where: { fee: (ctx: PostCtx) => ctx.fields.rate } as never,
         })
       ).rejects.toThrow(DECIMAL_DOMAIN_REFUSAL);
+    });
+
+    test("two identifiers of the SAME storage compare as columns", async () => {
+      // `hot` holds one value in both columns and `even` holds two; every other
+      // row holds neither. A comparison that became a bound parameter, or one
+      // that compared the public text of one column with the payload of the
+      // other, cannot produce this pair of answers.
+      expect(
+        await postIds({
+          token: { equals: (ctx: PostCtx) => ctx.fields.mirror },
+        })
+      ).toEqual(["hot"]);
+      expect(
+        await postIds({ token: { not: (ctx: PostCtx) => ctx.fields.mirror } })
+      ).toEqual(["even"]);
+    });
+
+    test("an identifier against a plain string column is refused, not answered", async () => {
+      // Both rows that hold a token hold it in `slug` too — as the PUBLIC text,
+      // which is what the column would have to contain for this to be true. The
+      // compact column holds sixteen bytes without the prefix, so the
+      // comparison answered `[]` and looked like an honest empty result.
+      await expect(
+        db().post.findMany({
+          where: { token: { equals: (ctx: PostCtx) => ctx.fields.slug } },
+        })
+      ).rejects.toThrow(ID_STORAGE_REFUSAL);
+
+      await expect(
+        db().post.findMany({
+          where: { slug: { equals: (ctx: PostCtx) => ctx.fields.token } },
+        })
+      ).rejects.toThrow(ID_STORAGE_REFUSAL_REVERSED);
+    });
+
+    test("a text-stored identifier still compares with a plain string", async () => {
+      // The control for the refusal above: `nanoid` stores the string it shows,
+      // so this comparison asks exactly what it appears to ask. Refusing it
+      // would be the storage check over-reaching.
+      expect(
+        await postIds({
+          handle: { equals: (ctx: PostCtx) => ctx.fields.handleEcho },
+        })
+      ).toEqual(["hot"]);
     });
 
     test("a cross-model reference is refused before any I/O", async () => {

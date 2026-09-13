@@ -37,7 +37,7 @@ It means one exact fixed-decimal domain:
 - inputs that do not fit are rejected rather than silently rounded;
 - multiplication, division, and average round unavoidable fractional results
   with round-half-to-even; and
-- public values are immutable Decimal.js value objects.
+- public values are immutable big.js value objects.
 
 One canonical plain-decimal string remains the private logical representation
 for validation, SQL binding, identity, cache serialization, diagnostics, and
@@ -62,14 +62,15 @@ Every typed read returns a `Decimal` whose exact value is 12.34. No typed path
 returns a JavaScript number, a public transport string, or the SQLite
 coefficient.
 
-VibORM takes a direct runtime dependency on `decimal.js` and re-exports its
-`Decimal` constructor. This buys the application an exact value type and
-ordinary `.plus()`, `.minus()`, `.times()`, `.div()`, comparison, and explicit
-`.toNumber()` methods. It does **not** delegate database semantics to
-Decimal.js: the field descriptor and codec still own precision, scale,
-overflow, SQL rounding, and physical representation. Decimal.js configuration
-affects only arithmetic the application performs on returned values; VibORM's
-own SQL and codecs never consult that mutable configuration.
+VibORM takes a direct runtime dependency on `big.js` (and on `@types/big.js`,
+which big.js does not ship) and re-exports its `Big` constructor as `Decimal`.
+This buys the application an exact value type and ordinary `.plus()`,
+`.minus()`, `.times()`, `.div()`, comparison, and explicit `.toNumber()`
+methods. It does **not** delegate database semantics to big.js: the field
+descriptor and codec still own precision, scale, overflow, SQL rounding, and
+physical representation. big.js configuration (`DP`, `RM`, `NE`, `PE`,
+`strict`) affects only arithmetic and formatting the application performs on
+returned values; VibORM's own SQL and codecs never consult it.
 
 ## 1. One decimal concept
 
@@ -114,7 +115,7 @@ The implementation deletes these existing or planned alternatives:
 - the transitional `createClient({ decimal: "number" })` option;
 - `decimalDecode: "string" | "number"` threading;
 - a public canonical-string result mode;
-- a second ORM-owned decimal class or wrapper around Decimal.js; and
+- a second ORM-owned decimal class or wrapper around big.js; and
 - any compatibility alias or old-storage reader.
 
 There is no separate “fixed decimal” factory. “Fixed decimal” remains the
@@ -187,15 +188,17 @@ already lost in binary floating point. For example, `0.1 + 0.2` becomes
 `"0.30000000000000004"`; a scale-2 field refuses it instead of rounding it to
 `"0.3"`.
 
-An input `Decimal` may come from the constructor exported by VibORM or a
-Decimal.js clone. `Decimal.isDecimal()` identifies the candidate but is not a
-trust token: VibORM copies it with the exported constructor, renders the copy
-once in exact non-exponential form with Decimal.js's public API, canonicalizes
-that text, and validates the complete descriptor. It never retains a
-caller-owned instance or trusts candidate internals directly. Access,
-construction, or rendering failures are normalized at the existing validation
-boundary. A Decimal created from exponent notation is valid when its exact
-expanded value fits; a raw exponent string remains outside the string grammar.
+An input `Decimal` may come from the constructor exported by VibORM or from a
+second big.js constructor (`Decimal()`), whose instances share the one
+prototype. big.js offers no trust token at all: VibORM identifies the family by
+that captured prototype, reads the candidate's complete `s`/`e`/`c`
+representation once into a plain snapshot, renders that snapshot in exact
+non-exponential form without calling any library method, canonicalizes the
+text, and validates the complete descriptor. It never retains a caller-owned
+instance or trusts candidate internals directly. Access and rendering failures
+are normalized at the existing validation boundary. A Decimal created from
+exponent notation is valid when its exact expanded value fits; a raw exponent
+string remains outside the string grammar.
 
 Canonical private text removes a leading plus, insignificant leading/trailing
 zeros, a trailing decimal point, and negative zero:
@@ -206,7 +209,7 @@ zeros, a trailing decimal point, and negative zero:
 ```
 
 Scale is a domain limit, not display formatting. The returned Decimal represents
-1.2 rather than preserving the input spelling `1.20000`. Decimal.js formatting
+1.2 rather than preserving the input spelling `1.20000`. big.js formatting
 methods control application presentation; they never define storage or cache
 identity.
 
@@ -244,7 +247,7 @@ await db.invoice.update({
 ```
 
 Do not add `VibDecimal`, a wrapper, a field-bound Decimal subclass, a decimal
-manager, or a second constructor. Decimal.js remains the value owner; the
+manager, or a second constructor. big.js remains the value owner; the
 field-aware codec remains the database-domain owner.
 
 The boundary rules are exact:
@@ -255,10 +258,10 @@ The boundary rules are exact:
   reconstruct public Decimal instances at the result boundary;
 - `Decimal#toJSON()` provides a string for ordinary application JSON, but core
   correctness never depends on JSON round-tripping a Decimal prototype;
-- equality in application code uses Decimal.js comparison methods such as
+- equality in application code uses big.js comparison methods such as
   `.eq()`, not JavaScript object identity;
 - `.toNumber()` is the explicit lossy escape hatch; and
-- Decimal.js precision and rounding configuration governs only application
+- big.js `DP`/`RM` configuration governs only application
   arithmetic. Database `multiply`, `divide`, and `_avg` keep the descriptor's
   provider-independent half-even contract.
 
@@ -340,7 +343,7 @@ relation carriers, and generated outputs cast coefficients to text before a
 driver can round an int64 into a JavaScript number.
 
 SQLite never uses `DECIMAL(...)`, NUMERIC affinity, `REAL`, `total()`, or a
-post-read Decimal.js object as a repair for imprecise physical storage. The
+post-read big.js object as a repair for imprecise physical storage. The
 Decimal is constructed only after exact coefficient decoding succeeds.
 
 ### 3.5 Raw SQL
@@ -690,8 +693,8 @@ newer data no longer fits the old domain.
 
 ### Unit A — Public domain and exact-one update schemas
 
-- Add `decimal.js` as a direct runtime dependency and export its `Decimal`
-  constructor/type from `viborm`.
+- Add `big.js` and `@types/big.js` as direct runtime dependencies and export
+  the `Big` constructor/type from `viborm` under the name `Decimal`.
 - Replace the decimal factory with the required descriptor object.
 - Carry the immutable descriptor through every modifier.
 - Build Decimal/string/number input schemas and Decimal scalar/list result
@@ -793,11 +796,12 @@ construction beyond the one public value materialization per result leaf.
 - Scalar output is `Decimal`; list output is `Decimal[]`; nullable forms are
   exact. The constructor exported from `viborm` constructs accepted inputs and
   matches result instances.
-- A custom schema receives Decimal and cannot return string, number, NaN,
-  infinity, or an arbitrary decimal-like object.
-- Inputs from the exported constructor and a Decimal.js clone work; malformed
-  or forged Decimal candidates cannot bypass canonical grammar, finiteness,
-  precision, or scale validation.
+- A custom schema receives Decimal and cannot return string, number, or an
+  arbitrary decimal-like object. There is no NaN or infinity to return: big.js
+  constructs neither.
+- Inputs from the exported constructor and from a second big.js constructor
+  work; malformed or forged Decimal candidates cannot bypass canonical grammar,
+  the render ceiling, precision, or scale validation.
 - Distinct result instances for the same value compare equal with `.eq()` but
   are never relied on through `===`.
 - Scale zero, maximum values, negative zero, leading/trailing zeros, values
@@ -819,7 +823,7 @@ construction beyond the one public value materialization per result leaf.
   boundary.
 - Public/manual result parsing remains hostile-input safe and never mutates
   borrowed input.
-- Decimal.js constructor configuration changes cannot alter SQL, physical
+- big.js constructor configuration changes cannot alter SQL, physical
   encoding, cache identity, migrations, database rounding, or result
   validation.
 
@@ -940,7 +944,7 @@ The decimal is nailed only when all statements are true:
 2. Precision and scale are immutable scalar state and have no second owner.
 3. Round-half-to-even is the one V1 derived-result rule and is not exposed as a
    one-value configuration concept.
-4. Public scalar/list results are fresh Decimal.js values; no public
+4. Public scalar/list results are fresh big.js values; no public
    string/number result mode or ORM-owned Decimal wrapper exists.
 5. PostgreSQL uses `NUMERIC(p,s)`, MySQL uses `DECIMAL(p,s)`, and SQLite uses a
    checked scaled integer.
@@ -969,8 +973,9 @@ The decimal is nailed only when all statements are true:
     hidden scaling.
 19. Current refusal helpers, compatibility options, native override, duplicate
     codecs, and obsolete documentation are deleted in the same program.
-20. `decimal.js` is the one direct value-object dependency and `viborm` exports
-    its one Decimal constructor/type; application arithmetic configuration
+20. `big.js` is the one direct value-object dependency (with `@types/big.js`
+    beside it, because big.js ships no declarations) and `viborm` exports its
+    one constructor/type as `Decimal`; application arithmetic configuration
     cannot alter ORM/database semantics.
 21. All focused, type, layer, coverage, package, provider, core, and aggregate
     gates pass with honest hosted-provider reporting.

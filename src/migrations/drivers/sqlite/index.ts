@@ -1,3 +1,5 @@
+import { idStorageOf } from "@schema/scalars/string/id-domain";
+import type { IdDomain } from "@validation/primitives/id-codec";
 /**
  * SQLite Migration Driver
  *
@@ -206,8 +208,19 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // TYPE MAPPING
   // ===========================================================================
 
-  mapScalarType(scalar: Scalar, scalarState: ScalarState): string {
+  mapScalarType(
+    scalar: Scalar,
+    scalarState: ScalarState,
+    idDomain?: IdDomain
+  ): string {
     const nativeType = scalar["~"].nativeType;
+
+    // See the PostgreSQL driver: one storage owner, override included.
+    const idStorage =
+      idDomain === undefined || scalarState.array === true
+        ? undefined
+        : idStorageOf(idDomain, nativeType, "sqlite");
+    if (idStorage) return idStorage.columnType;
 
     // SQLite has no native list type. A native declaration can describe one
     // scalar member only; every list keeps its container below.
