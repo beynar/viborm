@@ -99,6 +99,20 @@ A ULID is never spelled as a `uuid`: its bytes are not a UUID's, and a database
 that formatted them as one would publish a version nibble the value does not
 have.
 
+**What compact storage buys.** Measured on the project's containers at 200,000
+rows per table (`scripts/measure-id-storage.mjs`; the raw numbers are in
+`docs/architecture/native-ids-evidence/final.json`):
+
+| Compared to text | Table + index | Index alone |
+|---|---|---|
+| PostgreSQL uuid as `uuid` | −37% | −47% |
+| PostgreSQL ULID as `bytea` | −14% | −18% |
+| MySQL uuid as `BINARY(16)` | −26% to −29% (clustered key) | −46% as a secondary index |
+| MySQL ULID as `BINARY(16)` | −22% (clustered key) | −24% as a secondary index |
+
+Random uuids gain the most because a text btree over them fragments as well as
+being wider; a time-sorted format saves mostly on width.
+
 **Foreign keys derive.** A column that references a key holds exactly what that
 key holds, so it needs no declaration of its own — it is admitted, normalized
 and stored the same way automatically. See
