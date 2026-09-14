@@ -1,0 +1,11 @@
+{
+  "formatVersion": 1,
+  "source": "generated-corpus.json",
+  "file": "generated-corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 78700582,
+  "originalSha256": "9cad7afcca7cc23ed2d902b84e92d3f98cd0ea790330d1c4e76db1901df44e31",
+  "archiveBytes": 1389330,
+  "receipt": "generated-corpus.archive.json",
+  "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc generated-corpus.json.gz > \"$g3_corpus_restore_dir/generated-corpus.json\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+}

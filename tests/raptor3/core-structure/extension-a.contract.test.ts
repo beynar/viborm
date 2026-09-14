@@ -325,7 +325,7 @@ it("CS-01 A preserves the createMany terminal underflow error contract", async (
   }
 });
 
-it("CS-01 A does not widen scalar returning or projection capabilities", async () => {
+it("CS-01 A returns selected scalar updates but does not widen relation projections", async () => {
   const world = await selfNodeWorld();
   try {
     world.database.exec(
@@ -335,35 +335,33 @@ it("CS-01 A does not widen scalar returning or projection capabilities", async (
       schema: world.schema,
       driver: world.driver,
     });
+    assert.deepEqual(
+      await candidate.execute("node", "updateMany", {
+        where: { id: 1 },
+        data: { label: "scalar" },
+        select: { id: true },
+      }),
+      [{ id: 1 }]
+    );
+    const statementsAfterScalar = world.driver.statements.length;
+    assert(statementsAfterScalar > 0);
+    const relationWrite = {
+      where: { id: 1 },
+      data: { children: { create: { id: 2, label: "child" } } },
+    };
     const attempts = [
       {
+        name: "selected relation",
         args: {
-          where: { id: 1 },
-          data: { label: "scalar" },
-          select: { id: true },
-        },
-        error: UnsupportedOperationError,
-      },
-      {
-        args: {
-          where: { id: 1 },
-          data: { children: { create: { id: 2, label: "child" } } },
+          ...relationWrite,
           select: { children: true },
         },
         error: ValidationError,
       },
       {
+        name: "included relation",
         args: {
-          where: { id: 1 },
-          data: { children: { create: { id: 2, label: "child" } } },
-          omit: { label: true },
-        },
-        error: UnsupportedOperationError,
-      },
-      {
-        args: {
-          where: { id: 1 },
-          data: { children: { create: { id: 2, label: "child" } } },
+          ...relationWrite,
           include: { children: true },
         },
         error: ValidationError,
@@ -373,15 +371,29 @@ it("CS-01 A does not widen scalar returning or projection capabilities", async (
     for (const attempt of attempts) {
       await assert.rejects(
         candidate.execute("node", "updateMany", attempt.args),
-        (failure) => failure instanceof attempt.error
+        (failure) => failure instanceof attempt.error,
+        attempt.name
       );
     }
-    assert.equal(world.driver.statements.length, 0);
+    assert.equal(world.driver.statements.length, statementsAfterScalar);
+    assert.deepEqual(
+      await candidate.execute("node", "updateMany", {
+        ...relationWrite,
+        omit: { label: true },
+      }),
+      [{ id: 1, parentId: null }]
+    );
+    assert(world.driver.statements.length > statementsAfterScalar);
     assert.deepEqual(
       world.database
-        .prepare("SELECT id,label,parentId FROM cs01_selection_nodes")
-        .get(),
-      { id: 1, label: "original", parentId: null }
+        .prepare(
+          "SELECT id,label,parentId FROM cs01_selection_nodes ORDER BY id"
+        )
+        .all(),
+      [
+        { id: 1, label: "scalar", parentId: null },
+        { id: 2, label: "child", parentId: 1 },
+      ]
     );
   } finally {
     await world.client.$disconnect();

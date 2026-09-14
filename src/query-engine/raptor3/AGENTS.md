@@ -257,9 +257,12 @@ execution ownership once in `OperationContext`. With no binding, reads and
 writes keep their qualified standalone routes. A `borrowed-transaction` binding
 uses the exact supplied transaction driver directly; the candidate does not
 open or close a transaction, create a savepoint, disconnect, replay, or fall
-back to the factory driver. An `atomic-array` binding is a capability refusal
-and must throw `TransactionError` before raw-argument admission or provider
-work. `usesBatch` describes only the standalone physical batch route; it is not
+back to the factory driver. The optional executable `memberRollback` capability
+is the only authority for one operation-owned member rollback region inside a
+borrowed transaction; the context uses only the scoped driver supplied to its
+callback. An `atomic-array` binding is a capability refusal and must throw
+`TransactionError` before raw-argument admission or provider work. `usesBatch`
+describes only the standalone physical batch route; it is not
 an atomicity, lifecycle, recovery, or commit-certainty fact. Keep the retained
 program specimen mechanically callable through the same private shape without
 adding another ownership model.
@@ -270,30 +273,41 @@ same schema admission and command dispatch with a preparation-owned
 Preparation queues complete static statements and a result parser; it never
 reads, dispatches, opens a lifecycle, or executes a segment. Only the exact
 dynamic-planning sentinel becomes `undefined`; validation, construction, and
-provider failures surface. Scalar `createMany`, scalar `updateMany`, and
-`deleteMany` each lower to one set-oriented statement. A relation-bearing
+provider failures surface. Scalar `createMany` lowers each maximal contiguous
+physical row-shape run to one set-oriented statement, further partitioned only
+by `compileBindBudgetChunks` against the driver's normalized verified bind
+capacity; terminal identity reads use that same neutral chunk owner. Each
+default-only row needs its own
+`DEFAULT VALUES` statement. Scalar `updateMany` and `deleteMany` each lower to
+one predicate mutation statement. A relation-bearing
 `updateMany` stays on the ordinary captured-record series in its provider order.
-An admitted empty `createMany` is a completed zero-query package whose parser
-returns `{ count: 0 }`, or `[]` for the selected form; it is not incomplete
-planning and emits no dummy statement. Admitted `updateMany`/`deleteMany`
-limits and relation-bearing `updateMany` terminal selection reuse these same
-set or captured-series owners. Scalar-return selection, scalar `omit`, relation
-`omit`, and relation projection remain refused at their existing boundary; an
-incompletely packageable operation still returns only the dynamic-planning
-sentinel.
+An admitted empty bulk result—empty `createMany`, or zero-limit `updateMany` /
+`deleteMany`—is a completed zero-query package whose parser returns
+`{ count: 0 }`, or `[]` for the selected form; it is not incomplete planning
+and emits no dummy statement. Other admitted `updateMany`/`deleteMany` limits
+and relation-bearing `updateMany` terminal selection reuse the same set or
+captured-series owners. Returning adapters package scalar selection and omit
+with the mutation. Non-returning adapters prepare mutation and projection
+meaning once, then use the operation-owned locked identity capture and bounded
+terminal-reader path during interactive execution; preparation returns only the
+dynamic-planning sentinel when that readback cannot be statically packaged.
+Standalone mutation statement windows on a batch-only driver always enter the
+existing `queue()` / `submit()` route. The same route owns atomic dispatch,
+acknowledgement, uncertain commit progress, and result-phase failure after an
+acknowledged write; no scalar mutation loop dispatches those statements
+directly.
 The existing client array owner alone merges package windows or supplies one
 borrowed transaction for sequential fallback. Do not add a candidate-owned
 array coordinator, transaction protocol, or standalone segment fallback.
 
-G3P-04 admits root-conflict suppression only when the standalone operation owns
-the member rollback region. The relation-bearing record series uses the existing
-transaction driver's nested `withTransaction` boundary; it suppresses only the
-exact annotated root unique failure after successful rollback. A plain
-`borrowed-transaction` binding remains refused before member effects even when
-its driver supports savepoints: neither the payload nor the binding grants that
-authority. G3 public composition must receive a separately admitted rollback
-region from the existing callback/array transaction owner. That handoff is not
-proved by G3P-04 and must not be inferred from transport capability.
+G3P-04 admits root-conflict suppression only when the operation owns the member
+rollback region. A standalone interactive operation uses the existing
+transaction driver's nested `withTransaction` boundary; a borrowed operation
+must receive the executable `memberRollback` capability from the existing
+callback/array transaction owner. Both suppress only the exact annotated root
+unique failure after successful rollback. A plain `borrowed-transaction`
+binding remains refused before member effects even when its driver supports
+savepoints: neither the payload nor transport capability grants that authority.
 
 Construction-time suppression refusal belongs to the existing command analysis
 pass. A statically constructed suppressed descendant directly requires the

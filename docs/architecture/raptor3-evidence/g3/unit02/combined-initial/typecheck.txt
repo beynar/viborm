@@ -1,0 +1,26 @@
+command: /Users/arnaud/.vite-plus/bin/node scripts/run-typecheck.mjs
+exit_code: 1
+
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g3/bulk-series-contract.test.ts(240,25): error TS2322: Type 'unknown' is not assignable to type 'number'.
+tests/raptor3/g3/bulk-series-contract.test.ts(240,29): error TS2322: Type 'unknown' is not assignable to type 'number'.
+tests/raptor3/g3/scope-composition-native.test.ts(34,3): error TS2322: Type 'unknown' is not assignable to type 'number'.
+tests/raptor3/g3/scope-composition-native.test.ts(174,20): error TS18046: 'left' is of type 'unknown'.
+tests/raptor3/g3/scope-composition-native.test.ts(174,27): error TS18046: 'right' is of type 'unknown'.
+TypeScript (whole estate, native): 19.25s wall, 4745.3 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+
+git-hash-object:
+a9465bfe6aee9e3a1bf8325c3b48bf97a99b9b8c
+390f247c37a34bccf672f33713b2354f4809162a
+5db573bdeedb9dbb0402c76930aa11e8a2819368
+bf3786d4c5b19e2f82feadeeceeb7a81e552f470
+4bb407e87d3b03eff7ce2244a3eb35420abd9377
+f9dd88912113f90659d9977638465280c92941fb
+ebeb5373cca946d9739daac13cf0fa7f3340b4d5

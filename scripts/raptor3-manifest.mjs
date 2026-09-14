@@ -300,10 +300,8 @@ export const CS03_EXTENSION_CAMPAIGN_TESTS = Object.freeze(
   Object.keys(CS03_EXTENSION_CAMPAIGN_COUNTS)
 );
 export const CS03_EXTENSION_SUPPORT_COUNTS = Object.freeze({
-  "tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts":
-    5,
-  "tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts":
-    42,
+  "tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts": 5,
+  "tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts": 42,
 });
 export const CS03_EXTENSION_SUPPORT_TESTS = Object.freeze(
   Object.keys(CS03_EXTENSION_SUPPORT_COUNTS)
@@ -353,6 +351,85 @@ export const G3P05_CONTRACT_COUNTS = Object.freeze({
 });
 export const G3P05_CONTRACT_TESTS = Object.freeze(
   Object.keys(G3P05_CONTRACT_COUNTS)
+);
+export const G3_BULK_SERIES_COUNTS = Object.freeze({
+  "tests/raptor3/g3/bulk-series-contract.test.ts": 6,
+});
+export const G3_BULK_SERIES_TESTS = Object.freeze(
+  Object.keys(G3_BULK_SERIES_COUNTS)
+);
+export const G3_SUPPRESSION_RETRY_COUNTS = Object.freeze({
+  "tests/raptor3/g3/suppression-retry-contract.test.ts": 2,
+});
+export const G3_SUPPRESSION_RETRY_TESTS = Object.freeze(
+  Object.keys(G3_SUPPRESSION_RETRY_COUNTS)
+);
+export const G3_TRANSACTION_ARRAY_COUNTS = Object.freeze({
+  "tests/raptor3/g3/transaction-array-contract.test.ts": 4,
+});
+export const G3_TRANSACTION_ARRAY_TESTS = Object.freeze(
+  Object.keys(G3_TRANSACTION_ARRAY_COUNTS)
+);
+export const G3_DEPTH_RECURRENCE_COUNTS = Object.freeze({
+  "tests/raptor3/g3/depth-recurrence-contract.test.ts": 6,
+});
+export const G3_DEPTH_RECURRENCE_TESTS = Object.freeze(
+  Object.keys(G3_DEPTH_RECURRENCE_COUNTS)
+);
+export const G3_SCOPE_COMPOSITION_PROVIDER_COUNTS = Object.freeze({
+  "tests/raptor3/g3/scope-composition-native.test.ts": 2,
+});
+export const G3_SCOPE_COMPOSITION_PG_COUNTS =
+  G3_SCOPE_COMPOSITION_PROVIDER_COUNTS;
+export const G3_SCOPE_COMPOSITION_PG_TESTS = Object.freeze(
+  Object.keys(G3_SCOPE_COMPOSITION_PG_COUNTS)
+);
+export const G3_SCOPE_COMPOSITION_MYSQL_COUNTS =
+  G3_SCOPE_COMPOSITION_PROVIDER_COUNTS;
+export const G3_SCOPE_COMPOSITION_MYSQL_TESTS = Object.freeze(
+  Object.keys(G3_SCOPE_COMPOSITION_MYSQL_COUNTS)
+);
+export const G3_GENERATED_SMOKE_COUNTS = Object.freeze({
+  "tests/raptor3/g3/generation/generated-smoke.test.ts": 6,
+});
+export const G3_GENERATED_SMOKE_TESTS = Object.freeze(
+  Object.keys(G3_GENERATED_SMOKE_COUNTS)
+);
+export const G3_GENERATED_TRANSPORT_SMOKE_COUNTS = Object.freeze({
+  "tests/raptor3/g3/generation/generated-transport-smoke.test.ts": 1,
+});
+export const G3_GENERATED_TRANSPORT_SMOKE_TESTS = Object.freeze(
+  Object.keys(G3_GENERATED_TRANSPORT_SMOKE_COUNTS)
+);
+export const G3_GENERATED_MINIMIZATION_COUNTS = Object.freeze({
+  "tests/raptor3/g3/generation/failure-minimization.test.ts": 1,
+});
+export const G3_GENERATED_MINIMIZATION_TESTS = Object.freeze(
+  Object.keys(G3_GENERATED_MINIMIZATION_COUNTS)
+);
+export const G3_EXECUTION_REVIEW_COUNTS = Object.freeze({
+  "tests/raptor3/g3/review-execution-boundaries.test.ts": 5,
+});
+export const G3_EXECUTION_REVIEW_TESTS = Object.freeze(
+  Object.keys(G3_EXECUTION_REVIEW_COUNTS)
+);
+export const G3_AUTHOR_EXECUTION_REGRESSION_COUNTS = Object.freeze({
+  "tests/raptor3/g3/author-execution-regressions.test.ts": 2,
+});
+export const G3_AUTHOR_EXECUTION_REGRESSION_TESTS = Object.freeze(
+  Object.keys(G3_AUTHOR_EXECUTION_REGRESSION_COUNTS)
+);
+export const G3_SCOPE_FAILURE_COUNTS = Object.freeze({
+  "tests/raptor3/g3/scope-failure-contract.test.ts": 2,
+});
+export const G3_SCOPE_FAILURE_TESTS = Object.freeze(
+  Object.keys(G3_SCOPE_FAILURE_COUNTS)
+);
+export const G3_BULK_RESULT_BOUNDARY_COUNTS = Object.freeze({
+  "tests/raptor3/g3/bulk-result-boundary.test.ts": 3,
+});
+export const G3_BULK_RESULT_BOUNDARY_TESTS = Object.freeze(
+  Object.keys(G3_BULK_RESULT_BOUNDARY_COUNTS)
 );
 export const G2_BASELINE_TESTS = Object.freeze(Object.keys(G2_BASELINE_COUNTS));
 export const G2_CONTRACT_TESTS = Object.freeze(Object.keys(G2_CONTRACT_COUNTS));
@@ -474,6 +551,24 @@ export const G3P06_TRANSPORT_CAMPAIGN = Object.freeze({
   ...G3P06_CAMPAIGN,
   profiles: G2_TRANSPORT_CAMPAIGN.profiles,
 });
+export const G3_GENERATED_CAMPAIGN = Object.freeze({
+  firstSeed: 8000,
+  seedCount: 10_000,
+  batchSize: 100,
+  replayCount: 3,
+  completionLimit: 10_000,
+  profiles: ["sqlite-interactive", "sqlite-atomic-batch"],
+});
+export const G3_GENERATED_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g3/generation/sqlite-campaign.test.ts",
+]);
+export const G3_GENERATED_TRANSPORT_CAMPAIGN = Object.freeze({
+  ...G3_GENERATED_CAMPAIGN,
+  profiles: ["scripted-returning-weak", "scripted-returning-ack"],
+});
+export const G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g3/generation/transport-campaign.test.ts",
+]);
 export const G1_PROVIDER_TESTS = Object.freeze([
   "tests/raptor3/expanded/produced-commands.test.ts",
   "tests/raptor3/expanded/batch-produced-commands.test.ts",
@@ -661,6 +756,91 @@ export function assertGeneratedBatchReceipt(
       cells.filter((cell) => cell.faults > 0).length >= 20,
       "Missing actually injected fault quota"
     );
+  }
+}
+
+export function assertG3GeneratedBatchReceipt(
+  receipt,
+  firstSeed,
+  campaign,
+  identity
+) {
+  assertRaptor3Identity(receipt.identity, identity);
+  assert.equal(receipt.formatVersion, 1);
+  assert.equal(receipt.qualifying, true);
+  assert.equal(receipt.status, "complete");
+  assert.equal(receipt.firstSeed, firstSeed);
+  assert(
+    Number.isInteger(receipt.seedCount) &&
+      receipt.seedCount >= 1 &&
+      receipt.seedCount <= campaign.batchSize,
+    "G3 child exceeds the frozen 1–100 seed bound"
+  );
+  assert(
+    firstSeed >= campaign.firstSeed &&
+      firstSeed + receipt.seedCount <= campaign.firstSeed + campaign.seedCount,
+    "G3 child seed range is outside the frozen campaign"
+  );
+  assert.deepEqual(receipt.profiles, campaign.profiles);
+  assert.equal(receipt.skipped, 0);
+  assert.equal(
+    receipt.replays,
+    receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  );
+  assert.equal(
+    receipt.completed.length,
+    receipt.seedCount * campaign.profiles.length
+  );
+  const expected = campaign.profiles
+    .flatMap((profile) =>
+      Array.from(
+        { length: receipt.seedCount },
+        (_, offset) => `${profile}:${firstSeed + offset}`
+      )
+    )
+    .sort();
+  assert.deepEqual(
+    receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    expected,
+    "Incomplete or duplicated G3 generated batch"
+  );
+  for (const profile of campaign.profiles) {
+    const cells = receipt.completed.filter((cell) => cell.profile === profile);
+    for (const cell of cells) {
+      const expectedActors = cell.seed % 5 === 0 ? 2 : 1;
+      const expectedFault = cell.seed % 5 === 1;
+      const expectedContract = ["C08", "C09", "C10", "C11"][
+        (cell.seed - campaign.firstSeed) % 4
+      ];
+      assert.equal(cell.actors, expectedActors, "Changed G3 actor recipe");
+      assert.equal(
+        cell.actorOverlap,
+        expectedActors === 2,
+        "G3 actor recipe lacks an actual overlap cut"
+      );
+      assert.equal(
+        cell.faults > 0,
+        expectedFault,
+        "G3 fault recipe lacks an actual legal injected failure"
+      );
+      assert.equal(
+        cell.contract,
+        expectedContract,
+        "Changed G3 contract family"
+      );
+      assert(
+        Number.isInteger(cell.operations) &&
+          cell.operations >= 1 &&
+          cell.operations <= 32,
+        "G3 operation count is outside the frozen campaign bound"
+      );
+      assert(
+        Number.isInteger(cell.completions) &&
+          cell.completions >= 0 &&
+          cell.completions <= campaign.completionLimit,
+        "G3 scheduled completion count is outside the frozen campaign bound"
+      );
+    }
   }
 }
 

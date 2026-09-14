@@ -29,6 +29,9 @@ it("refuses a requested candidate that the fixture silently bypasses", async () 
         async execute() {
           throw new Error("This deliberately ignored candidate must not run");
         },
+        async prepareBatch() {
+          throw new Error("This deliberately ignored candidate must not run");
+        },
       }),
     }),
     /Unexpected candidate execution count/
@@ -150,6 +153,9 @@ it("preserves opaque Error causes even when they resemble error observations", a
               meta: { correlationId },
             },
           });
+        },
+        async prepareBatch() {
+          throw new Error("Deliberate opaque cause");
         },
       }),
     });

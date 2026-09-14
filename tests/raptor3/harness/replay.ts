@@ -45,6 +45,12 @@ import {
   generatedTransitions,
   transitionRecipeFromPublicInput,
 } from "../generation/transitions";
+import { generatedBulkScenarioFromPublicInput } from "../g3/generation/bulk-scenario";
+import { generatedRecurrenceScenario } from "../g3/generation/recurrence-scenario";
+import { g3RecipeFromPublicInput } from "../g3/generation/recipe";
+import { generatedSuppressionScenario } from "../g3/generation/suppression-scenario";
+import { generatedTransactionArrayScenario } from "../g3/generation/transaction-array-scenario";
+import { runG3TransportWorld } from "../g3/generation/transport-scenario";
 import { recordingEventLimit } from "./recorder";
 import type {
   G0ReplayRecord,
@@ -56,6 +62,18 @@ import {
   transportRecipeFromPublicInput,
 } from "../transport/world";
 import { type ObservedWorld, runSQLiteWorld } from "./sqlite-world";
+
+function generatedG3ScenarioFromPublicInput(
+  publicInput: unknown
+): ScenarioDefinition {
+  const recipe = g3RecipeFromPublicInput(publicInput);
+  if (recipe.contract === "C08")
+    return generatedBulkScenarioFromPublicInput(publicInput);
+  if (recipe.contract === "C09") return generatedSuppressionScenario(recipe);
+  if (recipe.contract === "C10")
+    return generatedTransactionArrayScenario(recipe);
+  return generatedRecurrenceScenario(recipe);
+}
 
 const failureSchema = z.strictObject({
   name: z.string(),
@@ -139,7 +157,7 @@ const outcomeSchema = z.discriminatedUnion("kind", [
 ]);
 const sqliteRecordSchema = z.strictObject({
   candidate: z.literal("commands").optional(),
-  specimen: z.literal("wrong-parent-world").optional(),
+  specimen: z.enum(["wrong-parent-world", "wrong-g3-stored-state"]).optional(),
   scenarioId: z.enum([
     ...G0_CASE_IDS,
     ...G1_CASE_IDS,
@@ -166,6 +184,10 @@ const sqliteRecordSchema = z.strictObject({
     ...HARNESS_CASE_IDS,
     "g1-generated-relations",
     "g2-generated-transitions",
+    "g3-generated-bulk-series",
+    "g3-generated-suppression-retry",
+    "g3-generated-transaction-array",
+    "g3-generated-depth-recurrence",
   ]),
   profile: z.enum(G0_PROFILES),
   seed: z.number().int().nonnegative().safe(),
@@ -200,7 +222,11 @@ const recordSchema: z.ZodType<ReplayRecord> = z
     sqliteRecordSchema
       .omit({ sqliteVersion: true, fault: true, specimen: true })
       .extend({
-        scenarioId: z.enum(["g1-transport", "g2-transport"]),
+        scenarioId: z.enum([
+          "g1-transport",
+          "g2-transport",
+          "g3-generated-transport",
+        ]),
         candidate: z.literal("commands").optional(),
         profile: z.enum(TRANSPORT_PROFILES),
         transportVersion: z.literal("explicit-replies-v1"),
@@ -232,15 +258,21 @@ export function verifyG0Pair(
 export async function replayG0Run(record: ReplayRecord) {
   const replayed =
     "transportVersion" in record
-      ? await runTransportWorld(
-          transportRecipeFromPublicInput(record.publicInput),
-          record.profile,
-          {
-            replay: record.tape,
-            specimen: record.specimen,
-            candidateName: record.candidate ?? "legacy",
-          }
-        )
+      ? record.scenarioId === "g3-generated-transport"
+        ? await runG3TransportWorld(
+            g3RecipeFromPublicInput(record.publicInput),
+            record.profile,
+            record.tape
+          )
+        : await runTransportWorld(
+            transportRecipeFromPublicInput(record.publicInput),
+            record.profile,
+            {
+              replay: record.tape,
+              specimen: record.specimen,
+              candidateName: record.candidate ?? "legacy",
+            }
+          )
       : await runSQLiteWorld(
           record.scenarioId.startsWith("cs03-extension-")
             ? extensionScenario(
@@ -256,7 +288,16 @@ export async function replayG0Run(record: ReplayRecord) {
                     transitionRecipeFromPublicInput(record.publicInput),
                     record.specimen === "wrong-parent-world"
                   )
-                : findReplayScenario(record.scenarioId),
+                : record.scenarioId === "g3-generated-bulk-series"
+                  ? generatedBulkScenarioFromPublicInput(
+                      record.publicInput,
+                      record.specimen === "wrong-g3-stored-state"
+                        ? { specimen: record.specimen }
+                        : {}
+                    )
+                  : record.scenarioId.startsWith("g3-generated-")
+                    ? generatedG3ScenarioFromPublicInput(record.publicInput)
+                    : findReplayScenario(record.scenarioId),
           record.profile,
           record.seed,
           {

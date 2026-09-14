@@ -355,6 +355,11 @@ export const CS03_EXTENSION_CASE_IDS = [
 export type ScenarioId =
   | "g1-generated-relations"
   | "g2-generated-transitions"
+  | "g3-generated-bulk-series"
+  | "g3-generated-suppression-retry"
+  | "g3-generated-transaction-array"
+  | "g3-generated-depth-recurrence"
+  | "g3-generated-transport"
   | "cs03-peer-scope-root"
   | "cs03-peer-scope-nested"
   | "cs03-peer-scope-surrounding"

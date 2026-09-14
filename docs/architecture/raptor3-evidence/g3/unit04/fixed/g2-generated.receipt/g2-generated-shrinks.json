@@ -1,0 +1,71 @@
+{
+  "identity": {
+    "production": "5d7a639868789faff0cf0a2a04b11e846a91e4d82001c81277bf312ecb0c74c6",
+    "harness": "03b9f9050193b1cfada53f892f0ac487a5ccc291ec1c97f7b2290c259e935b44",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "reductions": [
+    {
+      "profile": "sqlite-interactive",
+      "property": "transition:membership",
+      "specimen": "wrong-parent-world",
+      "original": {
+        "seed": 2000,
+        "mode": "key-move",
+        "offset": 900,
+        "value": 700,
+        "delta": 9,
+        "decoys": 3,
+        "actors": 2,
+        "following": 15,
+        "fault": "none"
+      },
+      "reduced": {
+        "seed": 2000,
+        "mode": "key-move",
+        "offset": 0,
+        "value": 0,
+        "delta": 1,
+        "decoys": 0,
+        "actors": 1,
+        "following": 0,
+        "fault": "none"
+      },
+      "attempts": 6
+    },
+    {
+      "profile": "sqlite-atomic-batch",
+      "property": "transition:membership",
+      "specimen": "wrong-parent-world",
+      "original": {
+        "seed": 2000,
+        "mode": "key-move",
+        "offset": 900,
+        "value": 700,
+        "delta": 9,
+        "decoys": 3,
+        "actors": 2,
+        "following": 15,
+        "fault": "none"
+      },
+      "reduced": {
+        "seed": 2000,
+        "mode": "key-move",
+        "offset": 0,
+        "value": 0,
+        "delta": 1,
+        "decoys": 0,
+        "actors": 1,
+        "following": 0,
+        "fault": "none"
+      },
+      "attempts": 6
+    }
+  ]
+}

@@ -34,7 +34,13 @@ const pages = [
 ];
 const candidates: Record<"commands" | "program", CandidateEngineFactory> = {
   commands: createCommandEngine,
-  program: createProgramEngine,
+  program: (config) => {
+    const engine = createProgramEngine(config);
+    return {
+      execute: (...args) => engine.execute(...args),
+      prepareBatch: async () => undefined,
+    };
+  },
 };
 
 for (const [name, factory] of Object.entries(candidates)) {

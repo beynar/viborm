@@ -497,6 +497,10 @@ export async function runLiveWorld(
             candidateEntries++;
             return engine.execute(...args);
           },
+          prepareBatch(...args) {
+            candidateEntries++;
+            return engine.prepareBatch(...args);
+          },
         };
       });
     let outcome: RunObservation["outcome"];

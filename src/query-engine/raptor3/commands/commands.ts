@@ -984,20 +984,10 @@ export class Commands {
   ): Promise<unknown> {
     const ctx = this.context;
     if (ctx.operation === "createMany") {
-      if (args.omit) {
-        throw new UnsupportedOperationError(
-          "Raptor 3 G3P-03 createMany omit returning is not implemented."
-        );
-      }
       const rows = entries(args.data);
       const relationBearing = rows.some((row) =>
         model["~"].relationNames.some((name) => row[name] !== undefined)
       );
-      if (!relationBearing && args.skipDuplicates) {
-        throw new UnsupportedOperationError(
-          "Raptor 3 G3P-04 scalar createMany skipDuplicates is not implemented."
-        );
-      }
       if (relationBearing) {
         const rawRows = entries(raw.data);
         const records = rows.map((row, index) => {
@@ -1021,17 +1011,18 @@ export class Commands {
       return ctx.createMany(
         model,
         rows.map((row) => ctx.schema.scalars(model, row)),
-        args.select
+        args.select,
+        args.skipDuplicates
       );
     }
     if (ctx.operation === "deleteMany") {
-      if (args.select || args.omit) {
-        throw new UnsupportedOperationError(
-          "Raptor 3 G3P-03 deleteMany returning is not implemented."
-        );
-      }
-      if (args.limit === 0) return { count: 0 };
-      return ctx.deleteMany(model, args.where, args.limit);
+      if (args.limit === 0) return ctx.emptyBulkResult(args.select);
+      return ctx.deleteMany(
+        model,
+        ctx.queries.prepareSelector(model, args.where),
+        args.limit,
+        args.select
+      );
     }
     if (ctx.operation === "upsert") {
       const missing = this.create(model, args.create!, raw.create!);
@@ -1109,21 +1100,14 @@ export class Commands {
     const relationBearing = model["~"].relationNames.some(
       (name) => updateData[name] !== undefined
     );
-    if (
-      raw.omit !== undefined ||
-      (args.select && !relationBearing)
-    ) {
-      throw new UnsupportedOperationError(
-        "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
-      );
-    }
-    if (args.limit === 0) return args.select ? [] : { count: 0 };
+    if (args.limit === 0) return ctx.emptyBulkResult(args.select);
     if (!relationBearing) {
       return ctx.updateMany(
         model,
-        args.where,
+        ctx.queries.prepareSelector(model, args.where),
         ctx.schema.scalars(model, updateData),
-        args.limit
+        args.limit,
+        args.select
       );
     }
     const selection = this.lookup(

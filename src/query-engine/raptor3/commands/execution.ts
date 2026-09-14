@@ -555,9 +555,10 @@ export class CommandExecution {
       select,
       identities,
       (selection) =>
-        ctx.queries.selectSeries(
-          records[0]!.command.model,
-          selection,
+        ctx.seriesQueries(
+          ctx.queries.prepareProjection(records[0]!.command.model, {
+            select: selection
+          }),
           identities
         )
     );
@@ -593,9 +594,11 @@ export class CommandExecution {
       select,
       identities,
       (selection) =>
-        this.context.queries.selectSeries(
-          occurrence.command.series.selection.model,
-          selection,
+        this.context.seriesQueries(
+          this.context.queries.prepareProjection(
+            occurrence.command.series.selection.model,
+            { select: selection }
+          ),
           identities,
           "updateMany"
         )
@@ -605,7 +608,7 @@ export class CommandExecution {
   private async completeSeries(
     select: Input | undefined,
     identities: Input[],
-    query: (select: Input) => Query
+    query: (select: Input) => Query | readonly Query[]
   ): Promise<Input[] | undefined> {
     if (!select || identities.length === 0) {
       await this.context.finish();

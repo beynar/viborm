@@ -13,7 +13,7 @@ import { observeFailure } from "../harness/sqlite-world";
 import type { TransportProfileId } from "../profiles";
 
 export interface ExpectedStatement {
-  action: "SELECT" | "INSERT" | "UPDATE";
+  action: "SELECT" | "INSERT" | "UPDATE" | "DELETE";
   parameters: readonly unknown[];
 }
 
@@ -22,6 +22,7 @@ export interface Reply {
   via: "execute" | "batch";
   statements: readonly ExpectedStatement[];
   committed: boolean;
+  allowsChildContexts?: true;
   injected?: true;
   outcome:
     | { kind: "rows"; responses: QueryResult<unknown>[] }
@@ -53,9 +54,10 @@ export class ScriptedTransport extends Driver<object, object> {
   private wake: (() => void) | undefined;
   private harnessFailure: unknown;
   private released = 0;
+  private actorScripts: readonly ActorScript[];
 
   constructor(
-    readonly scripts: readonly ActorScript[],
+    scripts: readonly ActorScript[],
     readonly recorder: Recorder,
     profile: TransportProfileId,
     private readonly specimen?:
@@ -64,9 +66,25 @@ export class ScriptedTransport extends Driver<object, object> {
       | "wrong-attribution"
   ) {
     super("postgresql", profile);
+    this.actorScripts = scripts;
     this.supportsOrderedCommittedSegments =
       profile === "scripted-returning-ack";
     this.adapter.capabilities.supportsCteWithMutations = false;
+  }
+
+  /** G3 plans bind their public operations to this driver before any dispatch. */
+  installScripts(scripts: readonly ActorScript[]): void {
+    assert.equal(
+      this.actorScripts.length,
+      0,
+      "Transport scripts already installed"
+    );
+    assert.equal(
+      this.positions.size,
+      0,
+      "Transport script installation is late"
+    );
+    this.actorScripts = scripts;
   }
 
   protected async initClient(): Promise<object> {
@@ -121,7 +139,7 @@ export class ScriptedTransport extends Driver<object, object> {
       );
       correlationId = context.correlationId;
       const knownActor = this.correlations.get(correlationId);
-      const matches = this.scripts.filter((actor) =>
+      const matches = this.actorScripts.filter((actor) =>
         knownActor
           ? actor.name === knownActor
           : !this.positions.has(actor.name) &&
@@ -129,18 +147,30 @@ export class ScriptedTransport extends Driver<object, object> {
               query.params?.includes(actor.firstParameter)
             )
       );
-      assert.equal(matches.length, 1, "Unknown or ambiguous scripted actor");
+      assert.equal(
+        matches.length,
+        1,
+        "g3-transport:actor-attribution; Unknown or ambiguous scripted actor"
+      );
       script = matches[0]!;
       this.correlations.set(correlationId, script.name);
       const position = this.positions.get(script.name) ?? 0;
       const expected = script.replies[position];
       assert(expected, `Unscripted redispatch by ${script.name}`);
       reply = expected;
-      assert.equal(via, reply.via, `Wrong transport form: ${reply.name}`);
+      assert.equal(
+        via,
+        reply.via,
+        `g3-transport:transport-form; Wrong transport form: ${reply.name}`
+      );
       assert.equal(
         queries.length,
         reply.statements.length,
-        `Unscripted statement: ${reply.name}`
+        `g3-transport:script-shape; Unscripted statement: ${reply.name}; actual=${queries
+          .map((query) => /^\s*(\w+)/.exec(query.sql)?.[1]?.toUpperCase())
+          .join(",")}; expected=${reply.statements
+          .map((statement) => statement.action)
+          .join(",")}`
       );
       if (reply.outcome.kind === "rows")
         assert.equal(
@@ -160,7 +190,7 @@ export class ScriptedTransport extends Driver<object, object> {
       for (const [index, query] of queries.entries()) {
         const statement = reply.statements[index]!;
         assert.match(query.sql, new RegExp(`^${statement.action}\\b`, "i"));
-        if (query.context)
+        if (query.context && !reply.allowsChildContexts)
           assert.equal(
             query.context.correlationId,
             correlationId,
@@ -297,15 +327,15 @@ export class ScriptedTransport extends Driver<object, object> {
 
   finish(): void {
     if (this.harnessFailure !== undefined) throw this.harnessFailure;
-    for (const script of this.scripts)
+    for (const script of this.actorScripts)
       assert.equal(
         this.positions.get(script.name),
         script.replies.length,
-        `Unconsumed explicit replies: ${script.name}`
+        `g3-transport:reply-consumption; Unconsumed explicit replies: ${script.name}`
       );
     assert.equal(
       this.correlations.size,
-      this.scripts.length,
+      this.actorScripts.length,
       "Operations reused a correlation identity"
     );
   }

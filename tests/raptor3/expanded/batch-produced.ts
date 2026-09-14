@@ -157,6 +157,10 @@ export async function runBatchProducedOutput(
             candidateExecutions += 1;
             return engine.execute(...parameters);
           },
+          prepareBatch(...parameters) {
+            candidateExecutions += 1;
+            return engine.prepareBatch(...parameters);
+          },
         };
       }
     : undefined;

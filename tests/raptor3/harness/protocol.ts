@@ -1,6 +1,7 @@
 import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
 import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
+import type { PreparedBatchOperation } from "@query-engine/types";
 import type Database from "better-sqlite3";
 import type { ContractId, ScenarioId, WitnessFamily } from "../contracts";
 import type { ProfileId, TransportProfileId } from "../profiles";
@@ -67,6 +68,11 @@ export type CandidateEngineFactory = (config: {
     rawArgs: unknown,
     binding?: ExecutionBinding
   ): Promise<unknown>;
+  prepareBatch(
+    modelName: string,
+    operation: Operations,
+    rawArgs: unknown
+  ): Promise<PreparedBatchOperation<unknown> | undefined>;
 };
 
 /** Each fixture owns its public call and independent SQL state/property oracle. */
@@ -94,7 +100,7 @@ export interface PreparedScenario {
 
 export interface ScenarioDefinition {
   readonly id: ScenarioId;
-  readonly specimen?: "wrong-parent-world";
+  readonly specimen?: "wrong-parent-world" | "wrong-g3-stored-state";
   readonly family: WitnessFamily;
   readonly contracts: readonly ContractId[];
   readonly sources: readonly string[];
@@ -138,7 +144,7 @@ export interface ReplayTape {
 
 export interface G0ReplayRecord {
   scenarioId: ScenarioId;
-  specimen?: "wrong-parent-world";
+  specimen?: "wrong-parent-world" | "wrong-g3-stored-state";
   candidate?: "commands";
   profile: ProfileId;
   seed: number;
@@ -156,7 +162,7 @@ export interface TransportReplayRecord
     G0ReplayRecord,
     "scenarioId" | "profile" | "sqliteVersion" | "fault" | "specimen"
   > {
-  scenarioId: "g1-transport" | "g2-transport";
+  scenarioId: "g1-transport" | "g2-transport" | "g3-generated-transport";
   candidate?: "commands";
   profile: TransportProfileId;
   transportVersion: "explicit-replies-v1";

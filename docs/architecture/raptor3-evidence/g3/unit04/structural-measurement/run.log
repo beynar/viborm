@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g3-structure-avA72W
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test) 604ms
+   ✓ collects the frozen CS-02 structural work matrix  603ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:44:13
+   Duration  2.27s (transform 1.03s, setup 8ms, collect 1.50s, tests 604ms, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d95LDL/vitest.json
+Vitest resources: 4.41s wall, 778.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs02-structure-measure measurement verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d95LDL

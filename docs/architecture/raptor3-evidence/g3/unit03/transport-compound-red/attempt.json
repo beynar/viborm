@@ -1,0 +1,19 @@
+{
+  "mode": "g3-generated-transport-smoke",
+  "identity": {
+    "production": "c6c5e9193234b18b2e570df835069599d87b6167fc853bc0ba41a2356486ed41",
+    "harness": "bc8812f704b8349c7d48117d1d6b7966d939a6942fb1e4b26d2ee09e70f10daa",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

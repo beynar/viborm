@@ -89,6 +89,7 @@ const chargedG3PrepShared = new Set([
   "src/adapters/constraint-identity.ts",
   ...syntaxAdapters,
   "src/drivers/error-mapping.ts",
+  "src/drivers/driver-instrumentation.ts",
   "src/query-engine/JunctionStatements.ts",
   "src/query-engine/unique-conflict-target.ts",
   "src/schema/model/keys.ts",
@@ -211,6 +212,7 @@ const sum = (selected) =>
     { files: 0, bytes: 0, physicalLines: 0, tokenLines: 0 }
   );
 const retainedCandidateOwners = new Set([
+  "src/query-engine/bind-budget.ts",
   "src/query-engine/write-engine/parse-boundary.ts",
   "src/query-engine/types.ts",
   ...chargedAdapter,

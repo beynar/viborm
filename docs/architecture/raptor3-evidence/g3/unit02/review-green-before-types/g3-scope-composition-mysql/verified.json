@@ -1,0 +1,19 @@
+{
+  "mode": "g3-scope-composition-mysql",
+  "identity": {
+    "production": "e012e69af11a73bdb4314d6aeaf7f7a4f17add598f93d9450728fa429c9d6d31",
+    "harness": "724747608bbe69aa0bfb2a00d297efc196d4cf36c0a0656f15101f02720f7238",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

@@ -1,0 +1,43 @@
+✔ a verified G3 child corpus archives and restores byte-for-byte (16.042333ms)
+✔ a failed G3 child archive leaves the raw corpus unchanged (3.768458ms)
+✔ structural measurement qualification pins the exact Node runtime (0.620042ms)
+✔ credential-free registration isolates native Raptor suites and retains local fixed suites (0.137375ms)
+✔ CS-03 extension modes bind exact ranges, identities, cells, and replays (8.922042ms)
+✔ CS-03 extension alternatives compare canonical recipes, schedules, and outcomes (15.252167ms)
+✔ G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns (0.132542ms)
+✔ G3 bulk series admits its exact fixed contract without filters (0.0695ms)
+✔ G3 suppression retry admits its exact fixed contract without filters (0.06775ms)
+✔ G3 transaction array admits its exact fixed contract without filters (0.097667ms)
+✔ G3 generated smoke admits its exact contract without filters (0.062958ms)
+✔ G3 transport smoke admits its exact contract without filters (0.053333ms)
+✔ G3 failure minimization admits its exact contract without filters (0.041209ms)
+✔ G3 depth recurrence admits its exact fixed contract without filters (0.040042ms)
+✔ G3 execution review admits its exact diagnostic contract (0.04925ms)
+✔ G3 author execution regressions admit their exact fixed contract (0.050667ms)
+✔ g3-scope-failure admits its exact local fixed contract (0.049209ms)
+✔ g3-bulk-result-boundary admits its exact local fixed contract (0.063375ms)
+✔ G3 pg scope composition admits its exact native contract (0.085333ms)
+✔ G3 mysql scope composition admits its exact native contract (0.114041ms)
+✔ SQLite: G3 generated receipts fail closed when stale, missing, or corrupt (0.907833ms)
+✔ scripted transport: G3 generated receipts fail closed when stale, missing, or corrupt (0.551208ms)
+✔ g3-seeds binds the exact G3 range and batch boundary (0.187375ms)
+✔ g3-transport-seeds binds the exact G3 range and batch boundary (0.099792ms)
+✔ SQLite: G2 admits only the frozen range and unfiltered commands (0.217083ms)
+✔ SQLite: unit receipts require every exact cell, replay and zero skips (1.382291ms)
+✔ SQLite: unit quota claims must reach twenty percent in EACH profile (0.647459ms)
+✔ scripted transport: G2 admits only the frozen range and unfiltered commands (0.171333ms)
+✔ scripted transport: unit receipts require every exact cell, replay and zero skips (1.239708ms)
+✔ scripted transport: unit quota claims must reach twenty percent in EACH profile (0.564834ms)
+✔ SQLite: G3P-06 reserves exactly one new unfiltered batch (0.191292ms)
+✔ SQLite: G3P-06 receipts bind every new profile/seed cell (0.555958ms)
+✔ scripted transport: G3P-06 reserves exactly one new unfiltered batch (0.226208ms)
+✔ scripted transport: G3P-06 receipts bind every new profile/seed cell (0.451417ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 58.259917
+Node resources: 0.37s wall, 69.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

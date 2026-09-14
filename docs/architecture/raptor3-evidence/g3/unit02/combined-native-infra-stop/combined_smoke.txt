@@ -1,0 +1,16 @@
+exit_code: 0
+wall_time_seconds: 7.355575834
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts (5 tests) 64ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  13:26:59
+   Duration  3.37s (transform 1.99s, setup 30ms, collect 3.05s, tests 64ms, environment 0ms, prepare 72ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8IRqQL/vitest.json
+Vitest resources: 6.84s wall, 511.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-generated-smoke contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8IRqQL

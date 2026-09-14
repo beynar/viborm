@@ -67,6 +67,12 @@ before(() => {
   pass(outcome);
   gateDirectory = outcome.stdout.match(/Evidence: (.+)/)?.[1];
   assert(gateDirectory, "The passing command omitted its evidence directory");
+  const attempt = JSON.parse(
+    readFileSync(join(gateDirectory, "attempt.json"), "utf8")
+  );
+  assert.equal(attempt.mode, "g0");
+  assert.deepEqual(attempt.identity, identity);
+  assert.deepEqual(attempt.resourceBounds, G0_RESOURCES);
 });
 
 after(() => {

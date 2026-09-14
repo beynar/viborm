@@ -1,0 +1,19 @@
+{
+  "mode": "g3-suppression-retry",
+  "identity": {
+    "production": "ee54be4d88f6f4286e0472501853d110821794c5016426c871eb92df07d4a135",
+    "harness": "94493a4cd3a2726701fe6a80fa8ed516a60cfe6330256badaee301ebe2684849",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

@@ -1,0 +1,583 @@
+command: /Users/arnaud/.vite-plus/bin/node node_modules/@biomejs/biome/bin/biome check src/query-engine/raptor3/commands/commands.ts src/query-engine/raptor3/commands/execution.ts src/query-engine/raptor3/shared/operation-context.ts src/query-engine/raptor3/shared/query.ts
+exit_code: 1
+
+src/query-engine/raptor3/commands/commands.ts:199:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    197 │   private nextMutation = 0;
+    198 │   readonly execution: CommandExecution;
+  > 199 │   constructor(readonly context: OperationContext) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    200 │     this.execution = new CommandExecution(this);
+    201 │   }
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/commands.ts:905:7 lint/style/noParameterAssign ━━━━━━━━━━━━━━━━━━━
+
+  × Assigning a function parameter is confusing.
+  
+    903 │       }
+    904 │       current = parent;
+  > 905 │       branch = parentBranch;
+        │       ^^^^^^
+    906 │     }
+    907 │     return false;
+  
+  i The parameter is declared here:
+  
+    878 │     target: CommandOccurrence,
+    879 │     visit: (read: ReadVisit) => "stop" | void,
+  > 880 │     branch: BranchPath | undefined
+        │     ^^^^^^
+    881 │   ): boolean {
+    882 │     let current = target;
+  
+  i Developers usually expect function parameters to be readonly. To align with this expectation, use a local variable instead.
+  
+
+src/query-engine/raptor3/commands/execution.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { getAdapterInternals } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import {
+    3 │   NestedWriteError,
+  
+  i Safe fix: Organize Imports (Biome)
+  
+     11  11 │   import type { Assignments } from "./assignments";
+     12  12 │   import { CommandAttempt } from "./command-attempt";
+     13     │ - import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     14     │ - import·type·{
+     15     │ - ··Choose,
+     16     │ - ··CommandOccurrence,
+     17     │ - ··Commands,
+     18     │ - ··RecordCommand,
+     19     │ - ··SelectedSeriesMember,
+     20     │ - ··SeriesOccurrence,
+     21     │ - }·from·"./commands";
+         13 │ + import·type·{
+         14 │ + ··Choose,
+         15 │ + ··CommandOccurrence,
+         16 │ + ··Commands,
+         17 │ + ··RecordCommand,
+         18 │ + ··SelectedSeriesMember,
+         19 │ + ··SeriesOccurrence,
+         20 │ + }·from·"./commands";
+         21 │ + import·{·isRecordOccurrence,·isSeriesOccurrence·}·from·"./commands";
+     22  22 │   import { membershipFields, type Selection } from "./selection";
+     23  23 │   
+  
+
+src/query-engine/raptor3/commands/execution.ts:29:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    27 │   private currentAttempt: CommandAttempt;
+    28 │   private recovered = false;
+  > 29 │   constructor(readonly commands: Commands) {
+       │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    30 │     this.context = commands.context;
+    31 │     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/execution.ts:254:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    252 │     const attempt = this.attempt;
+    253 │     const command = occurrence.command;
+  > 254 │     switch (command.kind) {
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+  > 255 │       case "record": {
+         ...
+  > 529 │         return;
+  > 530 │     }
+        │     ^
+    531 │   }
+    532 │   async records(
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/commands/execution.ts:549:68 lint/complexity/noCommaOperator ━━━━━━━━━━━━━━
+
+  × The comma operator is disallowed.
+  
+    547 │             command
+    548 │           )
+  > 549 │         : (await ctx.executeMember(() => this.run(record), command), true);
+        │                                                                    ^
+    550 │       if (!completed) continue;
+    551 │       count++;
+  
+  i Its use is often confusing and obscures side effects.
+  
+
+src/query-engine/raptor3/commands/execution.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    556 556 │         identities,
+    557 557 │         (selection) =>
+    558     │ - ········ctx.seriesQueries(
+    559     │ - ··········records[0]!.command.model,
+    560     │ - ··········selection,
+    561     │ - ··········identities
+    562     │ - ········)
+        558 │ + ········ctx.seriesQueries(records[0]!.command.model,·selection,·identities)
+    563 559 │       );
+    564 560 │       return selected ?? { count };
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { normalizedBindParameterLimit } from "@drivers/bind-parameter-capacity";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      26   26 │   import {
+      27   27 │     InvalidScalarResult,
+      28      │ - ··Queries,
+      29      │ - ··type·PreparedProjection,
+           28 │ + ··type·PreparedProjection,
+      30   29 │     type PreparedSelector,
+      31      │ - ··type·Query
+           30 │ + ··Queries,
+           31 │ + ··type·Query
+      32   32 │   } from "./query";
+      33   33 │   import {
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:88:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    86 │   private readonly correlationId = crypto.randomUUID();
+    87 │   constructor(
+  > 88 │     readonly schema: EngineSchema,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    89 │     factoryDriver: AnyDriver,
+    90 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:90:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    88 │     readonly schema: EngineSchema,
+    89 │     factoryDriver: AnyDriver,
+  > 90 │     readonly modelName: string,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    91 │     readonly operation: Operation,
+    92 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:91:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    89 │     factoryDriver: AnyDriver,
+    90 │     readonly modelName: string,
+  > 91 │     readonly operation: Operation,
+       │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    92 │     binding?: ExecutionBinding,
+    93 │     prepareBatch = false
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:29:3 lint/correctness/noUnusedImports  FIXABLE  ━━━━━━━━━━
+
+  × Several of these imports are unused.
+  
+    27 │   InvalidScalarResult,
+    28 │   Queries,
+  > 29 │   type PreparedProjection,
+       │   ^^^^^^^^^^^^^^^^^^^^^^^
+    30 │   type PreparedSelector,
+    31 │   type Query
+  
+  i Unused imports might be the result of an incomplete refactoring.
+  
+  i Safe fix: Remove the unused imports.
+  
+      27   27 │     InvalidScalarResult,
+      28   28 │     Queries,
+      29      │ - ··type·PreparedProjection,
+      30   29 │     type PreparedSelector,
+      31   30 │     type Query
+  
+
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       1    1 │   import {
+       2    2 │     assembleAdapterSelect,
+       3      │ - ··getAdapterInternals
+            3 │ + ··getAdapterInternals,
+       4    4 │   } from "@adapters/adapter-internals";
+       5    5 │   import type { AnyDriver } from "@drivers";
+    ········· │ 
+       9    9 │     BatchQuery,
+      10   10 │     QueryExecutionContext,
+      11      │ - ··QueryResult
+           11 │ + ··QueryResult,
+      12   12 │   } from "@drivers/types";
+      13   13 │   import {
+    ········· │ 
+      19   19 │     TransactionError,
+      20   20 │     UniqueConstraintError,
+      21      │ - ··UnsupportedOperationError
+           21 │ + ··UnsupportedOperationError,
+      22   22 │   } from "@errors";
+      23   23 │   import type { AnyModel } from "@schema/model";
+    ········· │ 
+      29   29 │     type PreparedProjection,
+      30   30 │     type PreparedSelector,
+      31      │ - ··type·Query
+           31 │ + ··type·Query,
+      32   32 │   } from "./query";
+      33   33 │   import {
+    ········· │ 
+      35   35 │     type Input,
+      36   36 │     type Operation,
+      37      │ - ··record
+           37 │ + ··record,
+      38   38 │   } from "./schema";
+      39   39 │   import { type Membership, physicalField } from "./storage";
+    ········· │ 
+     101  101 │               model: modelName,
+     102  102 │               operation,
+     103      │ - ············method:·"$transaction([...])"
+     104      │ - ··········}
+          103 │ + ············method:·"$transaction([...])",
+          104 │ + ··········},
+     105  105 │           }
+     106  106 │         );
+    ········· │ 
+     124  124 │         model: this.modelName,
+     125  125 │         operation: this.operation,
+     126      │ - ······correlationId:·this.correlationId
+          126 │ + ······correlationId:·this.correlationId,
+     127  127 │       };
+     128  128 │     }
+    ········· │ 
+     134  134 │         model: model["~"].names.ts!,
+     135  135 │         operation,
+     136      │ - ······correlationId:·this.correlationId
+          136 │ + ······correlationId:·this.correlationId,
+     137  137 │       };
+     138  138 │     }
+    ········· │ 
+     144  144 │       const query = {
+     145  145 │         ...this.transport._prepare(statement, context),
+     146      │ - ······context
+          146 │ + ······context,
+     147  147 │       };
+     148  148 │       this.attempt.pending.push(query);
+    ········· │ 
+     218  218 │     }
+     219  219 │     suppressionRefusal(): TransactionError | undefined {
+     220      │ - ····return·(this.ownership·===·"borrowed-transaction"·&&·!this.memberRollback)·||
+          220 │ + ····return·(this.ownership·===·"borrowed-transaction"·&&
+          221 │ + ······!this.memberRollback)·||
+     221  222 │         this.ownership === "batch-preparation" ||
+     222  223 │         this.usesBatch
+    ········· │ 
+     227  228 │                 driver: this.driver.driverName,
+     228  229 │                 model: this.modelName,
+     229      │ - ··············operation:·this.operation
+     230      │ - ············}
+          230 │ + ··············operation:·this.operation,
+          231 │ + ············},
+     231  232 │             }
+     232  233 │           )
+    ········· │ 
+     267  268 │             ...(this.mayHaveCommittedSegment
+     268  269 │               ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+     269      │ - ············:·{})
+          270 │ + ············:·{}),
+     270  271 │           })
+     271  272 │         : failure;
+    ········· │ 
+     327  328 │         sql: adapter.clauses.select(
+     328  329 │           sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+     329      │ - ······)
+          330 │ + ······),
+     330  331 │       };
+     331  332 │     }
+    ········· │ 
+     391  392 │             context
+     392  393 │           ),
+     393      │ - ········context
+          394 │ + ········context,
+     394  395 │         };
+     395  396 │       });
+    ········· │ 
+     406  407 │             `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+     407  408 │             { meta: { model: this.modelName, operation: this.operation } }
+     408      │ - ········)
+          409 │ + ········),
+     409  410 │         });
+     410  411 │       const members = [...attempt.pendingMembers];
+    ········· │ 
+     571  572 │     async finish(query?: Query | readonly Query[]): Promise<Input[]> {
+     572  573 │       const returnsCollection = query !== undefined && !("sql" in query);
+     573      │ - ····const·queries·=
+     574      │ - ······query·===·undefined·?·[]·:·"sql"·in·query·?·[query]·:·query;
+          574 │ + ····const·queries·=·query·===·undefined·?·[]·:·"sql"·in·query·?·[query]·:·query;
+     575  575 │       if (!this.usesBatch) {
+     576  576 │         const output: Input[] = [];
+     577      │ - ······for·(const·terminal·of·queries)·output.push(...(await·this.read(terminal)));
+          577 │ + ······for·(const·terminal·of·queries)
+          578 │ + ········output.push(...(await·this.read(terminal)));
+     578  579 │         return output;
+     579  580 │       }
+    ········· │ 
+     599  600 │                 }
+     600  601 │                 output.push(
+     601      │ - ················...this.queries.decodeQuery(
+     602      │ - ··················terminal,
+     603      │ - ··················response.rows.map(record)
+     604      │ - ················)
+          602 │ + ················...this.queries.decodeQuery(terminal,·response.rows.map(record))
+     605  603 │                 );
+     606  604 │               }
+    ········· │ 
+     621  619 │               { meta: this.attribution }
+     622  620 │             );
+     623      │ - ········output.push(
+     624      │ - ··········...this.queries.decodeQuery(
+     625      │ - ············terminal,
+     626      │ - ············response.rows
+     627      │ - ··········)
+     628      │ - ········);
+          621 │ + ········output.push(...this.queries.decodeQuery(terminal,·response.rows));
+     629  622 │         }
+     630  623 │         return output;
+    ········· │ 
+     643  636 │           sql: query.sql,
+     644  637 │           params: query.params ?? [],
+     645      │ - ········context:·query.context·??·this.attribution
+          638 │ + ········context:·query.context·??·this.attribution,
+     646  639 │         })),
+     647      │ - ······parseResult:·this.preparedParser
+          640 │ + ······parseResult:·this.preparedParser,
+     648  641 │       };
+     649  642 │     }
+    ········· │ 
+     772  765 │         (projection && !adapter.capabilities.supportsReturning)
+     773  766 │       ) {
+     774      │ - ······if·(this.ownership·===·"batch-preparation")·throw·this.incompletePreparation;
+          767 │ + ······if·(this.ownership·===·"batch-preparation")
+          768 │ + ········throw·this.incompletePreparation;
+     775  769 │         if (recoverableSkip) this.requireSuppression();
+     776  770 │         const identityPlans = projection
+    ········· │ 
+     818  812 │           const generated = identityPlans[index];
+     819  813 │           if (generated && response.insertId === undefined)
+     820      │ - ··········throw·new·TypeError("INSERT·did·not·produce·the·required·record·identity");
+          814 │ + ··········throw·new·TypeError(
+          815 │ + ············"INSERT·did·not·produce·the·required·record·identity"
+          816 │ + ··········);
+     821  817 │           identities.push({
+  135 more lines truncated
+  
+
+src/query-engine/raptor3/shared/query.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { DatabaseAdapter } from "@adapters/database-adapter";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+    3 │ import { QueryEngineError, TransactionError } from "@errors";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+       1      │ - import·type·{·DatabaseAdapter·}·from·"@adapters/database-adapter";
+       2      │ - import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            1 │ + import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            2 │ + import·type·{·DatabaseAdapter·}·from·"@adapters/database-adapter";
+       3    3 │   import { QueryEngineError, TransactionError } from "@errors";
+       4    4 │   import {
+    ········· │ 
+       8    8 │   } from "@schema/field-ref";
+       9    9 │   import {
+      10      │ - ··findAddressableKey,
+      11      │ - ··type·AnyModel,
+           10 │ + ··type·AnyModel,
+           11 │ + ··findAddressableKey,
+      12   12 │     type OrderedModelKey,
+      13   13 │   } from "@schema/model";
+      14   14 │   import { Sql, sql } from "@sql";
+      15   15 │   import {
+      16      │ - ··decodePhysicalDecimal,
+      17      │ - ··materializePhysicalDecimal,
+      18      │ - ··type·DecimalDescriptor,
+           16 │ + ··type·DecimalDescriptor,
+           17 │ + ··decodePhysicalDecimal,
+           18 │ + ··materializePhysicalDecimal,
+      19   19 │   } from "@validation/primitives/decimal-codec";
+      20   20 │   import {
+      21   21 │     type Arguments,
+      22   22 │     type EngineSchema,
+      23      │ - ··type·Input,
+      24      │ - ··record,
+      25      │ - ··entries,
+           23 │ + ··entries,
+           24 │ + ··type·Input,
+           25 │ + ··record,
+      26   26 │   } from "./schema";
+      27   27 │   import {
+      28   28 │     bindMembership,
+      29   29 │     type Membership,
+      30      │ - ··physicalField,
+      31      │ - ··type·PhysicalField,
+           30 │ + ··type·PhysicalField,
+           31 │ + ··physicalField,
+      32   32 │     storedFields,
+      33   33 │   } from "./storage";
+  
+
+src/query-engine/raptor3/shared/query.ts:167:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    165 │ export class InvalidScalarResult extends TypeError {
+    166 │   constructor(
+  > 167 │     readonly scalarType: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    168 │     readonly reason: string,
+    169 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:168:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    166 │   constructor(
+    167 │     readonly scalarType: string,
+  > 168 │     readonly reason: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+    169 │   ) {
+    170 │     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:178:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    176 │   private nextAlias = 0;
+    177 │   constructor(
+  > 178 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    179 │     readonly adapter: DatabaseAdapter,
+    180 │   ) {}
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:179:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    177 │   constructor(
+    178 │     readonly schema: EngineSchema,
+  > 179 │     readonly adapter: DatabaseAdapter,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    180 │   ) {}
+    181 │   alias(): string {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:679:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    677 │   ): Sql {
+    678 │     const a = this.adapter;
+  > 679 │     switch (predicate.kind) {
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 680 │       case "and":
+         ...
+  > 718 │         return this.lowerRelationPredicate(predicate, alias);
+  > 719 │     }
+        │     ^
+    720 │   }
+    721 │   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:1386:14 lint/style/noNegationElse  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × Invert blocks when performing a negation test.
+  
+    1384 │       ),
+    1385 │       orderBy: this.order(edge.target, nested.orderBy, childAlias),
+  > 1386 │       limit: !edge.many
+         │              ^^^^^^^^^^
+  > 1387 │         ? this.value(1)
+  > 1388 │         : nested.take === undefined
+  > 1389 │           ? undefined
+  > 1390 │           : this.value(nested.take),
+         │           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    1391 │       offset: nested.skip === undefined ? undefined : this.value(nested.skip),
+    1392 │     });
+  
+  i Safe fix: Invert the condition and the blocks.
+  
+    1384 1384 │         ),
+    1385 1385 │         orderBy: this.order(edge.target, nested.orderBy, childAlias),
+    1386      │ - ······limit:·!edge.many
+    1387      │ - ········?·this.value(1)
+    1388      │ - ········:·nested.take·===·undefined
+         1386 │ + ······limit:·edge.many
+         1387 │ + ········?·nested.take·===·undefined
+    1389 1388 │             ? undefined
+    1390      │ - ··········:·this.value(nested.take),
+         1389 │ + ··········:·this.value(nested.take)·:·this.value(1),
+    1391 1390 │         offset: nested.skip === undefined ? undefined : this.value(nested.skip),
+    1392 1391 │       });
+  
+
+The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+Diagnostics not shown: 1.
+Checked 4 files in 29ms. No fixes applied.
+Found 21 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

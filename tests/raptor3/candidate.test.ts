@@ -39,7 +39,13 @@ afterAll(async () => {
 
 const candidates: Record<"commands" | "program", CandidateEngineFactory> = {
   commands: createCommandEngine,
-  program: createProgramEngine,
+  program: (config) => {
+    const engine = createProgramEngine(config);
+    return {
+      execute: (...args) => engine.execute(...args),
+      prepareBatch: async () => undefined,
+    };
+  },
 };
 
 assertFixedInventory(fixedScenarios, G0_PROFILES);

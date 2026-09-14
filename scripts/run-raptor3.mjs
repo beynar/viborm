@@ -1,10 +1,23 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { createGunzip, createGzip } from "node:zlib";
 import {
   RAPTOR3_ROOT,
   RAPTOR3_TESTS,
@@ -52,6 +65,32 @@ import {
   G3P04_PG_CONTRACT_TESTS,
   G3P05_CONTRACT_COUNTS,
   G3P05_CONTRACT_TESTS,
+  G3_BULK_SERIES_COUNTS,
+  G3_BULK_SERIES_TESTS,
+  G3_SUPPRESSION_RETRY_COUNTS,
+  G3_SUPPRESSION_RETRY_TESTS,
+  G3_TRANSACTION_ARRAY_COUNTS,
+  G3_TRANSACTION_ARRAY_TESTS,
+  G3_DEPTH_RECURRENCE_COUNTS,
+  G3_DEPTH_RECURRENCE_TESTS,
+  G3_SCOPE_COMPOSITION_PG_COUNTS,
+  G3_SCOPE_COMPOSITION_PG_TESTS,
+  G3_SCOPE_COMPOSITION_MYSQL_COUNTS,
+  G3_SCOPE_COMPOSITION_MYSQL_TESTS,
+  G3_GENERATED_SMOKE_COUNTS,
+  G3_GENERATED_SMOKE_TESTS,
+  G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
+  G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+  G3_GENERATED_MINIMIZATION_COUNTS,
+  G3_GENERATED_MINIMIZATION_TESTS,
+  G3_EXECUTION_REVIEW_COUNTS,
+  G3_EXECUTION_REVIEW_TESTS,
+  G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
+  G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+  G3_SCOPE_FAILURE_COUNTS,
+  G3_SCOPE_FAILURE_TESTS,
+  G3_BULK_RESULT_BOUNDARY_COUNTS,
+  G3_BULK_RESULT_BOUNDARY_TESTS,
   POST_G3_CLEARABILITY_CONTRACT_COUNTS,
   POST_G3_CLEARABILITY_CONTRACT_TESTS,
   POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS,
@@ -127,7 +166,12 @@ import {
   G3P06_CAMPAIGN_TESTS,
   G3P06_TRANSPORT_CAMPAIGN,
   G3P06_TRANSPORT_CAMPAIGN_TESTS,
+  G3_GENERATED_CAMPAIGN,
+  G3_GENERATED_CAMPAIGN_TESTS,
+  G3_GENERATED_TRANSPORT_CAMPAIGN,
+  G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
   assertGeneratedBatchReceipt,
+  assertG3GeneratedBatchReceipt,
   G0_RESOURCES,
   captureRaptor3Identity,
   assertRaptor3Identity,
@@ -181,9 +225,14 @@ function campaignFor(mode) {
         sqlite: G3P06_CAMPAIGN,
         transport: G3P06_TRANSPORT_CAMPAIGN,
       }
-    : mode.startsWith("g2-")
-      ? { sqlite: G2_CAMPAIGN, transport: G2_TRANSPORT_CAMPAIGN }
-      : { sqlite: G1_CAMPAIGN, transport: G1_TRANSPORT_CAMPAIGN };
+    : mode.startsWith("g3-")
+      ? {
+          sqlite: G3_GENERATED_CAMPAIGN,
+          transport: G3_GENERATED_TRANSPORT_CAMPAIGN,
+        }
+      : mode.startsWith("g2-")
+        ? { sqlite: G2_CAMPAIGN, transport: G2_TRANSPORT_CAMPAIGN }
+        : { sqlite: G1_CAMPAIGN, transport: G1_TRANSPORT_CAMPAIGN };
   return campaigns[mode.includes("-transport") ? "transport" : "sqlite"];
 }
 
@@ -235,6 +284,21 @@ export function parseRaptor3Request(arguments_) {
       "g3p05-selector-dependencies",
       "g3p05-variant-collection-order",
       "g3p05-recursive-read-fit",
+      "g3-bulk-series",
+      "g3-suppression-retry",
+      "g3-transaction-array",
+      "g3-depth-recurrence",
+      "g3-scope-composition-pg",
+      "g3-scope-composition-mysql",
+      "g3-generated-smoke",
+      "g3-generated-transport-smoke",
+      "g3-generated-minimization",
+      "g3-seeds",
+      "g3-transport-seeds",
+      "g3-execution-review",
+      "g3-author-execution-regressions",
+      "g3-scope-failure",
+      "g3-bulk-result-boundary",
       "post-g3-clearability-contracts",
       "post-g3-clearability-pg-contracts",
       "post-g3-clearability-mysql-contracts",
@@ -280,6 +344,8 @@ export function parseRaptor3Request(arguments_) {
       "g2-transport-seed-batch",
       "g3p06-seed-batch",
       "g3p06-transport-seed-batch",
+      "g3-seed-batch",
+      "g3-transport-seed-batch",
     ].includes(positional[0])
   ) {
     const firstSeed = Number(positional[1]);
@@ -300,7 +366,7 @@ export function parseRaptor3Request(arguments_) {
     return { mode: "replay", path, wallMs };
   }
   throw new Error(
-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
+    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | g3-bulk-series | g3-suppression-retry | g3-transaction-array | g3-depth-recurrence | g3-scope-composition-pg | g3-scope-composition-mysql | g3-generated-smoke | g3-generated-transport-smoke | g3-generated-minimization | g3-seeds | g3-seed-batch <first-seed> | g3-transport-seeds | g3-transport-seed-batch <first-seed> | g3-execution-review | g3-author-execution-regressions | g3-scope-failure | g3-bulk-result-boundary | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
   );
 }
 
@@ -327,6 +393,86 @@ export function assertRaptor3TestReport(report, files) {
   }
 }
 
+function writeAttemptReceipt(directory, request, identity) {
+  writeFileSync(
+    join(directory, "attempt.json"),
+    JSON.stringify(
+      {
+        mode: request.mode,
+        ...(request.firstSeed === undefined
+          ? {}
+          : { firstSeed: request.firstSeed }),
+        identity,
+        resourceBounds: { ...G0_RESOURCES, wallMs: request.wallMs },
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function fileIdentity(path, encoding = "identity") {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  const sink = new Writable({
+    write(chunk, _encoding, callback) {
+      bytes += chunk.length;
+      hash.update(chunk);
+      callback();
+    },
+  });
+  if (encoding === "gzip")
+    await pipeline(createReadStream(path), createGunzip(), sink);
+  else await pipeline(createReadStream(path), sink);
+  return { bytes, sha256: hash.digest("hex") };
+}
+
+export async function archiveG3GeneratedCorpus(directory) {
+  const sourceName = "generated-corpus.json";
+  const archiveName = `${sourceName}.gz`;
+  const receiptName = "generated-corpus.archive.json";
+  const sourcePath = join(directory, sourceName);
+  const archivePath = join(directory, archiveName);
+  const archiveTemporaryPath = `${archivePath}.tmp`;
+  const receiptPath = join(directory, receiptName);
+  const receiptTemporaryPath = `${receiptPath}.tmp`;
+  assert(existsSync(sourcePath), "Verified G3 child corpus is missing");
+  assert(!existsSync(archivePath), "G3 child corpus archive already exists");
+  const original = await fileIdentity(sourcePath);
+  await pipeline(
+    createReadStream(sourcePath),
+    createGzip({ level: 9 }),
+    createWriteStream(archiveTemporaryPath, { flags: "wx" })
+  );
+  const restored = await fileIdentity(archiveTemporaryPath, "gzip");
+  assert.deepEqual(
+    restored,
+    original,
+    "Archived G3 child corpus does not restore exact source bytes"
+  );
+  renameSync(archiveTemporaryPath, archivePath);
+  const archive = {
+    formatVersion: 1,
+    source: sourceName,
+    file: archiveName,
+    encoding: "gzip",
+    originalBytes: original.bytes,
+    originalSha256: original.sha256,
+    archiveBytes: statSync(archivePath).size,
+    receipt: receiptName,
+    restoreWorkingDirectory:
+      "the directory containing generated-corpus.archive.json",
+    restoreCommand: `g3_corpus_restore_dir=$(mktemp -d); gzip -dc ${JSON.stringify(archiveName)} > "$g3_corpus_restore_dir/generated-corpus.json"`,
+    replayCommand: `cd ${JSON.stringify(RAPTOR3_ROOT)}; node scripts/run-raptor3.mjs replay "$g3_corpus_restore_dir/generated-corpus.json"`,
+  };
+  writeFileSync(receiptTemporaryPath, JSON.stringify(archive, null, 2), {
+    flag: "wx",
+  });
+  renameSync(receiptTemporaryPath, receiptPath);
+  unlinkSync(sourcePath);
+  return archive;
+}
+
 async function run(request) {
   const identity = captureRaptor3Identity();
   const measurement = structuralMeasurementContext(request.mode, identity);
@@ -336,6 +482,7 @@ async function run(request) {
     const directory = mkdtempSync(
       join(tmpdir(), `viborm-raptor3-${request.mode}-`)
     );
+    writeAttemptReceipt(directory, request, identity);
     const batches = [];
     for (
       let firstSeed = campaign.firstSeed;
@@ -348,7 +495,14 @@ async function run(request) {
         firstSeed,
         wallMs: request.wallMs,
       });
-      batches.push({ firstSeed, directory: receiptDirectory });
+      const corpusArchive = request.mode.startsWith("g3-")
+        ? await archiveG3GeneratedCorpus(receiptDirectory)
+        : undefined;
+      batches.push({
+        firstSeed,
+        directory: receiptDirectory,
+        ...(corpusArchive === undefined ? {} : { corpusArchive }),
+      });
     }
     assertRaptor3Identity(identity);
     writeFileSync(
@@ -374,6 +528,7 @@ async function run(request) {
         }
       : undefined;
   const directory = mkdtempSync(join(tmpdir(), "viborm-raptor3-g0-"));
+  writeAttemptReceipt(directory, request, identity);
   const files = {
     g0: RAPTOR3_TESTS,
     "g1-compare": G1_COMPARISON_TESTS,
@@ -400,6 +555,19 @@ async function run(request) {
     "g3p05-selector-dependencies": G3P05_SELECTOR_DEPENDENCY_TESTS,
     "g3p05-variant-collection-order": G3P05_VARIANT_COLLECTION_ORDER_TESTS,
     "g3p05-recursive-read-fit": G3P05_RECURSIVE_READ_FIT_TESTS,
+    "g3-bulk-series": G3_BULK_SERIES_TESTS,
+    "g3-suppression-retry": G3_SUPPRESSION_RETRY_TESTS,
+    "g3-transaction-array": G3_TRANSACTION_ARRAY_TESTS,
+    "g3-depth-recurrence": G3_DEPTH_RECURRENCE_TESTS,
+    "g3-scope-composition-pg": G3_SCOPE_COMPOSITION_PG_TESTS,
+    "g3-scope-composition-mysql": G3_SCOPE_COMPOSITION_MYSQL_TESTS,
+    "g3-generated-smoke": G3_GENERATED_SMOKE_TESTS,
+    "g3-generated-transport-smoke": G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+    "g3-generated-minimization": G3_GENERATED_MINIMIZATION_TESTS,
+    "g3-execution-review": G3_EXECUTION_REVIEW_TESTS,
+    "g3-author-execution-regressions": G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+    "g3-scope-failure": G3_SCOPE_FAILURE_TESTS,
+    "g3-bulk-result-boundary": G3_BULK_RESULT_BOUNDARY_TESTS,
     "post-g3-clearability-contracts": POST_G3_CLEARABILITY_CONTRACT_TESTS,
     "post-g3-clearability-pg-contracts": POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
     "post-g3-clearability-mysql-contracts":
@@ -433,11 +601,13 @@ async function run(request) {
     "g1-seed-batch": G1_CAMPAIGN_TESTS,
     "g2-seed-batch": G2_CAMPAIGN_TESTS,
     "g3p06-seed-batch": G3P06_CAMPAIGN_TESTS,
+    "g3-seed-batch": G3_GENERATED_CAMPAIGN_TESTS,
     "g1-transport": G1_TRANSPORT_TESTS,
     "g1-transport-seed-batch": G1_TRANSPORT_CAMPAIGN_TESTS,
     "g2-transport": G2_TRANSPORT_TESTS,
     "g2-transport-seed-batch": G2_TRANSPORT_CAMPAIGN_TESTS,
     "g3p06-transport-seed-batch": G3P06_TRANSPORT_CAMPAIGN_TESTS,
+    "g3-transport-seed-batch": G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
     replay: ["tests/raptor3/gate.test.ts"],
   }[request.mode];
   for (const file of files)
@@ -450,6 +620,7 @@ async function run(request) {
   const provider =
     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+    /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1];
   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
@@ -530,6 +701,19 @@ async function run(request) {
       "g3p05-selector-dependencies": G3P05_SELECTOR_DEPENDENCY_COUNTS,
       "g3p05-variant-collection-order": G3P05_VARIANT_COLLECTION_ORDER_COUNTS,
       "g3p05-recursive-read-fit": G3P05_RECURSIVE_READ_FIT_COUNTS,
+      "g3-bulk-series": G3_BULK_SERIES_COUNTS,
+      "g3-suppression-retry": G3_SUPPRESSION_RETRY_COUNTS,
+      "g3-transaction-array": G3_TRANSACTION_ARRAY_COUNTS,
+      "g3-depth-recurrence": G3_DEPTH_RECURRENCE_COUNTS,
+      "g3-scope-composition-pg": G3_SCOPE_COMPOSITION_PG_COUNTS,
+      "g3-scope-composition-mysql": G3_SCOPE_COMPOSITION_MYSQL_COUNTS,
+      "g3-generated-smoke": G3_GENERATED_SMOKE_COUNTS,
+      "g3-generated-transport-smoke": G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
+      "g3-generated-minimization": G3_GENERATED_MINIMIZATION_COUNTS,
+      "g3-execution-review": G3_EXECUTION_REVIEW_COUNTS,
+      "g3-author-execution-regressions": G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
+      "g3-scope-failure": G3_SCOPE_FAILURE_COUNTS,
+      "g3-bulk-result-boundary": G3_BULK_RESULT_BOUNDARY_COUNTS,
       "post-g3-clearability-contracts": POST_G3_CLEARABILITY_CONTRACT_COUNTS,
       "post-g3-clearability-pg-contracts":
         POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS,
@@ -564,6 +748,9 @@ async function run(request) {
       "g1-seed-batch": { "tests/raptor3/generated-campaign.test.ts": 1 },
       "g2-seed-batch": { "tests/raptor3/g2-campaign.test.ts": 1 },
       "g3p06-seed-batch": { "tests/raptor3/g2-campaign.test.ts": 1 },
+      "g3-seed-batch": {
+        "tests/raptor3/g3/generation/sqlite-campaign.test.ts": 1,
+      },
       "g1-transport": G1_TRANSPORT_COUNTS,
       "g1-transport-seed-batch": {
         "tests/raptor3/transport-campaign.test.ts": 1,
@@ -574,6 +761,9 @@ async function run(request) {
       },
       "g3p06-transport-seed-batch": {
         "tests/raptor3/transport-campaign.test.ts": 1,
+      },
+      "g3-transport-seed-batch": {
+        "tests/raptor3/g3/generation/transport-campaign.test.ts": 1,
       },
     }[request.mode];
     if (expectedCounts) {
@@ -620,14 +810,19 @@ async function run(request) {
         extensionCampaign.seedCount * extensionCampaign.profiles.length
       );
     }
-    if (request.mode.endsWith("seed-batch"))
-      assertGeneratedBatchReceipt(
-        JSON.parse(
-          readFileSync(join(directory, "generated-campaign.json"), "utf8")
-        ),
-        request.firstSeed,
-        campaign
+    if (request.mode.endsWith("seed-batch")) {
+      const receipt = JSON.parse(
+        readFileSync(join(directory, "generated-campaign.json"), "utf8")
       );
+      if (request.mode.startsWith("g3-"))
+        assertG3GeneratedBatchReceipt(
+          receipt,
+          request.firstSeed,
+          campaign,
+          identity
+        );
+      else assertGeneratedBatchReceipt(receipt, request.firstSeed, campaign);
+    }
     if (measurement) {
       const receipt = JSON.parse(
         readFileSync(join(directory, "verified.json"), "utf8")

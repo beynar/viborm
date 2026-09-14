@@ -197,6 +197,10 @@ export async function runSQLiteWorld(
             candidateExecutions += 1;
             return engine.execute(...args);
           },
+          prepareBatch(...args) {
+            candidateExecutions += 1;
+            return engine.prepareBatch(...args);
+          },
         };
       }
     : undefined;
@@ -336,20 +340,25 @@ export async function runSQLiteWorld(
         if (typeof sqliteVersion !== "string")
           throw new Error("SQLite version response is invalid");
         let outcome: RunObservation["outcome"];
+        let invocationFailure: unknown;
         try {
           outcome = {
             kind: "success",
             value: await fixture.invoke(driver, candidateFactory),
           };
         } catch (failure) {
+          invocationFailure = failure;
           outcome = { kind: "failure", failure: observeFailure(failure) };
         }
-        if (candidateFactory)
-          assert.equal(
-            candidateExecutions,
-            fixture.expectedExecutions ?? 1,
-            "Unexpected candidate execution count; the fixture bypassed or repeated the requested engine"
-          );
+        if (candidateFactory) {
+          const expectedExecutions = fixture.expectedExecutions ?? 1;
+          if (candidateExecutions !== expectedExecutions) {
+            const message = `${scenario.id}/${profile}/seed-${seed}: Unexpected candidate execution count: ${candidateExecutions} !== ${expectedExecutions}; the fixture bypassed or repeated the requested engine`;
+            if (invocationFailure !== undefined)
+              throw new Error(message, { cause: invocationFailure });
+            throw new Error(message);
+          }
+        }
         if (observationFailure !== undefined) throw observationFailure;
         assert.equal(
           database.inTransaction,

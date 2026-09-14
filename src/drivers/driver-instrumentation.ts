@@ -443,7 +443,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return attrs;
   }
 
-  /** Apply only the statement handlers attached through trusted provenance. */
+  /** Materialize one trusted typed statement and enforce its final bind budget. */
   protected applyTrustedStatementTransforms(
     query: Sql,
     context: QueryExecutionContext | undefined,
@@ -453,18 +453,19 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       getExecutionExtensionChain(context) ??
       getExecutionExtensionChain(this.boundContext);
     const transforms = extensionChain?.statement;
-    if (transforms === undefined || transforms.length === 0) return query;
-
-    const executionContext = this.resolveExecutionContext(
-      context,
-      fallbackOperation
-    );
-    const transformed = applyStatementTransforms(
-      query,
-      executionContext.model,
-      executionContext.operation ?? fallbackOperation,
-      transforms
-    );
+    let transformed = query;
+    if (transforms !== undefined && transforms.length > 0) {
+      const executionContext = this.resolveExecutionContext(
+        context,
+        fallbackOperation
+      );
+      transformed = applyStatementTransforms(
+        query,
+        executionContext.model,
+        executionContext.operation ?? fallbackOperation,
+        transforms
+      );
+    }
     assertStatementBindParameterCapacity(
       transformed,
       this.driverName,

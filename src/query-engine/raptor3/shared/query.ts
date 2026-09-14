@@ -410,11 +410,11 @@ export class Queries {
   }
   lowerMutationLimit(
     model: AnyModel,
-    where: Input | undefined,
+    selector: PreparedSelector,
     limit: number | undefined
   ): { readonly where?: Sql; readonly suffix?: Sql } {
     const adapter = this.adapter;
-    const lowered = this.lowerWhere(model, where);
+    const lowered = this.lowerSelector(selector);
     if (limit === undefined) return { where: lowered };
     if (adapter.capabilities.supportsMutationRowLimit)
       return {
@@ -434,7 +434,7 @@ export class Queries {
     const capped = assembleAdapterSelect(adapter, {
       columns: sql.join(selectedColumns, ", "),
       from: this.table(model, alias),
-      where: this.lowerWhere(model, where, alias),
+      where: this.lowerSelector(selector, alias),
       limit: this.value(limit),
     });
     return {
@@ -949,13 +949,12 @@ export class Queries {
     };
   }
   selectSeries(
-    model: AnyModel,
-    select: Input,
+    prepared: PreparedProjection,
     identities: Input[],
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
+    const model = prepared.model;
     const alias = this.alias();
-    const prepared = this.prepareProjection(model, { select });
     const projection = this.lowerProjection(prepared, alias);
     const predicates = identities.map(
       (identity) => this.lowerIdentity(model, identity, alias),

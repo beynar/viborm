@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   G0_CAMPAIGN,
   G2_CAMPAIGN,
+  G3_GENERATED_CAMPAIGN,
 } from "../../../scripts/raptor3-manifest.mjs";
 import {
   decodeEvidenceValue,
@@ -19,7 +20,9 @@ let controlsInUse = false;
 export function recordingEventLimit(
   scenario: ReplayRecord["scenarioId"]
 ): number {
-  return scenario.startsWith("g2-")
+  return scenario.startsWith("g3-")
+    ? G3_GENERATED_CAMPAIGN.completionLimit
+    : scenario.startsWith("g2-")
     ? G2_CAMPAIGN.completionLimit
     : G0_CAMPAIGN.completionLimit;
 }

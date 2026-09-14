@@ -238,6 +238,7 @@ if (!evidenceDirectoryContract)
                     .catch(() => first);
                   return await swallowed;
                 },
+                prepareBatch: (...args) => engine.prepareBatch(...args),
               };
             },
           }
@@ -264,6 +265,7 @@ if (!evidenceDirectoryContract)
             // This is a harness falsifier, never an implementation or expected-answer source.
             candidateFactory: () => ({
               execute: async () => ({ id: "account-1021-1", code: 101 }),
+              prepareBatch: async () => undefined,
             }),
           }
         ),

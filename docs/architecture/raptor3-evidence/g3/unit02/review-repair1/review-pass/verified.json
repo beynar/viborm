@@ -1,0 +1,19 @@
+{
+  "mode": "g3-execution-review",
+  "identity": {
+    "production": "64df68e5cff3f035b686ee9196887f224cbc2657e8235a32d3f227249df4511c",
+    "harness": "831d2afff944bc3d89027b192ee583b42be812c1791f27f65d46b97b1c25df20",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

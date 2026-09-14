@@ -140,6 +140,10 @@ export async function runProducedOutput(
             candidateExecutions += 1;
             return engine.execute(...args);
           },
+          prepareBatch(...args) {
+            candidateExecutions += 1;
+            return engine.prepareBatch(...args);
+          },
         };
       }
     : undefined;

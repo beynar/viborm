@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import {
-  TransactionError,
-  UnsupportedOperationError,
-  ValidationError,
-} from "@errors";
+import { TransactionError, ValidationError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
@@ -451,73 +447,61 @@ describe("G3P-03 existing array-owner composition", () => {
   });
 });
 
-describe("G3P-03 updateMany capability refusal", () => {
-  it("refuses unsupported select and omit shapes before execution", async () => {
+describe("G3 scalar updateMany package result", () => {
+  it("prepares and returns selected rows through the existing array owner", async () => {
     const database = createPackageDatabase();
     database.exec(`
       INSERT INTO g3p03_package_parents(id, label) VALUES (10, 'existing');
     `);
-    const driver = new RecordingSQLiteDriver({ client: database });
+    const driver = new BatchOnlySQLiteDriver({ client: database });
+    const client = createClient({ schema: packageSchema, driver });
     const candidate = createCommandEngine({ schema: packageSchema, driver });
-    const refusals = [
+    const input = {
+      where: { id: 10 },
+      data: { label: { set: "selected" } },
+      select: { id: true },
+    };
+    const operation = overrideTransactionOperation(
+      client.packageParent.findMany(),
       {
-        name: "scalar-select",
-        input: {
-          where: { id: 10 },
-          data: { label: { set: "scalar-select" } },
-          select: { id: true },
-        },
-      },
-      {
-        name: "scalar-omit",
-        input: {
-          where: { id: 10 },
-          data: { label: { set: "scalar-omit" } },
-          omit: { label: true },
-        },
-      },
-      {
-        name: "relation-omit",
-        input: {
-          where: { id: 10 },
-          data: {
-            children: { create: { label: "relation-omit" } },
-          },
-          omit: { label: true },
-        },
-      },
-    ];
-    try {
-      for (const refusal of refusals) {
-        await expect(
+        prepare: () => undefined,
+        prepareBatch: () =>
           prepareCandidateBatch(
             candidate,
             "packageParent",
             "updateMany",
-            refusal.input
-          )
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
-        await expect(
-          candidate.execute("packageParent", "updateMany", refusal.input)
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
-        assert.equal(
-          driver.statements.length,
-          0,
-          `${refusal.name} must refuse before capture or mutation`
-        );
+            input
+          ),
       }
+    );
+    try {
+      const prepared = await prepareCandidateBatch(
+        candidate,
+        "packageParent",
+        "updateMany",
+        input
+      );
+      assert(prepared);
+      assert.equal(prepared.queries.length, 1);
+      assert.match(prepared.queries[0]!.sql, /^UPDATE\b.*\bRETURNING\b/);
+
+      await expect(transactionArray(client, [operation])).resolves.toEqual([
+        [{ id: 10 }],
+      ]);
+      assert.equal(driver.batches.length, 1);
+      assert.equal(driver.batches[0]!.length, 1);
       assert.deepEqual(
         database
           .prepare("SELECT id, label FROM g3p03_package_parents ORDER BY id")
           .all(),
-        [{ id: 10, label: "existing" }]
+        [{ id: 10, label: "selected" }]
       );
       assert.deepEqual(
         database.prepare("SELECT * FROM g3p03_package_children").all(),
         []
       );
     } finally {
-      await driver.disconnect();
+      await client.$disconnect();
       database.close();
     }
   });

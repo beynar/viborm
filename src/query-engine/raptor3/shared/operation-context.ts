@@ -21,11 +21,16 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { Sql, sql } from "@sql";
+import {
+  compileBindBudgetChunks,
+  normalizedBindParameterLimit
+} from "../../bind-budget";
 import type { PreparedBatchOperation } from "../../types";
 import {
   InvalidScalarResult,
   Queries,
   type PreparedProjection,
+  type PreparedSelector,
   type Query
 } from "./query";
 import {
@@ -39,8 +44,17 @@ import { TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
 
+export type MemberRollback = <T>(
+  execute: (driver: AnyDriver) => Promise<T>,
+  context: QueryExecutionContext
+) => Promise<T>;
+
 export type ExecutionBinding =
-  | { readonly kind: "borrowed-transaction"; readonly driver: AnyDriver }
+  | {
+      readonly kind: "borrowed-transaction";
+      readonly driver: AnyDriver;
+      readonly memberRollback?: MemberRollback;
+    }
   | { readonly kind: "atomic-array" };
 
 type ExecutionOwnership =
@@ -54,6 +68,7 @@ export class OperationContext {
   readonly driver: AnyDriver;
   readonly usesBatch: boolean;
   private readonly ownership: ExecutionOwnership;
+  private readonly memberRollback?: MemberRollback;
   private transport: AnyDriver;
   private attempt = new TransportAttempt();
   private readonly committedMembers = new Set<Member>();
@@ -97,6 +112,10 @@ export class OperationContext {
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
     this.driver = binding?.driver ?? factoryDriver;
+    this.memberRollback =
+      binding?.kind === "borrowed-transaction"
+        ? binding.memberRollback
+        : undefined;
     this.transport = this.driver;
     this.usesBatch =
       this.ownership === "batch-preparation" ||
@@ -171,20 +190,8 @@ export class OperationContext {
     const refusal = this.suppressionRefusal();
     if (refusal) throw refusal;
     return this.executeMember(async () => {
-      const outer = this.transport;
       try {
-        await outer.withTransaction(
-          async (transaction) => {
-            this.transport = transaction;
-            try {
-              await execute();
-            } finally {
-              this.transport = outer;
-            }
-          },
-          undefined,
-          this.attribution
-        );
+        await this.withMemberRollback(async () => execute());
         return true;
       } catch (error) {
         if (
@@ -196,8 +203,26 @@ export class OperationContext {
       }
     }, member);
   }
+  private async withMemberRollback<T>(
+    execute: (driver: AnyDriver) => Promise<T>
+  ): Promise<T> {
+    const outer = this.transport;
+    const withinRollback = async (transaction: AnyDriver) => {
+      this.transport = transaction;
+      try {
+        return await execute(transaction);
+      } finally {
+        this.transport = outer;
+      }
+    };
+    return this.memberRollback
+      ? this.memberRollback(withinRollback, this.attribution)
+      : outer.withTransaction(withinRollback, undefined, this.attribution);
+  }
   suppressionRefusal(): TransactionError | undefined {
-    return this.ownership !== "standalone" || this.usesBatch
+    return (this.ownership === "borrowed-transaction" && !this.memberRollback) ||
+      this.ownership === "batch-preparation" ||
+      this.usesBatch
       ? new TransactionError(
           "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.",
           {
@@ -500,10 +525,50 @@ export class OperationContext {
     this.attempt = attempt;
     this.atomicAssertionRejection = undefined;
   }
-  async finish(query?: Query): Promise<Input[]> {
-    if (!this.usesBatch) return query ? this.read(query) : [];
+  emptyBulkResult(select?: Input): unknown {
+    const result = () => (select ? [] : { count: 0 });
+    if (this.ownership === "batch-preparation") {
+      this.preparedParser = result;
+      return undefined;
+    }
+    return result();
+  }
+  seriesQueries(
+    projection: PreparedProjection,
+    identities: Input[],
+    operation: "createMany" | "updateMany" = "createMany"
+  ): Query[] {
+    if (identities.length === 0) return [];
+    const limit = normalizedBindParameterLimit(
+      this.driver.maxBindParametersPerStatement
+    );
+    const preparedQueries = new WeakMap<Sql, Query>();
+    const chunks = compileBindBudgetChunks(
+      identities.length,
+      limit,
+      (start, end) => {
+        const query = this.queries.selectSeries(
+          projection,
+          identities.slice(start, end),
+          operation
+        );
+        preparedQueries.set(query.sql, query);
+        return query.sql;
+      }
+    );
+    return chunks.map(({ statement }) => preparedQueries.get(statement)!);
+  }
+  async finish(query?: Query | readonly Query[]): Promise<Input[]> {
+    const returnsCollection = query !== undefined && !("sql" in query);
+    const queries =
+      query === undefined ? [] : "sql" in query ? [query] : query;
+    if (!this.usesBatch) {
+      const output: Input[] = [];
+      for (const terminal of queries) output.push(...(await this.read(terminal)));
+      return output;
+    }
     const resultIndex = this.attempt.pending.length;
-    if (query) this.queue(query.sql);
+    for (const terminal of queries) this.queue(terminal.sql);
     if (this.attempt.scratchId)
       this.queue(
         getAdapterInternals(this.driver.adapter).batchRefs.cleanup(
@@ -511,19 +576,25 @@ export class OperationContext {
         )
       );
     if (this.ownership === "batch-preparation") {
-      this.preparedParser = query
+      this.preparedParser = queries.length
         ? (results) => {
-            const response = results[resultIndex];
-            if (!response) {
-              throw new TransactionError(
-                `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-                { meta: this.attribution }
+            const output: Input[] = [];
+            for (const [offset, terminal] of queries.entries()) {
+              const response = results[resultIndex + offset];
+              if (!response) {
+                throw new TransactionError(
+                  `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+                  { meta: this.attribution }
+                );
+              }
+              output.push(
+                ...this.queries.decodeQuery(
+                  terminal,
+                  response.rows.map(record)
+                )
               );
             }
-            return this.queries.decodeQuery(
-              query,
-              response.rows.map(record)
-            )[0];
+            return returnsCollection ? output : output[0];
           }
         : () => undefined;
       return [];
@@ -531,11 +602,24 @@ export class OperationContext {
     if (this.attempt.pending.length === 0) return [];
     const responses = await this.submit();
     try {
-      return query
-        ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
-        : [];
+      const output: Input[] = [];
+      for (const [offset, terminal] of queries.entries()) {
+        const response = responses[resultIndex + offset];
+        if (!response)
+          throw new TransactionError(
+            `Driver '${this.driver.driverName}' omitted the terminal result for operation '${this.operation}'.`,
+            { meta: this.attribution }
+          );
+        output.push(
+          ...this.queries.decodeQuery(
+            terminal,
+            response.rows
+          )
+        );
+      }
+      return output;
     } catch (error) {
-      throw query ? this.failure(error, "result") : error;
+      throw queries.length ? this.failure(error, "result") : error;
     }
   }
   isIncompletePreparation(error: unknown): boolean {
@@ -558,90 +642,234 @@ export class OperationContext {
     context: QueryExecutionContext,
     parse: (result: QueryResult<unknown>) => unknown
   ): Promise<unknown> {
+    return this.setMutations([{ sql: statement, context }], (results) => {
+      const result = results[0];
+      if (!result)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
+          { meta: this.attribution }
+        );
+      return parse(result);
+    });
+  }
+  private async setMutations(
+    statements: readonly {
+      readonly sql: Sql;
+      readonly context: QueryExecutionContext;
+    }[],
+    parse: (results: readonly QueryResult<unknown>[]) => unknown
+  ): Promise<unknown> {
     if (this.ownership === "batch-preparation") {
-      const resultIndex = this.attempt.pending.length;
-      this.queue(statement, context);
+      const firstResult = this.attempt.pending.length;
+      for (const statement of statements)
+        this.queue(statement.sql, statement.context);
       this.preparedParser = (results) => {
-        const result = results[resultIndex];
-        if (!result) {
+        const window = results.slice(
+          firstResult,
+          firstResult + statements.length
+        );
+        if (window.length !== statements.length) {
           throw new TransactionError(
-            `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+            `Driver '${this.driver.driverName}' omitted a prepared result for operation '${this.operation}'.`,
             { meta: this.attribution }
           );
         }
-        return parse(result);
+        return parse(window);
       };
       return undefined;
     }
-    return parse(await this.transport._execute(statement, context));
+    if (this.usesBatch) {
+      const windowMember: Member = {};
+      for (const statement of statements)
+        this.queue(statement.sql, statement.context, windowMember);
+      const results = await this.submit(true, windowMember);
+      try {
+        return parse(results);
+      } catch (error) {
+        throw this.failure(error, "result", windowMember);
+      }
+    }
+    const results: QueryResult<unknown>[] = [];
+    for (const statement of statements)
+      results.push(
+        await this.transport._execute(statement.sql, statement.context)
+      );
+    return parse(results);
   }
   async createMany(
     model: AnyModel,
     rows: Input[],
-    select?: Input
+    select?: Input,
+    skipDuplicates = false
   ): Promise<unknown> {
-    if (rows.length === 0) {
-      if (this.ownership === "batch-preparation") {
-        this.preparedParser = select ? () => [] : () => ({ count: 0 });
-        return undefined;
-      }
-      return select ? [] : { count: 0 };
-    }
-    const columns = Object.keys(rows[0]!);
-    if (columns.length === 0) {
-      throw new UnsupportedOperationError(
-        "Raptor 3 G3P-03 default-only createMany is not implemented."
-      );
-    }
-    for (const row of rows) {
-      const names = Object.keys(row);
-      if (
-        names.length !== columns.length ||
-        columns.some((name) => !Object.hasOwn(row, name))
-      ) {
-        throw new UnsupportedOperationError(
-          "Raptor 3 G3P-03 createMany requires one scalar row shape."
-        );
-      }
-    }
+    if (rows.length === 0) return this.emptyBulkResult(select);
     const q = this.queries;
     const adapter = this.driver.adapter;
-    let statement = adapter.mutations.insert(
-      q.table(model),
-      columns.map((field) => q.columnName(model, field)),
-      rows.map((row) =>
-        columns.map((field) => q.fieldValue(model, field, row[field]))
+    const projection = select
+      ? q.prepareProjection(model, { select })
+      : undefined;
+    const returning = projection
+      ? adapter.mutations.returning(
+          sql.join(q.lowerProjection(projection).columns, ", ")
+        )
+      : undefined;
+    const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
+    for (const row of rows) {
+      const columns = Object.keys(row);
+      const preceding = groups.at(-1);
+      if (
+        columns.length === 0 ||
+        !preceding ||
+        preceding.columns.length !== columns.length ||
+        columns.some((column, index) => preceding.columns[index] !== column)
       )
-    );
-    let projection: PreparedProjection | undefined;
-    if (select) {
-      projection = q.prepareProjection(model, { select });
-      const returning = adapter.mutations.returning(
-        sql.join(q.lowerProjection(projection).columns, ", ")
-      );
-      if (!adapter.capabilities.supportsReturning) {
-        throw new TransactionError(
-          `Driver '${this.driver.driverName}' cannot execute Raptor 3 createMany returning in G3P-03.`,
-          { meta: this.attribution }
-        );
-      }
-      statement = sql`${statement} ${returning}`;
+        groups.push({ columns, rows: [row] });
+      else preceding.rows.push(row);
     }
-    return this.setMutation(
-      statement,
-      this.statementContext(model, "createMany"),
-      (result) => {
-        return projection
-          ? q.decodeProjection(projection.shape, result.rows.map(record))
-          : { count: result.rowCount };
+    if (skipDuplicates && groups.some(({ columns }) => columns.length === 0))
+      throw new UnsupportedOperationError(
+        "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
+      );
+    const buildInsert = (
+      columns: readonly string[],
+      members: readonly Input[],
+      applySqlSkip: boolean
+    ) => {
+      if (columns.length === 0)
+        return adapter.mutations.insertDefault(q.table(model));
+      const duplicate = applySqlSkip
+        ? adapter.mutations.skipDuplicates(q.columnName(model, columns[0]!))
+        : undefined;
+      const mutation = adapter.mutations.insert(
+        q.table(model),
+        columns.map((field) => q.columnName(model, field)),
+        members.map((row) =>
+          columns.map((field) => q.fieldValue(model, field, row[field]))
+        ),
+        duplicate?.prefix
+      );
+      return duplicate?.suffix
+        ? sql`${mutation} ${duplicate.suffix}`
+        : mutation;
+    };
+    const recoverableSkip =
+      skipDuplicates &&
+      adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
+    if (
+      recoverableSkip ||
+      (projection && !adapter.capabilities.supportsReturning)
+    ) {
+      if (this.ownership === "batch-preparation") throw this.incompletePreparation;
+      if (recoverableSkip) this.requireSuppression();
+      const identityPlans = projection
+        ? rows.map((row) => {
+            const missing = this.schema
+              .keys(model)
+              .filter((field) => row[field] === undefined);
+            const generated = this.insertIdField(model, missing);
+            if (missing.length > 0 && generated === undefined)
+              throw new TransactionError(
+                `Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.`,
+                { meta: this.attribution }
+              );
+            return generated;
+          })
+        : undefined;
+      const members = this.prepareMembers(() => rows);
+      const identities: Input[] = [];
+      let count = 0;
+      for (const [index, row] of members.entries()) {
+        const columns = Object.keys(row);
+        const statement = buildInsert(columns, [row], false);
+        const context = this.statementContext(model, "createMany");
+        let response: QueryResult<unknown> | undefined;
+        if (recoverableSkip) {
+          response = await this.executeMember(async () => {
+            try {
+              return await this.withMemberRollback((driver) =>
+                driver._execute(statement, context)
+              );
+            } catch (error) {
+              if (error instanceof UniqueConstraintError) return undefined;
+              throw error;
+            }
+          }, row);
+        } else {
+          response = await this.executeMember(
+            () => this.transport._execute(statement, context),
+            row
+          );
+        }
+        if (!response) continue;
+        count += response.rowCount;
+        if (!identityPlans) continue;
+        const generated = identityPlans[index];
+        if (generated && response.insertId === undefined)
+          throw new TypeError("INSERT did not produce the required record identity");
+        identities.push({
+          ...this.schema.identity(model, row),
+          ...(generated ? { [generated]: response.insertId } : {})
+        });
       }
+      return projection
+        ? identities.length
+          ? this.finish(this.seriesQueries(projection, identities))
+          : []
+        : { count };
+    }
+    const limit = normalizedBindParameterLimit(
+      this.driver.maxBindParametersPerStatement
     );
+    const statements: { sql: Sql; context: QueryExecutionContext }[] = [];
+    for (const group of groups) {
+      if (group.columns.length === 0) {
+        for (const _row of group.rows) {
+          let statement = adapter.mutations.insertDefault(q.table(model));
+          if (returning) statement = sql`${statement} ${returning}`;
+          statements.push({
+            sql: statement,
+            context: this.statementContext(model, "createMany")
+          });
+        }
+        continue;
+      }
+      const chunks = compileBindBudgetChunks(
+        group.rows.length,
+        limit,
+        (start, end) => {
+          const mutation = buildInsert(
+            group.columns,
+            group.rows.slice(start, end),
+            skipDuplicates
+          );
+          return returning ? sql`${mutation} ${returning}` : mutation;
+        }
+      );
+      for (const chunk of chunks)
+        statements.push({
+          sql: chunk.statement,
+          context: this.statementContext(model, "createMany")
+        });
+    }
+    return this.setMutations(statements, (results) => {
+      if (!projection)
+        return {
+          count: results.reduce((count, result) => count + result.rowCount, 0)
+        };
+      const output: Input[] = [];
+      for (const result of results)
+        output.push(
+          ...q.decodeProjection(projection.shape, result.rows.map(record))
+        );
+      return output;
+    });
   }
   async updateMany(
     model: AnyModel,
-    where: Input | undefined,
+    selector: PreparedSelector,
     values: Input,
-    limit?: number
+    limit?: number,
+    select?: Input
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -651,36 +879,180 @@ export class OperationContext {
         q.updateValue(model, field, value)
       )
     );
-    const limited = q.lowerMutationLimit(model, where, limit);
+    const projection = select
+      ? q.prepareProjection(model, { select })
+      : undefined;
+    if (projection && !adapter.capabilities.supportsReturning) {
+      const identities = await this.captureMutationIdentities(
+        model,
+        selector,
+        limit
+      );
+      if (identities.length === 0) return [];
+      const statement = adapter.mutations.update(
+        q.table(model),
+        sql.join(assignments, ", "),
+        adapter.operators.or(
+          ...identities.map((identity) => q.lowerIdentity(model, identity))
+        )
+      );
+      const response = await this.transport._execute(
+        statement,
+        this.statementContext(model, "updateMany")
+      );
+      if (response.rowCount !== identities.length)
+        throw new TransactionError(
+          "updateMany selected-row cardinality changed during its locked mutation.",
+          { meta: this.attribution }
+        );
+      return this.finish(
+        this.seriesQueries(
+          projection,
+          identities.map((identity) =>
+            this.finalUpdatedIdentity(model, identity, values)
+          ),
+          "updateMany"
+        )
+      );
+    }
+    const limited = q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
       limited.where
     );
-    const statement = limited.suffix
+    let statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
+    if (projection)
+      statement = sql`${statement} ${adapter.mutations.returning(
+        sql.join(q.lowerProjection(projection).columns, ", ")
+      )}`;
     return this.setMutation(
       statement,
       this.statementContext(model, "updateMany"),
-      (result) => ({ count: result.rowCount })
+      (result) =>
+        projection
+          ? q.decodeProjection(projection.shape, result.rows.map(record))
+          : { count: result.rowCount }
     );
   }
   async deleteMany(
     model: AnyModel,
-    where: Input | undefined,
-    limit?: number
+    selector: PreparedSelector,
+    limit?: number,
+    select?: Input
   ): Promise<unknown> {
-    const limited = this.queries.lowerMutationLimit(model, where, limit);
-    const mutation = this.driver.adapter.mutations.delete(
-      this.queries.table(model),
+    const q = this.queries;
+    const adapter = this.driver.adapter;
+    const projection = select
+      ? q.prepareProjection(model, { select })
+      : undefined;
+    if (projection && !adapter.capabilities.supportsReturning) {
+      const identities = await this.captureMutationIdentities(
+        model,
+        selector,
+        limit
+      );
+      if (identities.length === 0) return [];
+      const rows: Input[] = [];
+      for (const query of this.seriesQueries(projection, identities))
+        rows.push(...(await this.read(query)));
+      const response = await this.transport._execute(
+        adapter.mutations.delete(
+          q.table(model),
+          adapter.operators.or(
+            ...identities.map((identity) => q.lowerIdentity(model, identity))
+          )
+        ),
+        this.statementContext(model, "deleteMany")
+      );
+      if (response.rowCount !== identities.length)
+        throw new TransactionError(
+          "deleteMany selected-row cardinality changed during its locked mutation.",
+          { meta: this.attribution }
+        );
+      return rows;
+    }
+    const limited = q.lowerMutationLimit(model, selector, limit);
+    const mutation = adapter.mutations.delete(
+      q.table(model),
       limited.where
     );
+    let statement = limited.suffix
+      ? sql`${mutation} ${limited.suffix}`
+      : mutation;
+    if (projection)
+      statement = sql`${statement} ${adapter.mutations.returning(
+        sql.join(q.lowerProjection(projection).columns, ", ")
+      )}`;
     return this.setMutation(
-      limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation,
+      statement,
       this.statementContext(model, "deleteMany"),
-      (result) => ({ count: result.rowCount })
+      (result) =>
+        projection
+          ? q.decodeProjection(projection.shape, result.rows.map(record))
+          : { count: result.rowCount }
     );
+  }
+  private async captureMutationIdentities(
+    model: AnyModel,
+    selector: PreparedSelector,
+    limit: number | undefined
+  ): Promise<Input[]> {
+    if (this.ownership === "batch-preparation")
+      throw this.incompletePreparation;
+    if (this.usesBatch)
+      throw new TransactionError(
+        `Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.`,
+        { meta: this.attribution }
+      );
+    const keys = this.schema.keys(model);
+    const rows = await this.read(
+      this.queries.select(
+        model,
+        {
+          select: Object.fromEntries(keys.map((field) => [field, true])),
+          take: limit
+        },
+        undefined,
+        { selector, forUpdate: true }
+      )
+    );
+    return rows.map((row) => this.schema.identity(model, row));
+  }
+  private finalUpdatedIdentity(
+    model: AnyModel,
+    identity: Input,
+    values: Input
+  ): Input {
+    const final: Input = { ...identity };
+    for (const field of this.schema.keys(model)) {
+      const value = values[field];
+      if (value === undefined) continue;
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !(value instanceof Sql)
+      ) {
+        const operation = record(value);
+        if ("set" in operation) final[field] = operation.set;
+        else if ("increment" in operation) {
+          const before = final[field];
+          const increment = operation.increment;
+          if (typeof before === "bigint" && typeof increment === "bigint")
+            final[field] = before + increment;
+          else if (typeof before === "number" && typeof increment === "number")
+            final[field] = before + increment;
+          else
+            throw new TransactionError(
+              `Driver '${this.driver.driverName}' cannot derive one updated row identity without RETURNING.`,
+              { meta: this.attribution }
+            );
+        }
+      } else final[field] = value;
+    }
+    return final;
   }
   private ensureScratch(): string {
     const attempt = this.attempt;
