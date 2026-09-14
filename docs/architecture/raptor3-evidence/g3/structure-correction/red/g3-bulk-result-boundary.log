@@ -1,0 +1,73 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (5 tests | 2 failed) 30ms
+   ✓ G3 scalar bulk result boundaries > returns the admitted empty mode for every update/delete presentation 16ms
+   ✓ G3 scalar bulk result boundaries > packages zero-limit result modes with an empty physical window 2ms
+   ✓ G3 scalar bulk result boundaries > keeps non-returning selected update/delete on their captured row sets 4ms
+   × G3 scalar bulk result boundaries > does not build discarded RETURNING work before a createMany fallback or refusal 5ms
+     → Expected values to be strictly equal:
+
+1 !== 0
+
+   × G3 scalar bulk result boundaries > lowers one capped selector only at its aliased mutation boundary 2ms
+     → Expected values to be strictly equal:
+
+2 !== 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts > G3 scalar bulk result boundaries > does not build discarded RETURNING work before a createMany fallback or refusal
+AssertionError: Expected values to be strictly equal:
+
+1 !== 0
+
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/raptor3/g3/bulk-result-boundary.test.ts:232:14
+    230|         /cannot include a row with no explicit scalar values/
+    231|       );
+    232|       assert.equal(returning.mock.calls.length, 0);
+       |              ^
+    233|       assert.deepEqual(world.driver.statements, []);
+    234| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts > G3 scalar bulk result boundaries > lowers one capped selector only at its aliased mutation boundary
+AssertionError: Expected values to be strictly equal:
+
+2 !== 1
+
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/raptor3/g3/bulk-result-boundary.test.ts:280:14
+    278|         { count: 1 }
+    279|       );
+    280|       assert.equal(equals.mock.calls.length, 1);
+       |              ^
+    281|       assert.deepEqual(
+    282|         world.database
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  18:34:06
+   Duration  1.65s (transform 1.02s, setup 8ms, collect 1.49s, tests 30ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-D2W0Py/vitest.json
+Vitest resources: 3.62s wall, 512.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-D2W0Py

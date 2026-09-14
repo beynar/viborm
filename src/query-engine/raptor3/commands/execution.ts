@@ -200,20 +200,18 @@ export class CommandExecution {
     while (true) {
       try {
         await this.run(root);
-        return (
-          await this.context.finish(
-            this.context.queries.select(
-              root.command.model,
-              {
-                select: args.select,
-                include: args.include,
-                omit: args.omit,
-              },
-              undefined,
-              { identity: this.identity(root.command.fields) }
-            )
+        return await this.context.finishOne(
+          this.context.queries.select(
+            root.command.model,
+            {
+              select: args.select,
+              include: args.include,
+              omit: args.omit,
+            },
+            undefined,
+            { identity: this.identity(root.command.fields) }
           )
-        )[0];
+        );
       } catch (error) {
         if (!(await this.recover(error))) throw error;
       }
@@ -513,10 +511,10 @@ export class CommandExecution {
         return;
       }
       case "series": {
-        await this.records(
+        await this.executeRecords(
           occurrence.children.filter(isRecordOccurrence),
-          command.select,
-          member
+          member,
+          command.select
         );
         return;
       }
@@ -534,6 +532,27 @@ export class CommandExecution {
     select: Input | undefined,
     member: Member
   ): Promise<unknown> {
+    const { count, identities } = await this.executeRecords(
+      records,
+      member,
+      select
+    );
+    if (!select) return this.context.finishValue({ count });
+    if (identities.length === 0) return this.context.finishMany([]);
+    return this.context.finishMany(
+      this.context.seriesQueries(
+        this.context.queries.prepareProjection(records[0]!.command.model, {
+          select,
+        }),
+        identities
+      )
+    );
+  }
+  private async executeRecords(
+    records: CommandOccurrence<RecordCommand>[],
+    member: Member,
+    select: Input | undefined
+  ): Promise<{ readonly count: number; readonly identities: Input[] }> {
     const ctx = this.context;
     const members = ctx.prepareMembers(() => records, member);
     const identities: Input[] = [];
@@ -551,18 +570,7 @@ export class CommandExecution {
       count++;
       if (select) identities.push(this.identity(command.fields));
     }
-    const selected = await this.completeSeries(
-      select,
-      identities,
-      (selection) =>
-        ctx.seriesQueries(
-          ctx.queries.prepareProjection(records[0]!.command.model, {
-            select: selection
-          }),
-          identities
-        )
-    );
-    return selected ?? { count };
+    return { count, identities };
   }
   async series(
     occurrence: CommandOccurrence<SeriesOccurrence>,
@@ -590,31 +598,21 @@ export class CommandExecution {
       : [];
     const count = await this.executeSeries(occurrence);
     const identities = identityFields.map((fields) => this.identity(fields));
-    const selected = await this.completeSeries(
-      select,
-      identities,
-      (selection) =>
-        this.context.seriesQueries(
-          this.context.queries.prepareProjection(
-            occurrence.command.series.selection.model,
-            { select: selection }
-          ),
-          identities,
-          "updateMany"
-        )
-    );
-    return selected ?? count;
-  }
-  private async completeSeries(
-    select: Input | undefined,
-    identities: Input[],
-    query: (select: Input) => Query | readonly Query[]
-  ): Promise<Input[] | undefined> {
-    if (!select || identities.length === 0) {
+    if (!select) {
       await this.context.finish();
-      return select ? [] : undefined;
+      return count;
     }
-    return this.context.finish(query(select));
+    if (identities.length === 0) return this.context.finishMany([]);
+    return this.context.finishMany(
+      this.context.seriesQueries(
+        this.context.queries.prepareProjection(
+          occurrence.command.series.selection.model,
+          { select }
+        ),
+        identities,
+        "updateMany"
+      )
+    );
   }
   private async captureSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>,

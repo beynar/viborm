@@ -1,0 +1,42 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests | 1 failed) 42ms
+   ✓ G3-02 execution boundary review > keeps standalone multi-statement createMany on its atomic batch route 21ms
+   ✓ G3-02 execution boundary review > reads a supported incremented key when the public result omits it 5ms
+   ✓ G3-02 execution boundary review > reads through a supported compound key transition with omitted result keys 3ms
+   × G3-02 execution boundary review > reads a supported decimal key increment through its provider expression 6ms
+     → canonical.startsWith is not a function
+   ✓ G3-02 execution boundary review > partitions set inserts by compiled bind count and preserves result order 2ms
+   ✓ G3-02 execution boundary review > partitions non-returning terminal reads by bind count and preserves input order 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > reads a supported decimal key increment through its provider expression
+TypeError: canonical.startsWith is not a function
+ ❯ logicalToCoefficient src/validation/primitives/decimal-codec.ts:523:30
+    521|  */
+    522| export function logicalToCoefficient(canonical: string, scale: number)…
+    523|   const negative = canonical.startsWith("-");
+       |                              ^
+    524|   const [integer, fraction] = splitCanonical(canonical);
+    525|   const digits = coefficientDigits(integer, fraction, scale);
+ ❯ encodePhysicalDecimalAtScale src/validation/primitives/decimal-codec.ts:744:7
+ ❯ encodePhysicalDecimal src/validation/primitives/decimal-codec.ts:757:10
+ ❯ Object.decimal src/adapters/databases/sqlite/sqlite-adapter.ts:306:18
+ ❯ Queries.fieldValue src/query-engine/raptor3/shared/query.ts:212:31
+ ❯ src/query-engine/raptor3/shared/query.ts:440:16
+ ❯ Queries.lowerIdentity src/query-engine/raptor3/shared/query.ts:437:35
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:903:45
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  18:45:18
+   Duration  1.71s (transform 1.07s, setup 8ms, collect 1.54s, tests 42ms, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5WeDTp/vitest.json
+Vitest resources: 3.74s wall, 529.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5WeDTp

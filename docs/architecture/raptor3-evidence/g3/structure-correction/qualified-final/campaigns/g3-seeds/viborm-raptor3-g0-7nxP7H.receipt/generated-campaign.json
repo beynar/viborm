@@ -1,0 +1,2026 @@
+{
+  "formatVersion": 1,
+  "qualifying": true,
+  "status": "complete",
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 17800,
+  "seedCount": 100,
+  "profiles": [
+    "sqlite-interactive",
+    "sqlite-atomic-batch"
+  ],
+  "completed": [
+    {
+      "seed": 17800,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17800,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17801,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 24,
+      "completions": 23
+    },
+    {
+      "seed": 17801,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 24,
+      "completions": 22
+    },
+    {
+      "seed": 17802,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 17802,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17803,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 96
+    },
+    {
+      "seed": 17803,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 96
+    },
+    {
+      "seed": 17804,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17804,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17805,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 18
+    },
+    {
+      "seed": 17805,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 14
+    },
+    {
+      "seed": 17806,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 15,
+      "completions": 1
+    },
+    {
+      "seed": 17806,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 15,
+      "completions": 1
+    },
+    {
+      "seed": 17807,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 80
+    },
+    {
+      "seed": 17807,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 80
+    },
+    {
+      "seed": 17808,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17808,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17809,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 8
+    },
+    {
+      "seed": 17809,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 17810,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 17810,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 17811,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 8
+    },
+    {
+      "seed": 17811,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 8
+    },
+    {
+      "seed": 17812,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 10,
+      "completions": 0
+    },
+    {
+      "seed": 17812,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 10,
+      "completions": 0
+    },
+    {
+      "seed": 17813,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 26,
+      "completions": 31
+    },
+    {
+      "seed": 17813,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 26,
+      "completions": 26
+    },
+    {
+      "seed": 17814,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17814,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17815,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 26,
+      "completions": 260
+    },
+    {
+      "seed": 17815,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 26,
+      "completions": 260
+    },
+    {
+      "seed": 17816,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 22,
+      "completions": 21
+    },
+    {
+      "seed": 17816,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 22,
+      "completions": 21
+    },
+    {
+      "seed": 17817,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 22,
+      "completions": 27
+    },
+    {
+      "seed": 17817,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 22,
+      "completions": 22
+    },
+    {
+      "seed": 17818,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 17818,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 17819,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 28
+    },
+    {
+      "seed": 17819,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 28
+    },
+    {
+      "seed": 17820,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17820,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17821,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 18
+    },
+    {
+      "seed": 17821,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 18
+    },
+    {
+      "seed": 17822,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17822,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17823,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 12
+    },
+    {
+      "seed": 17823,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 12
+    },
+    {
+      "seed": 17824,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 0
+    },
+    {
+      "seed": 17824,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 0
+    },
+    {
+      "seed": 17825,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 4,
+      "completions": 7
+    },
+    {
+      "seed": 17825,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 4,
+      "completions": 3
+    },
+    {
+      "seed": 17826,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 18,
+      "completions": 1
+    },
+    {
+      "seed": 17826,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 18,
+      "completions": 1
+    },
+    {
+      "seed": 17827,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 30,
+      "completions": 480
+    },
+    {
+      "seed": 17827,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 30,
+      "completions": 480
+    },
+    {
+      "seed": 17828,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17828,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17829,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 30
+    },
+    {
+      "seed": 17829,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 17830,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 9
+    },
+    {
+      "seed": 17830,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 17831,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 286
+    },
+    {
+      "seed": 17831,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 286
+    },
+    {
+      "seed": 17832,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17832,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17833,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 26
+    },
+    {
+      "seed": 17833,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 17834,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 20
+    },
+    {
+      "seed": 17834,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 17835,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 69
+    },
+    {
+      "seed": 17835,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 69
+    },
+    {
+      "seed": 17836,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 29,
+      "completions": 28
+    },
+    {
+      "seed": 17836,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 29,
+      "completions": 28
+    },
+    {
+      "seed": 17837,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 18
+    },
+    {
+      "seed": 17837,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 14
+    },
+    {
+      "seed": 17838,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 16
+    },
+    {
+      "seed": 17838,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17839,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 72
+    },
+    {
+      "seed": 17839,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 72
+    },
+    {
+      "seed": 17840,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 17840,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 17841,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 11,
+      "completions": 10
+    },
+    {
+      "seed": 17841,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 11,
+      "completions": 10
+    },
+    {
+      "seed": 17842,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17842,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 17843,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 13,
+      "completions": 52
+    },
+    {
+      "seed": 17843,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 13,
+      "completions": 52
+    },
+    {
+      "seed": 17844,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17844,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17845,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 24,
+      "completions": 29
+    },
+    {
+      "seed": 17845,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 24,
+      "completions": 24
+    },
+    {
+      "seed": 17846,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 11,
+      "completions": 1
+    },
+    {
+      "seed": 17846,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 11,
+      "completions": 1
+    },
+    {
+      "seed": 17847,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 9,
+      "completions": 18
+    },
+    {
+      "seed": 17847,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 9,
+      "completions": 18
+    },
+    {
+      "seed": 17848,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 17848,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 17849,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 25
+    },
+    {
+      "seed": 17849,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 20
+    },
+    {
+      "seed": 17850,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 7,
+      "completions": 7
+    },
+    {
+      "seed": 17850,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 7,
+      "completions": 7
+    },
+    {
+      "seed": 17851,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 76
+    },
+    {
+      "seed": 17851,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 76
+    },
+    {
+      "seed": 17852,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17852,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17853,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 17
+    },
+    {
+      "seed": 17853,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17854,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 17854,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 17855,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 12,
+      "completions": 84
+    },
+    {
+      "seed": 17855,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 12,
+      "completions": 84
+    },
+    {
+      "seed": 17856,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 28,
+      "completions": 27
+    },
+    {
+      "seed": 17856,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 28,
+      "completions": 27
+    },
+    {
+      "seed": 17857,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 31
+    },
+    {
+      "seed": 17857,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 27
+    },
+    {
+      "seed": 17858,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 17858,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17859,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 280
+    },
+    {
+      "seed": 17859,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 280
+    },
+    {
+      "seed": 17860,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 5,
+      "completions": 5
+    },
+    {
+      "seed": 17860,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 5,
+      "completions": 5
+    },
+    {
+      "seed": 17861,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 19
+    },
+    {
+      "seed": 17861,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 18
+    },
+    {
+      "seed": 17862,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 30
+    },
+    {
+      "seed": 17862,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 31
+    },
+    {
+      "seed": 17863,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 320
+    },
+    {
+      "seed": 17863,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 320
+    },
+    {
+      "seed": 17864,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17864,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17865,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 16,
+      "completions": 19
+    },
+    {
+      "seed": 17865,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 16,
+      "completions": 15
+    },
+    {
+      "seed": 17866,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 1
+    },
+    {
+      "seed": 17866,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 1
+    },
+    {
+      "seed": 17867,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 120
+    },
+    {
+      "seed": 17867,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 140
+    },
+    {
+      "seed": 17868,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 17868,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 17869,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 27
+    },
+    {
+      "seed": 17869,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 23
+    },
+    {
+      "seed": 17870,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 17870,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17871,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 234
+    },
+    {
+      "seed": 17871,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 260
+    },
+    {
+      "seed": 17872,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 17872,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 17873,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 32
+    },
+    {
+      "seed": 17873,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17874,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17874,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 17875,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 30,
+      "completions": 150
+    },
+    {
+      "seed": 17875,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 30,
+      "completions": 180
+    },
+    {
+      "seed": 17876,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 4,
+      "completions": 3
+    },
+    {
+      "seed": 17876,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 4,
+      "completions": 3
+    },
+    {
+      "seed": 17877,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 9
+    },
+    {
+      "seed": 17877,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17878,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 17878,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 17879,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 75
+    },
+    {
+      "seed": 17879,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 90
+    },
+    {
+      "seed": 17880,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 15
+    },
+    {
+      "seed": 17880,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 15
+    },
+    {
+      "seed": 17881,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 17881,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 17882,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17882,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 4,
+      "completions": 4
+    },
+    {
+      "seed": 17883,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 12
+    },
+    {
+      "seed": 17883,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 12
+    },
+    {
+      "seed": 17884,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 6,
+      "completions": 6
+    },
+    {
+      "seed": 17884,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 6,
+      "completions": 6
+    },
+    {
+      "seed": 17885,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 28
+    },
+    {
+      "seed": 17885,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 17886,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 26,
+      "completions": 1
+    },
+    {
+      "seed": 17886,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 26,
+      "completions": 1
+    },
+    {
+      "seed": 17887,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 14
+    },
+    {
+      "seed": 17887,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 14
+    },
+    {
+      "seed": 17888,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17888,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 17889,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 35
+    },
+    {
+      "seed": 17889,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 31
+    },
+    {
+      "seed": 17890,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 9
+    },
+    {
+      "seed": 17890,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 17891,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 104
+    },
+    {
+      "seed": 17891,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 104
+    },
+    {
+      "seed": 17892,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 31
+    },
+    {
+      "seed": 17892,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 31
+    },
+    {
+      "seed": 17893,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 9,
+      "completions": 12
+    },
+    {
+      "seed": 17893,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 9,
+      "completions": 8
+    },
+    {
+      "seed": 17894,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 28
+    },
+    {
+      "seed": 17894,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 29
+    },
+    {
+      "seed": 17895,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 4,
+      "completions": 32
+    },
+    {
+      "seed": 17895,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 4,
+      "completions": 32
+    },
+    {
+      "seed": 17896,
+      "profile": "sqlite-interactive",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 17896,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 17897,
+      "profile": "sqlite-interactive",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 23
+    },
+    {
+      "seed": 17897,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 20,
+      "completions": 19
+    },
+    {
+      "seed": 17898,
+      "profile": "sqlite-interactive",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 16
+    },
+    {
+      "seed": 17898,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 17899,
+      "profile": "sqlite-interactive",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 144
+    },
+    {
+      "seed": 17899,
+      "profile": "sqlite-atomic-batch",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 162
+    }
+  ],
+  "replays": 600,
+  "skipped": 0
+}

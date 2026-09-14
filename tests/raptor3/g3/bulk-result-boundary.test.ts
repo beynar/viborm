@@ -6,7 +6,7 @@ import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 
 class ObservedSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
@@ -38,7 +38,10 @@ function boundarySchema() {
       score: s.int(),
     })
     .map("g3_bulk_result_records");
-  return { record };
+  const defaultOnly = s
+    .model({ id: s.int().id().increment() })
+    .map("g3_bulk_result_default_only");
+  return { defaultOnly, record };
 }
 
 async function prepareWorld(nonReturning = false) {
@@ -207,6 +210,79 @@ describe("G3 scalar bulk result boundaries", () => {
           { id: 1, code: "one", secret: "hidden-one", score: 11 },
           { id: 3, code: "three", secret: "hidden-three", score: 3 },
         ]
+      );
+    } finally {
+      await world.client.$disconnect();
+      world.database.close();
+    }
+  });
+
+  it("does not build discarded RETURNING work before fallback or refusal", async () => {
+    const world = await prepareWorld(true);
+    const returning = vi.spyOn(world.driver.adapter.mutations, "returning");
+    try {
+      await assert.rejects(
+        world.candidate.execute("defaultOnly", "createMany", {
+          data: [{}],
+          skipDuplicates: true,
+          select: { id: true },
+        }),
+        /cannot include a row with no explicit scalar values/
+      );
+      assert.equal(returning.mock.calls.length, 0);
+      assert.deepEqual(world.driver.statements, []);
+
+      assert.deepEqual(
+        await world.candidate.execute("record", "createMany", {
+          data: [
+            { id: 1, code: "one", secret: "first", score: 1 },
+            { id: 2, code: "two", secret: "second", score: 2 },
+          ],
+          select: { id: true, code: true },
+        }),
+        [
+          { id: 1, code: "one" },
+          { id: 2, code: "two" },
+        ]
+      );
+      assert.equal(returning.mock.calls.length, 0);
+      assert.deepEqual(
+        world.database
+          .prepare("SELECT id,code FROM g3_bulk_result_records ORDER BY id")
+          .all(),
+        [
+          { id: 1, code: "one" },
+          { id: 2, code: "two" },
+        ]
+      );
+    } finally {
+      await world.client.$disconnect();
+      world.database.close();
+    }
+  });
+
+  it("lowers one capped selector only at its aliased mutation boundary", async () => {
+    const world = await prepareWorld();
+    world.database.exec(`
+      INSERT INTO g3_bulk_result_records(id,code,secret,score) VALUES
+        (1,'one','first',1),
+        (2,'two','second',2)
+    `);
+    const equals = vi.spyOn(world.driver.adapter.operators, "eq");
+    try {
+      assert.deepEqual(
+        await world.candidate.execute("record", "deleteMany", {
+          where: { id: 1 },
+          limit: 1,
+        }),
+        { count: 1 }
+      );
+      assert.equal(equals.mock.calls.length, 1);
+      assert.deepEqual(
+        world.database
+          .prepare("SELECT id,code FROM g3_bulk_result_records ORDER BY id")
+          .all(),
+        [{ id: 2, code: "two" }]
       );
     } finally {
       await world.client.$disconnect();

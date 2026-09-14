@@ -1,0 +1,45 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 29ms
+   ✓ G3-02 author execution regressions > reports a malformed result after its atomic batch was acknowledged 15ms
+   × G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 10ms
+     → Expected values to be strictly equal:
+
+3 !== 2
+
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking
+AssertionError: Expected values to be strictly equal:
+
+3 !== 2
+
+
+- Expected
++ Received
+
+- 2
++ 3
+
+ ❯ tests/raptor3/g3/author-execution-regressions.test.ts:282:14
+    280|         /^SELECT\b/i.test(sql.trim()) ? [index] : []
+    281|       );
+    282|       assert.equal(terminalIndexes.length, 2);
+       |              ^
+    283|       assert.equal(
+    284|         driver.batchResults.length,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  19:55:34
+   Duration  1.51s (transform 960ms, setup 8ms, collect 1.36s, tests 29ms, environment 0ms, prepare 23ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RBtewD/vitest.json
+Vitest resources: 3.32s wall, 522.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RBtewD

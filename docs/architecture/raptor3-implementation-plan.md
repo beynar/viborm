@@ -1,7 +1,7 @@
 # Raptor 3 — central implementation plan
 
-Status updated 2026-09-14. **G3 is qualified; G4 is next, followed by
-separately authorized cutover.** This document
+Status updated 2026-09-14. **G3 and its bounded structural correction are
+qualified and accepted. G4 is next, followed by separately authorized cutover.** This document
 owns future implementation order, acceptance gates and autonomous-work limits.
 It contains current instructions, not completed-stage assignments.
 
@@ -726,14 +726,15 @@ projection/parser ownership, scalar codecs, raw and extension boundaries,
 public typing, provider capabilities and existing fast paths. Run the complete
 behavior/type/package estates through the candidate. Private implementation
 pins do not disappear until their public replacement witness is verified.
-Before extending arithmetic beyond the G3 set/increment subset, resolve the
-independent interpretations in `Queries.updateValue` and non-RETURNING final-key
-derivation. The write expression and its resulting row identity must agree by
-one owned rule, including provider numeric semantics; do not grow a second
-JavaScript arithmetic ladder beside SQL lowering. Pin non-RETURNING simple and
-compound key transitions with keys omitted from the public projection. This is
-an extension constraint on existing owners, not authority for another engine
-language or a new foundation checkpoint.
+The G3 structural correction removed the independent non-RETURNING final-key
+arithmetic interpretation. Preserve `Queries.updateValue` as the sole owner of
+both mutation assignments and symbolic updated-key expressions when G4 extends
+beyond the current set/increment subset, including provider numeric semantics.
+Do not grow a JavaScript arithmetic ladder beside SQL lowering. Retain the
+non-RETURNING simple, compound and decimal key-transition witnesses with keys
+omitted from the public projection. This is an extension constraint on the
+solved owner, not authority for another engine language or a new foundation
+checkpoint.
 Carry the recursive-read fit through fuller C12 projection/codecs and execute
 its representative native PostgreSQL/MySQL lowering before qualification; this
 is engine-fit evidence, not implementation or conformance of the queued feature.
@@ -1211,17 +1212,22 @@ owns its durable implementation rules. The [evidence ledger](raptor3-evidence/co
 retains previous qualification, approved deviations and consumed repair budgets;
 this plan does not repeat completed assignments or superseded design hypotheses.
 
-**Qualified:** G3-01's zero-production-change construction handoff is
+**Historical qualified checkpoint:** G3-01's zero-production-change construction handoff is
 [accepted](raptor3-evidence/g3/unit01-review.md), and G3-02's execution unit is
 [accepted after bounded repairs](raptor3-evidence/g3/unit02-review-followup.md).
 G3-03's fixed and generated failure/composition witnesses are accepted after
 bounded repairs. G3-04 passed the complete frozen-source inventory and received
 [independent acceptance](raptor3-evidence/g3/unit04-review.md) and
 [root acceptance](raptor3-evidence/g3/unit04-root-review.md).
-The [G3 ledger](raptor3-evidence/g3.md) records the final evidence and costs.
-**Next:** G4-01 and G4-03 may proceed on their existing distinct ownership
-boundaries; G4-02 follows the verified G4-01 handoff. No new foundation stage
-or repeated G3 implementation is required.
+The later bounded structural correction is frozen at production
+`fe544577…` / harness `3d997787…`. Its sealed author qualification package under
+`g3/structure-correction/qualified-final/` received
+[independent acceptance](raptor3-evidence/g3/structure-correction/qualification-review.md)
+and [root acceptance](raptor3-evidence/g3/structure-correction/root-acceptance.md).
+The [G3 ledger](raptor3-evidence/g3.md) records the current evidence and costs.
+**Next implementation:** G4-01 and G4-03 may proceed on
+their existing distinct ownership boundaries; G4-02 follows the verified
+G4-01 handoff. No new foundation stage or repeated G3 implementation is required.
 Each completed unit receives independent Sol 5.6/high review; the root performs
 one final global review, beginning with code before full qualification and
 closing on its evidence under §6.3. No new foundation stage is authorized by

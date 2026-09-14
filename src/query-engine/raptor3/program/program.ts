@@ -534,23 +534,19 @@ export class Program {
         block,
         this.analyze(block, ctx.schema.keys(model))
       );
-      return (
-        await ctx.finish(
-          ctx.queries.select(model, {
-            ...args,
-            where: ctx.schema.identity(model, output),
-          })
-        )
-      )[0];
+      return ctx.finishOne(
+        ctx.queries.select(model, {
+          ...args,
+          where: ctx.schema.identity(model, output),
+        })
+      );
     }
     if (ctx.operation === "update") {
       const block = this.update(model, args.where!, args.data, raw.data);
       await this.run(block, this.analyze(block));
-      return (
-        await ctx.finish(
-          ctx.queries.select(model, { ...args, where: args.where })
-        )
-      )[0];
+      return ctx.finishOne(
+        ctx.queries.select(model, { ...args, where: args.where })
+      );
     }
     const keys = ctx.schema.keys(model);
     const captured = await ctx.read(

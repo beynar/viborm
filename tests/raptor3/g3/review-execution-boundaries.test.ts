@@ -83,7 +83,13 @@ function reviewSchema() {
     })
     .id(["tenant", "slot"])
     .map("g3_review_compound_records");
-  return { compound, record };
+  const decimal = s
+    .model({
+      id: s.decimal({ precision: 12, scale: 2 }).id(),
+      label: s.string(),
+    })
+    .map("g3_review_decimal_records");
+  return { compound, decimal, record };
 }
 
 function insertStatements(driver: ObservedSQLiteDriver) {
@@ -130,28 +136,43 @@ describe("G3-02 execution boundary review", () => {
   it("reads a supported incremented key when the public result omits it", async () => {
     const schema = reviewSchema();
     const database = new Database(":memory:");
-    const driver = new NonReturningSQLiteDriver(database);
+    const driver = new NonReturningSQLiteDriver(database, 8);
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
     const candidate = createCommandEngine({ schema, driver });
-    database.exec(
-      "INSERT INTO g3_review_records(id,code,label) VALUES(8,'key','value')"
-    );
+    database.exec(`
+      INSERT INTO g3_review_records(id,code,label) VALUES
+        (8,'first','value'),
+        (18,'second','value'),
+        (28,'third','value')
+    `);
+    driver.statements.length = 0;
     try {
       assert.deepEqual(
         await candidate.execute("record", "updateMany", {
-          where: { id: 8 },
           data: { id: { increment: 2 } },
           select: { code: true },
         }),
-        [{ code: "key" }]
+        [{ code: "first" }, { code: "second" }, { code: "third" }]
       );
       assert.deepEqual(
         database
           .prepare("SELECT id,code FROM g3_review_records ORDER BY id")
           .all(),
-        [{ id: 10, code: "key" }]
+        [
+          { id: 10, code: "first" },
+          { id: 20, code: "second" },
+          { id: 30, code: "third" },
+        ]
+      );
+      const terminals = selectStatements(driver).filter(({ sql }) =>
+        /["`]code["`]/i.test(sql)
+      );
+      assert.equal(terminals.length, 3);
+      assert.equal(
+        terminals.every(({ parameters }) => parameters.length <= 8),
+        true
       );
     } finally {
       await client.$disconnect();
@@ -162,22 +183,25 @@ describe("G3-02 execution boundary review", () => {
   it("reads through a supported compound key transition with omitted result keys", async () => {
     const schema = reviewSchema();
     const database = new Database(":memory:");
-    const driver = new NonReturningSQLiteDriver(database);
+    const driver = new NonReturningSQLiteDriver(database, 8);
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
     const candidate = createCommandEngine({ schema, driver });
-    database.exec(
-      "INSERT INTO g3_review_compound_records(tenant,slot,label) VALUES('old',8,'value')"
-    );
+    database.exec(`
+      INSERT INTO g3_review_compound_records(tenant,slot,label) VALUES
+        ('old',8,'first'),
+        ('old',18,'second')
+    `);
+    driver.statements.length = 0;
     try {
       assert.deepEqual(
         await candidate.execute("compound", "updateMany", {
-          where: { tenant: "old", slot: 8 },
+          where: { tenant: "old" },
           data: { tenant: "new", slot: { increment: 2 } },
           select: { label: true },
         }),
-        [{ label: "value" }]
+        [{ label: "first" }, { label: "second" }]
       );
       assert.deepEqual(
         database
@@ -185,7 +209,53 @@ describe("G3-02 execution boundary review", () => {
             "SELECT tenant,slot,label FROM g3_review_compound_records"
           )
           .all(),
-        [{ tenant: "new", slot: 10, label: "value" }]
+        [
+          { tenant: "new", slot: 10, label: "first" },
+          { tenant: "new", slot: 20, label: "second" },
+        ]
+      );
+      const terminals = selectStatements(driver).filter(({ sql }) =>
+        /["`]label["`]/i.test(sql)
+      );
+      assert.equal(terminals.length, 2);
+      assert.equal(
+        terminals.every(({ sql, parameters }) =>
+          /\+/.test(sql) && parameters.length <= 8
+        ),
+        true
+      );
+    } finally {
+      await client.$disconnect();
+      database.close();
+    }
+  });
+
+  it("reads a supported decimal key increment through its provider expression", async () => {
+    const schema = reviewSchema();
+    const database = new Database(":memory:");
+    const driver = new NonReturningSQLiteDriver(database);
+    const client = createClient({ schema, driver });
+    const migration = await syncLiveSchema(client);
+    assert.equal(migration.applied, true);
+    const candidate = createCommandEngine({ schema, driver });
+    database.exec(
+      "INSERT INTO g3_review_decimal_records(id,label) VALUES(800,'value')"
+    );
+    driver.statements.length = 0;
+    try {
+      assert.deepEqual(
+        await candidate.execute("decimal", "updateMany", {
+          where: { id: "8.00" },
+          data: { id: { increment: "2.00" } },
+          select: { label: true },
+        }),
+        [{ label: "value" }]
+      );
+      assert.deepEqual(
+        database
+          .prepare("SELECT id,label FROM g3_review_decimal_records")
+          .all(),
+        [{ id: 1000, label: "value" }]
       );
     } finally {
       await client.$disconnect();

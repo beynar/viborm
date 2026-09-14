@@ -414,11 +414,11 @@ export class Queries {
     limit: number | undefined
   ): { readonly where?: Sql; readonly suffix?: Sql } {
     const adapter = this.adapter;
-    const lowered = this.lowerSelector(selector);
-    if (limit === undefined) return { where: lowered };
+    if (limit === undefined)
+      return { where: this.lowerSelector(selector) };
     if (adapter.capabilities.supportsMutationRowLimit)
       return {
-        where: lowered,
+        where: this.lowerSelector(selector),
         suffix: adapter.clauses.limit(this.value(limit)),
       };
     const alias = this.alias();

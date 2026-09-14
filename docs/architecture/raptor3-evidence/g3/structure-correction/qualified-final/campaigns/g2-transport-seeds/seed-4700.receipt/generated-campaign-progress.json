@@ -1,0 +1,1226 @@
+{
+  "formatVersion": 1,
+  "qualifying": false,
+  "status": "incomplete",
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 4700,
+  "seedCount": 100,
+  "profiles": [
+    "scripted-returning-weak",
+    "scripted-returning-ack"
+  ],
+  "completed": [
+    {
+      "seed": 4700,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4700,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4701,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4701,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4702,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4702,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4703,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4703,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4704,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4704,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4705,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4705,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4706,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4706,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4707,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4707,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4708,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4708,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4709,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4709,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4710,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4710,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4711,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4711,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4712,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4712,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4713,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4713,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4714,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4714,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4715,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4715,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4716,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4716,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4717,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4717,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4718,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4718,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4719,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4719,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4720,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4720,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4721,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4721,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4722,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4722,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4723,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4723,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4724,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4724,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4725,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4725,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4726,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4726,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4727,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4727,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4728,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4728,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4729,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4729,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4730,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4730,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4731,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4731,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4732,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4732,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4733,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4733,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4734,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4734,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4735,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4735,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4736,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4736,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4737,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4737,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4738,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4738,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4739,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4739,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4740,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4740,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4741,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4741,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4742,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4742,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4743,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4743,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4744,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4744,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4745,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4745,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4746,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4746,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4747,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4747,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4748,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4748,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4749,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4749,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4750,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4750,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4751,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4751,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4752,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4752,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4753,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4753,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4754,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4754,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4755,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4755,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4756,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4756,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4757,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4757,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4758,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4758,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4759,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4759,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4760,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4760,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4761,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4761,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4762,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4762,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4763,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4763,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4764,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4764,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4765,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4765,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4766,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4766,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4767,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4767,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4768,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4768,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4769,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4769,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4770,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4770,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4771,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4771,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4772,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4772,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4773,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4773,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4774,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4774,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4775,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4775,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4776,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4776,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4777,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4777,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4778,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4778,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4779,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4779,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4780,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4780,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4781,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4781,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4782,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4782,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4783,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4783,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4784,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4784,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4785,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4785,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4786,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4786,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4787,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4787,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4788,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4788,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4789,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4789,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4790,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4790,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4791,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4791,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4792,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4792,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4793,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4793,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4794,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4794,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4795,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4795,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4796,
+      "profile": "scripted-returning-weak",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4796,
+      "profile": "scripted-returning-ack",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 4797,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4797,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 4798,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4798,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4799,
+      "profile": "scripted-returning-weak",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 4799,
+      "profile": "scripted-returning-ack",
+      "actors": 1,
+      "faults": 0
+    }
+  ],
+  "replays": 600,
+  "skipped": 0
+}

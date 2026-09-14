@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "source": "generated-corpus.json",
+  "file": "generated-corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 65271488,
+  "originalSha256": "8d4ae3446b71638e38d58a4c9098ccd53f897010a8b7fc9e05ce3298eb969b10",
+  "archiveBytes": 1271734,
+  "receipt": "generated-corpus.archive.json",
+  "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+  "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+}

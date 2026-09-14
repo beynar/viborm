@@ -175,8 +175,10 @@ export class OperationContext {
   ): Promise<T> {
     try {
       const output = await execute();
-      await this.flush(undefined, member);
-      this.completedMembers++;
+      if (this.ownership !== "batch-preparation") {
+        await this.flush(undefined, member);
+        this.completedMembers++;
+      }
       return output;
     } catch (error) {
       throw this.failure(error, "member", member);
@@ -558,14 +560,45 @@ export class OperationContext {
     );
     return chunks.map(({ statement }) => preparedQueries.get(statement)!);
   }
-  async finish(query?: Query | readonly Query[]): Promise<Input[]> {
-    const returnsCollection = query !== undefined && !("sql" in query);
-    const queries =
-      query === undefined ? [] : "sql" in query ? [query] : query;
+  finish(): Promise<void> {
+    return this.finishValue(undefined);
+  }
+  finishValue<T>(value: T): Promise<T> {
+    return this.finishTerminals([], () => value);
+  }
+  finishOne(query: Query): Promise<Input | undefined> {
+    return this.finishTerminals([query], (rows) => rows[0]);
+  }
+  finishMany(queries: readonly Query[]): Promise<Input[]> {
+    return this.finishTerminals(queries, (rows) => rows);
+  }
+  private decodeTerminalResults(
+    queries: readonly Query[],
+    results: readonly QueryResult<unknown>[],
+    resultIndex: number
+  ): Input[] {
+    const output: Input[] = [];
+    for (const [offset, terminal] of queries.entries()) {
+      const response = results[resultIndex + offset];
+      if (!response)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' omitted the ${this.ownership === "batch-preparation" ? "prepared" : "terminal"} result for operation '${this.operation}'.`,
+          { meta: this.attribution }
+        );
+      output.push(
+        ...this.queries.decodeQuery(terminal, response.rows.map(record))
+      );
+    }
+    return output;
+  }
+  private async finishTerminals<T>(
+    queries: readonly Query[],
+    result: (rows: Input[]) => T
+  ): Promise<T> {
     if (!this.usesBatch) {
       const output: Input[] = [];
       for (const terminal of queries) output.push(...(await this.read(terminal)));
-      return output;
+      return result(output);
     }
     const resultIndex = this.attempt.pending.length;
     for (const terminal of queries) this.queue(terminal.sql);
@@ -576,48 +609,16 @@ export class OperationContext {
         )
       );
     if (this.ownership === "batch-preparation") {
-      this.preparedParser = queries.length
-        ? (results) => {
-            const output: Input[] = [];
-            for (const [offset, terminal] of queries.entries()) {
-              const response = results[resultIndex + offset];
-              if (!response) {
-                throw new TransactionError(
-                  `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-                  { meta: this.attribution }
-                );
-              }
-              output.push(
-                ...this.queries.decodeQuery(
-                  terminal,
-                  response.rows.map(record)
-                )
-              );
-            }
-            return returnsCollection ? output : output[0];
-          }
-        : () => undefined;
-      return [];
+      this.preparedParser = (results) =>
+        result(this.decodeTerminalResults(queries, results, resultIndex));
+      return result([]);
     }
-    if (this.attempt.pending.length === 0) return [];
+    if (this.attempt.pending.length === 0) return result([]);
     const responses = await this.submit();
     try {
-      const output: Input[] = [];
-      for (const [offset, terminal] of queries.entries()) {
-        const response = responses[resultIndex + offset];
-        if (!response)
-          throw new TransactionError(
-            `Driver '${this.driver.driverName}' omitted the terminal result for operation '${this.operation}'.`,
-            { meta: this.attribution }
-          );
-        output.push(
-          ...this.queries.decodeQuery(
-            terminal,
-            response.rows
-          )
-        );
-      }
-      return output;
+      return result(
+        this.decodeTerminalResults(queries, responses, resultIndex)
+      );
     } catch (error) {
       throw queries.length ? this.failure(error, "result") : error;
     }
@@ -708,25 +709,7 @@ export class OperationContext {
     const projection = select
       ? q.prepareProjection(model, { select })
       : undefined;
-    const returning = projection
-      ? adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection).columns, ", ")
-        )
-      : undefined;
-    const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
-    for (const row of rows) {
-      const columns = Object.keys(row);
-      const preceding = groups.at(-1);
-      if (
-        columns.length === 0 ||
-        !preceding ||
-        preceding.columns.length !== columns.length ||
-        columns.some((column, index) => preceding.columns[index] !== column)
-      )
-        groups.push({ columns, rows: [row] });
-      else preceding.rows.push(row);
-    }
-    if (skipDuplicates && groups.some(({ columns }) => columns.length === 0))
+    if (skipDuplicates && rows.some((row) => Object.keys(row).length === 0))
       throw new UnsupportedOperationError(
         "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
       );
@@ -813,9 +796,27 @@ export class OperationContext {
       }
       return projection
         ? identities.length
-          ? this.finish(this.seriesQueries(projection, identities))
+          ? this.finishMany(this.seriesQueries(projection, identities))
           : []
         : { count };
+    }
+    const returning = projection
+      ? adapter.mutations.returning(
+          sql.join(q.lowerProjection(projection).columns, ", ")
+        )
+      : undefined;
+    const groups: { readonly columns: string[]; readonly rows: Input[] }[] = [];
+    for (const row of rows) {
+      const columns = Object.keys(row);
+      const preceding = groups.at(-1);
+      if (
+        columns.length === 0 ||
+        !preceding ||
+        preceding.columns.length !== columns.length ||
+        columns.some((column, index) => preceding.columns[index] !== column)
+      )
+        groups.push({ columns, rows: [row] });
+      else preceding.rows.push(row);
     }
     const limit = normalizedBindParameterLimit(
       this.driver.maxBindParametersPerStatement
@@ -905,11 +906,11 @@ export class OperationContext {
           "updateMany selected-row cardinality changed during its locked mutation.",
           { meta: this.attribution }
         );
-      return this.finish(
+      return this.finishMany(
         this.seriesQueries(
           projection,
           identities.map((identity) =>
-            this.finalUpdatedIdentity(model, identity, values)
+            this.updatedIdentity(model, identity, values)
           ),
           "updateMany"
         )
@@ -1017,42 +1018,30 @@ export class OperationContext {
         },
         undefined,
         { selector, forUpdate: true }
-      )
+      ),
+      true
     );
     return rows.map((row) => this.schema.identity(model, row));
   }
-  private finalUpdatedIdentity(
+  private updatedIdentity(
     model: AnyModel,
     identity: Input,
     values: Input
   ): Input {
-    const final: Input = { ...identity };
-    for (const field of this.schema.keys(model)) {
-      const value = values[field];
-      if (value === undefined) continue;
-      if (
-        value !== null &&
-        typeof value === "object" &&
-        !(value instanceof Sql)
-      ) {
-        const operation = record(value);
-        if ("set" in operation) final[field] = operation.set;
-        else if ("increment" in operation) {
-          const before = final[field];
-          const increment = operation.increment;
-          if (typeof before === "bigint" && typeof increment === "bigint")
-            final[field] = before + increment;
-          else if (typeof before === "number" && typeof increment === "number")
-            final[field] = before + increment;
-          else
-            throw new TransactionError(
-              `Driver '${this.driver.driverName}' cannot derive one updated row identity without RETURNING.`,
-              { meta: this.attribution }
-            );
-        }
-      } else final[field] = value;
-    }
-    return final;
+    const q = this.queries;
+    return Object.fromEntries(
+      this.schema.keys(model).map((field) => [
+        field,
+        Object.hasOwn(values, field)
+          ? q.updateValue(
+              model,
+              field,
+              values[field],
+              q.fieldValue(model, field, identity[field])
+            )
+          : identity[field]
+      ])
+    );
   }
   private ensureScratch(): string {
     const attempt = this.attempt;
@@ -1277,26 +1266,11 @@ export class OperationContext {
       const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
         await this.transport._execute(statement, context);
-        const finalKey = Object.fromEntries(
-          this.schema
-            .keys(model)
-            .map((field) => [
-              field,
-              Object.hasOwn(values, field)
-                ? q.updateValue(
-                    model,
-                    field,
-                    values[field],
-                    q.fieldValue(model, field, captured[field])
-                  )
-                : captured[field]
-            ])
-        );
         // The mutation's locked capture remains protected through this stored-row read.
         const rows = await this.read(
           q.select(model, {}, undefined, {
             projection,
-            identity: finalKey,
+            identity: this.updatedIdentity(model, captured, values),
           }),
           true
         );

@@ -1,0 +1,2026 @@
+{
+  "formatVersion": 1,
+  "qualifying": true,
+  "status": "complete",
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 8500,
+  "seedCount": 100,
+  "profiles": [
+    "scripted-returning-weak",
+    "scripted-returning-ack"
+  ],
+  "completed": [
+    {
+      "seed": 8500,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 24,
+      "completions": 24
+    },
+    {
+      "seed": 8500,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 24,
+      "completions": 24
+    },
+    {
+      "seed": 8501,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 21,
+      "completions": 20
+    },
+    {
+      "seed": 8501,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 21,
+      "completions": 20
+    },
+    {
+      "seed": 8502,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8502,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8503,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 1,
+      "completions": 8
+    },
+    {
+      "seed": 8503,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 1,
+      "completions": 8
+    },
+    {
+      "seed": 8504,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8504,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8505,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8505,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8506,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 6,
+      "completions": 1
+    },
+    {
+      "seed": 8506,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 6,
+      "completions": 1
+    },
+    {
+      "seed": 8507,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 13,
+      "completions": 91
+    },
+    {
+      "seed": 8507,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 13,
+      "completions": 91
+    },
+    {
+      "seed": 8508,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8508,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8509,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8509,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8510,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8510,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8511,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 22,
+      "completions": 273
+    },
+    {
+      "seed": 8511,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 22,
+      "completions": 273
+    },
+    {
+      "seed": 8512,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 8512,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 8513,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 8513,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 8514,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8514,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8515,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 30
+    },
+    {
+      "seed": 8515,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 30
+    },
+    {
+      "seed": 8516,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8516,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8517,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8517,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8518,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8518,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8519,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 240
+    },
+    {
+      "seed": 8519,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 240
+    },
+    {
+      "seed": 8520,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8520,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8521,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 28,
+      "completions": 26
+    },
+    {
+      "seed": 8521,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 28,
+      "completions": 26
+    },
+    {
+      "seed": 8522,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8522,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8523,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 252
+    },
+    {
+      "seed": 8523,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 252
+    },
+    {
+      "seed": 8524,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 29
+    },
+    {
+      "seed": 8524,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 29
+    },
+    {
+      "seed": 8525,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8525,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8526,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8526,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8527,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 192
+    },
+    {
+      "seed": 8527,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 192
+    },
+    {
+      "seed": 8528,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8528,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8529,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8529,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8530,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8530,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8531,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 29
+    },
+    {
+      "seed": 8531,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 3,
+      "completions": 29
+    },
+    {
+      "seed": 8532,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 6,
+      "completions": 6
+    },
+    {
+      "seed": 8532,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 6,
+      "completions": 6
+    },
+    {
+      "seed": 8533,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 5
+    },
+    {
+      "seed": 8533,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 5
+    },
+    {
+      "seed": 8534,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8534,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8535,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 5,
+      "completions": 70
+    },
+    {
+      "seed": 8535,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 5,
+      "completions": 70
+    },
+    {
+      "seed": 8536,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8536,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8537,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8537,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8538,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8538,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8539,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 11,
+      "completions": 55
+    },
+    {
+      "seed": 8539,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 11,
+      "completions": 55
+    },
+    {
+      "seed": 8540,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8540,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8541,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8541,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8542,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8542,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8543,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 30
+    },
+    {
+      "seed": 8543,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 15,
+      "completions": 30
+    },
+    {
+      "seed": 8544,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8544,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8545,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 8545,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 2
+    },
+    {
+      "seed": 8546,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 16,
+      "completions": 15
+    },
+    {
+      "seed": 8546,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 16,
+      "completions": 15
+    },
+    {
+      "seed": 8547,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 180
+    },
+    {
+      "seed": 8547,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 18,
+      "completions": 180
+    },
+    {
+      "seed": 8548,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8548,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8549,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8549,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 4
+    },
+    {
+      "seed": 8550,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 18,
+      "completions": 18
+    },
+    {
+      "seed": 8550,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 18,
+      "completions": 18
+    },
+    {
+      "seed": 8551,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 5,
+      "completions": 16
+    },
+    {
+      "seed": 8551,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 5,
+      "completions": 16
+    },
+    {
+      "seed": 8552,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8552,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8553,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8553,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8554,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8554,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 25,
+      "completions": 25
+    },
+    {
+      "seed": 8555,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 207
+    },
+    {
+      "seed": 8555,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 207
+    },
+    {
+      "seed": 8556,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8556,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8557,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8557,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 25,
+      "completions": 24
+    },
+    {
+      "seed": 8558,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 29
+    },
+    {
+      "seed": 8558,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 29,
+      "completions": 29
+    },
+    {
+      "seed": 8559,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 30,
+      "completions": 240
+    },
+    {
+      "seed": 8559,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 30,
+      "completions": 240
+    },
+    {
+      "seed": 8560,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 18,
+      "completions": 18
+    },
+    {
+      "seed": 8560,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 18,
+      "completions": 18
+    },
+    {
+      "seed": 8561,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8561,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 23,
+      "completions": 22
+    },
+    {
+      "seed": 8562,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8562,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 2,
+      "completions": 2
+    },
+    {
+      "seed": 8563,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 1,
+      "completions": 12
+    },
+    {
+      "seed": 8563,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 1,
+      "completions": 12
+    },
+    {
+      "seed": 8564,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8564,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 8,
+      "completions": 8
+    },
+    {
+      "seed": 8565,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8565,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 3,
+      "completions": 3
+    },
+    {
+      "seed": 8566,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 1
+    },
+    {
+      "seed": 8566,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 1
+    },
+    {
+      "seed": 8567,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 30
+    },
+    {
+      "seed": 8567,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 5,
+      "completions": 30
+    },
+    {
+      "seed": 8568,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8568,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8569,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 8569,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 8570,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 7,
+      "completions": 7
+    },
+    {
+      "seed": 8570,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 7,
+      "completions": 7
+    },
+    {
+      "seed": 8571,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 21,
+      "completions": 80
+    },
+    {
+      "seed": 8571,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 21,
+      "completions": 80
+    },
+    {
+      "seed": 8572,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8572,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8573,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8573,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 23,
+      "completions": 23
+    },
+    {
+      "seed": 8574,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 8574,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 8575,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 69
+    },
+    {
+      "seed": 8575,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 23,
+      "completions": 69
+    },
+    {
+      "seed": 8576,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 8576,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 8577,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 8577,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 26
+    },
+    {
+      "seed": 8578,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 31
+    },
+    {
+      "seed": 8578,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 31,
+      "completions": 31
+    },
+    {
+      "seed": 8579,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 64
+    },
+    {
+      "seed": 8579,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 32,
+      "completions": 64
+    },
+    {
+      "seed": 8580,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8580,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8581,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 18
+    },
+    {
+      "seed": 8581,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 20,
+      "completions": 18
+    },
+    {
+      "seed": 8582,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8582,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8583,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 56
+    },
+    {
+      "seed": 8583,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 28,
+      "completions": 56
+    },
+    {
+      "seed": 8584,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 8584,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 21,
+      "completions": 21
+    },
+    {
+      "seed": 8585,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 14
+    },
+    {
+      "seed": 8585,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 15,
+      "completions": 14
+    },
+    {
+      "seed": 8586,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 18,
+      "completions": 17
+    },
+    {
+      "seed": 8586,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 18,
+      "completions": 17
+    },
+    {
+      "seed": 8587,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 384
+    },
+    {
+      "seed": 8587,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 24,
+      "completions": 384
+    },
+    {
+      "seed": 8588,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 8588,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 17,
+      "completions": 17
+    },
+    {
+      "seed": 8589,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8589,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 7,
+      "completions": 6
+    },
+    {
+      "seed": 8590,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 8590,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 10,
+      "completions": 10
+    },
+    {
+      "seed": 8591,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 10,
+      "completions": 90
+    },
+    {
+      "seed": 8591,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 10,
+      "completions": 90
+    },
+    {
+      "seed": 8592,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 8592,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 14,
+      "completions": 14
+    },
+    {
+      "seed": 8593,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8593,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 27,
+      "completions": 27
+    },
+    {
+      "seed": 8594,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8594,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 16,
+      "completions": 16
+    },
+    {
+      "seed": 8595,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 30,
+      "completions": 180
+    },
+    {
+      "seed": 8595,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 2,
+      "actorOverlap": true,
+      "faults": 0,
+      "operations": 30,
+      "completions": 180
+    },
+    {
+      "seed": 8596,
+      "profile": "scripted-returning-weak",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 18
+    },
+    {
+      "seed": 8596,
+      "profile": "scripted-returning-ack",
+      "contract": "C08",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 1,
+      "operations": 19,
+      "completions": 18
+    },
+    {
+      "seed": 8597,
+      "profile": "scripted-returning-weak",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8597,
+      "profile": "scripted-returning-ack",
+      "contract": "C09",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 19,
+      "completions": 19
+    },
+    {
+      "seed": 8598,
+      "profile": "scripted-returning-weak",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8598,
+      "profile": "scripted-returning-ack",
+      "contract": "C10",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 12,
+      "completions": 12
+    },
+    {
+      "seed": 8599,
+      "profile": "scripted-returning-weak",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 11,
+      "completions": 66
+    },
+    {
+      "seed": 8599,
+      "profile": "scripted-returning-ack",
+      "contract": "C11",
+      "actors": 1,
+      "actorOverlap": false,
+      "faults": 0,
+      "operations": 11,
+      "completions": 66
+    }
+  ],
+  "replays": 600,
+  "skipped": 0
+}

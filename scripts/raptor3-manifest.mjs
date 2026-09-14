@@ -408,13 +408,13 @@ export const G3_GENERATED_MINIMIZATION_TESTS = Object.freeze(
   Object.keys(G3_GENERATED_MINIMIZATION_COUNTS)
 );
 export const G3_EXECUTION_REVIEW_COUNTS = Object.freeze({
-  "tests/raptor3/g3/review-execution-boundaries.test.ts": 5,
+  "tests/raptor3/g3/review-execution-boundaries.test.ts": 6,
 });
 export const G3_EXECUTION_REVIEW_TESTS = Object.freeze(
   Object.keys(G3_EXECUTION_REVIEW_COUNTS)
 );
 export const G3_AUTHOR_EXECUTION_REGRESSION_COUNTS = Object.freeze({
-  "tests/raptor3/g3/author-execution-regressions.test.ts": 2,
+  "tests/raptor3/g3/author-execution-regressions.test.ts": 3,
 });
 export const G3_AUTHOR_EXECUTION_REGRESSION_TESTS = Object.freeze(
   Object.keys(G3_AUTHOR_EXECUTION_REGRESSION_COUNTS)
@@ -426,7 +426,7 @@ export const G3_SCOPE_FAILURE_TESTS = Object.freeze(
   Object.keys(G3_SCOPE_FAILURE_COUNTS)
 );
 export const G3_BULK_RESULT_BOUNDARY_COUNTS = Object.freeze({
-  "tests/raptor3/g3/bulk-result-boundary.test.ts": 3,
+  "tests/raptor3/g3/bulk-result-boundary.test.ts": 5,
 });
 export const G3_BULK_RESULT_BOUNDARY_TESTS = Object.freeze(
   Object.keys(G3_BULK_RESULT_BOUNDARY_COUNTS)

@@ -148,6 +148,24 @@ driver/scalar boundary before attaching result-phase progress; do not replace
 its error identity with a generic record-series failure or replay acknowledged
 work.
 
+`Queries.updateValue` is the sole interpreter of admitted scalar update
+operators. It supplies both mutation assignments and symbolic updated-key
+expressions; operation contexts must not reconstruct those operators in
+JavaScript. Internal mutation-target captures stay privately decoded so later
+query planning receives canonical scalar values.
+
+`finishOne` and `finishMany` state operation-owned result cardinality. That
+cardinality is independent of the number of physical terminal queries, and
+both paths consume the same terminal-result decoder. Callers must not infer
+semantic cardinality from a single-query versus query-array shape.
+
+Only the root static-series boundary publishes its count or selected rows and
+finalizes operation scratch. Nested `executeRecords` returns its count and
+identities to the enclosing command; it must not finish terminal results,
+flush batch-preparation members, advance root completion, or clear scratch
+needed by later siblings. Root and nested series share record execution, not
+result or cleanup ownership.
+
 Fixed and variant slots bind the same membership vocabulary from the resolved
 schema index. Public variant tags, stored discriminators and compound reference
 fields remain distinct. Private carrier columns are addressed through their

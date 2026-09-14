@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "source": "corpus.json",
+  "file": "corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 4306646,
+  "originalSha256": "e80ca9234e749444cb558786216cf2d7aa70d480647117506319c4194767f139",
+  "archiveBytes": 84096,
+  "archiveSha256": "2b10ef31f63002af6baa251314d825cc9249661b65bedbe80bf1538972c1ec12",
+  "identity": {
+    "production": "fe544577cbc3c6747806f4b6a178ffe284d52d7ac3b5dd87fcd39adc2c3d54da",
+    "harness": "3d9977876d5b8c0c80aec1ea6902f34b39ea80ab52e07e7242a287312dd2b922"
+  },
+  "campaign": "g2-transport-seeds",
+  "firstSeed": 6300,
+  "targetManifest": "../../../../../../Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g3/structure-correction/qualified-final/campaigns/g2-transport-seeds.receipt/verified.json",
+  "childReceipt": "verified.json",
+  "restoreWorkingDirectory": "the directory containing corpus.archive.json",
+  "restoreCommand": "g2_corpus_restore_dir=$(mktemp -d); gzip -dc \"corpus.json.gz\" > \"$g2_corpus_restore_dir/corpus.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g2_corpus_restore_dir/corpus.json\""
+}

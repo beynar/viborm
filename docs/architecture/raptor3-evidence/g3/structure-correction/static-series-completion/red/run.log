@@ -1,0 +1,27 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 31ms
+   ✓ G3-02 author execution regressions > reports a malformed result after its atomic batch was acknowledged 19ms
+   × G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 8ms
+     → Not-null constraint violation
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking
+NotNullConstraintError: Not-null constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'SQLITE_CONSTRAINT_NOTNULL' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  19:54:38
+   Duration  1.62s (transform 990ms, setup 8ms, collect 1.42s, tests 31ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1w4ny8/vitest.json
+Vitest resources: 3.49s wall, 518.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-1w4ny8

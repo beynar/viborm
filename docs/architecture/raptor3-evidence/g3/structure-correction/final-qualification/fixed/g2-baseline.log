@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 92ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests) 76ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 67ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 62ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 44ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 45ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 46ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 19ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests) 35ms
+ ✓ |raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 9ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests) 11ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests) 18ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 6ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 39ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 15ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 16ms
+
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+   Start at  19:11:36
+   Duration  3.11s (transform 1.01s, setup 16ms, collect 2.32s, tests 600ms, environment 0ms, prepare 24ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-skvsdo/vitest.json
+Vitest resources: 5.00s wall, 770.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-skvsdo

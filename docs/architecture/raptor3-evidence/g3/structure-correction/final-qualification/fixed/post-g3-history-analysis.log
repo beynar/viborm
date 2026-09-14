@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  19:12:35
+   Duration  1.43s (transform 841ms, setup 9ms, collect 1.22s, tests 8ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nOqjuG/vitest.json
+Vitest resources: 3.29s wall, 494.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-history-analysis contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nOqjuG
