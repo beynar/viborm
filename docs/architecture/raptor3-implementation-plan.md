@@ -1,46 +1,31 @@
 # Raptor 3 — central implementation plan
 
-Date: 2026-09-07; implementation status updated 2026-09-14. **G0–G2 complete;
-G2.5 consolidation complete; G2.7 complete after independent acceptance and
-final root review. The six-unit G3-preparation checkpoint is accepted. The
-post-preparation fact-ownership checkpoint is accepted before G3-01 or G3-03;
-all five units are independently accepted and final qualification is complete
-on one frozen identity. Final root global review accepted the checkpoint. G3 is
-not started. G2.9 and CS-00 are accepted on production `2fa78217…` and harness
-`e0da0fd9…` after complete qualification, independent archive review, and root
-integration review. CS-01 and the repaired CS-02 unit are independently
-accepted. The first CS-02 package remains blocked evidence. CS-03 isolated
-extension comparison is complete: both alternatives pass the frozen A, B, and
-A+B contracts, seeded campaigns, replay, native-provider, and structural work
-checks. The occurrence-structure candidate is selected for scoped CS-04
-qualification, integrated on its qualified identity, and accepted after
-independent and root global review. G3 is next and extends the accepted slices;
-public adoption remains separate.**
-Structured commands passed the G2
-gate and independent adversarial review; [the closure
-report](raptor3-evidence/g2-closure.md) records
-the executed scope and limits. Early timing precision remains deferred under
-the approved stage-specific policy.
-The [G2.5 closure](raptor3-evidence/g2-polish.md) records final-source gates,
-verified archive and the reviewed 4,583-line cost; no public cutover occurred.
-Size targets trigger review, not automatic abandonment. Work units are in §6.
+Status updated 2026-09-14. **The shared-occurrence foundation is accepted;
+G3 is next, followed by G4 and separately authorized cutover.** This document
+owns future implementation order, acceptance gates and autonomous-work limits.
+It contains current instructions, not completed-stage assignments.
 
-This is the single owner of implementation order, acceptance gates, experiment
-budgets, and the decision to continue or abandon this candidate. The
-[clean-sheet language](./raptor3-clean-sheet-language.md) owns the design
-derivation. The [reuse-first plan](./raptor3-language-and-build-plan.md),
-[shape review](./raptor3-engine-shapes-review.md), and
-[Pattern experiment](./pattern-engine-ideal-state.md) are historical evidence,
-not competing implementation instructions.
+Start from the accepted [CS-04 checkpoint](raptor3-evidence/core-structure/cs04-root-acceptance.md):
+production `36103eff…`, harness `87bc63c2…`, Node 24.21.0, **6,598 core /
+10,672 complete charged code-bearing LOC**. These are the frozen checkpoint
+figures, not an assertion that later working-tree changes share its identity.
+The measured 426-line premium over the equivalent flat reference was accepted
+for ownership gains; no marginal extension-cost, bundle or runtime saving was
+demonstrated.
+
+The [private architecture guide](../../src/query-engine/raptor3/AGENTS.md)
+describes the implemented owners. The [feature inventory](raptor3-evidence/g3-prep-inventory.md)
+is the coverage source; its original candidate-status column is a baseline,
+not a current completion percentage. Reconcile it with accepted slices before
+assigning remaining work. Completed experiments, compatibility decisions and
+receipts remain in the [evidence ledger](raptor3-evidence/core-structure.md)
+and linked records. Earlier plan text remains in Git history.
 
 Distinguish **hard adoption requirements**, **size targets**, and **limits on
-autonomous experimentation**. Numerical targets are not measured forecasts or
-claims about a theoretical minimum. Freeze the measurements, targets, and
-decision policy at G0. A missed target stays reported as missed; Arnaud may
-accept the measured trade-off without pretending the target was reached.
-Changing a hard requirement needs an explicit separate decision, never a quiet
-waiver. Arnaud authorized bounded implementation with independent adversarial
-review. That authorization does not waive milestone exits or authorize cutover.
+autonomous experimentation**. Keep frozen measurements and decisions unchanged.
+A missed target remains missed even when Arnaud accepts the trade-off.
+Changing a hard requirement needs a separate decision. Completed checkpoints
+do not waive future exits or authorize public cutover.
 
 ## 1. Outcome and hard boundaries
 
@@ -69,7 +54,7 @@ migration rewrite, new public execution API, or release. The deferred
 witness, not an additional feature to ship during replacement. Do not weaken
 existing refusals without a separately approved compatibility decision.
 
-The old engine remains the public route throughout G0–G4 verification. The
+The old engine remains the public route throughout G3/G4 verification. The
 candidate has a private test entry and its own compiler, lowering, runner, and
 projection path. No fallback to the old engine for an unsupported candidate
 case: it must fail the gate visibly. Do not mix old and new execution inside
@@ -77,18 +62,11 @@ one public operation.
 
 ## 2. Shared laws before implementation form
 
-The scoped relational program began as a candidate, not a settled decomposition.
-G1-01 compared it with structured commands containing shared query expressions;
-the executed comparison selected commands, and G1 expansion passed. The
-following preserves the original hypothesis and laws, not an undecided status.
-**Original working preference, with moderate confidence:** structured commands with exact
-producer references, recording local demands and order during construction;
-targeted analysis handles facts construction cannot establish. This is a ranked
-hypothesis as recorded before the experiment. References already form dependencies;
-the question is whether a separate general graph/pass removes more reasoning
-than it introduces. Cross-sibling overlap, conditional producers and restricted
-batch execution are the strongest challenges to this preference. G0-01 costs
-the hypothesis; both candidates must express these same laws:
+The accepted representation is structured commands with exact producer
+references, one placement-owned occurrence structure, composed execution
+owners and ordinary recursion. Construction records admitted meaning;
+targeted analysis derives only facts construction cannot establish.
+These laws govern extensions:
 
 1. Scoped queries produce shaped values; only addressable record occurrences
    carry row/reference identity. Association views supply shared correlation.
@@ -140,36 +118,34 @@ single owners; **the ban is on duplicated semantic algorithms, not branching**.
 
 Use **one `OperationContext` per logical public operation**, injected once into
 its collaborators. This is deliberately a broad owner: components can reach
-schema facts, the program, physical capabilities, and execution services
+schema facts, prepared commands, physical capabilities, and execution services
 without forwarding them through every function call.
 
-The class names below illustrate the scoped-program candidate, not mandatory
-files or a class count. G1-01 assigns the demonstrated owners for the selected
-representation. Keep cohesive responsibilities together until a real boundary
-appears; no worker receives a speculative class merely to enable parallelism.
+Use the implemented owners, not speculative class placeholders. Keep cohesive
+responsibilities together until a demonstrated boundary requires a change.
+No worker receives a new class merely to enable parallelism.
 
-| Owner                                                      | Responsibility                                                                                                    | Receives context                               |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| `OperationContext`                                         | Composition root; stable request/schema/capability references; lifecycle ownership                                | Created once at the public-operation boundary  |
-| `ProgramBuilder`                                           | Public recipes, recursive record blocks, query/projection construction                                            | Constructor                                    |
-| `RelationStorage` implementations                          | Interpret the resolved association's storage mapping for reads and edits                                          | Constructor, with the bound slot               |
-| `ProgramAnalysis`, only if a separate pass earns its place | Derive demands, dependencies, overlap consequences and scope requirements not already established by construction | Constructor; reads the same semantic structure |
-| `SqlLowerer`                                               | Choose physical strategies and render through the adapter boundary                                                | Constructor                                    |
-| `Execution`                                                | Attempts, provider dispatch, suppression/recovery, acknowledged progress                                          | Constructor                                    |
-| `Projection`                                               | Required row shape, scalar/nested decoding, public container ownership                                            | Constructor                                    |
+| Owner | Responsibility |
+| --- | --- |
+| `OperationContext` | Per-call execution binding, transport, progress and provider mutation lowering |
+| `Commands` | Command construction, occurrence materialization and same-structure dependency analysis |
+| `RelationBody` | One parent's admitted relation recipes, resolved slot and supplier continuation |
+| `Assignments` / `Selection` | Symbolic field contributions and demands / stable selection instructions and requirements |
+| `CommandExecution` | Recursive interpretation of command occurrences |
+| `CommandAttempt` / `TransportAttempt` | Replaceable observations and bindings / pending statements and dispatch evidence |
+| `Queries` | Prepared selectors, dependency facts, projection, adapter-composed SQL and decoding |
+| `EngineSchema` | Factory-lifetime schema admission and immutable resolved schema views |
 
 Query/effect nodes remain closed, inspectable typed values where their consumers
 need structure. A class may own construction or interpretation; a node does not
 need a class solely because it has a name. Ordinary local functions remain
 available. No preliminary template/instance class hierarchy is prescribed.
 
-Composition is the default. Use inheritance when it removes a shared invariant
-across actual substitutes: `RowReferenceStorage` and `JunctionStorage` are the
-first candidate pair for a `RelationStorage` base. Test the common contract
-against both. Orientation is data within row-reference storage, not another
-inheritance branch. Do not build a subclass for each public verb × storage ×
-fresh/selected × provider combination. No universal base class is required just
-to supply a `ctx` property.
+Composition is the default. Use inheritance only for actual substitutable
+implementations sharing a demonstrated invariant. Resolved storage and
+orientation remain schema facts, not a reason to create a relation-storage
+class hierarchy. Do not build a subclass for each public verb × storage ×
+fresh/selected × provider combination, or a universal base merely for `ctx`.
 
 Methods still take their actual operands: a query, record occurrence, or change.
 The preference is **no infrastructure-parameter cascade**, not “zero parameters
@@ -189,10 +165,10 @@ parameter bags to thread down the tree.
 | Acknowledged progress | Attempt replacement; until operation completion | Guesses that an unacknowledged commit did not happen                  |
 
 Read shared facts by reference. Mutations go through the owning component's
-methods, not arbitrary writes from every child. An attempt has explicit
-`active`, `committed`, `aborted`, or `outcome-unknown` state; there is no Cartesian
-product of unrelated `didCommit`/`didFail`/`canRetry` flags. Retry eligibility is
-derived from the error, scope, and known outcome.
+methods, not arbitrary writes from every child. Preserve the existing explicit
+dispatch, rejection and acknowledged/uncertain-progress facts; do not impose
+another universal attempt-status enum or a Cartesian product of policy flags.
+Retry eligibility is derived at its current owner from error, scope and outcome.
 
 Stable does not mean eager: preserve the current validation and default boundary
 for each record/member, including deferred series preparation and required
@@ -211,7 +187,7 @@ Nested construction holds its own record occurrence, not a temporarily changed
 global cursor. Concurrent public calls have separate contexts. Operations in
 an array/callback transaction borrow its real transaction owner but do not share
 scratch state. They do not independently commit a borrowed transaction. No
-context pool or singleton mutable context in the first implementation.
+context pool or singleton mutable context is authorized.
 
 Required falsifiers: sibling interleaving, two concurrent public calls, nested
 failure/unwind, retry after capture, late completion, observer re-entry, and a
@@ -283,18 +259,15 @@ semantics, not redundant payload checks. Keep their necessary enforcement in
 the single semantic owner. Existing raw/extension trust-boundary protections
 remain at their actual boundaries, not copied into every engine helper.
 
-G0 identifies these admission owners. G1 and every later work-unit review reject
-duplicated validation in trusted code: name the new trust boundary or the
+Every work-unit review rejects duplicated validation in trusted code: name the new trust boundary or the
 independent invariant a check owns, or remove it. This is a review rule, not a
 new runtime validation framework or an assertion-registry subsystem.
 
-## 3. Evidence artifacts — begin small, extend with the verified slice
+## 3. Evidence artifacts — extend the existing harness
 
-Create `tests/raptor3/` for the new contract harness. G0 delivers fixed witnesses,
-the baseline and a small trustworthy recorder/replayer; G1–G4 grow the same
-harness as the exercised capabilities grow. Do not overwrite the
-existing Pattern experiment or its dirty files. The following paths are
-**planned artifacts**, not files or commands that already exist:
+Extend the existing `tests/raptor3/` harness and bounded runners. Do not
+recreate the recorder/replayer, overwrite the Pattern experiment, or treat
+historical receipts as proof for changed source.
 
 | Artifact                                     | Required content                                                                                                                                                                                                                                                          |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -305,7 +278,7 @@ existing Pattern experiment or its dirty files. The following paths are
 | `tests/raptor3/regressions/`                 | Minimized counterexamples, expected failures/properties, and replay metadata                                                                                                                                                                                              |
 | `scripts/raptor3-manifest.mjs`               | Exact test admission, campaign seed ranges, required cases/faults/profiles, and resource bounds                                                                                                                                                                           |
 | `docs/architecture/raptor3-evidence/g0.json` | Baseline identities, source-accounting manifest, tool versions, package fixtures, performance workloads, frozen targets and adoption budgets                                                                                                                              |
-| `docs/architecture/raptor3-evidence/gN.md`   | One report per milestone: G0 includes the costed blueprint below; G1 compares its slice forecast with measurement. Evidence IDs, hard-gate/target results, structural gains, failures and the explicit decision remain separate; large run output referenced by hash/path |
+| `docs/architecture/raptor3-evidence/gN.md` | G3/G4 unit and milestone results: identities, witnesses, decisions, costs, failures and exact replay evidence; retain historical receipts unchanged |
 
 The baseline identity includes the exact source revision and a content-hash
 manifest of any explicitly included working-tree changes. Preserve unrelated
@@ -313,45 +286,44 @@ work. Do not freeze “whatever happens to be HEAD later,” stash user changes,
 silently bless a dirty baseline as a clean benchmark revision. Do not include
 environment secrets in archives or reports.
 
-G0 assigns C01–C13 owners and classifies the fixed G1-01 witnesses. Complete each
-milestone's test/cell classification before widening implementation into it,
-rather than completing the entire estate before the first design experiment.
+Complete each milestone's remaining test/cell classification before widening
+implementation. Use the accepted inventory and source-bound evidence, not
+completed-stage labels alone.
 For mixed tests, record the extracted invariant and its replacement witness;
 retain the old pin until that replacement detects the relevant fault. The old
 engine is a differential oracle, **not an infallible specification**. A suspected
 old-engine bug is a disputed contract row: stop that row, demonstrate it, and
 seek a decision. Do not teach the new engine the bug or silently correct it.
 
-Baseline the shipped engine ownership closure, not a raw directory count.
-`src/query-engine/pattern/` and non-routed experimental code are not credit
-against the current production baseline. The earlier directory census of
-62,149 physical / 47,625 token-bearing lines excluding `pattern/` is only a
-navigation aid; it still needs a production-ownership audit. Count retained
-owners, glue, tables, new dependencies, and moved code under the same scope.
+Compare the shipped engine ownership closure, not a raw directory count.
+The accepted [source-accounting report](raptor3-evidence/core-structure/cs04-qualification/support/query-engine-cost.json)
+charges 52,986 code-bearing lines to the shipped engine. Experiments, tests,
+and unchanged external boundaries are not compression credit. Count retained
+owners, integration, new dependencies and moved code under the same scope.
 
 ## 4. Contract matrix: what must become executable
 
-Each row below is a family, not one test. G0 gives the seed cells IDs; the
+Each row below is a family, not one test. Retain the existing witness IDs; the
 evidence owner enumerates the remaining cells before their milestone expands.
 A cell is an input/world/profile/property combination, not a
 SQL-field difference. Explicitly mark impossible combinations with their
 schema/capability reason; an unexpected runtime skip does not satisfy a cell.
 
-| ID  | Required family and distinguishing witnesses                                                                                                            | First gate                                          | Existing evidence to start from                                                                                                                                                                                                                                         |
+| ID  | Required family and distinguishing witnesses                                                                                                            | Remaining obligation | Existing evidence to start from                                                                                                                                                                                                                                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C01 | Root/nested reads; NULL/absence/multiplicity; mapped and compound fields; nested selection of the same model                                            | G1, completed G4                                    | [Read contracts](../../tests/contracts/engine/query/operation-equivalence-oracles.core.test.ts)                                                                                                                                                                         |
-| C02 | Fresh/selected roots; create/update/connect/COC/upsert; found/missing/foreign target; both FK orientations and junctions                                | G1                                                  | [Upsert arms](../../tests/contracts/engine/write/parity-b-upsert-arm.core.test.ts), [untaken-arm legality](../../tests/contracts/engine/write/upsert-untaken-arm-legality.test.ts)                                                                                      |
-| C03 | One final root assignment; conflicting contributions; no transient NULL; single and compound reference tuples                                           | G1                                                  | [Assignment contract](../../tests/contracts/engine/write/final-root-assignment.core.test.ts)                                                                                                                                                                            |
-| C04 | Generated output is successful, exact, and destination-decoded; input values cannot impersonate stored output                                           | G1, transport completion G3                         | [Output boundary](../../tests/contracts/engine/write/generated-output-boundary.core.test.ts), [continuation race](../../tests/contracts/engine/write/generated-output-continuation-race.test.ts)                                                                        |
-| C05 | Before/after row and reference keys; cascade/restrict; a decoy takes the former unique key                                                              | G2                                                  | [Key transition](../../tests/contracts/engine/write/compiled-key-transition.test.ts), [stale capture](../../tests/contracts/engine/write/staleness-injection-upsert-capture.test.ts)                                                                                    |
-| C06 | Singular transfer, disconnect, delete, set, clear/refill, required/optional membership, fixed/variant storage                                           | G2                                                  | [To-one lattice](../../tests/contracts/engine/write/parity-h-to-one-lattice.core.test.ts), [transition contract](../../tests/contracts/engine/write/parity-d-transition.core.test.ts)                                                                                   |
-| C07 | Supply before modify; earlier own effects invalidate proofs; equal expressions are not automatically equal stored values                                | G2                                                  | [Own-write linearization](../../tests/contracts/engine/write/own-write-linearization.test.ts), [nested-write contract](../content/docs/client/nested-writes.mdx)                                                                                                        |
-| C08 | Scalar bulk stays set-oriented; relation-bearing bulk preserves ordered bodies, counts, default timing, bind limits, and result reads                   | G1 instantiation witness, completed G3              | [Create-many](../../tests/contracts/engine/write/parity-j-create-many.core.test.ts), [series defaults](../../tests/contracts/engine/write/update-many-relation-series-behavior.ts), [series result](../../tests/contracts/engine/write/series-result-read.core.test.ts) |
-| C09 | Skip owns its subtree; already supplied prerequisites cannot leak; exact permitted unique-race recovery only                                            | G3                                                  | [Junction adoption/skip](../../tests/contracts/engine/write/junction-skip-adoption.test.ts), [generated-output segment](../../tests/contracts/engine/write/generated-output-segment-contract.core.test.ts)                                                              |
-| C10 | Atomic callback/array transaction versus committed segments; failure after dispatch, after commit, and during decode; cleanup preserves primary failure | G1 basic, completed G3/G4                           | [Transactions](../content/docs/client/transactions.mdx), [D1](../content/docs/drivers/sqlite/d1.mdx), [progressive row key](../../tests/contracts/engine/write/progressive-parent-rowkey.test.ts)                                                                       |
-| C11 | Self-relations, nested recursion, ancestor re-entry, repeated occurrences, current dependency refusals                                                  | G3                                                  | [Compatibility](../content/docs/client/compatibility.mdx), [recursive-query proposal](../../features-docs/recursive-query.md)                                                                                                                                           |
-| C12 | Full filters/order/page/group/aggregate/projection; malformed provider rows; fresh public containers and exact scalar codecs                            | G1 shaped/correlated output witnesses, completed G4 | [Parser contract](../../tests/contracts/engine/query/result-parser-contracts.core.test.ts), [read traversal](../../tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts)                                                                                  |
-| C13 | Validation/transform/default phases, request/query/statement/observer lifecycle, cache/raw exclusions, contextual public types                          | G1 skeleton, completed G4                           | [Boundary contracts](../../AGENTS.md), [extensions](../content/docs/extensions/index.mdx), [public typing gate](../../tests/types/client/contextual-typing-gate.core.types.ts)                                                                                          |
+| C01 | Root/nested reads; NULL/absence/multiplicity; mapped and compound fields; nested selection of the same model                                            | Complete in G4 | [Read contracts](../../tests/contracts/engine/query/operation-equivalence-oracles.core.test.ts)                                                                                                                                                                         |
+| C02 | Fresh/selected roots; create/update/connect/COC/upsert; found/missing/foreign target; both FK orientations and junctions                                | Retain; qualify G3/G4 composition | [Upsert arms](../../tests/contracts/engine/write/parity-b-upsert-arm.core.test.ts), [untaken-arm legality](../../tests/contracts/engine/write/upsert-untaken-arm-legality.test.ts)                                                                                      |
+| C03 | One final root assignment; conflicting contributions; no transient NULL; single and compound reference tuples                                           | Retain; qualify G3/G4 composition | [Assignment contract](../../tests/contracts/engine/write/final-root-assignment.core.test.ts)                                                                                                                                                                            |
+| C04 | Generated output is successful, exact, and destination-decoded; input values cannot impersonate stored output                                           | Complete transport composition in G3 | [Output boundary](../../tests/contracts/engine/write/generated-output-boundary.core.test.ts), [continuation race](../../tests/contracts/engine/write/generated-output-continuation-race.test.ts)                                                                        |
+| C05 | Before/after row and reference keys; cascade/restrict; a decoy takes the former unique key                                                              | Retain key-transition regressions | [Key transition](../../tests/contracts/engine/write/compiled-key-transition.test.ts), [stale capture](../../tests/contracts/engine/write/staleness-injection-upsert-capture.test.ts)                                                                                    |
+| C06 | Singular transfer, disconnect, delete, set, clear/refill, required/optional membership, fixed/variant storage                                           | Retain membership-transition regressions | [To-one lattice](../../tests/contracts/engine/write/parity-h-to-one-lattice.core.test.ts), [transition contract](../../tests/contracts/engine/write/parity-d-transition.core.test.ts)                                                                                   |
+| C07 | Supply before modify; earlier own effects invalidate proofs; equal expressions are not automatically equal stored values                                | Retain dependency/admission regressions | [Own-write linearization](../../tests/contracts/engine/write/own-write-linearization.test.ts), [nested-write contract](../content/docs/client/nested-writes.mdx)                                                                                                        |
+| C08 | Scalar bulk stays set-oriented; relation-bearing bulk preserves ordered bodies, counts, default timing, bind limits, and result reads                   | Complete in G3 | [Create-many](../../tests/contracts/engine/write/parity-j-create-many.core.test.ts), [series defaults](../../tests/contracts/engine/write/update-many-relation-series-behavior.ts), [series result](../../tests/contracts/engine/write/series-result-read.core.test.ts) |
+| C09 | Skip owns its subtree; already supplied prerequisites cannot leak; exact permitted unique-race recovery only                                            | Complete in G3 | [Junction adoption/skip](../../tests/contracts/engine/write/junction-skip-adoption.test.ts), [generated-output segment](../../tests/contracts/engine/write/generated-output-segment-contract.core.test.ts)                                                              |
+| C10 | Atomic callback/array transaction versus committed segments; failure after dispatch, after commit, and during decode; cleanup preserves primary failure | Complete in G3/G4 | [Transactions](../content/docs/client/transactions.mdx), [D1](../content/docs/drivers/sqlite/d1.mdx), [progressive row key](../../tests/contracts/engine/write/progressive-parent-rowkey.test.ts)                                                                       |
+| C11 | Self-relations, nested recursion, ancestor re-entry, repeated occurrences, current dependency refusals                                                  | Complete in G3 | [Compatibility](../content/docs/client/compatibility.mdx), [recursive-query proposal](../../features-docs/recursive-query.md)                                                                                                                                           |
+| C12 | Full filters/order/page/group/aggregate/projection; malformed provider rows; fresh public containers and exact scalar codecs                            | Complete in G4 | [Parser contract](../../tests/contracts/engine/query/result-parser-contracts.core.test.ts), [read traversal](../../tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts)                                                                                  |
+| C13 | Validation/transform/default phases, request/query/statement/observer lifecycle, cache/raw exclusions, contextual public types                          | Complete in G4 | [Boundary contracts](../../AGENTS.md), [extensions](../content/docs/extensions/index.mdx), [public typing gate](../../tests/types/client/contextual-typing-gate.core.types.ts)                                                                                          |
 
 Cross-cutting dimensions: one/many and optional/required slots, fixed/variant
 targets, both FK orientations/junction storage, fresh/selected source,
@@ -378,11 +350,9 @@ methods one by one.
 
 ### 5.1 Harness acceptance before engine acceptance
 
-The previous [M2 differential](../../tests/pattern/differential/execute.core.test.ts)
-filters on compile equality, skips series, and synthesizes rows from selected
-aliases. Its [driver](../../tests/pattern/sim/simulated-driver.ts) has scripted
-responses; its cell store does not itself execute SQL. Preserve useful seeds,
-but do not inherit this as a database-state correctness oracle.
+Database-state correctness uses real isolated SQL execution and independent
+state/result expectations. Compile equality, scripted responses or synthetic
+rows cannot substitute for that oracle.
 
 Prove the harness for the claims being made, then extend it with the engine.
 The same recorder, comparator and replay format serve every stage; this is not
@@ -390,10 +360,10 @@ a preliminary harness that will be replaced by a general one.
 
 | Due before acceptance                               | Required harness evidence                                                                                                                                                                                                                                                                                                                                  |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G0 exit                                             | Fixed G1-01 worlds run old-versus-old through public admission and real SQLite, including success, refusal and rollback on interactive/restricted-batch profiles. Controlled defaults and sequence state remain observable. Independently injected wrong-row/missing writes, changed values/errors, and a rolled-back effect leak fail the assembled gate. |
-| G0 exit                                             | Each saved success/failure schedule replays three times; an uncontrolled-event specimen fails. Zero-case selection, missing required profile/case, timeout, harness exception, swallowed failure and stale evidence fail the command. A split/atomic specimen proves §5.4's fault-cut classification.                                                      |
-| G1 exit                                             | Independent seeded operation/world choices within fixed schema families and bounded shrinking work. A padded failure shrinks, retains its property and replays; keep the original. Untaken-branch publication, stale attempt publication and nonterminating recovery are detected before their candidate guarantees are accepted.                          |
-| Before accepting the corresponding G2–G4 capability | Add composed falsifiers for skipped-subtree publication, acknowledged-prefix replay, commit/ack ambiguity and missing lifecycle events. Extend fault generation/shrinking to these same observations. By G4 every §5.4 family has its applicable self-test and real-provider evidence.                                                                     |
+| Retained harness regression | Retain old-versus-old calibration worlds through public admission and real SQLite, including success, refusal and rollback on interactive/restricted-batch profiles. Controlled defaults and sequence state remain observable. Independently injected wrong-row/missing writes, changed values/errors, and a rolled-back effect leak fail the assembled gate. |
+| Retained harness regression | Each saved success/failure schedule replays three times; an uncontrolled-event specimen fails. Zero-case selection, missing required profile/case, timeout, harness exception, swallowed failure and stale evidence fail the command. A split/atomic specimen proves §5.4's fault-cut classification.                                                      |
+| Retained harness regression | Independent seeded operation/world choices within fixed schema families and bounded shrinking work. A padded failure shrinks, retains its property and replays; keep the original. Untaken-branch publication, stale attempt publication and nonterminating recovery are detected before their candidate guarantees are accepted.                          |
+| Before accepting the corresponding G3/G4 capability | Add composed falsifiers for skipped-subtree publication, acknowledged-prefix replay, commit/ack ambiguity and missing lifecycle events. Extend fault generation/shrinking to these same observations. By G4 every §5.4 family has its applicable self-test and real-provider evidence.                                                                     |
 
 Mutate test specimens or the observed test world, never tracked production
 files. A malformed internal program is not a harness specimen. No required cell
@@ -474,7 +444,7 @@ For deterministic single-operation cases, require exact semantic equality.
 Generate world/public-operation/schedule choices independently of either
 engine's internal program, starting within fixed schema families. Add general
 schema generation only when repeated concrete fixtures justify it; it is not a
-G0 prerequisite. Keep fixed adversarial witnesses beside generated cases.
+prerequisite for another foundation stage. Keep fixed adversarial witnesses beside generated cases.
 Valid mode must reach the intended admitted capability; invalid mode
 must fail at the required boundary. Validation rejection of a supposedly valid
 case is a generator failure, not a successful fuzz run.
@@ -533,16 +503,12 @@ coverage. A seed count is not a correctness proof.
 
 | Gate                     |           New seed IDs per admitted lane/profile | Operations per scenario | Scheduled completions limit |
 | ------------------------ | -----------------------------------------------: | ----------------------: | --------------------------: |
-| G0 fixed-witness harness | 100 schedule seeds, plus its required falsifiers |                     1–8 |                       2,000 |
-| G1 slice                 |                                            1,000 |                     1–8 |                       2,000 |
-| G2 transitions           |                                            5,000 |                    1–16 |                       5,000 |
 | G3 scopes/bulk           |                                           10,000 |                    1–32 |                      10,000 |
 | G4 final                 |                                           25,000 |                    1–32 |                      10,000 |
 
-The seed axis controls scenario generation and event choices. For G1–G4, at
+The seed axis controls scenario generation and event choices. For G3/G4, at
 least 20% of generated scenarios have two logical actors and at least 20%
-contain a legal fault. G0 uses its fixed witness set. Required
-multi-fault/healthy-suffix witnesses run explicitly regardless
+contain a legal fault. Required multi-fault/healthy-suffix witnesses run explicitly regardless
 of random frequency. Campaign counts apply to A/B, not 25,000 hosted-provider
 requests; C runs the complete required provider contracts and named races.
 
@@ -567,551 +533,17 @@ structural evidence, and the explicit decision. Report hard requirements as
 pass/fail/blocked and size targets as met/missed. A target miss requires review
 under §8; it cannot be hidden inside an overall green result.
 
-### G0 — Fixed evidence before a bounded representation experiment
-
-Start G0-01 with the costed blueprint below and the fixed witness/exchange
-contract. G0-02 freezes baseline ownership/identity, targets, adoption budgets
-and initial measurement protocol; G0-03 supplies fixture-owned SQLite state inspection,
-public old-versus-old execution, controlled completions, replay and §5.1's
-falsifiers. Use existing launchers and adapt the existing benchmark under §7.
-Do not build a general schema generator or shrinker before the design experiment.
-
-#### G0-01 blueprint — anticipate compression before candidate code
-
-The integrator records one bounded section in the existing planned
-`docs/architecture/raptor3-evidence/g0.md`, not a second implementation plan.
-Use the current source, contract witnesses and
-[ORM audit](../../exa-results/raptor3-orm-pattern-audit-2026-09-07.md) to produce:
-
-1. **Minimum shape and four traces.** Sketch only enough internal values and
-   composed owners to trace S1–S4 from admission through effects and output.
-   Begin with the command-first hypothesis; describe the competing program's
-   additional or removed machinery on the same cases. Name what construction
-   establishes and what still requires analysis. Paper traces explain the
-   prediction; they are not executable conformance evidence or frozen APIs.
-2. **Binding-time ownership.** For each decision in those traces, distinguish
-   schema/driver-bound facts, known query-shape facts, actual admitted-occurrence
-   values/defaults, and attempt-local database observations/outcomes. Show one
-   owner for each. Reuse resolved topology by identity; do not cache an instance's
-   values or dependency answer with a reusable body. Binding a branch earlier
-   is not a LOC saving unless independently maintained reasoning disappears.
-3. **Removal map and complete cost range.** Map current source paths/cohesive
-   responsibilities to the shared rule replacing them, retained work, and new
-   machinery required. Give each charged responsibility a token-LOC range and
-   rationale, including types, construction, analysis, lowering, execution,
-   projection/decoding, integration, retained code and runtime tables under §7.
-   Count each owner once. Report the summed whole-engine range and corresponding
-   reduction, plus the S1–S4 slice estimate separately; expose the largest
-   uncertain allowances. Tests/harness work stays visible outside production
-   LOC. Use cited current counts provisionally: G0-02 audits/freezes the
-   denominator and G0-04 reconciles the forecast, preserving its first version.
-4. **Prediction and falsifier.** State the preferred representation, confidence,
-   assumptions and the exact case that could reverse that preference. Show
-   where local construction could require broader reasoning; do not assert
-   that a graph container alone solves it. Distinguish predicted size from
-   measured size and §7's targets. Do not infer gzip or speed from source LOC,
-   tune the estimate to 40%, or present the lower estimate as a theoretical limit.
-
-**Blueprint completion:** a reader can follow all four cases, identify the
-owners expected to disappear and their replacement costs, check the range's
-arithmetic, and name the uncertainty G1 must resolve. Uncertainty gets a named
-allowance and falsifier, not invented precision. Fully specify only S1–S4 and
-their actual supported/refused cells now; assign C01–C13 future owners without
-designing every later case. No third candidate, new framework, reference
-interpreter or open-ended research phase. This remains part of G0-01, not an
-additional milestone or permission to start candidate implementation.
-
-**G0 exit:** §5.1's rows and 100 schedule seeds pass; the four G1-01 witness
-families have fixed public inputs/properties and no unresolved contract disputes; the
-blueprint is complete and its forecast reconciled to the frozen baseline; all
-release-required profiles have a planned real-provider lane; baseline commands
-reproduce and benchmark calibration is recorded. A forecast that misses a size
-target is not a correctness failure or automatic abandonment. Initial timing
-calibration may be inconclusive or incomplete: retain its measurements and
-limitations, then defer performance qualification to G4. Resolving small timing
-variation is not a prerequisite for the bounded architecture experiment. No
-candidate is needed for G0. A failing fixed oracle is repaired before building
-a broader harness; correctness and safe resource enforcement remain hard gates.
-
-### G1 — Earn the representation, then expand the shared slice
-
-**G1-01 is the first investment checkpoint, before production splits.** One
-production owner compares two minimal representations under private test entries
-in `src/query-engine/raptor3/`; one independent evidence owner can work alongside
-it. Both enter through existing schema/admission semantics, not handwritten
-programs that evade defaults or refusals. Neither executes legacy engine code.
-
-| Representation                                          | Question to resolve, not a promised architecture                                                                                                                                                                 |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Scoped relational program                               | Does a separate analysis of inspectable queries/effects remove enough repeated reasoning to pay for its representation, passes and state?                                                                        |
-| Structured commands containing shared query expressions | Can construction establish order, demands and scope facts directly, leaving only necessary deferred dependencies to resolve? Pure reads use direct query compilation through the shared query/projection owners. |
-
-Use the same fixed witnesses in both. Do not build two feature-complete engines
-or introduce a production selector between them. Shared semantic algorithms
-must not be copied into the test oracle. Public preparation and unchanged
-external boundaries can be shared, with their costs accounted consistently.
-
-| Witness family                            | Small executable discriminator                                                                                                                                                                                                                                                                         | Law under test                                                                                                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S1 — conditional producer and association | Found/missing nested conditional target; one generated primary key feeds multiple consumers alongside a distinct admitted field; reverse the FK orientation; inject a failure and observe rollback/no unselected publication. Execute admitted work on interactive and restricted atomic-batch SQLite. | Exact producer-field demands and the same recipe/storage mapping determine successful value transport, dependency and recovery scope without a per-orientation algorithm. |
-| S2 — repeated body instantiation          | Two selected roots each create a nested record with a fresh default. A controlled default change also turns a previously safe dependency into the existing required refusal, before the affected instance's effects.                                                                                   | Scoped admission supplies the exact instance that construction, dependency reasoning and execution share; no template-wide proof or materialized default is reused.       |
-| S3 — shaped query output                  | `groupBy` with aggregate `having`, including empty input, returns the expected typed grouped values.                                                                                                                                                                                                   | Output shape/cardinality/codec are independent of addressable-record identity; no fabricated key or aggregate-specific execution language.                                |
-| S4 — correlated projection                | Two parents each select their own ordered first related target; include a target shared by both parents through junction storage.                                                                                                                                                                      | Query correlation scopes page and assemble each occurrence using the same operators and projection owner, without global deduplication or a nested-page handler.          |
-
-G0 freezes exact cases and baseline admission. S1 must include successful
-conditional/generated-output work on both routes, not merely refusal of the
-batch route. S2–S4 run their applicable cells on those same profiles. Start from
-the [series-default witnesses](../../tests/contracts/engine/write/update-many-relation-series-behavior.ts),
-[changed-default dependency witness](../../tests/contracts/engine/write/update-many-relation-series.test.ts),
-and [query-output witnesses](../../tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts).
-These are four discriminating families, not the full C02/bulk/read cross-product.
-As C04 expands on PostgreSQL/MySQL, use the existing
-[produced-field witness](../../tests/contracts/engine/write/fresh-produced-field-behavior.ts)
-to distinguish a generated primary key from another database-produced field
-and compare returned fields with a legal focused read. Preserve its actual
-provider cells; do not require its non-primary increment shape on SQLite.
-
-Before handing off: trace each shared law from public input to actual effects
-and output; count all construction, analysis, lowering, execution, projection,
-glue and test effort for both candidates. Compare measured S1–S4 cost with the
-blueprint's same-scope estimate; explain unexpected owners and revised assumptions
-without substituting the slice's LOC for a whole-engine forecast. Keep the
-initial forecast visible. Compare necessary rules/passes/state, not opcode count
-or the interpreter alone. Prefer the coherent passing shape
-with fewer independently maintained rules and lower whole-slice cost; record
-trade-offs without an invented score. If they converge, keep one representation
-and one owner per rule, not both behind dispatch flags. If evidence cannot
-choose or neither passes within §8's revision budget, pause for a decision.
-Do not expand the experiment into more features to avoid that checkpoint.
-
-Only then assign the demonstrated handoffs and expand the selected candidate:
-complete C02 across both FK orientations/junctions, fresh/selected sources,
-found/missing/foreign targets and single/compound keys. Keep S1–S4 as regressions
-while completing C01 basic reads, C03 final assignment, C04 successful output,
-rollback, untaken-arm legality and context lifetime falsifiers. Full bulk/read
-completion remains G3/G4. Grow the same harness to G1's §5.1 requirements.
-
-G1 hard exit: all admitted cells/faults and 1,000 new seeds pass through A/B plus
-real PostgreSQL behavior and restricted batch SQLite; zero legacy implementation
-imports or downstream public-verb algorithms. The chosen law has another
-applicable position/storage witness, not a special handler for the seed case.
-Source checkpoint: cumulative charged production token-LOC target **≤5,000**;
-if missed, record §8's review before G2. S1–S4 passing alone does not complete G1.
-
-### G2 — Prove the hard derivations
-
-Complete C05–C07: key transitions and decoys; singular transfer and clear/refill;
-supply/modify; disconnect/delete/set; fixed and variant targets; required
-membership; same-operation legality. Preserve exact error precedence and the
-currently admitted/refused shapes.
-
-For every derivation, provide a pair that fails if the distinction is erased:
-before/after fields, observation/requirement, intended/successful values,
-pre-clear/post-clear occupancy, and global/correlated identity. Run provider
-races for staleness, unique recovery, and singular occupancy. Required MySQL
-storage behavior must now execute on MySQL, not merely render MySQL SQL.
-
-Hard exit: all G2 rows/profiles/faults and 5,000 new seeds pass; required analysis
-uses the actual admitted instances; no separate OwnWrite syntax interpreter or
-verb-specific backend bypass. Source checkpoint: cumulative charged production token-LOC
-target **≤9,000**, or a recorded shortfall decision. Any missing semantic
-distinction must be resolved in the shared language before continuing.
-
-### G2.5 — Consolidate the foundation before G3
-
-Arnaud authorized targeted private representation changes with G2 behavior
-frozen. This checkpoint does not reopen G2's completed evidence, broaden feature
-coverage, change public APIs, or authorize cutover. Its execution record is
-[g2-polish.md](raptor3-evidence/g2-polish.md).
-
-**Completed 2026-09-08:** all four units passed their exits on frozen source.
-Both complete G2 campaigns passed 20,000 seed/profile cells and 60,000 exact
-candidate replays with zero skips; fixed/native/generated/transport checks,
-fresh replay and independent review also passed. The only typecheck failures
-are the two pre-existing Pattern TS2345 errors. The verified source archive and
-explicit review accept 4,583 charged LOC versus G2's 4,342 (+241, +5.55%) for
-demonstrated ownership gains, without a LOC or package reduction claim.
-G2's historical evidence remains unchanged; G3 has not started.
-
-#### Post-G2.5 bounded compression follow-up
-
-The 2026-09-08 follow-up retained one shared membership-predicate algorithm and
-lazy per-variant relation binding, rejected the three-line saving from symbolic
-`Choice` branch-output composition because it added a parallel whole-assignment
-alias interpreter, and reduced the complete charged candidate from 4,583 to
-4,563 token-bearing lines. The [source-bound report](raptor3-evidence/g25-compression.md)
-records the fixed gates and explicit campaign/provider limits. It does not
-relabel historical receipts, start G3, or make a cutover, package, or performance
-claim. For this follow-up and subsequent work, the latest model workflow
-supersedes the earlier forward-looking instruction below: only Sol 5.6/high
-subagents implement and review; the root coordinates.
-
-Use one broad operation context, composed behavioral owners, stable command
-definitions, replaceable execution state and ordinary recursive bodies:
-
-- `RelationBody` owns one parent occurrence and resolved slot, semantic verb
-  order, paired admitted/source input and supplier continuation. Remove the
-  eight-argument relation cascade and returned-supplier threading. Classify
-  selector continuation versus actual produced output once in construction.
-- Separate stable query/producer selections, attempt observations, retained
-  requirements and exact junction captures. Negative existence and junction
-  capture do not allocate pretend model-row outputs. One owner constructs the
-  captured-key use predicates; remove the second `foundGuard` lookup and runtime
-  selector rewriting. Initial absence and retained loss remain distinct errors.
-- Construction supplies condition probes, requirements and error values.
-  Generic choice execution observes all conditions, activates found-arm legality,
-  then selects skip/match and executes or returns the captured row. A retained
-  membership requirement includes both the interactive check and atomic use
-  predicate/error. Absence is not automatically a reusable observation.
-- `Commands` owns construction and its same-tree analysis; composed
-  `CommandExecution` owns interpretation and command-attempt state. `Assignments`
-  retains symbolic contributions, demands and provenance, while execution owns
-  transport bindings. Remove `remember`, the snapshot/restore journal, mutable
-  lookup results, `Assignments.transport`, `unbind` and per-field reset loops.
-- Command and shared transport state are two composed parts of one replacement.
-  Shared code does not import command types. The sole recovery handoff replaces
-  both synchronously, before winner re-observation. Each dispatch retains its
-  actual attempt identity and outcome. No successor starts over unresolved I/O.
-  Acknowledged progress/continuations, admission history, transaction ownership,
-  admitted values and the operation's one-recovery allowance do not reset.
-- Root and nested selected series share capture, member preparation/analysis and
-  ordinary recursive execution. Keep their existing distinct admission owners
-  and prepare-all-before-execute timing. Nested placement owns parent publication
-  and exact membership protection. Materialize all demanded scratch values that
-  cross a supplier prefix, not only the supplier's fields. Supplier modifiers do
-  not acquire collection admission merely to make them look like a series.
-
-Exact failed-INSERT recovery and single evaluation per admitted input remain
-the only approved compatibility changes. Diagnostic primary-loss policy and
-conditional skip-to-match replanning remain unchanged. New bulk families,
-suppression, scoped retries, callback/array ownership and recursive reads remain
-G3 obligations. The comparison program stays runnable through shared APIs.
-
-| Unit                                               | Dependency       | Sole-owned outcome                                                               | Exit                                                                                                                                      |
-| -------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| G2.5-01 — freeze and falsifiers                    | G2 closure       | Integrator: checkpoint/manifest; independent witness author: new polish fixtures | Current source matches frozen G2; every deletion maps to an independent witness, with only genuinely missing cases added                  |
-| G2.5-02 — selections and attempt ownership         | G2.5-01 baseline | One production writer: selected commands and shared transport attempt owner      | Stable selections and symbolic assignments execute through one replaceable attempt; focused contracts and review pass                     |
-| G2.5-03 — relation and selected-series composition | G2.5-02 handoff  | Same production writer: lexical relation owner and shared series body            | Parameter/supplier cascade and duplicate selected-series loop are gone without changing admission, progress or effect order               |
-| G2.5-04 — adversarial qualification                | G2.5-01/02/03    | Integrator: fresh receipts, whole-cost/deletion review, local architecture guide | Complete fixed/native/generated/transport checks, both existing G2 campaigns and external replay pass on final source; no new type errors |
-
-The completed G2.5 workflow used the established Astra/high production,
-independent witness and adversarial review streams, with root owning integration
-and validation. Arnaud's latest instruction applies to subsequent implementation:
-Astra/medium subagents implement; root reviews. This does not relabel the
-completed Astra/high work. Shared files have one writer; evidence work and review
-can run in parallel, runtime validation cannot overlap imported-source edits.
-Do not alter G2's archives or relabel their receipts. New-source evidence gets a
-new identity and replay corpus.
-
-Recount the whole charged candidate against G2's **4,342 code-bearing LOC**,
-including moved files and retained owners. Seek a net reduction without a new
-percentage veto. An increase requires explicit review of demonstrated ownership
-gains. Every new owner must remove an identified conflict or duplicated decision.
-The snapshot/restore mechanism, overloaded lookup modes and separate selected
-series pipelines must be absent. Apply §8's bounded repair/redesign rules; do
-not evade them by splitting or renaming a unit. G3 starts only after this exit.
-
-### G2.7 — Resolve execution ownership before G3
-
-Arnaud authorized this narrow checkpoint after G2.5. It clarifies who owns
-execution without redesigning the command language, changing a public route or
-driver API, or starting G3. The
-[ownership ledger](raptor3-evidence/g27-ownership.md) freezes its evidence.
-`commands/` is the implementation target; `program/` receives only mechanical
-compatibility edits needed to keep the G1 comparison runnable.
-
-The private engine `execute(modelName, operation, rawArgs, binding?)` call gains
-these exact optional binding forms:
-
-```ts
-type ExecutionBinding =
-  | { readonly kind: "borrowed-transaction"; readonly driver: AnyDriver }
-  | { readonly kind: "atomic-array" };
-```
-
-- Omitted preserves standalone execution through the factory driver. An
-  interactive write keeps one operation-owned `withTransaction`; a
-  no-transaction driver keeps qualified batch segmentation, acknowledgement,
-  progress, and standalone recovery. Reads retain their direct route.
-- `borrowed-transaction` executes directly through the exact supplied
-  transaction-bound driver. The candidate does not begin, commit, roll back,
-  savepoint, disconnect, or replay. The existing driver owns lifecycle and any
-  explicit nested savepoint.
-- `atomic-array` raises the existing `TransactionError` before admission,
-  defaults/transforms, or provider work. It does not
-  implement array execution.
-
-`OperationContext` resolves ownership once. Rename its physical-route fact
-`atomic` to `usesBatch`: it means only that this operation uses the qualified
-batch path, not general atomicity, ownership, replay eligibility, or commit
-certainty. Do not add downstream shape validation, driver detection, an
-options-boolean matrix, a universal scope class, or another interpreter.
-Admission remains once and internal values remain trusted. Command/transport
-attempt replacement and operation-lifetime admission, continuation, progress,
-acknowledgement, and standalone recovery facts stay with their current owners;
-borrowed execution has no replay allowance.
-
-| Unit                                       | Sole-owned outcome                                                                               | Exit                                                                                                                                         |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| G2.7-01 — contract/evidence freeze         | This checkpoint, `g27-ownership.md`, current identities/cost, witness map                        | The unchanged `g1-compare`, `g2-contracts`, `g2-transport`, and `g25-contracts` gates pass; only genuine ownership gaps are assigned forward |
-| G2.7-02 — private ownership implementation | Command entry, `OperationContext`, focused ownership witnesses, mechanical program compatibility | Omitted, borrowed, and refused-array calls satisfy this contract and independent Sol 5.6/high review passes                                  |
-| G2.7-03 — qualification                    | Final fixed/generated/transport/native provider/campaign/replay/type/cost receipts               | One final identity passes the prescribed closure with no new type errors                                                                     |
-
-Each unit is written by a Sol 5.6/high worker and reviewed after completion by
-an independent Sol 5.6/high worker. The root coordinates one final Astra/max
-review after all three units. Validation remains serial on stable source.
-
-G3 still owns private candidate composition against the existing public
-callback/array contracts, atomic-array packaging, set-oriented and
-relation-bearing bulk, suppression, exact scoped retry, bind partitioning,
-ancestor re-entry, and recursive composition. The shipped client route does not
-change in G3; full C13 integration remains G4 work and cutover remains separately
-authorized.
-
-### G3 preparation — accepted six-unit checkpoint before G3
-
-The [preparation ledger](raptor3-evidence/g3-prep.md) is the sole status and
-evidence index for this bounded bridge. G3P-01 freezes the actual shipped
-behavior [inventory](raptor3-evidence/g3-prep-inventory.md) and qualified G2.7
-baseline. G3P-02 proves exact native constraint ownership; G3P-03 proves set
-mutation and existing-owner preparation; G3P-04 proves exact suppression,
-replay, and lifetimes; G3P-05 proves cross-table selector dependencies, variant
-ordering, and the private SQLite recursive-read fit; G3P-06 qualifies the
-assembled preparation on one identity.
-
-Preparation may add only the minimum real vertical slices required by those
-proofs. It keeps validation at the existing admission owner, extends the broad
-`OperationContext` and ordinary recursive command owners, and composes through
-`PreparedBatchOperation` and `TransactionOperationOwner`. It adds no public
-route or API, second interpreter, transaction protocol, framework, or
-speculative `memberPath` refactor. Historical receipts remain immutable. Two
-repairs of the same failure or two language redesign rounds across preparation
-pause advancement for a decision.
-
-G3P-02 has caller-level evidence-directory red-to-green proof and final native
-PostgreSQL/MySQL proof for five constraint cases. Arnaud resolved the
-remaining compatibility question: each model has one public selector namespace,
-and a compound selector may not reuse a model field, `AND`/`OR`/`NOT`, or
-another compound selector name. Definition admission emits I006 once; model key
-resolution, operation schemas, and exact recovery trust the admitted namespace.
-Mapped columns and provider constraint names remain separate physical facts.
-Final-source focused, full-regression, and native qualification passes on the
-frozen identities recorded in the [unit report](raptor3-evidence/g3-prep-02-final/g3-prep-02-report.md).
-Independent Sol 5.6/high review accepted G3P-02 on its frozen production,
-harness, evidence, and matched-cost identities. G3P-03's original qualified
-[unit report](raptor3-evidence/g3-prep-03/g3-prep-03-report.md) remains the
-immutable handoff that independent review marked REVISE. The two bounded
-[review repairs](raptor3-evidence/g3-prep-03-review-repair/g3-prep-03-repair-report.md)
-now pass on their own frozen source identity: empty `createMany` owns a complete
-zero-query package/result parser, and update-many limit/returning refusal occurs
-once before scalar-versus-relation routing. Independent review accepted those
-repairs. G3P-04's original qualified [unit report](raptor3-evidence/g3-prep-04/g3-prep-04-report.md)
-remains the immutable handoff that independent review marked REVISE. Its three
-bounded [review repairs](raptor3-evidence/g3-prep-04-review-repair/g3-prep-04-repair-report.md)
-passed on one frozen identity, but review found a residual unsupported
-suppression behind a `Choose`. The [second repair](raptor3-evidence/g3-prep-04-review-repair-02/g3-prep-04-repair-02-report.md)
-now makes the context-owned capability requirement unconditional across both
-arms while preserving ordinary branch-local refusal timing. Recovery authority
-still requires the standalone batch proof, and a selected static series still
-projects terminal state once in input order. The later [acceptance
-attestation](raptor3-evidence/g3-prep-04-review-acceptance.md) records the same
-reviewer's verification without mutating a frozen package. G3P-04 is accepted;
-G3P-05's original [unit report](raptor3-evidence/g3-prep-05/g3-prep-05-report.md)
-remains the immutable handoff that independent review marked REVISE. Its
-[review repair](raptor3-evidence/g3-prep-05-review-repair/g3-prep-05-repair-report.md)
-feeds selected updateMany/deleteMany effects into the existing dependency
-analysis and lowers recursive seed ordering outside the UNION anchor. The
-expanded 21-case gate and retained owners pass. The later [acceptance
-attestation](raptor3-evidence/g3-prep-05-review-acceptance.md) records the
-independent re-review without mutating either frozen package. G3P-06's original
-qualification then passed independent review. Final root review accepted its
-separate credential-free registration repair; the [final preparation
-attestation](raptor3-evidence/g3-prep-final-acceptance.md) records the accepted
-six-unit checkpoint. G3 is not started.
-
-G3 begins only after all six prep units and their independent reviews are
-accepted. It extends their accepted slices; it does not reopen their ownership
-or count a seed as completion of an inventory row. Full query/projection/codecs,
-public lifecycle integration, provider qualification, and cutover remain G4 or
-later work exactly as specified below. **A partially implemented G3P-02 is not
-a G3-prep or G3 pass.**
-
-### Post-G3-preparation fact-ownership checkpoint
-
-This checkpoint must pass before G3-01 or G3-03 starts. Its ordered units are:
-consume authoritative clearability; reuse immutable `EngineSchema` views;
-separate projection meaning from statement construction; resolve selector
-meaning once; remove repeated history copying. One production writer owns the
-coupled changes, and each stable unit receives independent review before the
-next begins. This plan remains the sole owner of order, acceptance, and the
-existing bounded repair/redesign limits; splitting work does not reset them.
-The [live ledger](raptor3-evidence/post-g3-fact-ownership.md) records evidence
-and implementation detail. All five units are independently accepted after the
-bounded review repairs recorded in the ledger. Final checkpoint qualification
-is complete, and final root global review accepted the checkpoint. G3 remains
-not started.
-
-Schema validation and clearability own topology and legal removal;
-`EngineSchema` owns immutable factory-lifetime schema views; `Queries` owns
-selector and projection meaning; execution owns observations, bindings,
-affected rows, recovery, and progress. Input and provider-result trust
-boundaries remain authoritative, and template/member admission scopes remain
-distinct. Shared views retain no operation demand, alias, origin, refusal,
-scratch reference, or attempt value. Prepared selectors retain symbolic
-operands, and projection descriptions retain no query-local alias or SQL.
-
-- Unit 3 prepares one alias-free shape for SELECT, RETURNING, and reference
-  projections. It removes SELECT assembly used only to obtain decoder shape but
-  retains reads that verify stored output or continuations.
-- Unit 4 resolves admitted names, compound selectors, operators, and field
-  references once. Analysis performs no SQL lowering; supplier-specific fact
-  scope remains distinct, and captured identities rebind symbolic operands per
-  execution attempt.
-- Unit 5 removes ancestor-prefix copying while preserving branch isolation,
-  repeated occurrences, arm-local refusals, semantic mutation order, and
-  separate admission scopes. Depth 1, 2, 8, and 32 evidence distinguishes
-  necessary dependency comparisons and branch bookkeeping from removed copies.
-
-Each unit must replace its competing interpretation path rather than add a
-second compiler, parser, walker, rule registry, or analysis framework. Focused
-review must prove preserved variant laziness, refusal timing, decoding,
-supplier/dependency behavior, retry/attempt/borrowed isolation, branch history,
-and required provider routes applicable to that unit. After all five units pass
-independent review, one final stable identity must pass the accepted preparation
-fixed/provider/campaign/replay/type/cost/archive inventory before this checkpoint
-can be accepted.
-
-The checkpoint introduces no public API, dependency, cutover, or recursive
-feature expansion. Its final qualification still includes every behavior and
-safe-reuse obligation in the authorized checkpoint contract, not only the
-focused witnesses named here.
-
-### G2.9 — One construction path and one dependency owner before G3
-
-G2.9 runs after the accepted fact-ownership checkpoint and before G3-01 or
-G3-03. Its [ledger](raptor3-evidence/g29.md) freezes the baseline, classification,
-and witness map. G2.9 repairs only a demonstrated enclosing-dependency gap and
-the member attribution or duplicated construction proven in that affected path.
-It changes no public API, public route, engine selection, retry policy, provider
-support, or atomic-array refusal. Verb-table experiments, G4 decoder work, and
-new bulk, array, suppression, or recursive infrastructure stay outside it.
-
-The maintained diagnostic uses one raw nested selected-series mutation. Its
-ticket key is supplied by a per-admission default or transform, and a later
-sibling selects or updates `"wanted"`:
-
-| Template admission | Actual member admission | Required behavior |
-| --- | --- | --- |
-| Creates `"wanted"` | Not reached | Preserve dependency refusal before SQL |
-| Creates `"other"` | Creates `"wanted"` | Refuse before member effects |
-| Creates `"other"` | Members create `"second"`, then `"wanted"` | Refuse before either member executes |
-| Creates `"other"` | Creates `"other2"`; `"wanted"` exists independently | Preserve success |
-
-Template conflict may require early refusal. Template disjointness never proves
-that separately admitted members are disjoint. Exact members resume analysis in
-the enclosing ordered scope after parent publication, capture, and admission,
-before member effects. The same history checks preceding writes, preceding
-members, and following dependent commands. A nested unresolved series retains
-its dependency relationship until its own capture and admission boundary; it is
-never implicit success. Branch-local histories, repeated occurrence identity,
-selected-arm legality, and prepare-all-before-execute timing remain unchanged.
-`schema.member` and `schema.update` may remain separate admission entry points;
-they do not authorize separate mutation interpretation.
-Construction, dependency analysis, and execution consume each occurrence's
-same exact admitted values. Attempt replacement reuses that admitted meaning;
-it never invokes another default, transform, or member admission.
-
-Unit 01 must also pin a self-relation whose same model has different occurrence
-roles, a series nested in a captured member, a supported lookup using an
-already-published parent's values, and a dynamic refusal after an acknowledged
-batch parent prefix. Publication authorizes only the dependency relation the
-existing engine already supports. Pre-provider failures require zero SQL;
-post-publication refusal preserves the acknowledged prefix and requires zero
-member effects, not zero operation SQL.
-
-Execution retains operation-lifetime occurrence paths, series cardinality,
-admission history, acknowledged and uncertain progress, transaction ownership,
-and the one-recovery allowance outside replaceable attempts. Attempt state keeps
-bindings, observations, pending statements, scratch references, and rejection
-evidence. Do not write execution attribution onto reusable prepared commands or
-let adjacent or nested series borrow another occurrence's cardinality. Do not
-restart full-root analysis, copy ancestor histories, re-evaluate defaults, add a
-second dependency engine, or add a syntax walker, template VM, compiler
-framework, opaque effect callback, or generic binding registry.
-
-Three inspected prescriptions are preservation requirements, not new work. The
-adapter's shared constraint owner remains the exact selected-constraint recovery
-source. Output transport remains mutation- and capability-specific. Acknowledged
-progress remains operation-owned across attempt replacement. `associate` and
-`clear` remain because the comparison specimen consumes them. Junction mapping,
-key-selection, or completion code is deleted only after final-source evidence
-proves one duplicated rule and names its surviving owner.
-
-| Unit | Outcome | Exit |
-| --- | --- | --- |
-| **G2.9-00 — source and contract freeze** | Freeze the accepted source, runtime, qualification, matched cost, actual APIs, classifications, and witness map | Independent review accepts the specification; production and harness remain unchanged |
-| **G2.9-01 — regression witnesses** | Execute the four-row matrix plus occurrence-role, nested-series, published-parent, and acknowledged-prefix boundaries on interactive SQLite and the supported SQLite batch route | Each required negative is red for its stated symptom before repair; positive controls pass; ranked falsifiable hypotheses follow the actual minimized red |
-| **G2.9-02 — dependency and construction repair** | Substitute admitted member occurrences into the enclosing ordered analysis through `Commands` and existing constructors | The matrix and affected dependency, choice, ordering, and admission families pass; independent review accepts one semantic owner |
-| **G2.9-03 — attribution and confirmed deletions** | Move touched member metadata to its correct operation/attempt lifetime and delete only duplication proven in the affected path | Nested and adjacent cardinality/path, progress, recovery, borrowed isolation, and unchanged atomic-array refusal pass; independent review accepts the unit |
-| **G2.9-04 — qualification** | Freeze one final identity and create source-bound native, fixed, campaign, replay, type, cost, and closure evidence | Independent review and final root review accept the complete checkpoint; G3 remains separately not started |
-
-G2.9-04 repeats the expanded 26-mode local inventory (1,062 tests), the ordinary
-credential-free fixed stage (632 tests), five PGlite lanes (11 tests),
-PostgreSQL and MySQL matrices (54 and 43 tests), all four
-campaigns (20,400 cells, 61,200 replays, zero skips), both fresh saved replays,
-harness/CLI self-tests, structure, typecheck, and matched whole-owner cost. Unit
-01 freezes the added local and native mode names and nonzero counts before any
-repair. No historical receipt is relabeled.
-
-The starting matched cost is 9,923 parser-token lines across 28 whole owners,
-already above G2's 9,000 guidepost by an accepted earlier checkpoint. G2.9
-reports its new census separately. Any additional guidepost miss or source
-increase pauses advancement for §7's explicit shortfall review; prior acceptance
-is not a blanket waiver and no reduction or speedup is promised.
-
-G2.9 consumes G3's existing two language-redesign rounds; the checkpoint does
-not reset them. The same minimized failure surviving two repairs, a third
-language representation, missing required evidence, a public-contract change,
-or removal of a guarantee stops advancement for Arnaud's decision under §8.
-One production writer owns the coupled files, each stable implementation unit
-gets independent review, and validation runs serially only on a frozen tree.
-
-### Shared structure and extension-cost checkpoint
-
-After G2.9 qualification and before G3-01, the
-[shared-structure checkpoint](./raptor3-core-compression-plan.md) compares the
-qualified reference with one bounded occurrence-structure candidate. CS-00
-finishes and recounts G2.9; CS-01 freezes structural and extension witnesses;
-CS-02 tests one occurrence identity in place of mirrored histories and splice
-bookkeeping; CS-03 applies the same terminal-selection and mutation-limit
-extensions to isolated reference and candidate worktrees; CS-04 qualifies and
-selects one private result.
-
-The primary size metric is the twelve-file Raptor `commands/` and `shared/`
-core, referenced at 6,030 code-bearing lines and recounted after G2.9. The
-10,104-line/28-owner retained census is reported separately. Each foundation,
-extension, and composition reports core code-bearing lines, actual parser token
-count, source bytes, semantic rules, and depth/width traversal work. Each
-denominator remains separate. There is no fixed percentage veto and no
-compression credit for moving code or dropping guarantees.
-
-The checkpoint carries every existing repair and redesign budget. CS-02 uses
-the next G3 structural round; labels do not reset it. The public route, retry
-policy, driver capabilities, and G3 integration stay unchanged. A failed
-candidate preserves the qualified reference and evidence.
-
 ### G3 — Scopes, series, recursive composition
 
 Each G3 unit applies §7's **decision-elimination gate** before implementation
 and at independent review. Extend the accepted structure; this gate does not
 authorize another foundation checkpoint or reset any repair/redesign budget.
 
-Complete C08–C11 by extending the accepted G3-preparation slices, whose
-immutable parent is the accepted 4,592-line G2.7 source, not from another
-foundation rewrite. G3P-06 freezes the prepared source identity and cost;
-preparation does not relabel the historical G2.7 qualification. `EngineSchema`
-remains factory-scoped; each call receives
-one `OperationContext`; admitted command definitions and operation facts remain
+Complete C08–C11 by extending the accepted CS-04 source, including its
+preparation, dependency, terminal-result and mutation-limit slices. Preserve
+their source-bound regression evidence; do not restart from an earlier G2.7
+or G3-preparation snapshot. `EngineSchema` remains factory-scoped; each call
+receives one `OperationContext`; admitted command definitions and operation facts remain
 outside the replaceable command/transport attempts. Do not add another schema
 factory, context lifetime, attempt journal, owner hierarchy, or interpreter.
 
@@ -1217,7 +649,7 @@ composition; transport simulation remains a supplement. Each final receipt must
 name fresh source and harness identities. G3 makes no bundle, package, whole-
 engine reduction, or performance-qualification claim.
 
-Extend the S2 instantiation law to the same body at root, nested and series
+Extend the shared body-instantiation law to root, nested and series
 positions; do not introduce a second series preparation/analysis pipeline. Fixed
 recursion witnesses use depths 1, 2, 8, and 32 where the existing public contract
 admits them; these are test depths, not a new API limit. Include self-relations,
@@ -1307,14 +739,10 @@ verification step.
 
 ### 6.1 Assignable work units
 
-Each row is one assignable outcome, with prerequisites, owned artifacts, and a
-verifiable finish. The paths below are planned, not already implemented. An
-assignment names one owner and its exact files before work starts. A unit can
-contain several cohesive classes; it is not an instruction to create one class
-or abstraction per row. Current unit status is recorded in §10 and the milestone
-report; all six G1 units, all four G2 units, and all three G2.7 units are
-complete and independently accepted. The final root global G2.7 review is
-accepted; G3 has not started.
+Each row is a remaining assignable outcome with prerequisites, owned artifacts
+and a verifiable finish. Name exact files before work starts. A unit may contain
+several cohesive classes; it is not an instruction to create a class per row.
+Completed foundations are prerequisites, not assignments to repeat.
 
 The **integrator** owns the shared contracts, composition entry, manifest,
 milestone report, and final validation. Workers propose changes to those owners;
@@ -1322,79 +750,21 @@ they do not independently add context fields, parallel value types, or new
 execution protocols to unblock themselves. Integrator is a coordination role,
 not another production class.
 
-#### G0 units — fixed witnesses and a trustworthy small boundary
+#### Remaining work units
 
-| Unit                                                       | Starts after              | Sole-owned output                                                                                                                   | Done when                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G0-01 — blueprint, scope, fixed witnesses and exchange** | Authorization to begin G0 | Integrator: initial `g0.md` with §6's blueprint; `contracts.ts`, `profiles.ts`, fixed `scenarios/contracts/`, `harness/protocol.ts` | Blueprint completion above is satisfied. S1–S4 have exact public cases, properties and supported/refused cells; C01–C13 have future owners; admission owners and decision policy are named. One scenario/observation/replay vocabulary needs no candidate types.                                                                                                                                                                      |
-| **G0-02 — baseline and comparable measurements**           | G0-01                     | `g0.json`; assigned census/package/performance fixtures and narrow benchmark adaptation                                             | Audited production ownership/counts let the integrator reconcile the blueprint. Baseline identity and size fixtures reproduce; workloads and adoption budgets are recorded. §7's semantic comparison accepts an equivalent changed-SQL specimen and rejects a wrong-result specimen. Initial old-versus-old timing evidence is recorded honestly; unresolved precision and remaining performance cells are deferred, not G0 blockers. |
-| **G0-03 — fixed public oracle and replay**                 | G0-01                     | `harness/` except integrator-owned `protocol.ts`; fixed witness tests                                                               | Fixture-owned raw SQLite seed/dump, legacy public entry, comparator and controlled replay satisfy G0's §5.1 rows on real interactive/restricted-batch SQLite. No general schema generator/shrinker.                                                                                                                                                                                                                                   |
-| **G0-04 — integrated fixed-evidence gate**                 | G0-02/03                  | Integrator: manifest, gate/replay entry over existing runners, completed `g0.md`                                                    | The actual command passes 100 schedule seeds, detects G0's injected violations and missing/stale evidence, and records the G0 exit. The report retains the initial forecast and its frozen-baseline reconciliation. Private checker tests alone do not qualify.                                                                                                                                                                       |
-
-G0-02 and G0-03 can run independently after G0-01; G0-04 verifies their
-integration. Further harness machinery is owned with the milestone that uses it.
-
-#### G1 units — prove the language before widening the rewrite
-
-| Unit                                               | Starts after                                                 | Sole-owned output                                                                                                        | Done when                                                                                                                                                                                                                                                                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G1-01 — bounded representation comparison**      | G0 exit                                                      | One production owner: minimal private candidates, public test entries; integrator: selection/ownership record in `g1.md` | Both representations face S1–S4; measured slice cost is compared with the blueprint. One passing representation is selected with whole-slice cost/rule evidence, or work pauses under §8. Demonstrated handoffs, file ownership and context lifetimes are recorded before production splitting; a forecast alone earns no handoff. |
-| **G1-02 — independent slice evidence**             | G0 exit; independent of candidate selection                  | Remaining G1 contract/profile cells, scenarios/regressions, `harness/` extensions except shared `protocol.ts`            | Remaining G1 cells are classified before their production expansion; the same harness gains bounded independent generation/shrinking and G1's falsifiers. No candidate-derived expected answers or special-case exemptions.                                                                                                        |
-| **G1-03 — construction and association expansion** | G1-01 selected handoff; applicable cell inventory from G1-02 | Construction/storage files and their law-establishing analysis in the selected ownership map                             | G1 recipes reuse admitted-instance construction and common storage mappings across positions. Contributions/publication have one owner; no duplicated validation or per-verb/storage compiler.                                                                                                                                     |
-| **G1-04 — physical lowering expansion**            | G1-01 selected handoff; applicable cell inventory from G1-02 | Lowering files, any separately justified analysis files, narrowly assigned adapter integration                           | Shared dependencies/requirements lower to legal SQLite/PostgreSQL/batch-model execution without repeating facts already established by construction. A separate `ProgramAnalysis.ts` is not required.                                                                                                                              |
-| **G1-05 — execution and projection expansion**     | G1-01 selected handoff; applicable cell inventory from G1-02 | Execution/projection files in the selected map                                                                           | Lowered obligations preserve rollback, publication, decoding and context lifetimes; S3/S4 use shared query-output meaning, with no separate target-selection or membership algorithms in the runner.                                                                                                                               |
-| **G1-06 — integrated slice checkpoint**            | G1-02/03/04/05                                               | Integrator: selected candidate harness entry, composition, manifest and `g1.md`                                          | Full G1 contract/provider evidence and 1,000 new seeds pass; S1–S4 remain regression witnesses; whole-cost/structural review resolves any miss before G2. Only one candidate representation is on the adoption path.                                                                                                               |
-
-Before G1-01's selection, parallelism is production versus independent evidence,
-not construction versus lowering versus execution. After selection, G1-03/04/05
-may split only where the executed ownership map has disjoint files; combine
-units under one owner if splitting would create forwarding layers or shared
-writes. G1-02 shares the same maximum worker budget. Run validation only on
-stable snapshots. A scalar create/read demo or typed fixtures alone earns no split.
-
-#### G2–G4 units — expand along verified boundaries
-
-The file names below are responsibility shorthand from §2.1. Before assignment,
-resolve them to exact paths in G1-01's selected map. An absent `ProgramAnalysis`
-is not a missing deliverable: its necessary laws stay with their demonstrated
-construction/lowering owner, never reintroduced to fit this table.
-
-| Unit                                                       | Starts after                                                                             | Sole-owned output                                                                                                                                                                                                                     | Done when                                                                                                                                                                                                                                                                                                                                                                    |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G2-01 — transition semantics and shared analysis**       | G1 exit; applicable cell inventory from G2-03                                            | Construction/storage and necessary analysis files in the selected map; shared-type changes through integrator                                                                                                                         | C05–C07 have exact before/after, occupancy, correlation and own-effect laws in one semantic structure. New handoff fixtures pass before downstream changes start.                                                                                                                                                                                                            |
-| **G2-02 — transition enforcement on providers**            | G2-01 handoff accepted                                                                   | `SqlLowerer.ts`, `Execution.ts`, assigned physical adapter changes                                                                                                                                                                    | Those laws are enforced without a second interpreter; actual MySQL and PostgreSQL behavior covers required transitions and recovery.                                                                                                                                                                                                                                         |
-| **G2-03 — adversarial transition witnesses**               | G1 exit                                                                                  | G2 scenarios/regressions, provider-race tests and required extensions of the same harness                                                                                                                                             | Transition cells are classified before expansion. Independent decoy, staleness, clear/refill, supply/modify and wrong-constraint recovery witnesses execute; their new fault cuts/replay are self-tested. May proceed alongside G2-01/02.                                                                                                                                    |
-| **G2-04 — integrated transition checkpoint**               | G2-01/02/03                                                                              | Integrator: composition, manifest, `g2.md`                                                                                                                                                                                            | G2 contract/profile evidence and 5,000 new seeds pass; shared-rule/change-impact and size reviews are complete; any advancement decision is recorded.                                                                                                                                                                                                                        |
-| **G2.7-01 — contract and evidence freeze**                 | G2.5 follow-up                                                                           | Central plan, `g27-ownership.md`, current identities and whole-owner cost                                                                                                                                                             | The ownership contract, unchanged-source baseline, existing witnesses and only missing falsifiers are frozen without source, harness, runner or manifest edits.                                                                                                                                                                                                              |
-| **G2.7-02 — private execution ownership**                  | G2.7-01                                                                                  | Command entry, `OperationContext`, focused ownership witnesses and mechanical program compatibility                                                                                                                                   | Standalone behavior is unchanged; borrowed operations use the exact supplied transaction driver without lifecycle or replay; atomic-array refuses before admission/provider work.                                                                                                                                                                                            |
-| **G2.7-03 — ownership qualification**                      | G2.7-02                                                                                  | Final fixed/generated/transport/provider/campaign/replay/type/cost evidence                                                                                                                                                           | One final source identity passes the prescribed closure and independent/global review without widening into G3.                                                                                                                                                                                                                                                              |
-| **G3P-01 — shipped-surface inventory**                     | Accepted G2.7 exit                                                                       | Central plan, `g3-prep.md`, remaining-feature inventory, fresh unchanged-source baseline and historical-runner replay evidence                                                                                                        | Every distinguishable shipped behavior or refusal has a unique inventory ID, placement/profile, exact existing witness, candidate status, intended owner, and G3/G4 milestone; independent review accepts the frozen docs and evidence. No production/test/harness/runner edit.                                                                                              |
-| **G3P-02 — constraint ownership**                          | Accepted G3P-01                                                                          | Evidence empty-path repair, one unambiguous public selector namespace, native exact-constraint owner and focused falsifiers                                                                                                           | Definition admission refuses model-local selector collisions once; exact schema-key, adapter-name, and normalized driver identity—not message matching or widened inference—own recovery.                                                                                                                                                                                    |
-| **G3P-03 — set mutation and preparation**                  | Accepted G3P-02                                                                          | Minimum scalar set-mutation and relation-series preparation slices through the current command/context and transaction-operation owners                                                                                               | Set orientation and prepare-before-execute behavior compose through `PreparedBatchOperation` and `TransactionOperationOwner` without a second series interpreter or transaction protocol.                                                                                                                                                                                    |
-| **G3P-04 — suppression, replay and lifetime**              | Accepted G3P-03                                                                          | Exact-root suppression region, replay/progress and closed/late lifetime slices                                                                                                                                                        | Only the admitted root conflict is absorbed; descendants/prerequisites cannot leak; acknowledged work cannot replay; lifetime facts stay with existing owners.                                                                                                                                                                                                               |
-| **G3P-05 — dependencies, variant order and recursive fit** | Accepted G3P-04                                                                          | Cross-table selector dependency and variant-order slices; executable private SQLite recursive-read fit                                                                                                                                | Fixed depth-edge/zero/empty/pruning/path-local-cycle fixtures pass at depths 1, 2, 8 and 32 with measured statements/growth and no public `recurse` API.                                                                                                                                                                                                                     |
-| **G3P-06 — preparation qualification**                     | Accepted G3P-05                                                                          | Final fixed/provider/campaign/replay/type/cost/archive evidence; commit remains deferred to review                                                                                                                                     | **Accepted.** Independent review accepted the original handoff. Final root review accepted the bounded repair that removes native/fixed Raptor suites from ordinary discovery, retains every supported local suite in the explicit fixed stage, and repeats complete qualification on one repaired harness identity. No commit or push is claimed here.                                                                            |
-| **G2.9-00 — source and contract freeze**                   | Accepted post-preparation fact-ownership checkpoint                                      | Central plan §6/§10 registration, [`g29.md`](raptor3-evidence/g29.md), accepted identity/cost/source freeze, classification, and witness map                                                                                            | The amended specification and central references pass independent review with no production, test, harness, runner, or manifest change.                                                                                                                                                                                                                                    |
-| **G2.9-01 — regression witnesses**                         | Accepted G2.9-00                                                                         | Maintained SQLite matrix plus occurrence-role, nested-series, published-parent, acknowledged-prefix, admission, state, and dispatch witnesses                                                                                           | Every required negative reproduces for its stated reason before repair; positive controls pass; mode names/counts and ranked falsifiable hypotheses are frozen.                                                                                                                                                                                                            |
-| **G2.9-02 — dependency and construction repair**           | Accepted G2.9-01                                                                         | One production writer: `Commands`, existing mutation constructors, selected-series capture/execution, and only necessary shared-owner changes                                                                                          | Exact admitted members resume the enclosing ordered dependency scope before effects without full-root reanalysis, copied ancestor histories, repeated admission, or a second semantic engine; affected families and independent review pass.                                                                                                                               |
-| **G2.9-03 — attribution and confirmed deletions**          | Accepted G2.9-02                                                                         | Existing operation/progress and attempt owners; deletion of only source-proven duplication in the touched path                                                                                                                         | Nested/adjacent occurrence path and cardinality, acknowledged/uncertain progress, retry, recovery, borrowed isolation, exact constraint ownership, and unchanged atomic-array refusal pass; independent review accepts the unit.                                                                                                                                             |
-| **G2.9-04 — qualification**                                | Accepted G2.9-03                                                                         | Native/fixed/campaign/replay/type/cost/closure evidence under [`g29.md`](raptor3-evidence/g29.md); final §6/§10 outcome update                                                                                                           | One final identity passes the central inventory plus every G2.9 gate, matched-cost shortfall review is resolved, closure evidence and independent/root review are accepted, and historical records stay immutable.                                                                                                                                                          |
-| **CS-00 — qualified reference freeze**                     | Accepted G2.9-03                                                                         | Approved G2.9 compatibility/cost decisions, complete qualification, exact Raptor-core and broader retained recount                                                                                                                       | One reviewed G2.9 identity and complete evidence package; no structural production change                                                                                                                                                                                                                     |
-| **CS-01 — witness freeze**                                 | Accepted CS-00                                                                           | Existing and missing combined structural witnesses; extension A/B/composition contracts; metrics and isolated-worktree recipe                                                                                                           | Independent review accepts red-capable contracts and a fair comparison boundary                                                                                                                                                                                                                                |
-| **CS-02 — one occurrence structure**                       | Accepted CS-01                                                                           | One production writer replaces mirrors, positional splice/restore, and repeated prefix scans with one occurrence identity and incremental comparison                                                                                    | Frozen behavior passes, named synchronization mechanisms are absent, exact traversal/count evidence and independent review pass; otherwise retain the reference                                                                                                                                              |
-| **CS-03 — isolated extension comparison**                  | Accepted CS-02                                                                           | Flat-reference and candidate worktrees each implement terminal relation-updateMany selection, mutation limits, and their composition; 100 deterministic seeds per applicable profile                                                      | Comparable semantics, code, owner, and traversal evidence supports a choice; no production switch                                                                                                                                                                                                             |
-| **CS-04 — qualification and decision**                     | Accepted CS-03                                                                           | Selected private candidate and slices, rejected alternative record, full providers/campaign/replay/type/cost/archive evidence, G3 handoff                                                                                                | Independent and root review accept one result; a scoped local commit records partial G3 work without public integration or push                                                                                                                                                                               |
+| Unit | Starts after | Sole-owned output | Done when |
+| --- | --- | --- | --- |
 | **G3-01 — bulk and scoped composition semantics**          | Accepted CS-04; accepted G2.9 exit; accepted G3-prep exit; inventory accepted from G3P-01 | Same production writer across G3-01/02: `src/query-engine/raptor3/commands/commands.ts`, `relation-body.ts`, `assignments.ts`, `selection.ts`, and necessary `shared/schema.ts` changes                                               | Ordinary record bodies compose into ordered members and set-oriented bulk without new per-position interpreters. Handoffs distinguish borrowed ownership, suppression region, current attempt, and acknowledged prefix.                                                                                                                                                      |
 | **G3-02 — bulk and scope execution**                       | G3-01 handoff accepted                                                                   | Same production writer: `src/query-engine/raptor3/commands/execution.ts`, `shared/operation-context.ts`, `shared/query.ts`, `shared/transport-attempt.ts`; exact adapter/driver seam only if an accepted provider witness requires it | Bind partitioning, output transport, suppression and progress satisfy actual substrates; acknowledged effects cannot replay and skipped prerequisites cannot leak. Array packaging composes through existing transaction owners without changing the shipped route.                                                                                                          |
 | **G3-03 — depth, recurrence and failure witnesses**        | Accepted CS-04; accepted G2.9 exit; accepted G3-prep exit; applicable cells classified by G3P-01 | G3 scenarios/regressions, same-harness fault/shrinking extensions, and private transaction/array composition wiring; the accepted G3P-05 recursive fit remains a regression                                                           | Depth/occurrence, bulk counts, binding isolation, closed-scope/late-completion refusal, atomic packaging, skip leakage, wrong retry, committed-prefix replay, healthy suffixes and commit ambiguity are checked independently. G3 extends the accepted prep slices and does not redesign the recursive fit or ship its feature. Witness work may proceed alongside G3-01/02. |
 | **G3-04 — integrated composition checkpoint**              | G3-01/02/03; native and composition evidence complete                                    | Integrator: composition, manifest, `g3.md`                                                                                                                                                                                            | G3 provider/contracts and 10,000 new seeds pass on one fresh identity; structural recursion, the recursive-read fit verdict, and whole-cost evidence justify advancement or produce an explicit review. The shipped client still uses the current engine.                                                                                                                    |
-| **G4-01 — complete query and projection semantics**        | G3 exit                                                                                  | `src/query-engine/raptor3/shared/query.ts`, necessary `shared/schema.ts` and command selection/analysis changes; shared contracts through integrator                                                                                                                        | Complete C01/C12 by extending the shaped/correlated output owners proven in S3/S4. Classify remaining cells and prove each handoff extension; no new aggregate/nested/recursive engine.                                                                                                                                                                                      |
+| **G4-01 — complete query and projection semantics**        | G3 exit                                                                                  | `src/query-engine/raptor3/shared/query.ts`, necessary `shared/schema.ts` and command selection/analysis changes; shared contracts through integrator                                                                                                                        | Complete C01/C12 by extending the accepted shaped/correlated output owners. Classify remaining cells and prove each handoff extension; no new aggregate/nested/recursive engine.                                                                                                                                                                                      |
 | **G4-02 — complete physical/provider envelope**            | G4-01 read/projection handoff accepted                                                   | `src/query-engine/raptor3/shared/operation-context.ts`, `shared/query.ts`, `commands/execution.ts`, and exact assigned adapter/driver seams                                                                                                                                                       | All required profiles and existing fast paths implement that handoff; required provider behavior is executed. Can run alongside the remaining G4-01 implementation after the handoff.                                                                                                                                                                                        |
 | **G4-03 — client lifecycle and public type integration**   | G3 exit; any shared handoff change through integrator                                    | Assigned client/extension/cache boundary files, C13/type tests and corresponding harness falsifiers; not shared core files                                                                                                            | Classify remaining C13 cells; public admission, extension/raw/cache behavior and inferred types use the candidate without duplicated lifecycle. Missing events fail the oracle. Can proceed alongside G4-01/02 on verified interfaces.                                                                                                                                       |
 | **G4-04 — qualification and adoption review**              | G4-01/02/03                                                                              | Integrator: candidate entry/package fixture, manifest, `g4.md`                                                                                                                                                                        | All G4 hard requirements and 25,000 seeds pass; complete size/performance/structural evidence supports the adoption recommendation; Arnaud decides any target shortfall.                                                                                                                                                                                                     |
 | **C-01 — candidate-only cutover verification**             | G4 qualification, resolved adoption reviews, and authority to perform the engine cutover | Integrator: exact client route, legacy deletion targets, architecture documentation and candidate-only evidence                                                                                                                       | §9 candidate-only gates pass without a legacy fallback; public API stays intact; rollback reference is recorded. No automatic release or unrelated cleanup.                                                                                                                                                                                                                  |
 
-G2/G3 intentionally keep the coupled semantic changes under one owner. Parallel
+G3 intentionally keeps the coupled semantic changes under one owner. Parallel
 work there is independent witness development and, after each semantic handoff,
 physical enforcement—not separate implementations of every relation verb.
 
@@ -1405,9 +775,9 @@ additional production frameworks or reasons to create more owners:
 
 | Handoff                                 | Single owner                                                            | Must be concrete before dependent streams start                                                                                                                                                                                                                                                |
 | --------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Harness exchange                        | G0-01 integrator                                                        | Scenario/world and invocation shape, typed observations, controlled I/O events, failure/replay identity; no candidate IR imports                                                                                                                                                               |
-| Selected semantic structure and context | G1-01 selection, then integrator                                        | S1–S4 establish shaped outputs versus addressable records, exact producers, instance admission/analysis, assignments, correlation, alternatives/order/scopes and lifetimes. State which facts construction already establishes and which require later analysis.                               |
-| Lowering/execution obligations          | G1-01 executed comparison; changes coordinated by the owning components | S1 proves parameters/outputs and legal execution on interactive/batch routes, with rollback/publication. S2 proves that only the actual admitted instance authorizes its effects. Include outcome/ack meaning, parsing and recovery; no public-verb language or opaque future-effect callback. |
+| Harness exchange | Existing contract, profile and harness owners | Add only missing scenario/fault observations; preserve independent oracles, controlled I/O, source identities and exact replay |
+| Selected semantic structure and context | Current construction, query and execution owners; integrator coordinates changes | Identify established facts versus new requirements, exact occurrence/producer identity and admission/attempt/progress lifetimes |
+| Lowering/execution obligations | Current execution/query owner and exact adapter seam | Show legal interactive/batch behavior, complete packageability, output publication, rollback and failure attribution without downstream public-verb reinterpretation |
 
 Each handoff has a revision, concrete examples, and falsifiers. Freeze only what
 the next slice needs. If a consumer finds a missing distinction, send the
@@ -1418,9 +788,11 @@ parallel output vocabulary, or catch-all callback to bypass the shared contract.
 Operational rules:
 
 1. Use **one integrator plus up to three worker streams**. This is a maximum,
-   not a reason to invent work. Before G1-01 selection, keep production under
-   one owner and evidence under another. Start only satisfied prerequisites.
-2. Assign disjoint files. Shared `program.ts`, `OperationContext.ts`, the entry,
+   not a reason to invent work. Keep coupled production interfaces under one
+   author, with independent witness work and completed-unit adversarial review.
+   Use Sol 5.6/high for implementation and independent review; the root performs
+   final global review. Start only satisfied prerequisites.
+2. Assign disjoint files. Shared command/query/context owners, the entry,
    manifest and milestone record have one writer. When a later unit takes over
    a collaborator file, explicitly hand it off after its earlier writer stops.
    Parallel editing of different functions in the same file is not isolation.
@@ -1445,13 +817,11 @@ Operational rules:
    required advancement review are resolved. Independent current-milestone
    evidence work is allowed while a bounded bug is being repaired.
 
-**Readiness boundary:** there is enough specification to start G0-01 without
-another open-ended architecture investigation. G0 records a costed blueprint,
-resolves the exact baseline and proves fixed evidence; G1-01 tests the forecast
-and compares the two representations on S1–S4 before
-selecting and handing off one. Later units remain outcome-shaped assignments,
-not a commitment to seven classes or three production workers. Their boundaries
-must remove independent reasoning, not add interfaces to keep workers busy.
+**Readiness boundary:** G3 starts from the accepted structure. Resolve the
+next unit's missing behavior and handoff through bounded witnesses, not another
+open-ended architecture investigation. Later units remain outcome-shaped;
+their boundaries must remove independent reasoning, not create interfaces to
+keep workers busy.
 
 ## 7. Whole-cost compression and performance gates
 
@@ -1472,8 +842,8 @@ that leaves those boundaries. No proportional credit for the convenient half
 of a retained monolithic owner. No credit for removing non-shipped experiments,
 comments, unrelated dependencies, or tests.
 
-Freeze a comparable engine bundle fixture and full public PostgreSQL client
-fixtures in G0. Measure their actual bundles separately: gzip sizes are not
+Reuse the frozen comparable engine and full public PostgreSQL client
+bundle fixtures. Measure their actual bundles separately: gzip sizes are not
 additive. Use the same bundler/minifier/compressor versions, settings, target,
 driver versions, schema, query use, and externalization on both sides. Do not
 turn feature imports or dependency exclusion into the apparent rewrite gain.
@@ -1486,14 +856,14 @@ turn feature imports or dependency exclusion into the apparent rewrite gain.
 | Complete charged production physical LOC                                      | **≤70%** of frozen baseline, with the same formatting         | Target                                                  |
 | Comparable engine bundle, minified + gzip                                     | **≤75%** of frozen baseline                                   | Target                                                  |
 | Full public PostgreSQL client bundle, minified + gzip                         | **≤100%** of baseline for every frozen representative fixture | Target; growth requires an explicit trade-off decision  |
-| G1/G2/G3 cumulative production guideposts                                     | 5,000 / 9,000 / 14,000 token-LOC, respectively                | Early review triggers, not automatic stop-loss verdicts |
+| G3 cumulative complete charged production guidepost | 14,000 code-bearing LOC | Review trigger, not an automatic stop-loss verdict |
 | Legacy engine imports/fallbacks; duplicated downstream public-verb algorithms | **0**                                                         | Required architectural property of this candidate       |
 | Required contract divergences and required skipped cases                      | **0**                                                         | Hard adoption requirement                               |
 
 A 60% token-LOC reduction remains a stretch objective, not a promised outcome.
-G0's source-grounded forecast anticipates the design before code; completed
-slices then support measured revisions. Neither changes these targets or
-adoption requirements. A candidate that misses 40% can still be adopted for
+Forecast revisions must follow implemented slices and the remaining semantic
+owners. A forecast is not evidence of reduction and does not change targets
+or adoption requirements. A candidate that misses 40% can still be adopted for
 demonstrated overall gains. A candidate that reaches 40% does not qualify
 merely because it is smaller.
 
@@ -1564,7 +934,7 @@ changed invariants or exhausted budgets follow §8, not a renamed checkpoint.
 
 #### Milestone evidence
 
-At G1–G4, record these alongside the size measurements:
+At G3/G4, record these alongside the size measurements:
 
 - A before/after ownership map for assignment reconciliation, exact producer
   publication, membership storage, premise protection, and attempt/progress
@@ -1600,8 +970,8 @@ adoption when they fail; extra LOC savings cannot compensate for them.
 
 ### Performance adoption budgets
 
-**Stage-specific policy, approved by Arnaud on 2026-09-07:** G0–G3 are bounded
-architecture experiments, not production qualification. Record measured costs,
+**Stage-specific policy:** G3 is bounded architecture work, not production
+qualification. Record measured costs,
 including regressions and uncertainty, but do not stop those experiments to
 resolve small timing variation or satisfy the adoption percentages. Their
 purpose is to prove correct behavior and semantic compression. Performance
@@ -1612,7 +982,7 @@ Correctness, public contracts, architectural requirements and safe process
 resource limits remain hard gates at every applicable stage. This is a general
 stage boundary, not a waiver for one noisy query or a claim that it passed.
 
-Freeze representative workloads in G0 using the installed
+Use the frozen representative workloads and the installed
 [operation-pipeline benchmark](../../benchmarks/operation-pipeline-compare.mjs):
 simple reads, scalar mutation, relation read, nested conditional write,
 transition, scalar bulk, relation series, and parsing large nested results.
@@ -1620,9 +990,7 @@ Include cold construction and steady-state preparation; measure provider
 latency separately from engine preparation. Add a narrowly required missing
 workload, not a new benchmark framework.
 
-G0-02 must adapt its evidence protocol: the current comparator requires identical
-SQL/parameters/counts across checkouts and its phase reader enters the legacy
-operation representation. Preserve that strict mode for unchanged-SQL work.
+Preserve strict SQL/parameter/count comparison for unchanged-SQL work.
 For this rewrite, check repeatable physical witnesses **within** each engine;
 compare public outcomes, authoritative state and causal contracts **between**
 engines. Retain raw SQL/counts as evidence and apply the explicit budgets below.
@@ -1633,9 +1001,8 @@ must bracket equivalent work, including input/default preparation and decoding;
 moving work across an artificial timing boundary is not an improvement. If a
 phase cannot be isolated comparably, measure the common enclosing boundary and
 retain end-to-end evidence. No production compatibility layer is required.
-G0 must demonstrate an equivalent changed-SQL specimen passes and a wrong-result
-specimen fails, and retain an initial old-versus-old calibration. It need not
-resolve that calibration to adoption precision before candidate code exists.
+Retain falsifiers showing an equivalent changed-SQL specimen passes and a
+wrong-result specimen fails, together with old-versus-old calibration.
 Before G4 qualification, establish comparable measurements that distinguish
 noise from the fixed budgets. Lengthen useful measured work or fix the fixture
 then if needed; record the revised protocol before its qualification runs and
@@ -1669,8 +1036,8 @@ Finding a bug or missing a size target does not automatically imply the third.
 | Any contract failure: wrong target, leak, progress/retry error, wrong result/failure/lifecycle                                                   | **STOP the affected milestone.** Save and minimize the reproducer; do not widen feature coverage to work around it.                                                                | Fix and rerun the witness plus its affected family/campaign. The same minimized failure surviving **two attempted repairs** is a blocked candidate: return to Arnaud before more implementation.                                                                                                                             |
 | False-green harness, nondeterministic replay, missing required cell, or swallowed harness failure                                                | **STOP all acceptance claims** using that harness revision. Invalidate affected receipts.                                                                                          | Repair and pass all harness self-tests, then rerun affected campaigns. Two failed repair attempts block the rewrite before more engine work.                                                                                                                                                                                 |
 | Required distinction needs downstream public-syntax recovery, a legacy fallback, duplicated semantic interpretation or a fixture-specific bypass | **STOP feature expansion; revise the shared law in its owner under §2.** Record the smallest counterexample and another applicable use of the repaired law.                        | At most **two autonomous language redesign rounds per milestone**. If another round is needed or the witness still fails, **pause for Arnaud's decision**. A necessary query/effect distinction or provider lowering is not itself duplication. Recommend abandonment only from semantic/cost evidence, not the round count. |
-| A G1/G2/G3 source guidepost or final size target is missed                                                                                       | **PAUSE milestone advancement for a §7 shortfall review.** Keep the target result visible.                                                                                         | Arnaud may accept the measured trade-off, authorize bounded refinement, or abandon. No compulsory two-round attempt to force the percentage; no automatic discard of a useful engine.                                                                                                                                        |
-| An agreed performance/adoption budget is missed, or timing evidence remains inconclusive                                                         | **G0–G3: record the cost or uncertainty and continue bounded architecture work. G4/cutover: BLOCK qualification and adoption.** Do not report missing or noisy evidence as a pass. | Resolve performance qualification before adoption. At that stage allow at most **two autonomous bounded performance revisions**; after that, return for a decision. Adoption still requires meeting the existing budget or an explicitly agreed new performance contract.                                                    |
+| The G3 source guidepost or a final size target is missed                                                                                       | **PAUSE milestone advancement for a §7 shortfall review.** Keep the target result visible.                                                                                         | Arnaud may accept the measured trade-off, authorize bounded refinement, or abandon. No compulsory two-round attempt to force the percentage; no automatic discard of a useful engine.                                                                                                                                        |
+| An agreed performance/adoption budget is missed, or timing evidence remains inconclusive                                                         | **G3: record the cost or uncertainty and continue bounded architecture work. G4/cutover: BLOCK qualification and adoption.** Do not report missing or noisy evidence as a pass. | Resolve performance qualification before adoption. At that stage allow at most **two autonomous bounded performance revisions**; after that, return for a decision. Adoption still requires meeting the existing budget or an explicitly agreed new performance contract.                                                    |
 | Passing would require dropping a feature/provider, changing a public contract, or removing a correctness guarantee                               | **STOP and request a decision.**                                                                                                                                                   | No automatic waiver. Without explicit new scope, this candidate does not qualify. Record any changed scope separately; do not call the original contract preserved.                                                                                                                                                          |
 | Required correctness/provider/source-and-size baseline evidence is unavailable, or safe resource enforcement fails                               | **BLOCK the gate that requires that evidence**, preserve work. Timing qualification follows the separate stage-specific rule above.                                                | Resume only when required evidence can be obtained within the fixed policy. Missing infrastructure is not proof that the language is bad and not permission to cut over.                                                                                                                                                     |
 
@@ -1683,12 +1050,12 @@ they change the language. Count rounds in the milestone report; splitting a
 change across commits does not reset the count. At the review boundary, do not
 silently start another round under a different label.
 
-G1-01's initial comparison is limited to the two listed representations and
-S1–S4. Its redesign rounds count against G1's same total budget, not a fresh
-allowance per candidate or subsequent unit. No third design, enlarged feature
-matrix or full-harness detour without a decision when that comparison cannot
-select a coherent passing shape. Keep unselected experiment evidence outside
-the shipped graph; do not retain alternative semantic paths as escape hatches.
+G3 inherits the repair/redesign history in the [G2.9 ledger](raptor3-evidence/g29.md)
+and [shared-structure ledger](raptor3-evidence/core-structure.md). The accepted
+structural checkpoint consumes its recorded G3 redesign round. Carry all prior
+expenditures and compatibility decisions forward; deleting completed-stage
+instructions, renaming a unit or starting a worktree resets no budget.
+Keep comparison evidence outside the shipped graph, never as a fallback.
 
 An unresolved shortfall is `needs-review`, not `failed-correctness` and not
 `passed`. The strict gate reports these dimensions separately and does not issue
@@ -1713,12 +1080,12 @@ provider-free contracts to the correct manifest/project; put SQLite-backed DST
 and other live-provider work in explicitly admitted extended/provider lanes,
 not the fast core by changing a suffix or widening a glob.
 
-G0 adds one documented Raptor 3 gate/replay entry over the existing launchers.
-It must support a milestone selection, a single saved replay, and the finite
-campaign manifest. Its actual invocation is recorded in the G0 report after it
-exists; do not present a hypothetical `pnpm test:raptor3` as a working command.
-All gate modes are strict. Diagnostic reports can exist, but cannot issue a
-passing milestone receipt.
+Use `node scripts/run-raptor3.mjs <mode>` for registered gates and
+`node scripts/run-raptor3.mjs replay <corpus.json>` for saved replay. The
+existing manifest owns exact mode, campaign and profile admission. All gate
+modes remain strict; diagnostic output cannot issue a passing milestone receipt.
+Persist raw results, exact command/source/runtime identity and resource/teardown
+evidence during the run, not just a terminal summary reconstructed afterwards.
 
 Existing commands, to run at the relevant gate and **sequentially**:
 
@@ -1765,180 +1132,35 @@ budget or return for a decision. If a released replacement later needs rollback,
 switching code back does not undo committed effects: preserve failure evidence
 and assess data separately. No automatic destructive repair or replay.
 
-## 10. First assignment and progress ledger
+## 10. Current handoff
 
-**Current status: G0–G2, G2.5, and G2.7-01/02/03 complete. The six-unit
-G3-preparation checkpoint is accepted after its independent unit reviews and
-final root review of the repaired G3P-06 registration identity. The ordered
-post-preparation fact-ownership checkpoint has all five units independently
-accepted; final qualification and root global review are complete.
-The original G2.9-00 freeze, its final-plan table amendment, and G2.9-01 through
-G2.9-03 are independently accepted. Arnaud accepted precise malformed-result
-identity, truthful acknowledged ordinary progress, and the 10,104-line
-reference. The final one-condition self-owner repair produces a 10,105-line
-broader census; root accepted the exact +1 correctness trade-off. G2.9-04 and
-CS-00 now have complete local, fixed, PGlite, native, campaign, replay, support,
-type, structure, cost, and compact archive evidence on production `2fa78217…`
-and harness `e0da0fd9…`. Independent archive and root integration review accept
-G2.9-04, CS-00, CS-01, the repaired CS-02 unit, and the isolated CS-03
-comparison. CS-04 qualification and global review accept the integrated
-occurrence-structure candidate on production `36103eff…` and harness
-`87bc63c2…`; G3 is next and not yet started.** The
-[G0 report](raptor3-evidence/g0.md) now contains the costed blueprint, fixed
-S1–S4 evidence, reconciled baseline and exact validation limitations. All four
-G0 units meet the revised exit. Arnaud approved deferring small timing variation
-and optimization: the earlier timing block no longer prevents the experiment.
-Two of 20 measurement cells resolved, one remained inconclusive and 17 were not
-run; those facts and every saved receipt are unchanged. This is an explicit
-policy amendment, not a newly passing benchmark or an engine performance claim.
+The accepted checkpoint and its [independent review](raptor3-evidence/core-structure/cs04-qualification/independent-review.md)
+qualify the current private foundation. The [architecture guide](../../src/query-engine/raptor3/AGENTS.md)
+owns its durable implementation rules. The [evidence ledger](raptor3-evidence/core-structure.md)
+retains previous qualification, approved deviations and consumed repair budgets;
+this plan does not repeat completed assignments or superseded design hypotheses.
 
-The two small candidate shapes passed S1–S4 and adversarial regressions.
-Measured whole-slice cost is 1,815 counted production lines for commands and
-1,985 for the program, including shared/retained owners. Independent review
-selected commands; [g1.md](raptor3-evidence/g1.md) preserves that checkpoint's
-ownership map and receipts. The [G1 closure](raptor3-evidence/g1-closure.md)
-records the expanded 2,799-line candidate, final contract/provider checks,
-4,000 A/B seed/profile cells, 12,000 exact candidate replays and closed
-adversarial findings. The 5,000-line G1 guidepost is met; this is not a measured
-whole-engine reduction.
-Record early performance observations without treating adoption precision as
-an experimental prerequisite. Full qualification remains due at G4. The same
-generation/replay harness now serves both A/B lanes; later stages extend it
-only for their admitted capabilities. Production splitting follows demonstrated
-ownership, not the forecast.
+**Next:** G3-01 owns bulk/scoped-composition semantics. G3-03 independent witness
+work may run alongside it once its contract is frozen. G3-02 follows the accepted
+semantic handoff; G3-04 qualifies the integrated result. G4 follows the G3 exit.
+Each completed unit receives independent Sol 5.6/high review; the root performs
+one final global review. No new foundation stage is authorized by this handoff.
 
-| Stage                                              | Status                                                                                                                                                                                                                                                                    | Required decision                                                                                                                                         |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Central design and execution plan                  | Structured commands selected by the executed G1-01 comparison                                                                                                                                                                                                             | Preserve the measured ownership map and stage-specific gates                                                                                              |
-| G0 — costed blueprint, baseline and fixed evidence | Complete under the approved stage-specific policy: fixed gate/replay, reproduced source/bundle baseline and full CLI suite pass; performance qualification explicitly deferred                                                                                            | Begin the bounded representation experiment; retain inconclusive timing evidence                                                                          |
-| G1-01 — representation comparison                  | Complete: 66 tests and 144 replays pass; commands selected; whole-file costs and independent review recorded in [g1.md](raptor3-evidence/g1.md)                                                                                                                           | Expand only commands; retain the program as private comparison evidence, not a second adoption path                                                       |
-| G1 — expanded new-language slice                   | Complete: expanded contracts, 1,000 new seeds per A/B profile, live PGlite witnesses, CLI checks and review pass; 2,799 charged production lines                                                                                                                          | G2 investment is earned; preserve G1 as the regression base and classify C05–C07 before expansion                                                         |
-| G2 — difficult derivations                         | Complete: 216 fixed comparisons, 18 native PostgreSQL checks and 13 native MySQL checks, 20,000 seed/profile cells and 60,000 exact replays; 4,342 charged lines; [closure](raptor3-evidence/g2-closure.md)                                                               | G3 investment is earned; retain approved single-admission and exact failed-INSERT recovery rules, and classify scope/recursion witnesses before expansion |
-| G2.5 — foundation consolidation                    | Complete: final-source gates, 20,000 seed/profile cells, 60,000 exact replays and archive verified; 4,583 charged LOC; [closure and cost review](raptor3-evidence/g2-polish.md)                                                                                           | Accept reviewed +241 LOC for demonstrated ownership gains; preserve private G2 behavior and the recorded evidence limits; G3 not started                  |
-| G2.7 — execution ownership                         | Complete: the final 4,592-line source passes the complete fixed/generated/transport/native provider closure, both 10,000-cell campaigns, 60,000 exact replays, external saved-corpus replay, type/cost checks, independent unit reviews, and the final root global review | Preserve the accepted private ownership boundary; G3 remains a separate, not-started stage                                                                |
-| G3 preparation — six bounded units                 | Accepted: all six units, bounded review repairs, final qualification, and root global review pass on the recorded frozen identities                                                                                                                                       | Preserve the accepted private composition owners; start G3 only as a separate authorized stage                                                            |
-| Post-preparation fact ownership                    | Accepted: all five ordered units, final stable-identity qualification, independent archive audit, and root global review pass                                                                                                                                             | Preserve the accepted fact owners; start G3 only as a separate authorized stage                                                                            |
-| G2.9 — construction and dependency ownership       | Accepted: all five units, final qualification, independent archive review, and root integration review pass at production `2fa78217…` / harness `e0da0fd9…`; broader cost 10,105 lines / 28 owners | Preserve the qualified reference and exact +1 correctness trade-off                                                                                         |
-| G2.9-00 — source and contract freeze               | Accepted: baseline/source/API classification and final-plan §6/§10 registration independently reviewed; no production, test, harness, runner, or manifest change                                                                                                          | Preserve the accepted specification, evidence location, and shared budgets                                                                                 |
-| G2.9-01 — regression witnesses                     | Accepted: independent review reproduced the clean 8-control/6-red split and accepted the maintained matrix and boundary witnesses                                                                                                                                         | Preserve the exact red evidence and positive controls                                                                                                      |
-| G2.9-02 — dependency and construction repair       | Accepted after the second/final branch repair: exact admitted members resume the enclosing occurrence scope before effects; every existing `Choose` arm shape keeps late dependency observations branch-local without caching absence; static pre-effect refusals remain early                                                              | Preserve the accepted dependency owner; any surviving branch-locality failure stops advancement                                                            |
-| G2.9-03 — attribution and confirmed deletions      | Accepted after translation repair 2/final: `OperationContext` owns per-occurrence path/cardinality without prepared-command writes or an ambient series count; committed failures receive truthful progress, and malformed direct/continuation results retain their scalar error identity | Preserve accepted progress, result identity, retry, and isolation behavior                                                                                  |
-| G2.9-04 — qualification                            | Accepted: local 1,062, fixed 632, PGlite 11, PostgreSQL 54, MySQL 43, 20,400 campaign cells / 61,200 replays, replay/support/type/structure/cost, compact archive and both reviews pass | Preserve the frozen package and historical failed evidence                                                                                                  |
-| Shared structure and extension cost                | CS-00 through CS-04 accepted; the first CS-02 package remains preserved as blocked evidence; the occurrence-structure candidate is integrated on the qualified private identity | Extend the accepted slices in G3; public adoption remains separate                                                        |
-| CS-01 — witness freeze                             | Accepted: structural 10/10; A 1/5; B 0/4; composition 1/4 with its supported control green and three future capability cells red; measurement protocol, common patch, checksum, and independent review pass | Preserve the accepted witness and measurement boundary                                                                                                      |
-| CS-02 — one occurrence structure                   | Accepted after bounded repair and independent review: exact accepted reference bytes, Node 24.21.0, 28 cases/60 replays, corrected ownership and traversal accounting, focused 4/4, 7/7, and 13/13 gates, and explicit +446-line core cost | Preserve the qualified comparison candidate; no adoption or broader G3 claim                                                                               |
-| CS-03 — isolated extension comparison              | Complete: shared peer-member scope and A/B/composition behavior are equivalent; campaigns, replay, native-provider and measured-work evidence select the occurrence-structure candidate despite equivalent marginal extension cost and a 426-line post-review endpoint gap | Preserve both alternatives' evidence; qualify the selected private result without claiming compression or runtime speedup |
-| CS-04 — qualification and decision                 | Accepted: integrated production `36103eff…` / harness `87bc63c2…` passes the complete archive, independent review, and root global review; the measured candidate endpoint is 426 lines larger than the reference | Preserve the accepted evidence and trade-off; a scoped local commit and public adoption remain separate decisions                                  |
-| G3 — scopes, bulk, recursion                       | Next and not started; accepted CS-04 and G2.9 PASS satisfy the explicit prerequisites for G3-01 and G3-03                                                                                                                                                                                  | Extend the accepted partial G3 slices without rebuilding their foundation                                                                           |
-| G4 — full envelope and qualification               | Not started                                                                                                                                                                                                                                                               | Complete measured replacement qualifies                                                                                                                   |
-| Cutover/release                                    | Not started                                                                                                                                                                                                                                                               | Candidate-only gates pass; release separately authorized                                                                                                  |
+Preserve these established facts throughout:
 
-The implementation record claims only the measured, passing G2 slice—not
-whole-engine compression, runtime performance or adoption. Harness breadth and
-feature breadth now grow together on the selected structure. The evidence
-report, not this status summary, owns executed receipts and their limitations.
+- A record occurrence is not a row key; row, reference and membership identity
+  remain distinct.
+- Selection instructions, positive observations and requirements at consumption
+  are separate. Never cache observed absence.
+- Admitted values survive retry; observations/bindings do not; acknowledged
+  progress cannot be undone by replacing an attempt.
+- Borrowed transport grants no lifecycle, suppression or replay authority.
+  `usesBatch` identifies a physical route, not those permissions.
+- Scalar sets and ordered record series have distinct physical needs, but do
+  not own separate admission, assignment or relation languages.
 
-G2 meets its 9,000-line review guidepost, without a new payload/OwnWrite
-interpreter or language redesign round. Two pre-existing Pattern type errors
-remain outside this private slice. Conditional skip-to-match replanning remains
-a G3 scope obligation. The reproduced diagnostic-primary-loss policy remains
-unchanged pending its separate compatibility decision. Neither point is an
-unreported acceptance waiver; the closure report records their exact scope.
-
-### 10.1 Learning log — primitive truths after G0–G2
-
-Recorded 2026-09-08 after G2.5 and its bounded compression follow-up. This
-records the architectural lessons and current assessment, not new qualification,
-an implementation authorization, or a change to milestone scope or budgets.
-Several laws already appeared in §2; implementation exposed where the early
-representations did not make those laws hold by construction.
-
-1. **A record occurrence is not a row key.** The same database row can be
-   selected, changed and revisited at different positions. Its occurrences are
-   not interchangeable. An exact producer occurrence plus field is the useful
-   reference: demands, dependency and publication can follow that reference.
-   Row keys, reference keys and complete membership keys retain their different
-   meanings. Publishing only supplier IDs was insufficient; introducing a
-   second whole-assignment alias language was not the remedy.
-2. **Lifetime is a fundamental boundary.** Admitted inputs and command
-   definitions survive a retry; observations and bindings belong to an attempt;
-   acknowledged progress survives attempt replacement. Mixing these lifetimes
-   caused the snapshot/reset machinery. G2.5 corrected that representation.
-   Admission is observable work: a new selected occurrence may require fresh
-   admission, but retrying that same admitted occurrence must not repeat its
-   defaults or transforms. A broad context removes parameter forwarding; it
-   must not flatten these lifetimes or become an ambient current-record cursor.
-3. **Selection, observation and retained requirement are different acts.**
-   Finding a matching record, capturing what was found, and requiring a fact
-   to remain true at the consuming write have different timing and failure
-   meanings. Share predicate construction, not the moments at which those
-   predicates must be enforced. An earlier absence is not a reusable answer.
-   Database-state requirements are not redundant validation of trusted input.
-4. **Visibility, atomicity and replay are independent.** What later work can
-   observe, which effects commit together, and which work may restart are not
-   one transaction flag. The execution lifecycle needs state transitions;
-   relation verbs do not each need a state-machine family. Skipping a subtree
-   is not retrying an attempt, and neither permits replaying committed work.
-5. **Public verbs are recipes, not the primitive truths.** Selection, record
-   changes, membership changes and requirements compose into the public verbs.
-   A new class per recipe does not compress their rules. The remaining size of
-   `RelationBody` shows that recipe compression is incomplete; it does not prove
-   that ordinary recursive commands are the wrong foundation.
-
-**Historical implementation assessment after G2.5; superseded by §10.2.** Keep
-the occurrence-owned `Assignments` and field references, stable selections with
-separate attempt observations, explicit requirements and junction captures,
-replaceable command/transport attempts, operation-owned progress, and the shared
-selected-series mechanism. These are actual owners in the current source, not
-proposed replacements. The three-line whole-assignment alias experiment was
-rejected because it added another interpreter; that lesson is semantic cost,
-not a numerical size veto.
-
-The execution-ownership contract is the least complete foundation for G3.
-`OperationContext.atomic` currently selects the batch route from
-`!driver.supportsTransactions`. That serves the qualified private routes; it is
-not a complete statement of caller-owned transaction boundaries, permitted
-segmentation, subtree suppression or replay scope. G3 must establish those
-facts at the boundary that knows them and test their composition through the
-existing owners. Do not infer them all from provider capability, widen recovery
-implicitly, or invent a universal scope framework before a concrete witness
-requires it. The first scope witnesses must distinguish skipped-root effects
-from failure after acknowledged progress, using placements the public contract
-actually admits.
-
-### 10.2 Learning log — execution ownership after G2.7
-
-Recorded 2026-09-09 after independent unit reviews and the final global review.
-This corrects the forward-looking assessment above; it does not rewrite the
-historical G0–G2.5 evidence or authorize G3 implementation.
-
-1. `OperationContext` now resolves ownership once. `usesBatch` is true only for
-   qualified standalone batch routing; it is not atomicity, borrow, suppression,
-   or retry authority. The retired `atomic` spelling is not a current owner.
-2. A borrowed operation receives the exact caller-supplied transaction driver
-   and performs no lifecycle, savepoint, disconnect, fallback, or replay. The
-   driver and existing public transaction owners retain scope identity, nested
-   savepoints, scheduling, cleanup, and write-outcome publication.
-3. `atomic-array` is intentionally refusal-only. Atomic composition still needs
-   the existing operation-owner protocol, correct admission timing, a complete
-   native package or sequential interactive execution, and exact result/error
-   attribution. Provider batch capability alone proves none of those facts.
-4. Suppression is orthogonal to borrowed ownership and has a separately admitted
-   exact-root rollback region. A plain borrowed binding grants neither
-   suppression nor savepoint authority, while an admitted region may use its
-   existing driver-owned rollback mechanism. Only the exact root conflict may
-   be absorbed; descendant failure remains fatal.
-5. Keep occurrence-owned `Assignments`, stable `Selection`s, explicit
-   requirements and junction captures, replaceable command/transport attempts,
-   operation-owned progress, and the shared selected-series mechanism. G3 grows
-   those owners; it does not restart the foundation or add another interpreter.
-
-The qualified starting source is 4,592 charged code-bearing LOC. The prior
-4,563-line compression checkpoint and earlier benchmark receipts remain
-historical evidence, not a baseline to relabel. G3 preparation freezes its own
-fresh identities and evidence; G3 then extends the accepted prep slices and
-retains its 10,000-seed, provider, 14,000-line review, and §8 stop rules. Neither
-stage makes a new LOC-reduction, bundle, package, or performance claim here.
+G3/G4 and cutover retain their existing gates. The shipped client remains on
+the current engine until separately authorized candidate-only cutover.
 
 ## Sources and planning verification
 
@@ -1949,7 +1171,5 @@ explicit separation between simulation and external-system/performance evidence.
 The proposed budgets, object ownership, SQLite strategy, and milestone policies
 are decisions for this project, not claims made by that paper.
 
-Research record: `/tmp/viborm-raptor3-dst-sources.json`. Planning validation is
-limited to source inspection and document/link/diff checks. No engine changes,
-DST campaign, provider suite, package benchmark, or release was performed by
-writing this plan.
+Plan edits are verified by source, document, link and diff checks; they are
+not evidence of a new engine, provider or performance qualification.
