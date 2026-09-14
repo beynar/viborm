@@ -710,9 +710,10 @@ Source checkpoint: target **≤14,000** cumulative charged production token-LOC,
 or a recorded shortfall decision.
 
 Each stable G3 unit is written by a Sol 5.6/high author and then reviewed by an
-independent Sol 5.6/high adversary. The root coordinates one final review only
-after completed G3 implementation and G3-04 evidence; source editing and
-validation remain serial on a stable identity.
+independent Sol 5.6/high adversary. The root starts its final global review on
+the frozen implementation and focused evidence **before** G3-04 full
+qualification, then closes that same review against the resulting receipts.
+Use the sequence in §6.3; validation remains serial on stable source.
 
 ### G4 — Complete the envelope; qualify the replacement
 
@@ -737,6 +738,10 @@ decides any size-target shortfall. Prepare the candidate-only package and
 cutover diff, but do not delete user work or publish a release as an incidental
 verification step.
 
+G4-04 follows the same §6.3 sequence: root code review first, full qualification
+second, evidence/acceptance closure last. Required focused native-provider
+witnesses still run during the units that need them to establish behavior.
+
 ### 6.1 Assignable work units
 
 Each row is a remaining assignable outcome with prerequisites, owned artifacts
@@ -757,11 +762,11 @@ not another production class.
 | **G3-01 — bulk and scoped composition semantics**          | Accepted CS-04; accepted G2.9 exit; accepted G3-prep exit; inventory accepted from G3P-01 | Same production writer across G3-01/02: `src/query-engine/raptor3/commands/commands.ts`, `relation-body.ts`, `assignments.ts`, `selection.ts`, and necessary `shared/schema.ts` changes                                               | Ordinary record bodies compose into ordered members and set-oriented bulk without new per-position interpreters. Handoffs distinguish borrowed ownership, suppression region, current attempt, and acknowledged prefix.                                                                                                                                                      |
 | **G3-02 — bulk and scope execution**                       | G3-01 handoff accepted                                                                   | Same production writer: `src/query-engine/raptor3/commands/execution.ts`, `shared/operation-context.ts`, `shared/query.ts`, `shared/transport-attempt.ts`; exact adapter/driver seam only if an accepted provider witness requires it | Bind partitioning, output transport, suppression and progress satisfy actual substrates; acknowledged effects cannot replay and skipped prerequisites cannot leak. Array packaging composes through existing transaction owners without changing the shipped route.                                                                                                          |
 | **G3-03 — depth, recurrence and failure witnesses**        | Accepted CS-04; accepted G2.9 exit; accepted G3-prep exit; applicable cells classified by G3P-01 | G3 scenarios/regressions, same-harness fault/shrinking extensions, and private transaction/array composition wiring; the accepted G3P-05 recursive fit remains a regression                                                           | Depth/occurrence, bulk counts, binding isolation, closed-scope/late-completion refusal, atomic packaging, skip leakage, wrong retry, committed-prefix replay, healthy suffixes and commit ambiguity are checked independently. G3 extends the accepted prep slices and does not redesign the recursive fit or ship its feature. Witness work may proceed alongside G3-01/02. |
-| **G3-04 — integrated composition checkpoint**              | G3-01/02/03; native and composition evidence complete                                    | Integrator: composition, manifest, `g3.md`                                                                                                                                                                                            | G3 provider/contracts and 10,000 new seeds pass on one fresh identity; structural recursion, the recursive-read fit verdict, and whole-cost evidence justify advancement or produce an explicit review. The shipped client still uses the current engine.                                                                                                                    |
+| **G3-04 — integrated composition checkpoint**              | G3-01/02/03 and their focused reviews accepted                                    | Integrator: §6.3 root code review, qualification, manifest and `g3.md`                                                                                                                                                                                            | Root pre-qualification code review passes; G3 provider/contracts and 10,000 new seeds pass on one fresh identity; structural recursion, the recursive-read fit verdict, and whole-cost evidence justify advancement or produce an explicit review. The shipped client still uses the current engine.                                                                                                                    |
 | **G4-01 — complete query and projection semantics**        | G3 exit                                                                                  | `src/query-engine/raptor3/shared/query.ts`, necessary `shared/schema.ts` and command selection/analysis changes; shared contracts through integrator                                                                                                                        | Complete C01/C12 by extending the accepted shaped/correlated output owners. Classify remaining cells and prove each handoff extension; no new aggregate/nested/recursive engine.                                                                                                                                                                                      |
 | **G4-02 — complete physical/provider envelope**            | G4-01 read/projection handoff accepted                                                   | `src/query-engine/raptor3/shared/operation-context.ts`, `shared/query.ts`, `commands/execution.ts`, and exact assigned adapter/driver seams                                                                                                                                                       | All required profiles and existing fast paths implement that handoff; required provider behavior is executed. Can run alongside the remaining G4-01 implementation after the handoff.                                                                                                                                                                                        |
 | **G4-03 — client lifecycle and public type integration**   | G3 exit; any shared handoff change through integrator                                    | Assigned client/extension/cache boundary files, C13/type tests and corresponding harness falsifiers; not shared core files                                                                                                            | Classify remaining C13 cells; public admission, extension/raw/cache behavior and inferred types use the candidate without duplicated lifecycle. Missing events fail the oracle. Can proceed alongside G4-01/02 on verified interfaces.                                                                                                                                       |
-| **G4-04 — qualification and adoption review**              | G4-01/02/03                                                                              | Integrator: candidate entry/package fixture, manifest, `g4.md`                                                                                                                                                                        | All G4 hard requirements and 25,000 seeds pass; complete size/performance/structural evidence supports the adoption recommendation; Arnaud decides any target shortfall.                                                                                                                                                                                                     |
+| **G4-04 — qualification and adoption review**              | G4-01/02/03                                                                              | Integrator: §6.3 root code review, candidate/package qualification, manifest and `g4.md`                                                                                                                                                                        | Root pre-qualification code review passes; all G4 hard requirements and 25,000 seeds pass; complete size/performance/structural evidence supports the adoption recommendation; Arnaud decides any target shortfall.                                                                                                                                                                                                     |
 | **C-01 — candidate-only cutover verification**             | G4 qualification, resolved adoption reviews, and authority to perform the engine cutover | Integrator: exact client route, legacy deletion targets, architecture documentation and candidate-only evidence                                                                                                                       | §9 candidate-only gates pass without a legacy fallback; public API stays intact; rollback reference is recorded. No automatic release or unrelated cleanup.                                                                                                                                                                                                                  |
 
 G3 intentionally keeps the coupled semantic changes under one owner. Parallel
@@ -822,6 +827,64 @@ next unit's missing behavior and handoff through bounded witnesses, not another
 open-ended architecture investigation. Later units remain outcome-shaped;
 their boundaries must remove independent reasoning, not create interfaces to
 keep workers busy.
+
+### 6.3 Review before full qualification; avoid repeated work
+
+This sequence changes work order, not required coverage, source identity,
+resource ceilings or §8 stop rules. It applies to G3 and G4; completed CS-04
+qualification is not reopened merely to apply the new workflow.
+
+1. **Implement and check the unit.** One Sol 5.6/high author owns coupled
+   production interfaces. As soon as the behavior contract is frozen, an
+   independent witness author develops expected outcomes and cases in disjoint
+   files, alongside production work. Run the failing witness, affected families
+   and cross-position checks; add type/interface and native-provider checks
+   when the changed boundary requires them. Do not run the entire milestone
+   campaign after each local edit. Focused success is not milestone acceptance.
+2. **Review the completed unit.** An independent Sol 5.6/high reviewer examines
+   stable source and the focused evidence, including §7's decision-elimination
+   gate. Batch actionable findings in one report. The author repairs them;
+   verification targets those repairs and their affected consumers. Do not
+   expand review into unrelated polish. New consequential defects still surface
+   and use the existing bounded repair rules. Reuse the current author/context
+   across coupled units instead of repeatedly reconstructing the investigation.
+3. **Freeze and begin the root's final global review.** After implementation
+   units and their reviews pass, freeze the integrated source, imported harness,
+   registrations and dependencies. The root reviews the combined code, semantic
+   ownership/deletions, focused witnesses, cost and qualification inventory
+   before expensive full campaigns. Resolve code findings and revalidate affected
+   paths, then record the exact approved source identity. This is the code phase
+   of one final review, not a new unit or another architecture experiment.
+4. **Qualify that identity once.** Verify evidence output paths/reporters with
+   an existing short check first. Run the full milestone inventory serially and
+   save raw reports as each command executes. No imported-source or harness edits
+   during validation. A necessary later change invalidates affected acceptance
+   claims: review the delta and run the required source-bound requalification.
+   Never relabel old receipts or trade required coverage for fewer reruns.
+5. **Close the same root review and integrate.** Audit actual source identities,
+   counts, provider results, raw artifacts, costs and checksums; verify integration
+   matches the qualified source. This is not a second from-scratch code/design
+   review. An evidence-only packaging correction does not rerun unchanged code
+   when the original raw proof is retained; missing required proof is obtained,
+   not inferred. A code defect returns to step 3 under the remaining budget.
+
+Extend the existing runners only where evidence capture is missing. Save exact
+command/runtime/source identity, raw results, resources and teardown together;
+derive archive labels from recorded modes, not manually paired directory lists.
+Use existing compact reports and required replay corpora. Do not introduce an
+artifact framework, dashboard or manual reconstruction of terminal summaries.
+
+G3/G4 extend the accepted representation. Do not repeat CS-03's dual-architecture
+extension experiment, create another reference implementation, or reopen a
+foundation merely because a new feature is being added. A concrete falsifier
+that requires changed ownership follows §2 and §8; this scheduling policy grants
+no additional redesign round. Differential checks against the shipped engine
+remain required where specified.
+
+Record implementation, review/repair, validation and packaging time in the
+existing milestone report, separating elapsed time from summed parallel effort
+where available. Note repeated work and its cause. Use those observations to
+improve scheduling; promise no unmeasured speedup and add no timing veto.
 
 ## 7. Whole-cost compression and performance gates
 
@@ -1144,7 +1207,9 @@ this plan does not repeat completed assignments or superseded design hypotheses.
 work may run alongside it once its contract is frozen. G3-02 follows the accepted
 semantic handoff; G3-04 qualifies the integrated result. G4 follows the G3 exit.
 Each completed unit receives independent Sol 5.6/high review; the root performs
-one final global review. No new foundation stage is authorized by this handoff.
+one final global review, beginning with code before full qualification and
+closing on its evidence under §6.3. No new foundation stage is authorized by
+this handoff.
 
 Preserve these established facts throughout:
 
