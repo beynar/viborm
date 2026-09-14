@@ -1102,6 +1102,10 @@ candidate preserves the qualified reference and evidence.
 
 ### G3 — Scopes, series, recursive composition
 
+Each G3 unit applies §7's **decision-elimination gate** before implementation
+and at independent review. Extend the accepted structure; this gate does not
+authorize another foundation checkpoint or reset any repair/redesign budget.
+
 Complete C08–C11 by extending the accepted G3-preparation slices, whose
 immutable parent is the accepted 4,592-line G2.7 source, not from another
 foundation rewrite. G3P-06 freezes the prepared source identity and cost;
@@ -1280,6 +1284,10 @@ validation remain serial on a stable identity.
 
 ### G4 — Complete the envelope; qualify the replacement
 
+Each G4 unit applies the same §7 decision-elimination gate. New query or codec
+semantics may require new code; they must not multiply execution, admission,
+dependency, or lifecycle interpretations across their consumers.
+
 Complete C01/C12/C13 and all remaining matrix cells: the full read language,
 projection/parser ownership, scalar codecs, raw and extension boundaries,
 public typing, provider capabilities and existing fast paths. Run the complete
@@ -1380,8 +1388,8 @@ construction/lowering owner, never reintroduced to fit this table.
 | **G3-02 — bulk and scope execution**                       | G3-01 handoff accepted                                                                   | Same production writer: `src/query-engine/raptor3/commands/execution.ts`, `shared/operation-context.ts`, `shared/query.ts`, `shared/transport-attempt.ts`; exact adapter/driver seam only if an accepted provider witness requires it | Bind partitioning, output transport, suppression and progress satisfy actual substrates; acknowledged effects cannot replay and skipped prerequisites cannot leak. Array packaging composes through existing transaction owners without changing the shipped route.                                                                                                          |
 | **G3-03 — depth, recurrence and failure witnesses**        | Accepted CS-04; accepted G2.9 exit; accepted G3-prep exit; applicable cells classified by G3P-01 | G3 scenarios/regressions, same-harness fault/shrinking extensions, and private transaction/array composition wiring; the accepted G3P-05 recursive fit remains a regression                                                           | Depth/occurrence, bulk counts, binding isolation, closed-scope/late-completion refusal, atomic packaging, skip leakage, wrong retry, committed-prefix replay, healthy suffixes and commit ambiguity are checked independently. G3 extends the accepted prep slices and does not redesign the recursive fit or ship its feature. Witness work may proceed alongside G3-01/02. |
 | **G3-04 — integrated composition checkpoint**              | G3-01/02/03; native and composition evidence complete                                    | Integrator: composition, manifest, `g3.md`                                                                                                                                                                                            | G3 provider/contracts and 10,000 new seeds pass on one fresh identity; structural recursion, the recursive-read fit verdict, and whole-cost evidence justify advancement or produce an explicit review. The shipped client still uses the current engine.                                                                                                                    |
-| **G4-01 — complete query and projection semantics**        | G3 exit                                                                                  | `ProgramBuilder.ts`, `ProgramAnalysis.ts` if retained, `Projection.ts`; shared-type changes through integrator                                                                                                                        | Complete C01/C12 by extending the shaped/correlated output owners proven in S3/S4. Classify remaining cells and prove each handoff extension; no new aggregate/nested/recursive engine.                                                                                                                                                                                      |
-| **G4-02 — complete physical/provider envelope**            | G4-01 read/projection handoff accepted                                                   | `SqlLowerer.ts`, `Execution.ts`, exact assigned adapter/driver boundary changes                                                                                                                                                       | All required profiles and existing fast paths implement that handoff; required provider behavior is executed. Can run alongside the remaining G4-01 implementation after the handoff.                                                                                                                                                                                        |
+| **G4-01 — complete query and projection semantics**        | G3 exit                                                                                  | `src/query-engine/raptor3/shared/query.ts`, necessary `shared/schema.ts` and command selection/analysis changes; shared contracts through integrator                                                                                                                        | Complete C01/C12 by extending the shaped/correlated output owners proven in S3/S4. Classify remaining cells and prove each handoff extension; no new aggregate/nested/recursive engine.                                                                                                                                                                                      |
+| **G4-02 — complete physical/provider envelope**            | G4-01 read/projection handoff accepted                                                   | `src/query-engine/raptor3/shared/operation-context.ts`, `shared/query.ts`, `commands/execution.ts`, and exact assigned adapter/driver seams                                                                                                                                                       | All required profiles and existing fast paths implement that handoff; required provider behavior is executed. Can run alongside the remaining G4-01 implementation after the handoff.                                                                                                                                                                                        |
 | **G4-03 — client lifecycle and public type integration**   | G3 exit; any shared handoff change through integrator                                    | Assigned client/extension/cache boundary files, C13/type tests and corresponding harness falsifiers; not shared core files                                                                                                            | Classify remaining C13 cells; public admission, extension/raw/cache behavior and inferred types use the candidate without duplicated lifecycle. Missing events fail the oracle. Can proceed alongside G4-01/02 on verified interfaces.                                                                                                                                       |
 | **G4-04 — qualification and adoption review**              | G4-01/02/03                                                                              | Integrator: candidate entry/package fixture, manifest, `g4.md`                                                                                                                                                                        | All G4 hard requirements and 25,000 seeds pass; complete size/performance/structural evidence supports the adoption recommendation; Arnaud decides any target shortfall.                                                                                                                                                                                                     |
 | **C-01 — candidate-only cutover verification**             | G4 qualification, resolved adoption reviews, and authority to perform the engine cutover | Integrator: exact client route, legacy deletion targets, architecture documentation and candidate-only evidence                                                                                                                       | §9 candidate-only gates pass without a legacy fallback; public API stays intact; rollback reference is recorded. No automatic release or unrelated cleanup.                                                                                                                                                                                                                  |
@@ -1490,6 +1498,71 @@ demonstrated overall gains. A candidate that reaches 40% does not qualify
 merely because it is smaller.
 
 ### Structural evidence and shortfall review
+
+#### G3/G4 decision-elimination gate
+
+The author and independent reviewer must answer:
+
+> Which existing decisions become unnecessary with this representation?
+> Exactly what disappears, and which invariant makes it unnecessary?
+
+"Never needed again" means **while that named invariant holds**, not a promise
+about unknown future requirements. Moving a branch to a helper, renaming state,
+or changing file boundaries is not deletion of a decision.
+
+Before coding, add a short note to the existing unit report: the required
+behavior, its current semantic owner, and the proposed change. At completed-unit
+review, resolve these four questions against the actual diff and witnesses:
+
+1. **Necessary decision or representation repair?** Does each added rule express
+   database behavior, a real boundary, or a measured execution requirement; or
+   does it reconcile two representations of the same fact? Remove the duplicated
+   authority rather than adding another synchronization rule. A derived view is
+   allowed; independently maintained semantic state needs a distinct invariant.
+2. **Exact deletion and replacement obligation?** Name the removed decision,
+   mechanism and consumers, the invariant that replaces it, and a falsifier of
+   that invariant. Verify no equivalent mechanism moved elsewhere. If the unit
+   only adds genuinely new behavior, say "no deletion" and justify its owner;
+   do not manufacture a refactor to claim savings.
+3. **One rule across uses?** Exercise a second applicable placement or consumer
+   through the same owner. Distinguish unavoidable differences from accidental
+   forks. A shared function name, common context, or passing isolated fixture
+   does not establish shared semantics.
+4. **What actually grew?** Report net core and complete charged LOC separately,
+   including moved/new code and newly retained whole owners. Distinguish added
+   semantic rules from representation support and integration. Compare with the
+   unit's expectation and explain deviations. Tests/evidence remain separately
+   counted; neither feature counts nor LOC alone prove completion or elegance.
+
+The accepted representation removes copied-history publication/synchronization,
+positional expansion and suffix restoration, mirrored dependency branch topology,
+membership-owner history searches, and attempt reset journals. Their replacement
+invariants are one occurrence structure, placement-derived ancestry and effect
+ownership, and replaceable attempt state. Derived branch paths, local capture
+binding, dependency comparisons and fresh database observations still have jobs;
+do not delete them merely because their names resemble retired machinery.
+
+G3 reviewers specifically reject per-verb suppression/cleanup policies, another
+root/nested/series interpreter, and operation-owned array composition or borrowed
+transaction lifecycle. Set mutations versus ordered records, distinct admission
+boundaries, physical phases, and explicit rollback authority remain necessary.
+
+G4 reviewers specifically reject separate public-predicate walkers for SQL and
+dependency meaning, per-operation codec implementations, duplicate result-shape
+preparation, and recreated cache/extension/transaction lifecycles. Extend the
+current query/projection/decoder and existing external owners. New scalar or
+query behavior should not require unrelated relation/execution policy changes
+unless a concrete cross-cutting requirement is demonstrated. Provider result
+decoding remains a real trust boundary; trusted-input rules do not remove it.
+
+This is part of the existing author/reviewer handoff, not a new checklist system,
+runtime registry, extra review stage, or automatic percentage veto. Green tests
+do not excuse reintroduced semantic duplication. Return such findings to the
+owning unit under the existing bounded repair/redesign rules. Honest net growth
+for necessary behavior may pass with explicit ownership and cost evidence;
+changed invariants or exhausted budgets follow §8, not a renamed checkpoint.
+
+#### Milestone evidence
 
 At G1–G4, record these alongside the size measurements:
 
