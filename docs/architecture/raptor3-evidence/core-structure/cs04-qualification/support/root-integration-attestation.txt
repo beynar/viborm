@@ -1,0 +1,5 @@
+The reviewed MAIN integration has the same 28 source-file hashes and the exact selected identity: production 36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377; harness 87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e; Node v24.21.0.
+
+MAIN whole-estate typecheck reports only the two historical production TS2345 errors at src/query-engine/pattern/pack.ts:1443 and :2633. It completed in 6.29 seconds with 5,620.4 MiB peak sampled process-group RSS and verified teardown. The user's existing unstaged program-dump correction remains unrelated work.
+
+MAIN cs01-structural-reference passed 10/10 in receipt xLOzgV. A separate narrow run passed repeated-occurrence ownership 5/5, member scope 8/8, and extension composition 4/4: 17/17 total, 3.93 seconds wall, 623.9 MiB peak sampled process-group RSS, teardown verified.

@@ -1,0 +1,1915 @@
+diff --git a/src/query-engine/raptor3/commands/command-attempt.ts b/src/query-engine/raptor3/commands/command-attempt.ts
+index bcc70b53..3797f2f1 100644
+--- a/src/query-engine/raptor3/commands/command-attempt.ts
++++ b/src/query-engine/raptor3/commands/command-attempt.ts
+@@ -8,6 +8,7 @@ import type {
+   CommandOccurrence,
+   Deletion,
+   JunctionCapture,
++  LocatedRecordCommand,
+   RecordCommand,
+   Selection,
+   SeriesOccurrence,
+@@ -23,8 +24,16 @@ export class CommandAttempt {
+   readonly conditionalSkips = new Map<unknown, Choose>();
+   readonly series = new Map<
+     CommandOccurrence<SeriesOccurrence>,
+-    {
+-      readonly members: CommandOccurrence<RecordCommand | Deletion>[];
++    (
++      | {
++          readonly kind: "update";
++          readonly members: CommandOccurrence<LocatedRecordCommand>[];
++        }
++      | {
++          readonly kind: "delete";
++          readonly members: CommandOccurrence<Deletion>[];
++        }
++    ) & {
+       readonly parentRequirement?: {
+         readonly query: Query;
+         readonly failure: Error;
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 6a8e97ef..97372920 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -40,6 +40,9 @@ export interface RecordCommand {
+   origin?: Origin;
+   suppression?: { readonly kind: "skipDuplicate" };
+ }
++export type LocatedRecordCommand = RecordCommand & {
++  readonly located: Selection;
++};
+ export interface RecordSeriesCommand {
+   readonly kind: "series";
+   readonly records: CommandOccurrence<RecordCommand>[];
+@@ -99,18 +102,22 @@ export interface Deletion {
+   located: Selection;
+   origin: Origin;
+ }
+-export interface SelectedSeries {
++export interface UpdateSelectedSeries {
+   readonly selection: Selection;
+-  readonly analysis: RecordCommand | Deletion;
+-  readonly mutation:
+-    | { readonly kind: "update"; readonly raw: Input }
+-    | { readonly kind: "delete" };
++  readonly analysis: LocatedRecordCommand;
++  readonly mutation: { readonly kind: "update"; readonly raw: Input };
+ }
+-export type SelectedSeriesMember = RecordCommand | Deletion;
+-export interface SeriesOccurrence {
++export interface DeleteSelectedSeries {
++  readonly selection: Selection;
++  readonly analysis: Deletion;
++  readonly mutation: { readonly kind: "delete" };
++}
++export type SelectedSeries = UpdateSelectedSeries | DeleteSelectedSeries;
++export type SelectedSeriesMember = LocatedRecordCommand | Deletion;
++export interface SeriesOccurrence<S extends SelectedSeries = SelectedSeries> {
+   readonly kind: "selectedSeries";
+-  readonly series: SelectedSeries;
+-  readonly template: CommandOccurrence<RecordCommand | Deletion>;
++  readonly series: S;
++  readonly template: CommandOccurrence<S["analysis"]>;
+ }
+ export interface SeriesCapture {
+   readonly kind: "captureSeries";
+@@ -235,9 +242,9 @@ export class Commands {
+     admitted: Input,
+     raw: Input,
+     deferred = false
+-  ): RecordCommand {
++  ): LocatedRecordCommand {
+     const model = located.model;
+-    const command: RecordCommand = {
++    const command: LocatedRecordCommand = {
+       kind: "record",
+       model,
+       located,
+@@ -430,14 +437,16 @@ export class Commands {
+     this.analyzeOccurrence(occurrence);
+     return occurrence;
+   }
+-  analyzeSeries(series: SelectedSeries): CommandOccurrence<SeriesOccurrence> {
++  analyzeSeries<S extends SelectedSeries>(
++    series: S
++  ): CommandOccurrence<SeriesOccurrence<S>> {
+     const occurrence = this.occurrence(this.selectedSeries(series));
+     this.materializePlacement(occurrence);
+     this.bindTree(occurrence);
+     this.analyzeOccurrence(occurrence);
+     return occurrence;
+   }
+-  selectedSeries(series: SelectedSeries): SeriesOccurrence {
++  selectedSeries<S extends SelectedSeries>(series: S): SeriesOccurrence<S> {
+     return {
+       kind: "selectedSeries",
+       series,
+@@ -464,9 +473,9 @@ export class Commands {
+   }
+   seriesMembers(
+     occurrence: CommandOccurrence<SeriesOccurrence>
+-  ): CommandOccurrence<RecordCommand | Deletion>[] {
++  ): CommandOccurrence<SelectedSeriesMember>[] {
+     return occurrence.children.filter(
+-      (child): child is CommandOccurrence<RecordCommand | Deletion> =>
++      (child): child is CommandOccurrence<SelectedSeriesMember> =>
+         child.role === "member" &&
+         (child.command.kind === "record" || child.command.kind === "delete")
+     );
+@@ -912,23 +921,28 @@ export class Commands {
+     }
+     return false;
+   }
+-  expandSeries(
++  expandSeries<M extends SelectedSeriesMember>(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+-    members: readonly SelectedSeriesMember[]
+-  ): SeriesRefusal | undefined {
++    members: readonly M[]
++  ):
++    | { readonly members: CommandOccurrence<M>[] }
++    | {
++        readonly members: CommandOccurrence<M>[];
++        readonly refusal: SeriesRefusal;
++      } {
+     const series = occurrence.command;
+     const root = this.rootOf(occurrence);
+     const owner = this.seriesOwner(occurrence);
+     if (!owner) throw new Error("Selected series has no enclosing analysis");
+     if (this.seriesMembers(occurrence).length)
+       throw new Error("Selected series occurrence was already expanded");
+-    occurrence.children = members.map((member) => {
++    const memberOccurrences = members.map((member) => {
+       const child = this.occurrence(member);
+       child.role = "member";
+       this.materializePlacement(child);
+       return child;
+     });
+-    const memberOccurrences = this.seriesMembers(occurrence);
++    occurrence.children = memberOccurrences;
+     for (const member of memberOccurrences) this.bindTree(member, occurrence);
+     for (const member of memberOccurrences) {
+       this.analyzeOccurrence(member);
+@@ -938,7 +952,11 @@ export class Commands {
+       if (!member) continue;
+       if (occurrenceMember.command.kind === "record") {
+         const refusal = occurrenceMember.refusal;
+-        if (refusal) return { error: refusal, member };
++        if (refusal)
++          return {
++            members: memberOccurrences,
++            refusal: { error: refusal, member },
++          };
+       }
+       let refusal: Error | undefined;
+       this.visitWrites(occurrenceMember, (write) => {
+@@ -951,9 +969,13 @@ export class Commands {
+         )
+           return;
+       });
+-      if (refusal) return { error: refusal, member };
++      if (refusal)
++        return {
++          members: memberOccurrences,
++          refusal: { error: refusal, member },
++        };
+     }
+-    return undefined;
++    return { members: memberOccurrences };
+   }
+   lookup(
+     model: AnyModel,
+@@ -1104,14 +1126,18 @@ export class Commands {
+       return this.execution.complete(this.analyze(root), args);
+     }
+     const updateData = args.data;
+-    if (args.limit !== undefined || args.select || args.omit) {
++    const relationBearing = model["~"].relationNames.some(
++      (name) => updateData[name] !== undefined
++    );
++    if (
++      args.limit !== undefined ||
++      raw.omit !== undefined ||
++      (args.select && !relationBearing)
++    ) {
+       throw new UnsupportedOperationError(
+         "Raptor 3 G3P-03 updateMany limit and returning are not implemented."
+       );
+     }
+-    const relationBearing = model["~"].relationNames.some(
+-      (name) => updateData[name] !== undefined
+-    );
+     if (!relationBearing) {
+       return ctx.updateMany(
+         model,
+@@ -1125,14 +1151,15 @@ export class Commands {
+       new NotFoundError(model["~"].names.ts!, "update")
+     );
+     const analysis = this.update(selection, updateData, raw.data, true);
+-    const series: SelectedSeries = {
++    const series: UpdateSelectedSeries = {
+       selection,
+       analysis,
+       mutation: { kind: "update", raw: raw.data },
+     };
+     const occurrence = this.analyzeSeries(series);
++    if (args.select)
++      return this.execution.series(occurrence, series.selection, args.select);
+     const count = await this.execution.series(occurrence);
+-    await ctx.finish();
+     return { count };
+   }
+ }
+diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
+index 962a7fb8..838f239d 100644
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -15,9 +15,12 @@ import type {
+   Choose,
+   CommandOccurrence,
+   Commands,
++  Deletion,
++  LocatedRecordCommand,
+   RecordCommand,
+   SelectedSeriesMember,
+   SeriesOccurrence,
++  UpdateSelectedSeries,
+ } from "./commands";
+ import { membershipFields, type Selection } from "./selection";
+ 
+@@ -551,24 +554,65 @@ export class CommandExecution {
+       count++;
+       if (select) identities.push(this.identity(command.fields));
+     }
+-    if (!select) {
+-      await ctx.finish();
+-      return { count };
+-    }
+-    if (identities.length === 0) {
+-      await ctx.finish();
+-      return [];
+-    }
+-    return ctx.finish(
+-      ctx.queries.selectSeries(records[0]!.command.model, select, identities)
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        ctx.queries.selectSeries(
++          records[0]!.command.model,
++          selection,
++          identities
++        )
+     );
++    return selected ?? { count };
+   }
+   async series(
+-    occurrence: CommandOccurrence<SeriesOccurrence>,
+-    member: Member = occurrence.command.series.selection
+-  ): Promise<number> {
++    occurrence: CommandOccurrence<SeriesOccurrence<UpdateSelectedSeries>>,
++    member?: Member
++  ): Promise<number>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence<UpdateSelectedSeries>>,
++    member: Member,
++    select: Input
++  ): Promise<Input[]>;
++  async series(
++    occurrence: CommandOccurrence<SeriesOccurrence<UpdateSelectedSeries>>,
++    member: Member = occurrence.command.series.selection,
++    select?: Input
++  ): Promise<number | Input[]> {
+     await this.captureSeries(occurrence, member);
+-    return this.executeSeries(occurrence);
++    const identities: Input[] = [];
++    const prepared = this.attempt.series.get(occurrence);
++    if (!prepared || prepared.kind !== "update")
++      throw new Error("Selected update series was not captured");
++    const count = await this.executeSeriesMembers(
++      prepared.members,
++      prepared.parentRequirement,
++      (command) => identities.push(this.identity(command.fields))
++    );
++    const selected = await this.completeSeries(
++      select,
++      identities,
++      (selection) =>
++        this.context.queries.selectSeries(
++          occurrence.command.series.selection.model,
++          selection,
++          identities,
++          "updateMany"
++        )
++    );
++    return selected ?? count;
++  }
++  private async completeSeries(
++    select: Input | undefined,
++    identities: Input[],
++    query: (select: Input) => Query
++  ): Promise<Input[] | undefined> {
++    if (!select || identities.length === 0) {
++      await this.context.finish();
++      return select ? [] : undefined;
++    }
++    return this.context.finish(query(select));
+   }
+   private async captureSeries(
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+@@ -627,13 +671,17 @@ export class CommandExecution {
+       ),
+       true
+     );
+-    const members: SelectedSeriesMember[] = ctx.prepareMembers(
+-      () =>
+-        rows.map((row): SelectedSeriesMember => {
+-          const located = this.commands.capture(selection, row);
+-          attempt.rows.set(located, row);
+-          attempt.bind(located.fields, row);
+-          if (series.mutation.kind === "delete") {
++    const locate = (row: Input): Selection => {
++      const located = this.commands.capture(selection, row);
++      attempt.rows.set(located, row);
++      attempt.bind(located.fields, row);
++      return located;
++    };
++    if (series.mutation.kind === "delete") {
++      const members: Deletion[] = ctx.prepareMembers(
++        () =>
++          rows.map((row): Deletion => {
++            const located = locate(row);
+             if (!selection.origin)
+               throw new Error("Selected delete series has no mutation origin");
+             return {
+@@ -641,7 +689,28 @@ export class CommandExecution {
+               located,
+               origin: selection.origin,
+             };
+-          }
++          }),
++        member
++      );
++      const expanded = this.commands.expandSeries(occurrence, members);
++      if ("refusal" in expanded)
++        throw ctx.failure(
++          expanded.refusal.error,
++          "planning",
++          expanded.refusal.member
++        );
++      attempt.series.set(occurrence, {
++        kind: "delete",
++        members: expanded.members,
++        parentRequirement,
++      });
++      return;
++    }
++    const mutation = series.mutation;
++    const members: LocatedRecordCommand[] = ctx.prepareMembers(
++      () =>
++        rows.map((row): LocatedRecordCommand => {
++          const located = locate(row);
+           const child = this.commands.update(
+             located,
+             membership &&
+@@ -650,10 +719,10 @@ export class CommandExecution {
+               ? ctx.schema.member(
+                   membership.edge.source,
+                   membership.edge.name,
+-                  series.mutation.raw
++                  mutation.raw
+                 )
+-              : ctx.schema.update(selection.model, series.mutation.raw, true),
+-            series.mutation.raw
++              : ctx.schema.update(selection.model, mutation.raw, true),
++            mutation.raw
+           );
+           if (membership)
+             child.requirement = {
+@@ -665,24 +734,37 @@ export class CommandExecution {
+         }),
+       member
+     );
+-    const refusal = this.commands.expandSeries(occurrence, members);
+-    if (refusal) throw ctx.failure(refusal.error, "planning", refusal.member);
++    const expanded = this.commands.expandSeries(occurrence, members);
++    if ("refusal" in expanded)
++      throw ctx.failure(
++        expanded.refusal.error,
++        "planning",
++        expanded.refusal.member
++      );
+     attempt.series.set(occurrence, {
+-      members: this.commands.seriesMembers(occurrence),
++      kind: "update",
++      members: expanded.members,
+       parentRequirement,
+     });
+   }
+   private async executeSeries(
+     occurrence: CommandOccurrence<SeriesOccurrence>
+   ): Promise<number> {
+-    const ctx = this.context;
+     const prepared = this.attempt.series.get(occurrence);
+     if (!prepared) throw new Error("Selected series was not captured");
+-    const { members, parentRequirement } = prepared;
++    return prepared.kind === "update"
++      ? this.executeSeriesMembers(prepared.members, prepared.parentRequirement)
++      : this.executeSeriesMembers(prepared.members, prepared.parentRequirement);
++  }
++  private async executeSeriesMembers<M extends SelectedSeriesMember>(
++    members: readonly CommandOccurrence<M>[],
++    parentRequirement?: { readonly query: Query; readonly failure: Error },
++    completed?: (command: M) => void
++  ): Promise<number> {
++    const ctx = this.context;
+     for (const child of members) {
+       const command = child.command;
+       const located = command.located;
+-      if (!located) throw new Error("Selected update series has no location");
+       if (ctx.usesBatch) {
+         this.attempt.rows.delete(located);
+         try {
+@@ -699,6 +781,7 @@ export class CommandExecution {
+           );
+         await this.run(child);
+       }, command);
++      completed?.(command);
+     }
+     return members.length;
+   }
+diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
+index 6ff0bf70..e0296dad 100644
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -13,14 +13,15 @@ import type {
+   Choose,
+   CommandOccurrence,
+   Commands,
+-  Deletion,
+   JunctionCapture,
+   MembershipRequirement,
+   RecordCommand,
+   Removal,
++  DeleteSelectedSeries,
+   SelectedSeries,
+   SeriesCapture,
+   SeriesOccurrence,
++  UpdateSelectedSeries,
+ } from "./commands";
+ import {
+   type BoundMembership,
+@@ -508,28 +509,27 @@ export class RelationBody {
+             )
+           );
+           selection.origin = origin;
+-          const mutation: SelectedSeries["mutation"] =
+-            verb === "updateMany"
+-              ? {
+-                  kind: "update",
+-                  raw: record(rawMembers[index]!.data),
+-                }
+-              : { kind: "delete" };
+-          const analysis: RecordCommand | Deletion =
+-            mutation.kind === "update"
+-              ? this.commands.update(
+-                  selection,
+-                  record(input.data),
+-                  mutation.raw,
+-                  true
+-                )
+-              : { kind: "delete", located: selection, origin };
+-          if (analysis.kind === "record") analysis.origin = origin;
+-          const series: SelectedSeries = {
+-            selection,
+-            analysis,
+-            mutation,
+-          };
++          let series: SelectedSeries;
++          if (verb === "updateMany") {
++            const mutation = {
++              kind: "update",
++              raw: record(rawMembers[index]!.data),
++            } satisfies UpdateSelectedSeries["mutation"];
++            const analysis = this.commands.update(
++              selection,
++              record(input.data),
++              mutation.raw,
++              true
++            );
++            analysis.origin = origin;
++            series = { selection, analysis, mutation };
++          } else {
++            series = {
++              selection,
++              analysis: { kind: "delete", located: selection, origin },
++              mutation: { kind: "delete" },
++            } satisfies DeleteSelectedSeries;
++          }
+           const target = this.commands.place(
+             parent,
+             this.commands.selectedSeries(series),
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index ea4fb1aa..8ea7423c 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -1,13 +1,13 @@
+ import {
+   assembleAdapterSelect,
+-  getAdapterInternals
++  getAdapterInternals,
+ } from "@adapters/adapter-internals";
+ import type { AnyDriver } from "@drivers";
+ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+ import type {
+   BatchQuery,
+   QueryExecutionContext,
+-  QueryResult
++  QueryResult,
+ } from "@drivers/types";
+ import {
+   attachRecordSeriesProgress,
+@@ -17,7 +17,7 @@ import {
+   type RecordSeriesProgress,
+   TransactionError,
+   UniqueConstraintError,
+-  UnsupportedOperationError
++  UnsupportedOperationError,
+ } from "@errors";
+ import type { AnyModel } from "@schema/model";
+ import { Sql, sql } from "@sql";
+@@ -26,13 +26,13 @@ import {
+   InvalidScalarResult,
+   Queries,
+   type PreparedProjection,
+-  type Query
++  type Query,
+ } from "./query";
+ import {
+   type EngineSchema,
+   type Input,
+   type Operation,
+-  record
++  record,
+ } from "./schema";
+ import { type Membership, physicalField } from "./storage";
+ import { TransportAttempt } from "./transport-attempt";
+@@ -88,8 +88,8 @@ export class OperationContext {
+             driver: factoryDriver.driverName,
+             model: modelName,
+             operation,
+-            method: "$transaction([...])"
+-          }
++            method: "$transaction([...])",
++          },
+         }
+       );
+     }
+@@ -107,7 +107,7 @@ export class OperationContext {
+     return {
+       model: this.modelName,
+       operation: this.operation,
+-      correlationId: this.correlationId
++      correlationId: this.correlationId,
+     };
+   }
+   private statementContext(
+@@ -117,7 +117,7 @@ export class OperationContext {
+     return {
+       model: model["~"].names.ts!,
+       operation,
+-      correlationId: this.correlationId
++      correlationId: this.correlationId,
+     };
+   }
+   private queue(
+@@ -127,7 +127,7 @@ export class OperationContext {
+   ): BatchQuery {
+     const query = {
+       ...this.transport._prepare(statement, context),
+-      context
++      context,
+     };
+     this.attempt.pending.push(query);
+     if (member) this.attempt.pendingMembers.add(member);
+@@ -204,8 +204,8 @@ export class OperationContext {
+             meta: {
+               driver: this.driver.driverName,
+               model: this.modelName,
+-              operation: this.operation
+-            }
++              operation: this.operation,
++            },
+           }
+         )
+       : undefined;
+@@ -244,7 +244,7 @@ export class OperationContext {
+           ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
+           ...(this.mayHaveCommittedSegment
+             ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+-            : {})
++            : {}),
+         })
+       : failure;
+   }
+@@ -304,7 +304,7 @@ export class OperationContext {
+       shape: projection.shape,
+       sql: adapter.clauses.select(
+         sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+-      )
++      ),
+     };
+   }
+   async flush(query?: Query, member?: Member): Promise<Input[]>;
+@@ -368,7 +368,7 @@ export class OperationContext {
+           this.driver.adapter.assertions.exists(query.sql),
+           context
+         ),
+-        context
++        context,
+       };
+     });
+     const statements = [...guards, ...attempt.pending.splice(0)];
+@@ -383,7 +383,7 @@ export class OperationContext {
+         failure: new TransactionError(
+           `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+           { meta: { model: this.modelName, operation: this.operation } }
+-        )
++        ),
+       });
+     const members = [...attempt.pendingMembers];
+     attempt.pendingMembers.clear();
+@@ -501,7 +501,14 @@ export class OperationContext {
+     this.atomicAssertionRejection = undefined;
+   }
+   async finish(query?: Query): Promise<Input[]> {
+-    if (!this.usesBatch) return query ? this.read(query) : [];
++    if (!this.usesBatch) {
++      if (!query) return [];
++      const response = await this.transport._execute<Input>(
++        query.sql,
++        this.attribution
++      );
++      return this.decodeFinal(query, response.rows);
++    }
+     const resultIndex = this.attempt.pending.length;
+     if (query) this.queue(query.sql);
+     if (this.attempt.scratchId)
+@@ -520,10 +527,7 @@ export class OperationContext {
+                 { meta: this.attribution }
+               );
+             }
+-            return this.queries.decodeQuery(
+-              query,
+-              response.rows.map(record)
+-            )[0];
++            return this.decodeFinal(query, response.rows.map(record))[0];
+           }
+         : () => undefined;
+       return [];
+@@ -531,13 +535,19 @@ export class OperationContext {
+     if (this.attempt.pending.length === 0) return [];
+     const responses = await this.submit();
+     try {
+-      return query
+-        ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
+-        : [];
++      return query ? this.decodeFinal(query, responses[resultIndex]!.rows) : [];
+     } catch (error) {
+-      throw this.continuations.length ? this.failure(error, "result") : error;
++      throw this.failure(error, "result");
+     }
+   }
++  private decodeFinal(query: Query, rows: Input[]): Input[] {
++    if (query.expectedRows && rows.length < query.expectedRows.count) {
++      throw new TransactionError(query.expectedRows.missing, {
++        meta: this.attribution,
++      });
++    }
++    return this.queries.decodeQuery(query, rows);
++  }
+   isIncompletePreparation(error: unknown): boolean {
+     return error === this.incompletePreparation;
+   }
+@@ -548,9 +558,9 @@ export class OperationContext {
+       queries: this.attempt.pending.map((query) => ({
+         sql: query.sql,
+         params: query.params ?? [],
+-        context: query.context ?? this.attribution
++        context: query.context ?? this.attribution,
+       })),
+-      parseResult: this.preparedParser
++      parseResult: this.preparedParser,
+     };
+   }
+   private async setMutation(
+@@ -719,7 +729,7 @@ export class OperationContext {
+     if (!this.usesBatch) {
+       const producedProjection = produced.length
+         ? q.prepareProjection(model, {
+-            select: Object.fromEntries(produced.map((field) => [field, true]))
++            select: Object.fromEntries(produced.map((field) => [field, true])),
+           })
+         : undefined;
+       const insertIdField = adapter.capabilities.supportsReturning
+@@ -759,7 +769,7 @@ export class OperationContext {
+         throw new TypeError("INSERT did not produce the required record");
+       return {
+         ...values,
+-        ...producedValues
++        ...producedValues,
+       };
+     }
+     const published: Input = { ...values };
+@@ -778,7 +788,7 @@ export class OperationContext {
+           );
+         // The next segment must prove the actual stored owner, including supplied row-key fields.
+         const returned = [
+-          ...new Set([...this.schema.keys(model), ...demanded])
++          ...new Set([...this.schema.keys(model), ...demanded]),
+         ];
+         const select = Object.fromEntries(
+           returned.map((field) => [field, true])
+@@ -814,7 +824,7 @@ export class OperationContext {
+           query: q.select(model, {}, undefined, {
+             projection,
+             identity: stored,
+-          })
++          }),
+         });
+         return { ...values, ...stored };
+       }
+@@ -909,7 +919,7 @@ export class OperationContext {
+                     values[field],
+                     q.fieldValue(model, field, captured[field])
+                   )
+-                : captured[field]
++                : captured[field],
+             ])
+         );
+         // The mutation's locked capture remains protected through this stored-row read.
+@@ -969,12 +979,12 @@ export class OperationContext {
+       Object.fromEntries([
+         ...edge.sourceSide.members.map((pair) => [
+           pair.junctionField,
+-          source[pair.referencedField]
++          source[pair.referencedField],
+         ]),
+         ...edge.targetSide.members.map((pair) => [
+           pair.junctionField,
+-          target[pair.referencedField]
+-        ])
++          target[pair.referencedField],
++        ]),
+       ]),
+       member
+     );
+@@ -989,7 +999,7 @@ export class OperationContext {
+     const q = this.queries;
+     const columns = [
+       ...edge.sourceSide.members,
+-      ...edge.targetSide.members
++      ...edge.targetSide.members,
+     ].map((pair) => pair.junctionField);
+     if (captured) {
+       if (columns.every((field) => Object.is(captured[field], values[field]))) {
+@@ -1032,7 +1042,7 @@ export class OperationContext {
+           adapter.joins.left(
+             adapter.identifiers.table(edge.table, membershipAlias),
+             q.junctionWhere(edge, values, membershipAlias)
+-          )
++          ),
+         ],
+         where: adapter.operators.and(
+           ...edge.targetSide.members.map((pair) =>
+@@ -1048,7 +1058,7 @@ export class OperationContext {
+           adapter.operators.isNull(
+             adapter.identifiers.column(membershipAlias, columns[0]!)
+           )
+-        )
++        ),
+       });
+       await this.effect(
+         adapter.mutations.insert(
+@@ -1136,7 +1146,7 @@ export class OperationContext {
+       const conditions: Sql[] = [];
+       for (const [side, values] of [
+         [edge.sourceSide, source],
+-        [edge.targetSide, target]
++        [edge.targetSide, target],
+       ] as const) {
+         if (!values) continue;
+         for (const pair of side.members)
+@@ -1161,7 +1171,7 @@ export class OperationContext {
+                   Object.fromEntries(
+                     edge.targetSide.members.map((pair) => [
+                       pair.junctionField,
+-                      row[pair.referencedField]
++                      row[pair.referencedField],
+                     ])
+                   )
+                 )
+@@ -1191,7 +1201,7 @@ export class OperationContext {
+             a.operators.eq(
+               q.column(edge.target, edge.discriminator.field),
+               q.value(edge.discriminator.value)
+-            )
++            ),
+           ]
+         : []),
+       ...(target
+@@ -1206,15 +1216,14 @@ export class OperationContext {
+         ? [
+             a.operators.not(
+               a.operators.or(
+-                ...keep.map(
+-                  (row) =>
+-                    q.lowerIdentity(
+-                      edge.target,
+-                      this.schema.identity(edge.target, row)
+-                    )
++                ...keep.map((row) =>
++                  q.lowerIdentity(
++                    edge.target,
++                    this.schema.identity(edge.target, row)
++                  )
+                 )
+               )
+-            )
++            ),
+           ]
+         : [])
+     );
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 75cd980c..9b2efe1e 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -1,11 +1,7 @@
+ import type { DatabaseAdapter } from "@adapters/database-adapter";
+ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+ import { QueryEngineError } from "@errors";
+-import {
+-  fieldRefPayload,
+-  formatFieldRef,
+-  isFieldRef,
+-} from "@schema/field-ref";
++import { fieldRefPayload, formatFieldRef, isFieldRef } from "@schema/field-ref";
+ import {
+   findAddressableKey,
+   type AnyModel,
+@@ -165,7 +161,7 @@ export interface RecursiveTraversal {
+ export class InvalidScalarResult extends TypeError {
+   constructor(
+     readonly scalarType: string,
+-    readonly reason: string,
++    readonly reason: string
+   ) {
+     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+   }
+@@ -176,7 +172,7 @@ export class Queries {
+   private nextAlias = 0;
+   constructor(
+     readonly schema: EngineSchema,
+-    readonly adapter: DatabaseAdapter,
++    readonly adapter: DatabaseAdapter
+   ) {}
+   alias(): string {
+     return `q${this.nextAlias++}`;
+@@ -200,7 +196,7 @@ export class Queries {
+         state.type !== "decimal")
+     ) {
+       throw new Error(
+-        `Raptor 3 G1 scalar codec is not implemented: ${state.type}${state.array ? "[]" : ""}`,
++        `Raptor 3 G1 scalar codec is not implemented: ${state.type}${state.array ? "[]" : ""}`
+       );
+     }
+     return physical.name;
+@@ -235,7 +231,7 @@ export class Queries {
+   junctionWhere(
+     edge: Extract<Membership, { kind: "junction" }>,
+     values: Input,
+-    alias?: string,
++    alias?: string
+   ): Sql {
+     return this.adapter.operators.and(
+       ...[edge.sourceSide, edge.targetSide].flatMap((side) =>
+@@ -249,17 +245,17 @@ export class Queries {
+               this.fieldValue(
+                 side.model,
+                 pair.referencedField,
+-                values[pair.junctionField],
+-              ),
+-            ),
+-          ),
+-      ),
++                values[pair.junctionField]
++              )
++            )
++          )
++      )
+     );
+   }
+   junction(
+     edge: Extract<Membership, { kind: "junction" }>,
+     values: Input,
+-    forUpdate = false,
++    forUpdate = false
+   ): Query {
+     const a = this.adapter;
+     const alias = this.alias();
+@@ -272,7 +268,7 @@ export class Queries {
+       const column = a.identifiers.column(alias, pair.junctionField);
+       return a.identifiers.aliased(
+         shape.type === "decimal" ? a.expressions.cast(column, "text") : column,
+-        pair.junctionField,
++        pair.junctionField
+       );
+     });
+     return {
+@@ -289,7 +285,7 @@ export class Queries {
+     model: AnyModel,
+     field: string,
+     value: unknown,
+-    before = this.column(model, field),
++    before = this.column(model, field)
+   ): Sql {
+     if (
+       !(value instanceof Sql) &&
+@@ -303,12 +299,12 @@ export class Queries {
+             "int"
+             ? this.adapter.expressions.cast(before, "integer")
+             : before,
+-          this.fieldValue(model, field, operation.increment),
++          this.fieldValue(model, field, operation.increment)
+         );
+       if ("set" in operation)
+         return this.fieldValue(model, field, operation.set);
+       throw new Error(
+-        `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
++        `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`
+       );
+     }
+     return this.fieldValue(model, field, value);
+@@ -333,13 +329,9 @@ export class Queries {
+       facts,
+       uniqueKey,
+       uniqueValues: selected
+-        ? new Map(
+-            uniqueKey!.fields.map((field) => [field, selected[field]]),
+-          )
+-        : undefined,
+-      predicate: where
+-        ? this.prepareWhere(model, where, facts, [])
++        ? new Map(uniqueKey!.fields.map((field) => [field, selected[field]]))
+         : undefined,
++      predicate: where ? this.prepareWhere(model, where, facts, []) : undefined,
+     });
+   }
+   selectorFacts(selector: PreparedSelector): SelectorFacts {
+@@ -359,15 +351,15 @@ export class Queries {
+         kind: "and",
+         predicates: Object.freeze(
+           Object.entries(identity).map(([field, value]) =>
+-            this.prepareScalarPredicate(model, field, value, facts),
+-          ),
++            this.prepareScalarPredicate(model, field, value, facts)
++          )
+         ),
+       }),
+     });
+   }
+   andSelectors(
+     model: AnyModel,
+-    selectors: readonly PreparedSelector[],
++    selectors: readonly PreparedSelector[]
+   ): PreparedSelector {
+     const facts: SelectorFacts = {
+       fields: new Set(),
+@@ -404,7 +396,7 @@ export class Queries {
+   lowerWhere(
+     model: AnyModel,
+     where: Input | undefined,
+-    alias?: string,
++    alias?: string
+   ): Sql | undefined {
+     return this.lowerSelector(this.prepareSelector(model, where), alias);
+   }
+@@ -413,16 +405,16 @@ export class Queries {
+       ...Object.entries(identity).map(([field, value]) =>
+         this.adapter.operators.eq(
+           this.column(model, field, alias),
+-          this.fieldValue(model, field, value),
+-        ),
+-      ),
++          this.fieldValue(model, field, value)
++        )
++      )
+     );
+   }
+   private prepareWhere(
+     model: AnyModel,
+     where: Input,
+     facts: SelectorFacts,
+-    path: readonly Membership[],
++    path: readonly Membership[]
+   ): PreparedPredicate {
+     return Object.freeze({
+       kind: "and",
+@@ -434,8 +426,8 @@ export class Queries {
+               kind: field === "AND" ? "and" : "or",
+               predicates: Object.freeze(
+                 entries(operand).map((clause) =>
+-                  this.prepareWhere(model, clause, facts, path),
+-                ),
++                  this.prepareWhere(model, clause, facts, path)
++                )
+               ),
+             });
+           }
+@@ -443,12 +435,7 @@ export class Queries {
+             facts.exact = false;
+             return Object.freeze({
+               kind: "not",
+-              predicate: this.prepareWhere(
+-                model,
+-                record(operand),
+-                facts,
+-                path,
+-              ),
++              predicate: this.prepareWhere(model, record(operand), facts, path),
+             });
+           }
+           if (model["~"].state.relations[field]) {
+@@ -468,13 +455,13 @@ export class Queries {
+                     model,
+                     member,
+                     record(operand)[member],
+-                    facts,
+-                  ),
+-                ),
++                    facts
++                  )
++                )
+               ),
+             });
+           return this.prepareScalarPredicate(model, field, operand, facts);
+-        }),
++        })
+       ),
+     });
+   }
+@@ -482,7 +469,7 @@ export class Queries {
+     model: AnyModel,
+     field: string,
+     value: unknown,
+-    facts: SelectorFacts,
++    facts: SelectorFacts
+   ): PreparedPredicate {
+     const scalar = Object.freeze({
+       model,
+@@ -500,10 +487,7 @@ export class Queries {
+     const hasEquality =
+       filter === undefined ||
+       (Object.keys(filter).length === 1 && "equals" in filter);
+-    const equality =
+-      filter && hasEquality
+-        ? filter.equals
+-        : value;
++    const equality = filter && hasEquality ? filter.equals : value;
+     if (
+       hasEquality &&
+       (equality === null ||
+@@ -515,14 +499,10 @@ export class Queries {
+   }
+   private prepareScalarOperations(
+     scalar: PreparedScalar,
+-    value: unknown,
++    value: unknown
+   ): PreparedPredicate {
+     if (value === null) return Object.freeze({ kind: "isNull", scalar });
+-    if (
+-      value instanceof Sql ||
+-      isFieldRef(value) ||
+-      typeof value !== "object"
+-    )
++    if (value instanceof Sql || isFieldRef(value) || typeof value !== "object")
+       return Object.freeze({
+         kind: "comparison",
+         operator: "equals",
+@@ -542,8 +522,8 @@ export class Queries {
+                 scalar,
+                 operands: Object.freeze(
+                   (operand as unknown[]).map((member) =>
+-                    this.prepareOperand(scalar.model, member),
+-                  ),
++                    this.prepareOperand(scalar.model, member)
++                  )
+                 ),
+               });
+             case "gte":
+@@ -562,26 +542,23 @@ export class Queries {
+                 predicate: this.prepareScalarOperations(scalar, operand),
+               });
+             default:
+-              throw new Error(
+-                `Raptor 3 G1 filter is not implemented: ${name}`,
+-              );
++              throw new Error(`Raptor 3 G1 filter is not implemented: ${name}`);
+           }
+-        }),
++        })
+       ),
+     });
+   }
+   private prepareOperand(model: AnyModel, value: unknown): PreparedOperand {
+-    if (!isFieldRef(value))
+-      return Object.freeze({ kind: "value", value });
++    if (!isFieldRef(value)) return Object.freeze({ kind: "value", value });
+     const payload = fieldRefPayload(value);
+     const scope = model["~"].names.ts ?? "unknown";
+     if (payload.model !== scope)
+       throw new QueryEngineError(
+-        `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`,
++        `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`
+       );
+     if (!model["~"].state.scalars[payload.field])
+       throw new QueryEngineError(
+-        `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`,
++        `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`
+       );
+     return Object.freeze({
+       kind: "field",
+@@ -596,7 +573,7 @@ export class Queries {
+     edge: Membership,
+     operand: unknown,
+     facts: SelectorFacts,
+-    path: readonly Membership[],
++    path: readonly Membership[]
+   ): PreparedPredicate {
+     return Object.freeze({
+       kind: "and",
+@@ -618,7 +595,7 @@ export class Queries {
+                   edge.target,
+                   record(value),
+                   nestedFacts,
+-                  path,
++                  path
+                 );
+           facts.reads.push({
+             model: edge.target,
+@@ -634,27 +611,24 @@ export class Queries {
+             quantifier,
+             predicate,
+           });
+-        }),
++        })
+       ),
+     });
+   }
+-  private lowerPredicate(
+-    predicate: PreparedPredicate,
+-    alias?: string,
+-  ): Sql {
++  private lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
+     const a = this.adapter;
+     switch (predicate.kind) {
+       case "and":
+         return a.operators.and(
+           ...predicate.predicates.map((member) =>
+-            this.lowerPredicate(member, alias),
+-          ),
++            this.lowerPredicate(member, alias)
++          )
+         );
+       case "or":
+         return a.operators.or(
+           ...predicate.predicates.map((member) =>
+-            this.lowerPredicate(member, alias),
+-          ),
++            this.lowerPredicate(member, alias)
++          )
+         );
+       case "not":
+         return a.operators.not(this.lowerPredicate(predicate.predicate, alias));
+@@ -665,21 +639,20 @@ export class Queries {
+           this.preparedColumn(predicate.scalar, alias),
+           a.literals.list(
+             predicate.operands.map((operand) =>
+-              this.lowerOperand(predicate.scalar, operand, alias),
+-            ),
+-          ),
++              this.lowerOperand(predicate.scalar, operand, alias)
++            )
++          )
+         );
+       case "comparison": {
+         const left = this.preparedColumn(predicate.scalar, alias);
+         const right = this.lowerOperand(
+           predicate.scalar,
+           predicate.operand,
+-          alias,
+-        );
+-        return a.operators[predicate.operator === "equals" ? "eq" : predicate.operator](
+-          left,
+-          right,
++          alias
+         );
++        return a.operators[
++          predicate.operator === "equals" ? "eq" : predicate.operator
++        ](left, right);
+       }
+       case "relation":
+         return this.lowerRelationPredicate(predicate, alias);
+@@ -693,7 +666,7 @@ export class Queries {
+   private lowerOperand(
+     scalar: PreparedScalar,
+     operand: PreparedOperand,
+-    alias?: string,
++    alias?: string
+   ): Sql {
+     if (operand.kind === "field")
+       return this.preparedColumn(operand.scalar, alias);
+@@ -718,8 +691,8 @@ export class Queries {
+             return op.in(
+               expression,
+               this.adapter.literals.list(
+-                (operand as unknown[]).map((member) => this.value(member)),
+-              ),
++                (operand as unknown[]).map((member) => this.value(member))
++              )
+             );
+           case "gte":
+           case "gt":
+@@ -729,16 +702,14 @@ export class Queries {
+           case "not":
+             return op.not(this.lowerValuePredicate(expression, operand));
+           default:
+-            throw new Error(
+-              `Raptor 3 G1 filter is not implemented: ${name}`,
+-            );
++            throw new Error(`Raptor 3 G1 filter is not implemented: ${name}`);
+         }
+-      }),
++      })
+     );
+   }
+   private lowerRelationPredicate(
+     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
+-    parentAlias?: string,
++    parentAlias?: string
+   ): Sql {
+     const a = this.adapter;
+     const childAlias = this.alias();
+@@ -748,16 +719,12 @@ export class Queries {
+     const condition = a.operators.and(
+       this.correlation(predicate.edge, parentAlias ?? "", childAlias),
+       ...(nested
+-        ? [
+-            predicate.quantifier === "every"
+-              ? a.operators.not(nested)
+-              : nested,
+-          ]
+-        : []),
++        ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
++        : [])
+     );
+     const query = a.subqueries.existsCheck(
+       this.table(predicate.edge.target, childAlias),
+-      condition,
++      condition
+     );
+     switch (predicate.quantifier) {
+       case "some":
+@@ -767,12 +734,16 @@ export class Queries {
+       case "every":
+         return a.filters.every(query);
+       case "is":
+-        return predicate.predicate ? a.filters.is(query) : a.filters.isNot(query);
++        return predicate.predicate
++          ? a.filters.is(query)
++          : a.filters.isNot(query);
+       case "isNot":
+-        return predicate.predicate ? a.filters.isNot(query) : a.filters.is(query);
++        return predicate.predicate
++          ? a.filters.isNot(query)
++          : a.filters.is(query);
+       default:
+         throw new Error(
+-          `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`,
++          `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`
+         );
+     }
+   }
+@@ -785,7 +756,7 @@ export class Queries {
+   private membershipWhere(
+     edge: Membership,
+     target: string,
+-    source: string | Input,
++    source: string | Input
+   ): Sql {
+     const a = this.adapter;
+     if (edge.kind === "reference") {
+@@ -798,7 +769,7 @@ export class Queries {
+                     ? this.column(edge.source, edge.discriminator.field, source)
+                     : this.value(source[edge.discriminator.field])
+                   : this.column(edge.target, edge.discriminator.field, target),
+-                this.value(edge.discriminator.value),
++                this.value(edge.discriminator.value)
+               ),
+             ]
+           : []),
+@@ -809,9 +780,9 @@ export class Queries {
+               : this.column(edge.target, pair.target, target),
+             typeof source === "string"
+               ? this.column(edge.target, pair.target, target)
+-              : this.fieldValue(edge.target, pair.target, source[pair.source]),
+-          ),
+-        ),
++              : this.fieldValue(edge.target, pair.target, source[pair.source])
++          )
++        )
+       );
+     }
+     const junction = this.alias();
+@@ -824,50 +795,50 @@ export class Queries {
+             : this.fieldValue(
+                 edge.source,
+                 pair.referencedField,
+-                source[pair.referencedField],
+-              ),
+-        ),
++                source[pair.referencedField]
++              )
++        )
+       ),
+       ...edge.targetSide.members.map((pair) =>
+         a.operators.eq(
+           a.identifiers.column(junction, pair.junctionField),
+-          this.column(edge.target, pair.referencedField, target),
+-        ),
++          this.column(edge.target, pair.referencedField, target)
++        )
+       ),
+     ];
+     return a.filters.some(
+       a.subqueries.existsCheck(
+         a.identifiers.table(edge.table, junction),
+-        a.operators.and(...conditions),
+-      ),
++        a.operators.and(...conditions)
++      )
+     );
+   }
+   order(
+     model: AnyModel,
+     input: Arguments["orderBy"],
+-    alias: string,
++    alias: string
+   ): Sql | undefined {
+     if (!input) return undefined;
+     return sql.join(
+       this.orderTerms(model, input, alias).map(({ expression, descending }) =>
+         descending
+           ? this.adapter.orderBy.desc(expression)
+-          : this.adapter.orderBy.asc(expression),
++          : this.adapter.orderBy.asc(expression)
+       ),
+-      ", ",
++      ", "
+     );
+   }
+   private orderTerms(
+     model: AnyModel,
+     input: Arguments["orderBy"],
+-    alias: string,
++    alias: string
+   ): { readonly expression: Sql; readonly descending: boolean }[] {
+     if (!input) return [];
+     return entries(input).flatMap((order) =>
+       Object.entries(order).map(([field, direction]) => ({
+         expression: this.column(model, field, alias),
+         descending: direction === "desc",
+-      })),
++      }))
+     );
+   }
+   select(
+@@ -880,7 +851,7 @@ export class Queries {
+       identity?: Input;
+       projection?: PreparedProjection;
+       selector?: PreparedSelector;
+-    } = {},
++    } = {}
+   ): Query {
+     const alias = this.alias();
+     const prepared = controls.projection ?? this.prepareProjection(model, args);
+@@ -890,9 +861,7 @@ export class Queries {
+       (args.where === undefined
+         ? undefined
+         : this.prepareSelector(model, args.where));
+-    const filter = selector
+-      ? this.lowerSelector(selector, alias)
+-      : undefined;
++    const filter = selector ? this.lowerSelector(selector, alias) : undefined;
+     return {
+       sql: assembleAdapterSelect(this.adapter, {
+         columns: sql.join(projection.columns, ", "),
+@@ -905,7 +874,7 @@ export class Queries {
+           ...(controls.identity
+             ? [this.lowerIdentity(model, controls.identity, alias)]
+             : []),
+-          ...(controls.condition ? [controls.condition] : []),
++          ...(controls.condition ? [controls.condition] : [])
+         ),
+         orderBy: this.order(model, args.orderBy, alias),
+         limit: args.take === undefined ? undefined : this.value(args.take),
+@@ -915,12 +884,17 @@ export class Queries {
+       shape: prepared.shape,
+     };
+   }
+-  selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
++  selectSeries(
++    model: AnyModel,
++    select: Input,
++    identities: Input[],
++    operation: "createMany" | "updateMany" = "createMany"
++  ): Query {
+     const alias = this.alias();
+     const prepared = this.prepareProjection(model, { select });
+     const projection = this.lowerProjection(prepared, alias);
+-    const predicates = identities.map(
+-      (identity) => this.lowerIdentity(model, identity, alias),
++    const predicates = identities.map((identity) =>
++      this.lowerIdentity(model, identity, alias)
+     );
+     return {
+       sql: assembleAdapterSelect(this.adapter, {
+@@ -932,14 +906,16 @@ export class Queries {
+             when,
+             then: this.value(index),
+           })),
+-          this.value(identities.length),
++          this.value(identities.length)
+         ),
+       }),
+       shape: prepared.shape,
+       expectedRows: {
+         count: identities.length,
+         missing:
+-          "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
++          operation === "createMany"
++            ? "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
++            : "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
+       },
+     };
+   }
+@@ -953,19 +929,19 @@ export class Queries {
+       resolved.edge.kind === "variantJunctionCarrier"
+     )
+       throw new Error(
+-        `Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}`,
++        `Raptor 3 recursive traversal requires one ordinary relation: ${traversal.relation}`
+       );
+     const edge = bindMembership(this.schema, model, traversal.relation);
+     if (edge.target !== model)
+       throw new Error(
+-        `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`,
++        `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`
+       );
+     const a = this.adapter;
+     const cteName = this.alias();
+     const occupied = new Set(
+       storedFields(this.schema, model).map((field) =>
+-        this.columnName(model, field),
+-      ),
++        this.columnName(model, field)
++      )
+     );
+     const carrier = (base: string) => {
+       let name = `__${cteName}_${base}`;
+@@ -985,8 +961,8 @@ export class Queries {
+         ? {
+             select: Object.fromEntries(
+               Object.entries(args.select).filter(
+-                ([field]) => field !== traversal.relation,
+-              ),
++                ([field]) => field !== traversal.relation
++              )
+             ),
+           }
+         : {}),
+@@ -994,8 +970,8 @@ export class Queries {
+         ? {
+             include: Object.fromEntries(
+               Object.entries(args.include).filter(
+-                ([field]) => field !== traversal.relation,
+-              ),
++                ([field]) => field !== traversal.relation
++              )
+             ),
+           }
+         : {}),
+@@ -1004,11 +980,11 @@ export class Queries {
+       a.json.object(
+         this.schema
+           .keys(model)
+-          .map((field) => [field, this.projectedColumn(model, field, alias)]),
++          .map((field) => [field, this.projectedColumn(model, field, alias)])
+       );
+     const projectedDocument = (
+       projection: PreparedProjection,
+-      lowered: { readonly entries: [string, Sql][] },
++      lowered: { readonly entries: [string, Sql][] }
+     ) =>
+       a.json.object(
+         lowered.entries.map(([field, expression]) => [
+@@ -1017,14 +993,14 @@ export class Queries {
+           projection.shape.fields[field]!.kind !== "scalar"
+             ? a.json.document(expression)
+             : expression,
+-        ]),
++        ])
+       );
+     const carried = (alias: string) =>
+       storedFields(this.schema, model).map((field) =>
+         a.identifiers.aliased(
+           this.column(model, field, alias),
+-          this.columnName(model, field),
+-        ),
++          this.columnName(model, field)
++        )
+       );
+     const seedShapes: Shape[] = [];
+     const anchors = traversal.seeds.map((seed, index) => {
+@@ -1040,15 +1016,15 @@ export class Queries {
+             a.identifiers.aliased(this.value(0), carriers.depth),
+             a.identifiers.aliased(
+               a.arrays.literal([a.json.document(identityDocument(alias))]),
+-              carriers.path,
++              carriers.path
+             ),
+             a.identifiers.aliased(
+               projectedDocument(projection, lowered),
+-              carriers.value,
++              carriers.value
+             ),
+             ...carried(alias),
+           ],
+-          ", ",
++          ", "
+         ),
+         from: this.table(model, alias),
+         where: this.lowerWhere(model, args.where, alias),
+@@ -1067,26 +1043,26 @@ export class Queries {
+           a.identifiers.aliased(walkColumn(carriers.seed), carriers.seed),
+           a.identifiers.aliased(
+             a.expressions.add(walkColumn(carriers.depth), this.value(1)),
+-            carriers.depth,
++            carriers.depth
+           ),
+           a.identifiers.aliased(
+             a.arrays.push(
+               walkColumn(carriers.path),
+-              a.json.document(childIdentity),
++              a.json.document(childIdentity)
+             ),
+-            carriers.path,
++            carriers.path
+           ),
+           a.identifiers.aliased(
+             projectedDocument(descendant, loweredDescendant),
+-            carriers.value,
++            carriers.value
+           ),
+           ...carried(childAlias),
+         ],
+-        ", ",
++        ", "
+       ),
+       from: sql`${this.table(model, childAlias)} ${a.joins.inner(
+         a.identifiers.aliased(a.identifiers.escape(cteName), walkAlias),
+-        this.correlation(edge, walkAlias, childAlias),
++        this.correlation(edge, walkAlias, childAlias)
+       )}`,
+       where: a.operators.and(
+         a.operators.lt(walkColumn(carriers.depth), this.value(traversal.depth)),
+@@ -1096,9 +1072,9 @@ export class Queries {
+         a.operators.not(
+           a.arrays.has(
+             walkColumn(carriers.path),
+-            a.json.document(childIdentity),
+-          ),
+-        ),
++            a.json.document(childIdentity)
++          )
++        )
+       ),
+     });
+     const finalAlias = this.alias();
+@@ -1112,26 +1088,26 @@ export class Queries {
+               {
+                 when: a.operators.and(
+                   a.operators.eq(finalColumn(carriers.seed), this.value(index)),
+-                  a.operators.eq(finalColumn(carriers.depth), this.value(0)),
++                  a.operators.eq(finalColumn(carriers.depth), this.value(0))
+                 ),
+                 then: expression,
+               },
+             ],
+-            this.value(null),
++            this.value(null)
+           );
+           return descending
+             ? a.orderBy.desc(selected)
+             : a.orderBy.asc(selected);
+-        },
+-      ),
++        }
++      )
+     );
+     const siblingOrder = this.order(model, descendantArgs.orderBy, finalAlias);
+     const final = assembleAdapterSelect(a, {
+       columns: sql.join(
+         Object.values(carriers).map((name) =>
+-          a.identifiers.aliased(finalColumn(name), name),
++          a.identifiers.aliased(finalColumn(name), name)
+         ),
+-        ", ",
++        ", "
+       ),
+       from: a.identifiers.aliased(a.identifiers.escape(cteName), finalAlias),
+       orderBy: sql.join(
+@@ -1143,17 +1119,17 @@ export class Queries {
+           ...this.schema
+             .keys(model)
+             .map((field) =>
+-              a.orderBy.asc(this.column(model, field, finalAlias)),
++              a.orderBy.asc(this.column(model, field, finalAlias))
+             ),
+         ],
+-        ", ",
++        ", "
+       ),
+     });
+     return {
+       sql: sql`${a.cte.recursive(
+         cteName,
+         a.setOperations.unionAll(...anchors),
+-        recursive,
++        recursive
+       )} ${final}`,
+       shape: {
+         kind: "recursive",
+@@ -1167,13 +1143,13 @@ export class Queries {
+   }
+   prepareProjection(
+     model: AnyModel,
+-    args: Partial<Arguments>,
++    args: Partial<Arguments>
+   ): PreparedProjection {
+     const selected = args.select ?? {
+       ...Object.fromEntries(
+         model["~"].scalarFieldNames
+           .filter((field) => !model["~"].state.omit?.[field])
+-          .map((field) => [field, true]),
++          .map((field) => [field, true])
+       ),
+       ...args.include,
+     };
+@@ -1212,7 +1188,7 @@ export class Queries {
+             : configuration[member.variant];
+           const nested = this.prepareRelationProjection(
+             bindMembership(this.schema, model, name, member.variant),
+-            arm === undefined ? true : arm,
++            arm === undefined ? true : arm
+           );
+           arms[member.variant] = nested.edge.many
+             ? Object.freeze({
+@@ -1221,7 +1197,7 @@ export class Queries {
+               })
+             : nested.projection.shape;
+           preparedArms.push(
+-            Object.freeze({ variant: member.variant, ...nested }),
++            Object.freeze({ variant: member.variant, ...nested })
+           );
+         }
+         fields[name] = Object.freeze({
+@@ -1235,13 +1211,13 @@ export class Queries {
+             name,
+             many,
+             arms: Object.freeze(preparedArms),
+-          }),
++          })
+         );
+         continue;
+       }
+       const nested = this.prepareRelationProjection(
+         bindMembership(this.schema, model, name),
+-        selection,
++        selection
+       );
+       fields[name] = nested.edge.many
+         ? Object.freeze({ kind: "collection", row: nested.projection.shape })
+@@ -1256,7 +1232,7 @@ export class Queries {
+   }
+   private prepareRelationProjection(
+     edge: Membership,
+-    selection: unknown,
++    selection: unknown
+   ): PreparedRelationProjection {
+     const nested =
+       selection === true ? {} : (record(selection) as Partial<Arguments>);
+@@ -1275,7 +1251,7 @@ export class Queries {
+   }
+   lowerProjection(
+     projection: PreparedProjection,
+-    alias?: string,
++    alias?: string
+   ): { readonly columns: Sql[]; readonly entries: [string, Sql][] } {
+     const a = this.adapter;
+     const columns: Sql[] = [];
+@@ -1291,7 +1267,7 @@ export class Queries {
+           field.arms.map((arm) => [
+             arm.variant,
+             a.json.document(this.lowerRelationProjection(arm, alias ?? "")),
+-          ]),
++          ])
+         );
+       }
+       columns.push(a.identifiers.aliased(expression, field.name));
+@@ -1301,7 +1277,7 @@ export class Queries {
+   }
+   lowerProjectionValues(
+     projection: PreparedProjection,
+-    values: Input,
++    values: Input
+   ): readonly Sql[] {
+     return projection.fields.map((field) => {
+       const scalar = field as Extract<
+@@ -1310,13 +1286,13 @@ export class Queries {
+       >;
+       return this.adapter.identifiers.aliased(
+         this.fieldValue(projection.model, scalar.name, values[scalar.name]),
+-        scalar.name,
++        scalar.name
+       );
+     });
+   }
+   private lowerRelationProjection(
+     relation: PreparedRelationProjection,
+-    alias: string,
++    alias: string
+   ): Sql {
+     const a = this.adapter;
+     const { edge, arguments: nested, projection } = relation;
+@@ -1330,7 +1306,7 @@ export class Queries {
+         this.correlation(edge, alias, childAlias),
+         ...(nested.selector
+           ? [this.lowerSelector(nested.selector, childAlias)!]
+-          : []),
++          : [])
+       ),
+       orderBy: this.order(edge.target, nested.orderBy, childAlias),
+       limit: !edge.many
+@@ -1347,7 +1323,7 @@ export class Queries {
+         projection.shape.fields[field]!.kind !== "scalar"
+           ? a.json.document(a.identifiers.column(pageAlias, field))
+           : a.identifiers.column(pageAlias, field),
+-      ]),
++      ])
+     );
+     const expression = a.subqueries.scalar(
+       assembleAdapterSelect(a, {
+@@ -1355,7 +1331,7 @@ export class Queries {
+           ? a.expressions.coalesce(a.json.agg(object), a.json.emptyArray())
+           : object,
+         from: a.subqueries.correlate(page, pageAlias),
+-      }),
++      })
+     );
+     return expression;
+   }
+@@ -1366,7 +1342,7 @@ export class Queries {
+     const fields: Record<string, Shape | Leaf> = {};
+     for (const field of args.by!) {
+       columns.push(
+-        a.identifiers.aliased(this.column(model, field, alias), field),
++        a.identifiers.aliased(this.column(model, field, alias), field)
+       );
+       fields[field] = {
+         kind: "scalar",
+@@ -1392,7 +1368,7 @@ export class Queries {
+             field,
+             this.aggregate(aggregate, this.column(model, field, alias)),
+           ];
+-        },
++        }
+       );
+       fields[aggregate] = { kind: "object", fields: nested };
+       columns.push(a.identifiers.aliased(a.json.object(pairs), aggregate));
+@@ -1403,10 +1379,10 @@ export class Queries {
+             Object.entries(record(aggregates)).map(([aggregate, condition]) =>
+               this.lowerValuePredicate(
+                 this.aggregate(aggregate, this.column(model, field, alias)),
+-                condition,
+-              ),
+-            ),
+-          ),
++                condition
++              )
++            )
++          )
+         )
+       : undefined;
+     return {
+@@ -1416,7 +1392,7 @@ export class Queries {
+         where: this.lowerWhere(model, args.where, alias),
+         groupBy: sql.join(
+           args.by!.map((field) => this.column(model, field, alias)),
+-          ", ",
++          ", "
+         ),
+         having,
+         orderBy: this.order(model, args.orderBy, alias),
+@@ -1447,14 +1423,14 @@ export class Queries {
+       throw new QueryEngineError(query.expectedRows.missing);
+     if (query.expectedRows && rows.length > query.expectedRows.count)
+       throw new QueryEngineError(
+-        "Raptor 3 createMany final read returned inconsistent row counts.",
++        "Raptor 3 createMany final read returned inconsistent row counts."
+       );
+     return this.decodeProjection(query.shape, rows, internal);
+   }
+   decodeProjection(
+     shape: ProjectionShape,
+     rows: Input[],
+-    internal = false,
++    internal = false
+   ): Input[] {
+     if (shape.kind === "recursive")
+       return this.decodeRecursive(shape, rows, internal);
+@@ -1463,7 +1439,7 @@ export class Queries {
+   private decodeRecursive(
+     shape: Extract<Shape, { kind: "recursive" }>,
+     rows: Input[],
+-    internal: boolean,
++    internal: boolean
+   ): Input[] {
+     const roots: Input[] = [];
+     const occurrences = new Map<string, Input>();
+@@ -1490,7 +1466,7 @@ export class Queries {
+       const decoded = this.decodeValue(
+         occurrenceShape,
+         row[shape.carriers.value],
+-        internal,
++        internal
+       );
+       if (
+         decoded === null ||
+@@ -1507,7 +1483,7 @@ export class Queries {
+         continue;
+       }
+       const parent = occurrences.get(
+-        `${seed}:${JSON.stringify(path.slice(0, -1))}`,
++        `${seed}:${JSON.stringify(path.slice(0, -1))}`
+       );
+       if (!parent)
+         throw new TypeError("Invalid provider recursive parent occurrence");
+@@ -1523,7 +1499,7 @@ export class Queries {
+   private decodeValue(
+     shape: Shape | Leaf,
+     value: unknown,
+-    internal: boolean,
++    internal: boolean
+   ): unknown {
+     if (shape.kind === "scalar") {
+       if (value === null && shape.nullable) return null;
+@@ -1536,7 +1512,7 @@ export class Queries {
+         if (decoded === undefined)
+           throw new InvalidScalarResult(
+             "decimal",
+-            "the value is not an exact decimal in this column's declared domain",
++            "the value is not an exact decimal in this column's declared domain"
+           );
+         return decoded;
+       }
+@@ -1545,7 +1521,7 @@ export class Queries {
+         if (typeof number !== "number" || !Number.isSafeInteger(number))
+           throw new InvalidScalarResult(
+             "int",
+-            "the value is not a canonical integer",
++            "the value is not a canonical integer"
+           );
+         return number;
+       }
+@@ -1585,7 +1561,7 @@ export class Queries {
+       Object.entries(shape.fields).map(([field, nested]) => [
+         field,
+         this.decodeValue(nested, record(decoded)[field], internal),
+-      ]),
++      ])
+     );
+   }
+ }

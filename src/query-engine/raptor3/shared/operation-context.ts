@@ -37,7 +37,7 @@ import {
 import { type Membership, physicalField } from "./storage";
 import { TransportAttempt } from "./transport-attempt";
 
-export type Member = object & { readonly memberPath?: readonly number[] };
+export type Member = object;
 
 export type ExecutionBinding =
   | { readonly kind: "borrowed-transaction"; readonly driver: AnyDriver }
@@ -57,11 +57,14 @@ export class OperationContext {
   private transport: AnyDriver;
   private attempt = new TransportAttempt();
   private readonly committedMembers = new Set<Member>();
+  private readonly memberAttribution = new WeakMap<
+    Member,
+    { readonly path: readonly number[]; readonly totalMembers: number }
+  >();
   private readonly continuations: { query: Query; model: AnyModel }[] = [];
   private committedSegments = 0;
   private mayHaveCommittedSegment: true | undefined;
   private completedMembers = 0;
-  private totalMembers: number | undefined;
   private memberAdmissionStarted = false;
   private atomicAssertionRejection?: unknown;
   private readonly incompletePreparation = new Error(
@@ -130,19 +133,18 @@ export class OperationContext {
     if (member) this.attempt.pendingMembers.add(member);
     return query;
   }
-  beginSeries(): void {
-    this.totalMembers = undefined;
-  }
   prepareMembers<T extends Member>(prepare: () => T[], parent?: Member): T[] {
     this.memberAdmissionStarted = true;
     try {
       const members = prepare();
-      if (parent) {
-        const path = parent.memberPath ?? [];
-        this.totalMembers = path.length === 0 ? members.length : undefined;
-        for (const [index, member] of members.entries())
-          Object.assign(member, { memberPath: [...path, index] });
-      }
+      const path = parent
+        ? (this.memberAttribution.get(parent)?.path ?? [])
+        : [];
+      for (const [index, member] of members.entries())
+        this.memberAttribution.set(member, {
+          path: [...path, index],
+          totalMembers: members.length,
+        });
       return members;
     } catch (error) {
       throw this.failure(error, "planning", parent);
@@ -217,27 +219,34 @@ export class OperationContext {
     phase: RecordSeriesProgress["phase"],
     member?: Member
   ): unknown {
+    let failure = error;
+    if (error instanceof InvalidScalarResult) {
+      const driver = this.driver.driverName;
+      const operation = this.operation;
+      const scalarType = error.scalarType;
+      failure = new QueryEngineError(
+        `Driver "${driver}" returned a malformed ${scalarType} scalar for operation "${operation}": ${error.reason}.`,
+        { meta: { driver, operation, scalarType } }
+      );
+    }
+    const attribution = member ? this.memberAttribution.get(member) : undefined;
     return this.usesBatch &&
       (phase === "prefix" ||
         this.committedSegments > 0 ||
         this.mayHaveCommittedSegment)
-      ? attachRecordSeriesProgress(error, {
+      ? attachRecordSeriesProgress(failure, {
           atomicity: "segment",
           phase,
           committedSegments: this.committedSegments,
           committedWriteMembers: this.committedMembers.size,
           completedMembers: this.completedMembers,
-          ...(member?.memberPath?.length
-            ? { memberPath: member.memberPath }
-            : {}),
-          ...(this.totalMembers === undefined
-            ? {}
-            : { totalMembers: this.totalMembers }),
+          ...(attribution?.path.length ? { memberPath: attribution.path } : {}),
+          ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
           ...(this.mayHaveCommittedSegment
             ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
             : {})
         })
-      : error;
+      : failure;
   }
   async run<T>(body: () => Promise<T>): Promise<T> {
     try {
@@ -249,15 +258,7 @@ export class OperationContext {
       )
         return await body();
       if (this.ownership === "borrowed-transaction") return await body();
-      if (this.usesBatch) {
-        try {
-          return await body();
-        } catch (error) {
-          throw this.continuations.length
-            ? this.failure(error, "member")
-            : error;
-        }
-      }
+      if (this.usesBatch) return await body();
       return await this.driver.withTransaction(
         async (transaction) => {
           this.transport = transaction;
@@ -271,14 +272,16 @@ export class OperationContext {
         this.attribution
       );
     } catch (error) {
-      if (!(error instanceof InvalidScalarResult)) throw error;
-      const driver = this.driver.driverName;
-      const operation = this.operation;
-      const scalarType = error.scalarType;
-      throw new QueryEngineError(
-        `Driver "${driver}" returned a malformed ${scalarType} scalar for operation "${operation}": ${error.reason}.`,
-        { meta: { driver, operation, scalarType } }
-      );
+      if (
+        error instanceof InvalidScalarResult ||
+        (this.usesBatch &&
+          (this.continuations.length || this.committedSegments > 0))
+      )
+        throw this.failure(
+          error,
+          error instanceof InvalidScalarResult ? "result" : "member"
+        );
+      throw error;
     }
   }
   async read(query: Query, internal = false): Promise<Input[]> {
@@ -532,7 +535,7 @@ export class OperationContext {
         ? this.queries.decodeQuery(query, responses[resultIndex]!.rows)
         : [];
     } catch (error) {
-      throw this.continuations.length ? this.failure(error, "result") : error;
+      throw query ? this.failure(error, "result") : error;
     }
   }
   isIncompletePreparation(error: unknown): boolean {
@@ -637,7 +640,8 @@ export class OperationContext {
   async updateMany(
     model: AnyModel,
     where: Input | undefined,
-    values: Input
+    values: Input,
+    limit?: number
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -647,11 +651,15 @@ export class OperationContext {
         q.updateValue(model, field, value)
       )
     );
-    const statement = adapter.mutations.update(
+    const limited = q.lowerMutationLimit(model, where, limit);
+    const mutation = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
-      q.lowerWhere(model, where)
+      limited.where
     );
+    const statement = limited.suffix
+      ? sql`${mutation} ${limited.suffix}`
+      : mutation;
     return this.setMutation(
       statement,
       this.statementContext(model, "updateMany"),
@@ -660,13 +668,16 @@ export class OperationContext {
   }
   async deleteMany(
     model: AnyModel,
-    where: Input | undefined
+    where: Input | undefined,
+    limit?: number
   ): Promise<unknown> {
+    const limited = this.queries.lowerMutationLimit(model, where, limit);
+    const mutation = this.driver.adapter.mutations.delete(
+      this.queries.table(model),
+      limited.where
+    );
     return this.setMutation(
-      this.driver.adapter.mutations.delete(
-        this.queries.table(model),
-        this.queries.lowerWhere(model, where)
-      ),
+      limited.suffix ? sql`${mutation} ${limited.suffix}` : mutation,
       this.statementContext(model, "deleteMany"),
       (result) => ({ count: result.rowCount })
     );

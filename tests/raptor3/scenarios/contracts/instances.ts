@@ -2,9 +2,57 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import { isRecord } from "@validation/value-guards";
-import type { ScenarioDefinition } from "../../harness/protocol";
-import type { ObservedWorld } from "../../harness/sqlite-world";
 import { assertEquivalentRunObservations } from "../../../../benchmarks/operation-pipeline-semantics.mjs";
+import type {
+  OperationOutcome,
+  ScenarioDefinition,
+} from "../../harness/protocol";
+import type { ObservedWorld } from "../../harness/sqlite-world";
+
+export function verifyChangedDependencyCommandsProgress(
+  baselineOutcome: OperationOutcome,
+  comparedOutcome: OperationOutcome
+): void {
+  assert.equal(baselineOutcome.kind, "failure");
+  assert.equal(comparedOutcome.kind, "failure");
+  assert(isRecord(baselineOutcome.failure.meta));
+  assert(isRecord(comparedOutcome.failure.meta));
+  assert(isRecord(baselineOutcome.failure.meta.recordSeriesProgress));
+  assert(isRecord(comparedOutcome.failure.meta.recordSeriesProgress));
+  const baselineProgress = baselineOutcome.failure.meta.recordSeriesProgress;
+  const comparedProgress = comparedOutcome.failure.meta.recordSeriesProgress;
+  assert.deepEqual(comparedProgress, {
+    atomicity: "segment",
+    phase: "planning",
+    committedSegments: 1,
+    committedWriteMembers: 1,
+    completedMembers: 0,
+    memberPath: [1],
+    totalMembers: 2,
+  });
+  assert.deepEqual(
+    Object.entries(comparedProgress).filter(
+      ([field]) => field !== "memberPath" && field !== "totalMembers"
+    ),
+    Object.entries(baselineProgress)
+  );
+  assert.deepEqual(
+    Object.entries(comparedOutcome.failure.meta).filter(
+      ([field]) => field !== "recordSeriesProgress"
+    ),
+    Object.entries(baselineOutcome.failure.meta).filter(
+      ([field]) => field !== "recordSeriesProgress"
+    )
+  );
+  assert.deepEqual(
+    Object.entries(comparedOutcome.failure).filter(
+      ([field]) => field !== "meta"
+    ),
+    Object.entries(baselineOutcome.failure).filter(
+      ([field]) => field !== "meta"
+    )
+  );
+}
 
 /** Compare only the two explicitly adjudicated S2 admission contracts. */
 export function verifyInstanceAdmissionPair(
@@ -29,10 +77,20 @@ export function verifyInstanceAdmissionPair(
       }),
     };
   }
+  let baselineOutcome = baseline.observation.outcome;
+  const comparedOutcome = compared.observation.outcome;
+  if (
+    id === "s2-changed-dependency" &&
+    compared.record.candidate === "commands" &&
+    compared.record.profile === "sqlite-atomic-batch"
+  ) {
+    verifyChangedDependencyCommandsProgress(baselineOutcome, comparedOutcome);
+    baselineOutcome = comparedOutcome;
+  }
   // Both raw ledgers and generated IDs are pinned by the exact oracles above.
   assertEquivalentRunObservations(
     id,
-    { ...baseline.observation, final, defaults: [] },
+    { ...baseline.observation, outcome: baselineOutcome, final, defaults: [] },
     { ...compared.observation, defaults: [] }
   );
 }
@@ -125,12 +183,12 @@ const distinctDefaults: ScenarioDefinition = {
           { name: "ticket.id", value: "ticket-1" },
           { name: "ticket.id", value: "ticket-2" },
           { name: "ticket.id", value: "ticket-3" },
-          ...(!singleAdmission
-            ? [
+          ...(singleAdmission
+            ? []
+            : [
                 { name: "ticket.id", value: "ticket-4" },
                 { name: "ticket.id", value: "ticket-5" },
-              ]
-            : []),
+              ]),
         ]);
         assert.deepEqual(observation.final, {
           bins,
@@ -304,7 +362,7 @@ const changedDependency: ScenarioDefinition = {
         assert.deepEqual(observation.defaults, [
           { name: "target.id", value: 1 },
           { name: "target.id", value: 1 },
-          ...(!singleAdmission ? [{ name: "target.id", value: 1 }] : []),
+          ...(singleAdmission ? [] : [{ name: "target.id", value: 1 }]),
           { name: "target.id", value: 2 },
         ]);
         assert.deepEqual(observation.final, {

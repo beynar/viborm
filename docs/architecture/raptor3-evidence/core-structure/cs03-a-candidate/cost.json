@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "status": "candidate-a-checkpoint-complete",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The same 12 Raptor command and shared owners used by the accepted CS-02 candidate census.",
+      "broader": "The same 28 complete production owners used by the accepted CS-02 candidate census; no new production owner was added."
+    }
+  },
+  "scopeBaseline": {
+    "productionIdentity": "f151ae5892627324cd95a4e71655c7bf8e27f1aabecd890c920e610b219ae70d",
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6489,
+      "actualParserTokens": 40505,
+      "sourceBytes": 215249
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10563,
+      "actualParserTokens": 65129,
+      "sourceBytes": 448296
+    }
+  },
+  "candidateA": {
+    "productionIdentity": "2464c330231eb55ce5c48707085464dd889c396f620316f3b05f7b153cfb70ea",
+    "receiptHarnessIdentity": "6cce5d45aff555110eeeb3bf61139e6181cb68d6c7cdab1083b996d2fc9de07d",
+    "runtime": "v24.21.0",
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6593,
+      "actualParserTokens": 41108,
+      "sourceBytes": 218919
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10667,
+      "actualParserTokens": 65732,
+      "sourceBytes": 451966
+    }
+  },
+  "delta": {
+    "core": {
+      "files": 0,
+      "codeBearingLines": 104,
+      "actualParserTokens": 603,
+      "sourceBytes": 3670
+    },
+    "broader": {
+      "files": 0,
+      "codeBearingLines": 104,
+      "actualParserTokens": 603,
+      "sourceBytes": 3670
+    }
+  },
+  "claim": "Candidate extension A costs +104 code-bearing lines, +603 actual parser tokens, and +3670 source bytes from the accepted candidate scope baseline. This is an extension cost, not a compression saving."
+}

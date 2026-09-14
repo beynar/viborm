@@ -346,9 +346,20 @@ export const G25_CASE_IDS = [
   "g25-supplier-parent-fields",
 ] as const;
 
+export const CS03_EXTENSION_CASE_IDS = [
+  "cs03-extension-a",
+  "cs03-extension-b",
+  "cs03-extension-composition",
+] as const;
+
 export type ScenarioId =
   | "g1-generated-relations"
   | "g2-generated-transitions"
+  | "cs03-peer-scope-root"
+  | "cs03-peer-scope-nested"
+  | "cs03-peer-scope-surrounding"
+  | "cs03-peer-scope-static"
+  | (typeof CS03_EXTENSION_CASE_IDS)[number]
   | (typeof G0_CASE_IDS)[number]
   | (typeof HARNESS_CASE_IDS)[number]
   | (typeof G1_CASE_IDS)[number]

@@ -1,0 +1,252 @@
+{
+  "version": 1,
+  "status": "post-materialization-repair-source-freeze",
+  "productionIdentity": "36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377",
+  "harnessIdentity": "87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e",
+  "runtime": "v24.21.0",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count."
+  },
+  "totals": {
+    "core": {
+      "files": 12,
+      "codeBearingLines": 6598,
+      "actualParserTokens": 41111,
+      "sourceBytes": 218915
+    },
+    "broader": {
+      "files": 28,
+      "codeBearingLines": 10672,
+      "actualParserTokens": 65735,
+      "sourceBytes": 451962
+    }
+  },
+  "files": [
+    {
+      "file": "src/query-engine/raptor3/commands/assignments.ts",
+      "scope": "core",
+      "sha256": "74fcb70cac0759979ab782c4717ca930191a19687dea58d87eac74f1551985fe",
+      "codeBearingLines": 153,
+      "actualParserTokens": 1031,
+      "sourceBytes": 4831
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/command-attempt.ts",
+      "scope": "core",
+      "sha256": "2ba67e941c58e0c4bc0cfd54693730495e418d7e10540799b2dc35048b2f6464",
+      "codeBearingLines": 85,
+      "actualParserTokens": 654,
+      "sourceBytes": 2948
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/commands.ts",
+      "scope": "core",
+      "sha256": "862e033b32c39f0eacb55ea2df24c29dd1a88909de2c3799cc25994d90a503c5",
+      "codeBearingLines": 1140,
+      "actualParserTokens": 7013,
+      "sourceBytes": 38446
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/execution.ts",
+      "scope": "core",
+      "sha256": "9d8db4f08ac71181a7aa80e75f55a7b9e5519ba124f275366bbe5db5113aa26b",
+      "codeBearingLines": 744,
+      "actualParserTokens": 4732,
+      "sourceBytes": 25540
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/index.ts",
+      "scope": "core",
+      "sha256": "2037ffc4a19baad8c28911a3b5226bd508b6b8f3719d81af0b6a5f3b39433d02",
+      "codeBearingLines": 100,
+      "actualParserTokens": 491,
+      "sourceBytes": 2901
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/relation-body.ts",
+      "scope": "core",
+      "sha256": "79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2",
+      "codeBearingLines": 848,
+      "actualParserTokens": 4730,
+      "sourceBytes": 28322
+    },
+    {
+      "file": "src/query-engine/raptor3/commands/selection.ts",
+      "scope": "core",
+      "sha256": "874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8",
+      "codeBearingLines": 142,
+      "actualParserTokens": 759,
+      "sourceBytes": 4159
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/operation-context.ts",
+      "scope": "core",
+      "sha256": "9664bcd3c8727a374e9ca21b0884970b8424115481fe7b063f0e794cd4f1528c",
+      "codeBearingLines": 1246,
+      "actualParserTokens": 7744,
+      "sourceBytes": 41845
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/query.ts",
+      "scope": "core",
+      "sha256": "b04716c0fa92d17dac2304d5168fb924aa0295038843b8b7cb43487ac624860b",
+      "codeBearingLines": 1636,
+      "actualParserTokens": 10856,
+      "sourceBytes": 54051
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/schema.ts",
+      "scope": "core",
+      "sha256": "90341676ea70c610ee56204ceaaac27aad84bf24ad46458bd2b03d439b6aa771",
+      "codeBearingLines": 289,
+      "actualParserTokens": 1740,
+      "sourceBytes": 8894
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/storage.ts",
+      "scope": "core",
+      "sha256": "4802bc61e01a3835096ec41c9c27afd2107518a6ba18813fc5bad284c21b42d2",
+      "codeBearingLines": 199,
+      "actualParserTokens": 1243,
+      "sourceBytes": 6289
+    },
+    {
+      "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+      "scope": "core",
+      "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643",
+      "codeBearingLines": 16,
+      "actualParserTokens": 118,
+      "sourceBytes": 689
+    },
+    {
+      "file": "src/adapters/adapter-core-types.ts",
+      "scope": "broader-only",
+      "sha256": "958aff3a62e867473064ff98eaaa82d43d653005c5bbc42e598e6600ba0a8c55",
+      "codeBearingLines": 15,
+      "actualParserTokens": 129,
+      "sourceBytes": 2618
+    },
+    {
+      "file": "src/adapters/adapter-internals.ts",
+      "scope": "broader-only",
+      "sha256": "f17f7af75dd779469e360ba87b72a1f8c31d583cbf4661bd03f0609fbb0c7e4e",
+      "codeBearingLines": 47,
+      "actualParserTokens": 226,
+      "sourceBytes": 1760
+    },
+    {
+      "file": "src/adapters/constraint-identity.ts",
+      "scope": "broader-only",
+      "sha256": "30fdcf3887a352d72d999a78a06e0c0924de6655b63f5111dbb68ae0ba06d1b7",
+      "codeBearingLines": 47,
+      "actualParserTokens": 272,
+      "sourceBytes": 1763
+    },
+    {
+      "file": "src/adapters/databases/mysql/mysql-adapter.ts",
+      "scope": "broader-only",
+      "sha256": "62e605676cd3537ba63d2abbdd65f1fa9d6d66214fa48c7627934223d61669be",
+      "codeBearingLines": 557,
+      "actualParserTokens": 3902,
+      "sourceBytes": 44425
+    },
+    {
+      "file": "src/adapters/databases/postgres/postgres-adapter.ts",
+      "scope": "broader-only",
+      "sha256": "050657a060687d64a673e24c3f226b492a6a412037811ade7be31e745a5142e9",
+      "codeBearingLines": 371,
+      "actualParserTokens": 2734,
+      "sourceBytes": 27107
+    },
+    {
+      "file": "src/adapters/databases/sqlite/sqlite-adapter.ts",
+      "scope": "broader-only",
+      "sha256": "cc772ecdb771fe02d2bdf8464e6b542ffa9d8e507a91fdb7ca53ffafe55de8e3",
+      "codeBearingLines": 445,
+      "actualParserTokens": 2980,
+      "sourceBytes": 36532
+    },
+    {
+      "file": "src/adapters/shared/batch-refs.ts",
+      "scope": "broader-only",
+      "sha256": "5654fba299e4020529de1adf31865d11711dc91f543536549a4f9fc45f7af7d2",
+      "codeBearingLines": 59,
+      "actualParserTokens": 411,
+      "sourceBytes": 2280
+    },
+    {
+      "file": "src/drivers/error-mapping.ts",
+      "scope": "broader-only",
+      "sha256": "860a2b156cee471ce086490160bc454006ebd30eccf4d7026062e7db303c6408",
+      "codeBearingLines": 460,
+      "actualParserTokens": 2148,
+      "sourceBytes": 17730
+    },
+    {
+      "file": "src/query-engine/JunctionStatements.ts",
+      "scope": "broader-only",
+      "sha256": "b3b8a08fe8d1e2e18ff69e45013023094015a238d6113e7b6e669301fb8df3bc",
+      "codeBearingLines": 493,
+      "actualParserTokens": 2679,
+      "sourceBytes": 19105
+    },
+    {
+      "file": "src/query-engine/types.ts",
+      "scope": "broader-only",
+      "sha256": "8dec9a323f923ccbc2a3b8dc6e514277d1fbc599024f0c250ac9853a91f71281",
+      "codeBearingLines": 289,
+      "actualParserTokens": 1392,
+      "sourceBytes": 15839
+    },
+    {
+      "file": "src/query-engine/unique-conflict-target.ts",
+      "scope": "broader-only",
+      "sha256": "338c89071876f938ebf3f45c09aa3720995b8a824c84747aa1850198e71e85d4",
+      "codeBearingLines": 43,
+      "actualParserTokens": 351,
+      "sourceBytes": 2563
+    },
+    {
+      "file": "src/query-engine/write-engine/parse-boundary.ts",
+      "scope": "broader-only",
+      "sha256": "b42a5f85f4b41d6a5deccfb5242335904daabe9f3dbd3b5ae28b9e5d64bc9696",
+      "codeBearingLines": 41,
+      "actualParserTokens": 270,
+      "sourceBytes": 4755
+    },
+    {
+      "file": "src/schema/model/keys.ts",
+      "scope": "broader-only",
+      "sha256": "95e6185f8ded9c41fc536166df415ddca65b233d33e5583f97c57ca06529d0f5",
+      "codeBearingLines": 138,
+      "actualParserTokens": 963,
+      "sourceBytes": 10247
+    },
+    {
+      "file": "src/schema/model/model.ts",
+      "scope": "broader-only",
+      "sha256": "3864cbd2ae327a4b249ee257f6d10d8ce39ec06779dbfc52e8fe26e537b1f4ce",
+      "codeBearingLines": 422,
+      "actualParserTokens": 2586,
+      "sourceBytes": 22177
+    },
+    {
+      "file": "src/schema/validation/rules/model.ts",
+      "scope": "broader-only",
+      "sha256": "b3d8f1f0ecd3b3acd757ee6ea55de3f00c98dba801918b53741f1e871dbcb0eb",
+      "codeBearingLines": 471,
+      "actualParserTokens": 2529,
+      "sourceBytes": 16048
+    },
+    {
+      "file": "src/schema/validation/validator.ts",
+      "scope": "broader-only",
+      "sha256": "de94dbb0122af09561556685db302ea9e702574f061d23486799816e58f60a0a",
+      "codeBearingLines": 176,
+      "actualParserTokens": 1052,
+      "sourceBytes": 8098
+    }
+  ]
+}

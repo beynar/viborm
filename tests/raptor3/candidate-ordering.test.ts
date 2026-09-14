@@ -56,6 +56,7 @@ for (const [name, factory] of Object.entries(candidates)) {
 
       const candidate = await runSQLiteWorld(reorderedDependency, profile, 0, {
         candidateFactory: factory,
+        ...(name === "commands" ? { candidateName: "commands" as const } : {}),
       });
       verifyInstanceAdmissionPair(reordered, candidate);
     });

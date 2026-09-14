@@ -26,6 +26,7 @@ export interface ScenarioControls {
   readonly clockEpochMs: number;
   readonly fault?: ControlledFault;
   recordDefault(name: string, value: string | number): void;
+  recordCut(name: string): void;
 }
 
 export type ControlledFault =

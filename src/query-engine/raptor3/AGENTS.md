@@ -79,13 +79,25 @@ scope, remain symbolic operands, and never become literal equality,
 disjointness, or exact-recovery proof. Do not add a second selector walker,
 retain a raw selector as another semantic authority, or cache attempt SQL.
 
-`Commands.analyze` owns one ordered occurrence history per admitted command
-root. Ordinary and series recursion append to that history in place. Only a
-choice with two real arms detaches each arm's suffix so both analyze against the
-same common prefix, then restores both possible suffixes for later siblings.
-Single arms do not copy history. Preserve repeated command occurrences by
-identity, and start dynamic selected-series member analysis with a fresh root
-history; do not replace the ordered array with a set or copy ancestor prefixes.
+`Commands.analyze` materializes one placement-owned `CommandOccurrence` tree
+from immutable command recipes. Reusing a command or `Selection` never reuses
+occurrence ancestry, children, refusal, or attempt state. Choice arms and static
+or selected-series members remain children of their actual placement. A series
+capture and its selected-series target are sibling recipe children of one
+lexical parent. Materialization resolves that pair within the parent's local
+direct-child correspondence, then recurses with fresh correspondence for each
+child; never resolve descendants through one shared replacement map. A
+symbolic membership contribution contains finalized recipe meaning but no
+runtime owner; the containing dependency write's occurrence is the sole current
+placement owner.
+
+Dependency analysis is read-driven over that same occurrence tree. A read
+visits logically preceding candidate writes through parent and sibling
+ancestry; a new write visits only the later retained reads it can affect.
+Thread the already-known branch path through traversal, including known absence,
+instead of reconstructing it per node. Opposite choice arms remain incompatible.
+Do not add a flat history, copied prefixes, detach/restore suffixes, owner scan,
+canonical runtime registry, or cache of traversal position.
 
 One selected-series mechanism serves root and nested placements. A series'
 collection filter selects its occurrences;
@@ -99,6 +111,42 @@ prepare and analyze all captured members before executing any member. Supplier
 modifiers do not gain collection admission. When a committed prefix can discard
 scratch storage, materialize every live demanded binding inside that same prefix
 submission, before its acknowledgement, not merely the immediate supplier fields.
+Root and nested selected series register through the same `Commands` analysis
+owner. The admitted template remains distinct from its exact member occurrences;
+template disjointness is not proof that a later member is disjoint. Member
+substitution reuses admitted values and never invokes defaults or transforms
+again.
+
+Ordered peer series members may observe effects from earlier peer members; an
+earlier peer is not a write inside the next member's record body. Derive this
+boundary from static-series or selected-series ancestry. Preserve checks within
+one member, outer-prefix versus member checks, branch activation, and the union
+of member writes seen by later surrounding reads. Prepare and admit every member
+before any member effect.
+
+Private relation-bearing root `updateMany({ select })` uses the same selected-
+series completion and terminal-reader owner as `createMany`. Read final complete
+keys only after all member effects. A missing update row is an operation-specific
+`TransactionError`; create-series underflow retains its `QueryEngineError`.
+Scalar mutation limits remain set-oriented. Relation-bearing limits cap capture
+before member admission, and zero returns after ordinary operation admission but
+before SQL or member admission. Adapter capabilities own dialect syntax; A+B
+composition adds no third execution path.
+
+Every existing `Choose` arm, including an absent found or missing arm, owns its
+conditional refusal until execution observes the choice. An untaken arm cannot
+reject an earlier dynamic member, while the taken arm retains the dependency
+failure. Do not cache absence, flatten arm reads into the enclosing series, or
+add verb- or placement-specific branch flags.
+
+`OperationContext` owns selected-series occurrence path, cardinality, and
+acknowledged progress. Prepared commands carry none of those execution facts,
+and there is no ambient total-member counter. A failure after a finished series
+must keep truthful operation progress without borrowing the finished member's
+path or cardinality. Translate a malformed provider result at the existing
+driver/scalar boundary before attaching result-phase progress; do not replace
+its error identity with a generic record-series failure or replay acknowledged
+work.
 
 Fixed and variant slots bind the same membership vocabulary from the resolved
 schema index. Public variant tags, stored discriminators and compound reference
@@ -113,6 +161,10 @@ flattens variant arms in schema order.
 OwnWrite membership analysis reads actual assignment contributions and their
 logical command owners. Membership scope is the existing resolved edge and
 selected member identity, not a shared-column intersection or public slot name.
+A lookup's own outgoing clear contribution is not an external membership
+dependency on that lookup; ignore only that exact owner identity. Always retain
+the target read and contributions from every other owner, including another
+operation on the same edge or member.
 A targetless carrier clear spans that carrier's members; tagged contributions
 retain their exact member. Root-phase direct disconnect and a folded connection's
 actual Choose occurrence must not be preseeded as the same execution phase.
@@ -223,9 +275,12 @@ provider failures surface. Scalar `createMany`, scalar `updateMany`, and
 `updateMany` stays on the ordinary captured-record series in its provider order.
 An admitted empty `createMany` is a completed zero-query package whose parser
 returns `{ count: 0 }`, or `[]` for the selected form; it is not incomplete
-planning and emits no dummy statement. Unsupported `updateMany` `limit`,
-`select`, and `omit` capabilities are refused once before choosing scalar set
-execution or a relation-bearing series.
+planning and emits no dummy statement. Admitted `updateMany`/`deleteMany`
+limits and relation-bearing `updateMany` terminal selection reuse these same
+set or captured-series owners. Scalar-return selection, scalar `omit`, relation
+`omit`, and relation projection remain refused at their existing boundary; an
+incompletely packageable operation still returns only the dynamic-planning
+sentinel.
 The existing client array owner alone merges package windows or supplies one
 borrowed transaction for sequential fallback. Do not add a candidate-owned
 array coordinator, transaction protocol, or standalone segment fallback.

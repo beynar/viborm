@@ -206,6 +206,11 @@ export async function runSQLiteWorld(
     options.eventLimit ?? recordingEventLimit(scenario.id)
   );
   const defaults: DefaultObservation[] = [];
+  const reachedCuts: string[] = [];
+  const recordCut = (name: string) => {
+    reachedCuts.push(name);
+    recorder.record({ kind: "cut", name });
+  };
   const fixture = scenario.prepare({
     profile,
     seed,
@@ -216,11 +221,11 @@ export async function runSQLiteWorld(
       defaults.push(observation);
       recorder.record({ kind: "default", observation });
     },
+    recordCut,
   });
   const database = new Database(":memory:");
   database.pragma("foreign_keys = ON");
   const statements: StatementCompletion[] = [];
-  const reachedCuts: string[] = [];
   let observationFailure: unknown;
   const nativeExec = database.exec;
   let rollbackFaultInjected = false;
@@ -246,10 +251,7 @@ export async function runSQLiteWorld(
       recorder.record({ kind: "transaction", phase });
       try {
         const cut = fixture.afterTransaction?.(database, phase);
-        if (cut) {
-          reachedCuts.push(cut);
-          recorder.record({ kind: "cut", name: cut });
-        }
+        if (cut) recordCut(cut);
       } catch (failure) {
         observationFailure ??= failure;
         throw failure;
@@ -280,8 +282,7 @@ export async function runSQLiteWorld(
             ? [observed]
             : observed;
       for (const cut of cuts) {
-        reachedCuts.push(cut);
-        recorder.record({ kind: "cut", name: cut });
+        recordCut(cut);
       }
     } catch (failure) {
       // A fixture assertion must not be mistaken for an expected ORM refusal.

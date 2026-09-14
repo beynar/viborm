@@ -1,0 +1,4 @@
+PostgreSQL: 9 registered modes, 56 tests passed, 0 failed. Image digest: sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b.
+MySQL: 8 registered modes, 45 tests passed, 0 failed. Image digest: sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb.
+Both providers used a random loopback port, 2 CPUs, 1 GiB, tmpfs provider data, no host mount, OOMKilled false, restart count 0, exact-ID removal, and an empty final task-label census.
+The archive directories are keyed by verified.mode. In particular, the MySQL g27 receipt is not represented as g25 coverage.

@@ -66,6 +66,33 @@ import {
   POST_G3_SELECTOR_PREPARATION_TESTS,
   POST_G3_HISTORY_ANALYSIS_COUNTS,
   POST_G3_HISTORY_ANALYSIS_TESTS,
+  G29_MEMBER_DEPENDENCY_COUNTS,
+  G29_MEMBER_DEPENDENCY_TESTS,
+  G29_DEPENDENCY_BOUNDARY_COUNTS,
+  G29_DEPENDENCY_BOUNDARY_TESTS,
+  G29_DEPENDENCY_CHOICE_COUNTS,
+  G29_DEPENDENCY_CHOICE_TESTS,
+  G29_RESULT_PROGRESS_COUNTS,
+  G29_RESULT_PROGRESS_TESTS,
+  CS01_STRUCTURAL_REFERENCE_COUNTS,
+  CS01_STRUCTURAL_REFERENCE_TESTS,
+  CS01_EXTENSION_A_COUNTS,
+  CS01_EXTENSION_A_TESTS,
+  CS01_EXTENSION_B_COUNTS,
+  CS01_EXTENSION_B_TESTS,
+  CS01_EXTENSION_COMPOSITION_COUNTS,
+  CS01_EXTENSION_COMPOSITION_TESTS,
+  CS03_MEMBER_SCOPE_COUNTS,
+  CS03_MEMBER_SCOPE_TESTS,
+  CS03_EXTENSION_CAMPAIGNS,
+  CS03_EXTENSION_CAMPAIGN_COUNTS,
+  CS03_EXTENSION_CAMPAIGN_TESTS,
+  CS02_STRUCTURE_MEASUREMENT_COUNTS,
+  CS02_STRUCTURE_MEASUREMENT_TESTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+  G29_MEMBER_DEPENDENCY_PG_COUNTS,
+  G29_MEMBER_DEPENDENCY_PG_TESTS,
   G3P05_RECURSIVE_READ_FIT_COUNTS,
   G3P05_RECURSIVE_READ_FIT_TESTS,
   G3P05_SELECTOR_DEPENDENCY_COUNTS,
@@ -104,8 +131,49 @@ import {
   G0_RESOURCES,
   captureRaptor3Identity,
   assertRaptor3Identity,
+  assertStructuralMeasurementRuntime,
   assertG0CampaignReceipt,
+  assertExtensionCampaignReceipt,
 } from "./raptor3-manifest.mjs";
+function structuralMeasurementContext(mode, instrumentedIdentity) {
+  if (mode !== "cs02-structure-measure") return undefined;
+  const baseIdentityFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_BASE_IDENTITY;
+  const instrumentationPatchFile = process.env.VIBORM_RAPTOR3_MEASUREMENT_PATCH;
+  const alternative = process.env.VIBORM_RAPTOR3_MEASUREMENT_ALTERNATIVE;
+  assert(
+    baseIdentityFile,
+    "Structural measurement requires its base identity file"
+  );
+  assert(
+    instrumentationPatchFile,
+    "Structural measurement requires its instrumentation patch"
+  );
+  assert(
+    alternative === "flat-history-reference" ||
+      alternative === "shared-occurrence-candidate",
+    "Structural measurement requires one named alternative"
+  );
+  const resolvedBaseIdentity = resolve(baseIdentityFile);
+  const resolvedPatch = resolve(instrumentationPatchFile);
+  assert(
+    existsSync(resolvedBaseIdentity),
+    "Structural measurement base identity is missing"
+  );
+  assert(existsSync(resolvedPatch), "Structural measurement patch is missing");
+  const baseIdentity = JSON.parse(readFileSync(resolvedBaseIdentity, "utf8"));
+  assertStructuralMeasurementRuntime(baseIdentity, instrumentedIdentity);
+  assert.notDeepEqual(
+    baseIdentity,
+    instrumentedIdentity,
+    "Structural measurement instrumentation did not change the executed identity"
+  );
+  return {
+    alternative,
+    baseIdentity,
+    instrumentedIdentity,
+    instrumentationPatchFile: resolvedPatch,
+  };
+}
 
 function campaignFor(mode) {
   const campaigns = mode.startsWith("g3p06-")
@@ -121,7 +189,7 @@ function campaignFor(mode) {
 
 export function parseRaptor3Request(arguments_) {
   const limitArguments = arguments_.filter((argument) =>
-    argument.startsWith("--wall-limit-ms="),
+    argument.startsWith("--wall-limit-ms=")
   );
   assert(limitArguments.length <= 1, "Wall limit may be specified only once");
   const wallMs =
@@ -130,10 +198,10 @@ export function parseRaptor3Request(arguments_) {
       : Number(limitArguments[0].slice("--wall-limit-ms=".length));
   assert(
     Number.isSafeInteger(wallMs) && wallMs > 0 && wallMs <= G0_RESOURCES.wallMs,
-    "Wall limit can only lower the G0 ceiling",
+    "Wall limit can only lower the G0 ceiling"
   );
   const positional = arguments_.filter(
-    (argument) => !limitArguments.includes(argument),
+    (argument) => !limitArguments.includes(argument)
   );
   if (
     positional.length === 1 &&
@@ -174,6 +242,21 @@ export function parseRaptor3Request(arguments_) {
       "post-g3-projection-preparation",
       "post-g3-selector-preparation",
       "post-g3-history-analysis",
+      "g29-member-dependency",
+      "g29-dependency-boundaries",
+      "g29-dependency-choices",
+      "g29-result-progress",
+      "cs01-structural-reference",
+      "cs01-extension-a",
+      "cs01-extension-b",
+      "cs01-extension-composition",
+      "cs03-member-scope",
+      "cs03-extension-a-seeds",
+      "cs03-extension-b-seeds",
+      "cs03-extension-composition-seeds",
+      "cs02-structure-measure",
+      "g29-member-dependency-pg",
+      "g29-member-dependency-mysql",
       "g3p06-seeds",
       "g3p06-transport-seeds",
       "g2-diagnostics",
@@ -207,7 +290,7 @@ export function parseRaptor3Request(arguments_) {
         firstSeed + campaign.batchSize <=
           campaign.firstSeed + campaign.seedCount &&
         (firstSeed - campaign.firstSeed) % campaign.batchSize === 0,
-      "Generated batch must start at an exact frozen boundary",
+      "Generated batch must start at an exact frozen boundary"
     );
     return { mode: positional[0], firstSeed, wallMs };
   }
@@ -217,7 +300,7 @@ export function parseRaptor3Request(arguments_) {
     return { mode: "replay", path, wallMs };
   }
   throw new Error(
-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered.",
+    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
   );
 }
 
@@ -227,17 +310,17 @@ export function assertRaptor3TestReport(report, files) {
   assert.equal(
     report.numPendingTests,
     0,
-    "Required Raptor 3 tests were skipped",
+    "Required Raptor 3 tests were skipped"
   );
   assert.deepEqual(
     report.testResults.map((suite) => suite.name).sort(),
     files.map((file) => resolve(RAPTOR3_ROOT, file)).sort(),
-    "Missing required Raptor 3 test file",
+    "Missing required Raptor 3 test file"
   );
   for (const suite of report.testResults) {
     assert(
       suite.assertionResults.length > 0,
-      "Empty required Raptor 3 test file",
+      "Empty required Raptor 3 test file"
     );
     for (const test of suite.assertionResults)
       assert.equal(test.status, "passed");
@@ -246,10 +329,12 @@ export function assertRaptor3TestReport(report, files) {
 
 async function run(request) {
   const identity = captureRaptor3Identity();
-  const campaign = campaignFor(request.mode);
-  if (request.mode.endsWith("-seeds")) {
+  const measurement = structuralMeasurementContext(request.mode, identity);
+  const extensionCampaign = CS03_EXTENSION_CAMPAIGNS[request.mode];
+  const campaign = extensionCampaign ?? campaignFor(request.mode);
+  if (request.mode.endsWith("-seeds") && !extensionCampaign) {
     const directory = mkdtempSync(
-      join(tmpdir(), `viborm-raptor3-${request.mode}-`),
+      join(tmpdir(), `viborm-raptor3-${request.mode}-`)
     );
     const batches = [];
     for (
@@ -271,11 +356,11 @@ async function run(request) {
       JSON.stringify(
         { mode: request.mode, identity, campaign, batches },
         null,
-        2,
-      ),
+        2
+      )
     );
     process.stdout.write(
-      `Raptor 3 ${request.mode} campaign verified (not the full milestone). Evidence: ${directory}\n`,
+      `Raptor 3 ${request.mode} campaign verified (not the full milestone). Evidence: ${directory}\n`
     );
     return directory;
   }
@@ -323,6 +408,21 @@ async function run(request) {
     "post-g3-projection-preparation": POST_G3_PROJECTION_PREPARATION_TESTS,
     "post-g3-selector-preparation": POST_G3_SELECTOR_PREPARATION_TESTS,
     "post-g3-history-analysis": POST_G3_HISTORY_ANALYSIS_TESTS,
+    "g29-member-dependency": G29_MEMBER_DEPENDENCY_TESTS,
+    "g29-dependency-boundaries": G29_DEPENDENCY_BOUNDARY_TESTS,
+    "g29-dependency-choices": G29_DEPENDENCY_CHOICE_TESTS,
+    "g29-result-progress": G29_RESULT_PROGRESS_TESTS,
+    "cs01-structural-reference": CS01_STRUCTURAL_REFERENCE_TESTS,
+    "cs01-extension-a": CS01_EXTENSION_A_TESTS,
+    "cs01-extension-b": CS01_EXTENSION_B_TESTS,
+    "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_TESTS,
+    "cs03-member-scope": CS03_MEMBER_SCOPE_TESTS,
+    "cs03-extension-a-seeds": CS03_EXTENSION_CAMPAIGN_TESTS,
+    "cs03-extension-b-seeds": CS03_EXTENSION_CAMPAIGN_TESTS,
+    "cs03-extension-composition-seeds": CS03_EXTENSION_CAMPAIGN_TESTS,
+    "cs02-structure-measure": CS02_STRUCTURE_MEASUREMENT_TESTS,
+    "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_TESTS,
+    "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
     "g2-diagnostics": G2_DIAGNOSTIC_TESTS,
     "g2-pg-baseline": G2_PG_BASELINE_TESTS,
     "g2-pg-contracts": G2_PG_CONTRACT_TESTS,
@@ -343,19 +443,23 @@ async function run(request) {
   for (const file of files)
     assert(
       existsSync(resolve(RAPTOR3_ROOT, file)),
-      `Missing required test ${file}`,
+      `Missing required test ${file}`
     );
   const reportPath = join(directory, "vitest.json");
   const environment = { ...process.env };
   const provider =
     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
-    /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1];
+    /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+    /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1];
   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
   delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+  delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+  if (extensionCampaign)
+    environment.VIBORM_RAPTOR3_EXTENSION_SLICE = extensionCampaign.slice;
   if (request.mode.endsWith("seed-batch"))
     environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED = String(request.firstSeed);
-  if (/^g(?:1|2|25|27|3p02|3p03|3p04|3p06)-/.test(request.mode))
+  if (/^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/.test(request.mode))
     delete environment.VIBORM_RAPTOR3_SPECIMEN;
   if (request.mode === "g3p02-contracts")
     environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
@@ -379,7 +483,7 @@ async function run(request) {
       `--outputFile=${reportPath}`,
       ...files,
     ],
-    { cwd: RAPTOR3_ROOT, env: environment, stdio: "inherit" },
+    { cwd: RAPTOR3_ROOT, env: environment, stdio: "inherit" }
   );
   let interrupted = false;
   const interrupt = (signal) => {
@@ -396,7 +500,7 @@ async function run(request) {
     });
     assert(
       !interrupted && exitCode === 0,
-      `Raptor 3 verification failed; diagnostics: ${directory}`,
+      `Raptor 3 verification failed; diagnostics: ${directory}`
     );
     assertRaptor3Identity(identity);
     const report = JSON.parse(readFileSync(reportPath, "utf8"));
@@ -435,6 +539,21 @@ async function run(request) {
       "post-g3-projection-preparation": POST_G3_PROJECTION_PREPARATION_COUNTS,
       "post-g3-selector-preparation": POST_G3_SELECTOR_PREPARATION_COUNTS,
       "post-g3-history-analysis": POST_G3_HISTORY_ANALYSIS_COUNTS,
+      "g29-member-dependency": G29_MEMBER_DEPENDENCY_COUNTS,
+      "g29-dependency-boundaries": G29_DEPENDENCY_BOUNDARY_COUNTS,
+      "g29-dependency-choices": G29_DEPENDENCY_CHOICE_COUNTS,
+      "g29-result-progress": G29_RESULT_PROGRESS_COUNTS,
+      "cs01-structural-reference": CS01_STRUCTURAL_REFERENCE_COUNTS,
+      "cs01-extension-a": CS01_EXTENSION_A_COUNTS,
+      "cs01-extension-b": CS01_EXTENSION_B_COUNTS,
+      "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_COUNTS,
+      "cs03-member-scope": CS03_MEMBER_SCOPE_COUNTS,
+      "cs03-extension-a-seeds": CS03_EXTENSION_CAMPAIGN_COUNTS,
+      "cs03-extension-b-seeds": CS03_EXTENSION_CAMPAIGN_COUNTS,
+      "cs03-extension-composition-seeds": CS03_EXTENSION_CAMPAIGN_COUNTS,
+      "cs02-structure-measure": CS02_STRUCTURE_MEASUREMENT_COUNTS,
+      "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_COUNTS,
+      "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
       "g2-diagnostics": G2_DIAGNOSTIC_COUNTS,
       "g2-pg-baseline": G2_PG_BASELINE_COUNTS,
       "g2-pg-contracts": G2_PG_CONTRACT_COUNTS,
@@ -460,12 +579,12 @@ async function run(request) {
     if (expectedCounts) {
       for (const [file, expected] of Object.entries(expectedCounts)) {
         const comparison = report.testResults.find(
-          (suite) => suite.name === resolve(RAPTOR3_ROOT, file),
+          (suite) => suite.name === resolve(RAPTOR3_ROOT, file)
         );
         assert.equal(
           comparison.assertionResults.length,
           expected,
-          `Missing candidate/profile/scenario cell in ${file}`,
+          `Missing candidate/profile/scenario cell in ${file}`
         );
       }
     }
@@ -475,24 +594,56 @@ async function run(request) {
           .update(readFileSync(replayInput.path))
           .digest("hex"),
         replayInput.sha256,
-        "Replay input changed during verification",
+        "Replay input changed during verification"
       );
     }
     if (request.mode === "g0") {
       const receipt = JSON.parse(
-        readFileSync(join(directory, "campaign.json"), "utf8"),
+        readFileSync(join(directory, "campaign.json"), "utf8")
       );
       assertRaptor3Identity(receipt.identity, identity);
       assertG0CampaignReceipt(receipt);
     }
+    if (extensionCampaign) {
+      const receipt = JSON.parse(
+        readFileSync(join(directory, "extension-campaign.json"), "utf8")
+      );
+      assertExtensionCampaignReceipt(receipt, extensionCampaign, identity);
+      const corpus = JSON.parse(
+        readFileSync(join(directory, "corpus.json"), "utf8")
+      );
+      assert.equal(corpus.formatVersion, 1);
+      assertRaptor3Identity(corpus.identity, identity);
+      assert.equal(corpus.records[0], "array");
+      assert.equal(
+        corpus.records[1].length,
+        extensionCampaign.seedCount * extensionCampaign.profiles.length
+      );
+    }
     if (request.mode.endsWith("seed-batch"))
       assertGeneratedBatchReceipt(
         JSON.parse(
-          readFileSync(join(directory, "generated-campaign.json"), "utf8"),
+          readFileSync(join(directory, "generated-campaign.json"), "utf8")
         ),
         request.firstSeed,
-        campaign,
+        campaign
       );
+    if (measurement) {
+      const receipt = JSON.parse(
+        readFileSync(join(directory, "verified.json"), "utf8")
+      );
+      assert.equal(receipt.mode, request.mode);
+      assert.equal(receipt.alternative, measurement.alternative);
+      assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+      assert.deepEqual(receipt.instrumentedIdentity, identity);
+      assert.equal(receipt.cases.length, 28);
+      assert.equal(receipt.replays, 60);
+      assert.equal(receipt.skipped, 0);
+      process.stdout.write(
+        `Raptor 3 ${request.mode} measurement verified. Evidence: ${directory}\n`
+      );
+      return directory;
+    }
     writeFileSync(
       join(directory, "verified.json"),
       JSON.stringify(
@@ -503,11 +654,11 @@ async function run(request) {
           resourceBounds: { ...G0_RESOURCES, wallMs: request.wallMs },
         },
         null,
-        2,
-      ),
+        2
+      )
     );
     process.stdout.write(
-      `Raptor 3 ${request.mode} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`,
+      `Raptor 3 ${request.mode} ${request.mode === "g2-diagnostics" ? "disputed behavior reproduced (not accepted)" : "contract gate verified"}. Evidence: ${directory}\n`
     );
     return directory;
   } finally {
@@ -523,7 +674,7 @@ if (
     await run(parseRaptor3Request(process.argv.slice(2)));
   } catch (failure) {
     process.stderr.write(
-      `${failure instanceof Error ? failure.message : String(failure)}\n`,
+      `${failure instanceof Error ? failure.message : String(failure)}\n`
     );
     process.exitCode = 1;
   }

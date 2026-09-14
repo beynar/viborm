@@ -1,0 +1,732 @@
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -22,6 +22,8 @@
+   Selection,
+   type SelectionSource,
+ } from "./selection";
++import { structuralMeasurementHooks } from "../../../../tests/raptor3/core-structure/measurement/hooks";
++import { overlapPairKey } from "../../../../tests/raptor3/core-structure/measurement/protocol";
+ 
+ export { Selection } from "./selection";
+ 
+@@ -163,6 +165,18 @@
+   readonly write: DependencyWrite;
+   readonly branch?: BranchPath;
+ }
++interface OccurrenceVisitor {
++  readonly enter?: (
++    occurrence: CommandOccurrence,
++    branch?: BranchPath
++  ) => unknown;
++  readonly read?: (visit: ReadVisit) => unknown;
++  readonly write?: (visit: WriteVisit) => unknown;
++  readonly exit?: (
++    occurrence: CommandOccurrence,
++    branch?: BranchPath
++  ) => unknown;
++}
+ interface SeriesRefusal {
+   readonly error: Error;
+   readonly member: SelectedSeriesMember;
+@@ -286,6 +300,11 @@
+       memberships: [],
+       children: [],
+     };
++    structuralMeasurementHooks()?.deferOccurrenceVisit({
++      analysisEpoch: "epoch:initial",
++      occurrence,
++      phase: "construct",
++    });
+     return occurrence;
+   }
+   place<C extends Command>(
+@@ -327,13 +346,15 @@
+   }
+   private materializePlacement(
+     occurrence: CommandOccurrence,
+-    clone: boolean
++    clone: boolean,
++    analysisEpoch = "epoch:initial"
+   ): void {
+     if (!clone) {
+       occurrence.children = [...this.recipeChildren(occurrence.command)];
++      this.measureChildCopies(occurrence, occurrence.children, analysisEpoch);
+       for (const child of occurrence.children) {
+         if (!child.children.length && this.recipeChildren(child.command).length)
+-          this.materializePlacement(child, false);
++          this.materializePlacement(child, false, analysisEpoch);
+       }
+       if (occurrence.command.kind === "captureSeries")
+         occurrence.captureTarget = occurrence.command.target;
+@@ -355,9 +376,11 @@
+         ? source.children
+         : this.recipeChildren(source.command);
+       replacement.children = children.map(copy);
++      this.measureChildCopies(replacement, replacement.children, analysisEpoch);
+       return replacement;
+     };
+     occurrence.children = this.recipeChildren(occurrence.command).map(copy);
++    this.measureChildCopies(occurrence, occurrence.children, analysisEpoch);
+     const bindTargets = (source: CommandOccurrence): void => {
+       const replacement = replacements.get(source);
+       if (!replacement) return;
+@@ -375,6 +398,21 @@
+     };
+     for (const child of this.recipeChildren(occurrence.command))
+       bindTargets(child);
++  }
++  private measureChildCopies(
++    destination: CommandOccurrence,
++    children: readonly CommandOccurrence[],
++    analysisEpoch: string
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    if (!hooks) return;
++    for (const child of children)
++      hooks.deferReferenceCopy({
++        analysisEpoch,
++        occurrence: child,
++        destinationOccurrence: destination,
++        purpose: "semanticPublication",
++      });
+   }
+   private origin(command: Command): Origin | undefined {
+     if (command.kind === "choose") return command.lookup.origin;
+@@ -446,6 +484,26 @@
+   analyze(root: RecordCommand): CommandOccurrence<RecordCommand> {
+     const occurrence = this.occurrence(root);
+     this.materializePlacement(occurrence, false);
++    const hooks = structuralMeasurementHooks();
++    if (hooks) {
++      const commandId = hooks.identities.commandId(root);
++      hooks.identities.bindOccurrence(
++        occurrence,
++        `occurrence:${commandId.slice("command:".length)}`,
++        root
++      );
++      hooks.identities.bindWrite(
++        occurrence,
++        `write:${commandId.slice("command:".length)}`,
++        occurrence
++      );
++      const caseId = commandId.slice("command:".length).replace(/:root$/, "");
++      hooks.identities.bindActivationState(
++        occurrence,
++        "unconditional",
++        `activation:${caseId}:attempt/0/unconditional`
++      );
++    }
+     this.bindTree(occurrence);
+     this.analyzeOccurrence(occurrence);
+     return occurrence;
+@@ -453,6 +511,24 @@
+   analyzeSeries(series: SelectedSeries): CommandOccurrence<SeriesOccurrence> {
+     const occurrence = this.occurrence(this.selectedSeries(series));
+     this.materializePlacement(occurrence, false);
++    const hooks = structuralMeasurementHooks();
++    if (hooks) {
++      const commandId = hooks.identities.commandId(occurrence.command);
++      hooks.identities.bindOccurrence(
++        occurrence,
++        `occurrence:${commandId.slice("command:".length)}`,
++        occurrence.command,
++        series.selection
++      );
++      const caseId = commandId
++        .slice("command:".length)
++        .replace(/:root\/series$/, "");
++      hooks.identities.bindActivationState(
++        occurrence,
++        "unconditional",
++        `activation:${caseId}:attempt/0/unconditional`
++      );
++    }
+     this.bindTree(occurrence);
+     this.analyzeOccurrence(occurrence);
+     return occurrence;
+@@ -495,6 +571,50 @@
+     if (!target) throw new Error("Series capture has no occurrence target");
+     return target;
+   }
++  private emitOverlap(
++    write: DependencyWrite,
++    read: DependencyRead,
++    predicate: "membership" | "target",
++    disposition: "consumed" | "discarded",
++    atoms: readonly {
++      readonly component: string;
++      readonly comparison: "equal" | "disjoint" | "unknown";
++    }[]
++  ): void {
++    const hooks = structuralMeasurementHooks();
++    const measurement = this.measurementContext(
++      read.occurrence,
++      this.branchOf(read.occurrence, false)
++    );
++    if (!(hooks && measurement)) return;
++    const pair = {
++      analysisEpoch: measurement.epoch,
++      readId: hooks.identities.readId(read),
++      readRevision: 0,
++      writeId: hooks.identities.claimWrite(write.occurrence, write.occurrence),
++      writeRevision: 0,
++      activationId: measurement.activationId,
++      predicate,
++    };
++    const pairKey = overlapPairKey(pair);
++    hooks.emit({
++      kind: "overlapPair",
++      ...pair,
++      pairKey,
++      disposition:
++        disposition === "consumed" &&
++        measurement.activationId.includes("unobserved")
++          ? "publishedDeferred"
++          : disposition,
++    });
++    for (const atom of atoms)
++      hooks.emit({
++        kind: "overlapAtom",
++        analysisEpoch: measurement.epoch,
++        pairKey,
++        ...atom,
++      });
++  }
+   private readMembership(write: DependencyWrite, read: DependencyRead): void {
+     const { lookup, owner } = read;
+     const membership = read.membership ?? lookup.membership();
+@@ -507,14 +627,39 @@
+     const publication = write.membership;
+     if (!publication || publication.carrier.model !== carrier) return;
+     const contribution = publication.contribution;
++    const atoms: Array<{
++      readonly component: string;
++      readonly comparison: "equal" | "disjoint" | "unknown";
++    }> = [];
+     const ownerDiffers = contribution.owner.command !== lookup;
+-    if (!ownerDiffers) return;
++    atoms.push({
++      component: "owner",
++      comparison: ownerDiffers ? "equal" : "disjoint",
++    });
++    if (!ownerDiffers) {
++      this.emitOverlap(write, read, "membership", "discarded", atoms);
++      return;
++    }
+     const sameEdge = contribution.scope.edge === edge.scope.edge;
+-    if (!sameEdge) return;
++    atoms.push({
++      component: "edge",
++      comparison: sameEdge ? "equal" : "disjoint",
++    });
++    if (!sameEdge) {
++      this.emitOverlap(write, read, "membership", "discarded", atoms);
++      return;
++    }
+     const sameMember =
+       contribution.scope.member === undefined ||
+       contribution.scope.member === edge.scope.member;
+-    if (!sameMember) return;
++    atoms.push({
++      component: "member",
++      comparison: sameMember ? "equal" : "disjoint",
++    });
++    if (!sameMember) {
++      this.emitOverlap(write, read, "membership", "discarded", atoms);
++      return;
++    }
+     const identity = publication.identity;
+     let disjoint = false;
+     if (observed && identity)
+@@ -523,11 +668,22 @@
+           !publication.carrier.writesField(key) &&
+           identity.equals.has(key) &&
+           !Object.is(identity.equals.get(key), value);
++        atoms.push({
++          component: `identity:${key}`,
++          comparison: conflicts ? "disjoint" : "equal",
++        });
+         if (conflicts) {
+           disjoint = true;
+           break;
+         }
+       }
++    this.emitOverlap(
++      write,
++      read,
++      "membership",
++      disjoint ? "discarded" : "consumed",
++      atoms
++    );
+     if (disjoint) return;
+     const relation = lookup.origin.slot ?? lookup.origin.relation;
+     const operation = lookup.origin.operation;
+@@ -561,9 +717,30 @@
+     for (const scope of scopes) {
+       if (mutation.kind === "link" || mutation.kind === "remove") {
+         const observed = scope.path.at(-1);
++        const atoms: Array<{
++          readonly component: string;
++          readonly comparison: "equal" | "disjoint" | "unknown";
++        }> = [
++          {
++            component: "relation-path",
++            comparison: observed ? "equal" : "disjoint",
++          },
++        ];
+         const sameEdge =
+           observed !== undefined &&
+           observed.scope.edge === mutation.edge.scope.edge;
++        if (observed)
++          atoms.push({
++            component: "edge",
++            comparison: sameEdge ? "equal" : "disjoint",
++          });
++        this.emitOverlap(
++          write,
++          read,
++          "target",
++          sameEdge ? "consumed" : "discarded",
++          atoms
++        );
+         if (!sameEdge) continue;
+         const origin = lookup.origin;
+         owner.refusal ??= new NestedWriteError(
+@@ -583,7 +760,19 @@
+       }
+       const model =
+         mutation.kind === "delete" ? mutation.located.model : mutation.model;
+-      if (model !== scope.model) continue;
++      const atoms: Array<{
++        readonly component: string;
++        readonly comparison: "equal" | "disjoint" | "unknown";
++      }> = [
++        {
++          component: "model",
++          comparison: model === scope.model ? "equal" : "disjoint",
++        },
++      ];
++      if (model !== scope.model) {
++        this.emitOverlap(write, read, "target", "discarded", atoms);
++        continue;
++      }
+       if (
+         mutation.kind === "record" &&
+         mutation.fields.operation !== "create" &&
+@@ -592,9 +781,16 @@
+         let hasWrittenOverlap = false;
+         for (const field of mutation.fields.writtenFields()) {
+           hasWrittenOverlap = scope.fields.has(field);
++          atoms.push({
++            component: `written:${field}`,
++            comparison: hasWrittenOverlap ? "equal" : "disjoint",
++          });
+           if (hasWrittenOverlap) break;
+         }
+-        if (!hasWrittenOverlap) continue;
++        if (!hasWrittenOverlap) {
++          this.emitOverlap(write, read, "target", "discarded", atoms);
++          continue;
++        }
+       }
+       let matched = 0;
+       let disjoint = false;
+@@ -616,12 +812,23 @@
+           value?.kind === "literal" || selected?.facts.equals.has(field);
+         if (!(hasKnown && scope.exact)) continue;
+         const equal = Object.is(known, expected);
++        atoms.push({
++          component: `identity:${field}`,
++          comparison: equal ? "equal" : "disjoint",
++        });
+         if (!equal) {
+           disjoint = true;
+           break;
+         }
+         matched++;
+       }
++      this.emitOverlap(
++        write,
++        read,
++        "target",
++        disjoint ? "discarded" : "consumed",
++        atoms
++      );
+       if (disjoint) continue;
+       const origin = lookup.origin;
+       const operation =
+@@ -716,6 +923,138 @@
+         if (a.choice === b.choice && a.arm !== b.arm) return false;
+     return true;
+   }
++  private measurementContext(
++    occurrence: CommandOccurrence,
++    branch?: BranchPath
++  ): { readonly epoch: string; readonly activationId: string } | undefined {
++    const hooks = structuralMeasurementHooks();
++    if (!hooks) return undefined;
++    let series: CommandOccurrence<SeriesOccurrence> | undefined;
++    let seriesChild: CommandOccurrence | undefined;
++    let current: CommandOccurrence | undefined = occurrence;
++    while (current) {
++      if (isSeriesOccurrence(current)) {
++        series = current;
++        break;
++      }
++      seriesChild = current;
++      current = current.parent;
++    }
++    const epoch = series
++      ? `epoch:${hooks.identities.occurrenceId(series)}`
++      : "epoch:initial";
++    if (!branch)
++      return {
++        epoch,
++        activationId: hooks.identities.activationStateId(
++          this.rootOf(occurrence),
++          "unconditional"
++        ),
++      };
++    const choice = branch.choice.command;
++    if (choice.kind !== "choose")
++      throw new Error("Branch measurement lost its choice occurrence");
++    const underConcreteMember =
++      series !== undefined &&
++      seriesChild !== undefined &&
++      this.seriesMembers(series).some((member) => member === seriesChild);
++    const state = underConcreteMember
++      ? this.execution.attempt.rows.has(choice.lookup)
++        ? "found"
++        : "missing"
++      : "unobserved";
++    return {
++      epoch,
++      activationId: hooks.identities.activationStateId(branch.choice, state),
++    };
++  }
++  private visit(
++    occurrence: CommandOccurrence,
++    visitor: OccurrenceVisitor,
++    concreteSeries = false,
++    branch?: BranchPath
++  ): boolean {
++    const hooks = structuralMeasurementHooks();
++    const measurement = this.measurementContext(occurrence, branch);
++    if (hooks && measurement)
++      hooks.emit({
++        kind: "occurrenceVisit",
++        analysisEpoch: measurement.epoch,
++        occurrenceId: hooks.identities.occurrenceId(occurrence),
++        phase: "logical",
++      });
++    if (visitor.enter?.(occurrence, branch) === "stop") return true;
++    const command = occurrence.command;
++    const read = occurrence.dependencyRead;
++    if (read) {
++      if (hooks && measurement) {
++        const readId = hooks.identities.claimRead(read, occurrence);
++        hooks.emit({
++          kind: "readVisit",
++          analysisEpoch: measurement.epoch,
++          occurrenceId: hooks.identities.occurrenceId(occurrence),
++          readId,
++          revision: 0,
++          activationId: measurement.activationId,
++        });
++      }
++      if (visitor.read?.({ read, branch }) === "stop") return true;
++    }
++    if (
++      (command.kind === "record" &&
++        (command.fields.operation === "create" ||
++          command.fields.writtenFields().length)) ||
++      command.kind === "delete" ||
++      command.kind === "link" ||
++      command.kind === "remove"
++    ) {
++      if (hooks && measurement) {
++        const writeId = hooks.identities.claimWrite(occurrence, occurrence);
++        hooks.emit({
++          kind: "writeVisit",
++          analysisEpoch: measurement.epoch,
++          occurrenceId: hooks.identities.occurrenceId(occurrence),
++          writeId,
++          revision: 0,
++          activationId: measurement.activationId,
++        });
++      }
++      if (
++        visitor.write?.({ write: { occurrence, command }, branch }) === "stop"
++      )
++        return true;
++    }
++
++    for (const child of this.children(occurrence, concreteSeries)) {
++      let childBranch: BranchPath | undefined = branch;
++      if (command.kind === "choose")
++        childBranch = {
++          parent: branch,
++          choice: occurrence,
++          arm: child.role === "found" ? "found" : "missing",
++        };
++      if (this.visit(child, visitor, concreteSeries, childBranch)) return true;
++    }
++    for (const membership of occurrence.memberships) {
++      if (hooks && measurement) {
++        const writeId = hooks.identities.claimWrite(occurrence, occurrence);
++        hooks.emit({
++          kind: "writeVisit",
++          analysisEpoch: measurement.epoch,
++          occurrenceId: hooks.identities.occurrenceId(occurrence),
++          writeId,
++          revision: 0,
++          activationId: measurement.activationId,
++        });
++      }
++      if (
++        visitor.write?.({ write: { occurrence, membership }, branch }) ===
++        "stop"
++      )
++        return true;
++    }
++    return visitor.exit?.(occurrence, branch) === "stop";
++  }
+   private visitDirectWrites(
+     occurrence: CommandOccurrence,
+     visit: (write: WriteVisit) => void,
+@@ -731,17 +1070,53 @@
+       command.kind === "remove"
+     ) {
+       const write = { occurrence, command };
++      this.emitWriteVisit(write, branch);
+       visit({ write, branch });
+     }
+     for (const membership of occurrence.memberships) {
+       const write = { occurrence, membership };
++      this.emitWriteVisit(write, branch);
+       visit({ write, branch });
+     }
+   }
++  private emitWriteVisit(write: DependencyWrite, branch?: BranchPath): void {
++    const hooks = structuralMeasurementHooks();
++    const measurement = this.measurementContext(write.occurrence, branch);
++    if (!(hooks && measurement)) return;
++    const writeId = hooks.identities.claimWrite(
++      write.occurrence,
++      write.occurrence
++    );
++    hooks.emit({
++      kind: "writeVisit",
++      analysisEpoch: measurement.epoch,
++      occurrenceId: hooks.identities.occurrenceId(write.occurrence),
++      writeId,
++      revision: 0,
++      activationId: measurement.activationId,
++    });
++  }
++  private emitReadVisit(read: ReadVisit): void {
++    const hooks = structuralMeasurementHooks();
++    const measurement = this.measurementContext(
++      read.read.occurrence,
++      read.branch
++    );
++    if (!(hooks && measurement)) return;
++    const readId = hooks.identities.claimRead(read.read, read.read.occurrence);
++    hooks.emit({
++      kind: "readVisit",
++      analysisEpoch: measurement.epoch,
++      occurrenceId: hooks.identities.occurrenceId(read.read.occurrence),
++      readId,
++      revision: 0,
++      activationId: measurement.activationId,
++    });
++  }
+   private visitWrites(
+     occurrence: CommandOccurrence,
+     visit: (write: WriteVisit) => void,
+-    branch = this.branchOf(occurrence)
++    branch = this.branchOf(occurrence, false)
+   ): void {
+     this.visitDirectWrites(occurrence, visit, branch);
+     for (const child of occurrence.children) {
+@@ -759,11 +1134,12 @@
+   private visitReads(
+     occurrence: CommandOccurrence,
+     visit: (read: ReadVisit) => "stop" | void,
+-    branch = this.branchOf(occurrence)
++    branch = this.branchOf(occurrence, false)
+   ): boolean {
+     const read = occurrence.dependencyRead;
+     if (read) {
+       const readVisit = { read, branch };
++      this.emitReadVisit(readVisit);
+       if (visit(readVisit) === "stop") return true;
+     }
+     for (const child of occurrence.children) {
+@@ -786,7 +1162,7 @@
+     const parent = target.parent;
+     if (!parent) return;
+     this.visitPrecedingWrites(parent, visit);
+-    this.visitDirectWrites(parent, visit, this.branchOf(parent));
++    this.visitDirectWrites(parent, visit, this.branchOf(parent, false));
+     if (parent.command.kind === "choose") return;
+     for (const sibling of parent.children) {
+       if (sibling === target) return;
+@@ -797,7 +1173,8 @@
+   private analyzeRead(occurrence: CommandOccurrence): void {
+     const read = occurrence.dependencyRead;
+     if (!read) return;
+-    const readVisit = { read, branch: this.branchOf(occurrence) };
++    const readVisit = { read, branch: this.branchOf(occurrence, false) };
++    this.emitReadVisit(readVisit);
+     let publishedParent: CommandOccurrence<RecordCommand> | undefined;
+     for (
+       let child: CommandOccurrence | undefined = occurrence;
+@@ -833,6 +1210,18 @@
+     return read.read.owner.refusal;
+   }
+   private analyzeOccurrence(occurrence: CommandOccurrence): void {
++    const hooks = structuralMeasurementHooks();
++    const measurement = this.measurementContext(
++      occurrence,
++      this.branchOf(occurrence, false)
++    );
++    if (hooks && measurement)
++      hooks.emit({
++        kind: "occurrenceVisit",
++        analysisEpoch: measurement.epoch,
++        occurrenceId: hooks.identities.occurrenceId(occurrence),
++        phase: "logical",
++      });
+     this.analyzeRead(occurrence);
+     const command = occurrence.command;
+     if (command.kind === "record") {
+@@ -874,10 +1263,33 @@
+       if (template) this.analyzeOccurrence(template);
+     }
+   }
+-  private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
++  private branchOf(
++    occurrence: CommandOccurrence,
++    measureNavigation = true
++  ): BranchPath | undefined {
+     const ancestors: CommandOccurrence[] = [];
+     for (let current = occurrence; current.parent; current = current.parent)
+       ancestors.push(current);
++    if (measureNavigation) {
++      const hooks = structuralMeasurementHooks();
++      const series = ancestors.find(isSeriesOccurrence);
++      const analysisEpoch = series
++        ? `epoch:${hooks?.identities.occurrenceId(series)}`
++        : "epoch:initial";
++      if (hooks)
++        for (const child of ancestors) {
++          const parent = child.parent;
++          if (!parent) continue;
++          hooks.emit({
++            kind: "prefixRead",
++            analysisEpoch,
++            consumerOccurrenceId: hooks.identities.occurrenceId(occurrence),
++            prefixOccurrenceId: hooks.identities.occurrenceId(parent),
++            prefixRevision: 0,
++            purpose: "navigation",
++          });
++        }
++    }
+     let branch: BranchPath | undefined;
+     for (let index = ancestors.length - 1; index >= 0; index--) {
+       const child = ancestors[index];
+@@ -902,10 +1314,30 @@
+     visit: (read: ReadVisit) => "stop" | void
+   ): boolean {
+     let current = target;
++    const hooks = structuralMeasurementHooks();
++    const analysisEpoch = `epoch:${hooks?.identities.occurrenceId(target)}`;
+     while (current.parent) {
+       const parent = current.parent;
++      if (hooks)
++        hooks.emit({
++          kind: "prefixRead",
++          analysisEpoch,
++          consumerOccurrenceId: hooks.identities.occurrenceId(target),
++          prefixOccurrenceId: hooks.identities.occurrenceId(parent),
++          prefixRevision: 0,
++          purpose: "navigation",
++        });
+       let follows = false;
+       for (const sibling of this.children(parent, true)) {
++        if (hooks)
++          hooks.emit({
++            kind: "prefixRead",
++            analysisEpoch,
++            consumerOccurrenceId: hooks.identities.occurrenceId(target),
++            prefixOccurrenceId: hooks.identities.occurrenceId(sibling),
++            prefixRevision: 0,
++            purpose: "navigation",
++          });
+         if (follows) {
+           const stopped = this.visitReads(sibling, visit);
+           if (stopped) return true;
+@@ -925,15 +1357,36 @@
+     if (!owner) throw new Error("Selected series has no enclosing analysis");
+     if (this.seriesMembers(occurrence).length)
+       throw new Error("Selected series occurrence was already expanded");
++    const hooks = structuralMeasurementHooks();
++    const analysisEpoch = hooks
++      ? `epoch:${hooks.identities.occurrenceId(occurrence)}`
++      : "epoch:initial";
+     occurrence.children = members.map((member) => {
+       const child = this.occurrence(member);
+       child.role = "member";
+-      this.materializePlacement(child, false);
++      this.materializePlacement(child, false, analysisEpoch);
+       return child;
+     });
++    this.measureChildCopies(occurrence, occurrence.children, analysisEpoch);
+     const memberOccurrences = this.seriesMembers(occurrence);
++    if (hooks)
++      for (const [captureOrdinal, member] of memberOccurrences.entries())
++        hooks.bindCapturedMember({
++          parentOccurrence: occurrence,
++          occurrence: member,
++          command: member.command,
++          selection: member.command.located,
++          captureOrdinal,
++        });
+     for (const member of memberOccurrences) this.bindTree(member, occurrence);
+     for (const member of memberOccurrences) {
++      if (hooks)
++        hooks.emit({
++          kind: "occurrenceVisit",
++          analysisEpoch: `epoch:${hooks.identities.occurrenceId(occurrence)}`,
++          occurrenceId: hooks.identities.occurrenceId(member),
++          phase: "expand",
++        });
+       this.analyzeOccurrence(member);
+     }
+     for (const [index, occurrenceMember] of memberOccurrences.entries()) {
+--- a/src/query-engine/raptor3/commands/execution.ts
++++ b/src/query-engine/raptor3/commands/execution.ts
+@@ -20,6 +20,7 @@
+   SeriesOccurrence,
+ } from "./commands";
+ import { membershipFields, type Selection } from "./selection";
++import { structuralMeasurementHooks } from "../../../../tests/raptor3/core-structure/measurement/hooks";
+ 
+ /** Interprets the prepared command tree through one replaceable execution attempt. */
+ export class CommandExecution {
+@@ -251,6 +252,14 @@
+     const ctx = this.context;
+     const attempt = this.attempt;
+     const command = occurrence.command;
++    const hooks = structuralMeasurementHooks();
++    if (hooks)
++      hooks.emit({
++        kind: "occurrenceVisit",
++        analysisEpoch: "epoch:physical",
++        occurrenceId: hooks.identities.occurrenceId(occurrence),
++        phase: "physical",
++      });
+     switch (command.kind) {
+       case "record": {
+         command.fields.activate();

@@ -6,17 +6,18 @@ import {
 } from "@errors";
 import type { Member } from "../shared/operation-context";
 import type { Query } from "../shared/query";
-import { record, type Arguments, type Input } from "../shared/schema";
-import { storedFields, type Membership } from "../shared/storage";
+import type { Arguments, Input } from "../shared/schema";
+import { type Membership, storedFields } from "../shared/storage";
 import type { Assignments } from "./assignments";
 import { CommandAttempt } from "./command-attempt";
+import { isRecordOccurrence, isSeriesOccurrence } from "./commands";
 import type {
   Choose,
-  Command,
+  CommandOccurrence,
   Commands,
   RecordCommand,
-  SelectedSeries,
   SelectedSeriesMember,
+  SeriesOccurrence,
 } from "./commands";
 import { membershipFields, type Selection } from "./selection";
 
@@ -127,10 +128,11 @@ export class CommandExecution {
   ): boolean {
     const key = choice.lookup.selector.uniqueKey;
     const selected = choice.lookup.selector.uniqueValues;
-    if (!key || !selected) return false;
+    if (!(key && selected)) return false;
     if (
       !key.fields.every((field) => {
-        const proposed = choice.missing!.fields.known(field);
+        const missing = choice.missing;
+        const proposed = missing?.command.fields.known(field);
         return (
           proposed?.kind === "literal" &&
           Object.is(proposed.value, selected.get(field))
@@ -188,11 +190,11 @@ export class CommandExecution {
     this.currentAttempt = replacement;
     this.context.restartRejectedInsert(replacement.transport);
     // A lost winner is not permission to attempt the missing INSERT again.
-    await this.run(choice.lookup);
+    await this.runSelection(choice.lookup);
     return this.attempt.rows.has(choice.lookup);
   }
   async complete(
-    root: RecordCommand | Choose,
+    root: CommandOccurrence<RecordCommand | Choose>,
     args: Arguments
   ): Promise<unknown> {
     while (true) {
@@ -201,14 +203,14 @@ export class CommandExecution {
         return (
           await this.context.finish(
             this.context.queries.select(
-              root.model,
+              root.command.model,
               {
                 select: args.select,
                 include: args.include,
                 omit: args.omit,
               },
               undefined,
-              { identity: this.identity(root.fields) },
+              { identity: this.identity(root.command.fields) }
             )
           )
         )[0];
@@ -217,15 +219,44 @@ export class CommandExecution {
       }
     }
   }
-  async run(command: Command, member: Member = command): Promise<void> {
+  private async runSelection(selection: Selection): Promise<void> {
+    const attempt = this.attempt;
+    if (attempt.rows.has(selection)) return;
+    const source = selection.source;
+    if (
+      source.kind === "producer" &&
+      !this.context.usesBatch &&
+      selection.facts.fields.size === 0
+    ) {
+      const row = attempt.select(source.producer, selection.fields.demands);
+      attempt.rows.set(selection, row);
+      attempt.bind(selection.fields, row);
+      return;
+    }
+    const rows = await this.context.read(selection.query(), true);
+    const found = rows[0];
+    if (!found) {
+      if (selection.required) throw selection.required;
+      return;
+    }
+    attempt.rows.set(selection, found);
+    attempt.bind(selection.fields, found);
+    if (this.context.usesBatch && selection.retained)
+      this.context.requirePresent(selection.captured(), selection.retained);
+  }
+  async run(
+    occurrence: CommandOccurrence,
+    member: Member = occurrence.command
+  ): Promise<void> {
     const ctx = this.context;
     const attempt = this.attempt;
+    const command = occurrence.command;
     switch (command.kind) {
       case "record": {
         command.fields.activate();
-        if (command.refusal) throw command.refusal;
+        if (occurrence.refusal) throw occurrence.refusal;
         if (command.located && !attempt.rows.has(command.located))
-          await this.run(command.located, member);
+          await this.runSelection(command.located);
         if (
           ctx.usesBatch &&
           command.located &&
@@ -244,7 +275,8 @@ export class CommandExecution {
           );
         }
         await this.requireTransitions(command);
-        for (const child of command.before) await this.run(child, member);
+        for (const child of occurrence.children)
+          if (child.placement === "before") await this.run(child, member);
         attempt.bind(
           command.fields,
           command.located
@@ -266,32 +298,14 @@ export class CommandExecution {
                 command.fields
               )
         );
-        for (const child of command.after) await this.run(child, member);
+        for (const child of occurrence.children)
+          if (child.placement === "capture") await this.run(child, member);
+        for (const child of occurrence.children)
+          if (child.placement === "after") await this.run(child, member);
         return;
       }
       case "lookup": {
-        if (attempt.rows.has(command)) return;
-        const source = command.source;
-        if (
-          source.kind === "producer" &&
-          !ctx.usesBatch &&
-          command.facts.fields.size === 0
-        ) {
-          const row = attempt.select(source.producer, command.fields.demands);
-          attempt.rows.set(command, row);
-          attempt.bind(command.fields, row);
-          return;
-        }
-        const rows = await ctx.read(command.query(), true);
-        const found = rows[0];
-        if (!found) {
-          if (command.required) throw command.required;
-          return;
-        }
-        attempt.rows.set(command, found);
-        attempt.bind(command.fields, found);
-        if (ctx.usesBatch && command.retained)
-          ctx.requirePresent(command.captured(), command.retained);
+        await this.runSelection(command);
         return;
       }
       case "junction": {
@@ -306,9 +320,8 @@ export class CommandExecution {
         return;
       }
       case "absent": {
-        const exclude = command.excluding.map(
-          (fields) =>
-            ctx.queries.lowerIdentity(command.model, this.identity(fields))
+        const exclude = command.excluding.map((fields) =>
+          ctx.queries.lowerIdentity(command.model, this.identity(fields))
         );
         await ctx.requireAbsent(
           ctx.queries.select(
@@ -345,7 +358,6 @@ export class CommandExecution {
       case "choose": {
         const supplied = command.lookup.source.kind === "producer";
         if (ctx.usesBatch && supplied) {
-          ctx.beginSeries();
           try {
             const outputs = attempt.references();
             const rows = await ctx.flush(
@@ -361,18 +373,19 @@ export class CommandExecution {
           }
         }
         try {
-          await this.run(command.lookup, member);
+          await this.runSelection(command.lookup);
           for (const condition of command.conditions?.probes ?? [])
-            await this.run(condition.lookup, member);
+            await this.runSelection(condition.lookup);
         } catch (error) {
           throw supplied ? ctx.failure(error, "capture", member) : error;
         }
         const captured = attempt.rows.get(command.lookup);
+        const found = this.commands.choiceArm(occurrence, "found");
+        const missing = this.commands.choiceArm(occurrence, "missing");
         if (captured) {
-          if (command.conditions?.probes.length) {
-            command.foundRecord!.fields.activate();
-            if (command.foundRecord!.refusal)
-              throw command.foundRecord!.refusal;
+          if (command.conditions?.probes.length && found) {
+            found.command.fields.activate();
+            if (found.refusal) throw found.refusal;
             const unmatched = command.conditions.probes.find(
               (condition) => !attempt.rows.has(condition.lookup)
             );
@@ -408,23 +421,22 @@ export class CommandExecution {
             );
             if (!rows[0]) throw requirement.failure;
           }
-          if (command.foundRecord) {
-            const found = command.foundRecord;
+          if (found) {
             if (ctx.usesBatch && supplied) {
-              ctx.prepareMembers(() => [found], member);
-              await ctx.executeMember(() => this.run(found), found);
+              ctx.prepareMembers(() => [found.command], member);
+              await ctx.executeMember(() => this.run(found), found.command);
             } else await this.run(found, member);
             attempt.bind(command.fields, {
               ...captured,
-              ...attempt.select(found.fields, command.fields.demands),
+              ...attempt.select(found.command.fields, command.fields.demands),
             });
           } else attempt.bind(command.fields, captured);
-        } else if (command.missing) {
-          attempt.missingChoices.set(command.missing.fields, command);
-          await this.run(command.missing, member);
+        } else if (missing) {
+          attempt.missingChoices.set(missing.command.fields, command);
+          await this.run(missing, member);
           attempt.bind(
             command.fields,
-            attempt.select(command.missing.fields, command.fields.demands)
+            attempt.select(missing.command.fields, command.fields.demands)
           );
         }
         return;
@@ -485,7 +497,7 @@ export class CommandExecution {
         return;
       }
       case "delete": {
-        await this.run(command.located, member);
+        await this.runSelection(command.located);
         await ctx.delete(
           command.located.model,
           attempt.rows.get(command.located)!,
@@ -494,21 +506,31 @@ export class CommandExecution {
         return;
       }
       case "captureSeries": {
-        await this.captureSeries(command.series, member);
+        await this.captureSeries(
+          this.commands.seriesCaptureTarget(occurrence),
+          member
+        );
         return;
       }
       case "series": {
-        if ("records" in command) {
-          await this.records(command.records, command.select, member);
-          return;
-        }
-        await this.executeSeries(command.series, member);
+        await this.records(
+          occurrence.children.filter(isRecordOccurrence),
+          command.select,
+          member
+        );
         return;
       }
+      case "selectedSeries": {
+        if (isSeriesOccurrence(occurrence))
+          await this.executeSeries(occurrence);
+        return;
+      }
+      case "membership":
+        return;
     }
   }
   async records(
-    records: RecordCommand[],
+    records: CommandOccurrence<RecordCommand>[],
     select: Input | undefined,
     member: Member
   ): Promise<unknown> {
@@ -517,43 +539,88 @@ export class CommandExecution {
     const identities: Input[] = [];
     let count = 0;
     for (const record of members) {
-      const completed = record.suppression
+      const command = record.command;
+      const completed = command.suppression
         ? await ctx.executeSkippableMember(
             () => this.run(record),
-            record.fields,
-            record
+            command.fields,
+            command
           )
-        : (await ctx.executeMember(() => this.run(record), record), true);
+        : (await ctx.executeMember(() => this.run(record), command), true);
       if (!completed) continue;
       count++;
-      if (select) identities.push(this.identity(record.fields));
+      if (select) identities.push(this.identity(command.fields));
     }
-    if (!select) {
-      await ctx.finish();
-      return { count };
-    }
-    if (identities.length === 0) {
-      await ctx.finish();
-      return [];
-    }
-    return ctx.finish(
-      ctx.queries.selectSeries(records[0]!.model, select, identities)
+    const selected = await this.completeSeries(
+      select,
+      identities,
+      (selection) =>
+        ctx.queries.selectSeries(
+          records[0]!.command.model,
+          selection,
+          identities
+        )
     );
+    return selected ?? { count };
   }
   async series(
-    series: SelectedSeries,
-    member: Member = series.selection
-  ): Promise<number> {
-    await this.captureSeries(series, member);
-    return this.executeSeries(series, member);
+    occurrence: CommandOccurrence<SeriesOccurrence>,
+    member?: Member
+  ): Promise<number>;
+  async series(
+    occurrence: CommandOccurrence<SeriesOccurrence>,
+    member: Member,
+    select: Input
+  ): Promise<Input[]>;
+  async series(
+    occurrence: CommandOccurrence<SeriesOccurrence>,
+    member: Member = occurrence.command.series.selection,
+    select?: Input
+  ): Promise<number | Input[]> {
+    await this.captureSeries(occurrence, member);
+    const prepared = this.attempt.series.get(occurrence);
+    if (!prepared) throw new Error("Selected series was not captured");
+    // Only the admitted updateMany boundary supplies select, so captureSeries
+    // has constructed record members for this terminal readback.
+    const updatedMembers =
+      prepared.members as CommandOccurrence<RecordCommand>[];
+    const identityFields = select
+      ? updatedMembers.map(({ command }) => command.fields)
+      : [];
+    const count = await this.executeSeries(occurrence);
+    const identities = identityFields.map((fields) => this.identity(fields));
+    const selected = await this.completeSeries(
+      select,
+      identities,
+      (selection) =>
+        this.context.queries.selectSeries(
+          occurrence.command.series.selection.model,
+          selection,
+          identities,
+          "updateMany"
+        )
+    );
+    return selected ?? count;
+  }
+  private async completeSeries(
+    select: Input | undefined,
+    identities: Input[],
+    query: (select: Input) => Query
+  ): Promise<Input[] | undefined> {
+    if (!select || identities.length === 0) {
+      await this.context.finish();
+      return select ? [] : undefined;
+    }
+    return this.context.finish(query(select));
   }
   private async captureSeries(
-    series: SelectedSeries,
+    occurrence: CommandOccurrence<SeriesOccurrence>,
     member: Member
   ): Promise<void> {
     const ctx = this.context;
     const attempt = this.attempt;
-    if (attempt.series.has(series)) return;
+    if (attempt.series.has(occurrence)) return;
+    const series = occurrence.command.series;
     const selection = series.selection;
     const membership = selection.membership();
     let parentRequirement: { query: Query; failure: Error } | undefined;
@@ -587,7 +654,6 @@ export class CommandExecution {
           ),
         }),
       };
-      ctx.beginSeries();
     }
     const keys = ctx.schema.keys(selection.model);
     const rows = await ctx.read(
@@ -595,6 +661,7 @@ export class CommandExecution {
         selection.model,
         {
           orderBy: Object.fromEntries(keys.map((field) => [field, "asc"])),
+          take: series.limit,
         },
         membership && {
           edge: membership.edge,
@@ -638,31 +705,34 @@ export class CommandExecution {
               membership,
               failure: selection.required!,
             };
-          this.commands.analyze(child);
-          if (child.refusal) throw child.refusal;
           return child;
         }),
       member
     );
-    attempt.series.set(series, { members, parentRequirement });
+    const refusal = this.commands.expandSeries(occurrence, members);
+    if (refusal) throw ctx.failure(refusal.error, "planning", refusal.member);
+    attempt.series.set(occurrence, {
+      members: this.commands.seriesMembers(occurrence),
+      parentRequirement,
+    });
   }
   private async executeSeries(
-    series: SelectedSeries,
-    member: Member
+    occurrence: CommandOccurrence<SeriesOccurrence>
   ): Promise<number> {
     const ctx = this.context;
-    const prepared = this.attempt.series.get(series);
+    const prepared = this.attempt.series.get(occurrence);
     if (!prepared) throw new Error("Selected series was not captured");
     const { members, parentRequirement } = prepared;
     for (const child of members) {
-      const located = child.located;
+      const command = child.command;
+      const located = command.located;
       if (!located) throw new Error("Selected update series has no location");
       if (ctx.usesBatch) {
         this.attempt.rows.delete(located);
         try {
-          await this.run(located, child);
+          await this.runSelection(located);
         } catch (error) {
-          throw ctx.failure(error, "planning", child);
+          throw ctx.failure(error, "planning", command);
         }
       }
       await ctx.executeMember(async () => {
@@ -672,7 +742,7 @@ export class CommandExecution {
             parentRequirement.failure
           );
         await this.run(child);
-      }, child);
+      }, command);
     }
     return members.length;
   }

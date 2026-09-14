@@ -452,7 +452,7 @@ describe("G3P-03 existing array-owner composition", () => {
 });
 
 describe("G3P-03 updateMany capability refusal", () => {
-  it("refuses limit and returning before scalar or relation execution", async () => {
+  it("refuses unsupported select and omit shapes before execution", async () => {
     const database = createPackageDatabase();
     database.exec(`
       INSERT INTO g3p03_package_parents(id, label) VALUES (10, 'existing');
@@ -460,45 +460,45 @@ describe("G3P-03 updateMany capability refusal", () => {
     const driver = new RecordingSQLiteDriver({ client: database });
     const candidate = createCommandEngine({ schema: packageSchema, driver });
     const refusals = [
-      { name: "limit", option: { limit: 1 } },
-      { name: "select", option: { select: { id: true } } },
-      { name: "omit", option: { omit: { label: true } } },
+      {
+        name: "scalar-select",
+        input: {
+          where: { id: 10 },
+          data: { label: { set: "scalar-select" } },
+          select: { id: true },
+        },
+      },
+      {
+        name: "scalar-omit",
+        input: {
+          where: { id: 10 },
+          data: { label: { set: "scalar-omit" } },
+          omit: { label: true },
+        },
+      },
+      {
+        name: "relation-omit",
+        input: {
+          where: { id: 10 },
+          data: {
+            children: { create: { label: "relation-omit" } },
+          },
+          omit: { label: true },
+        },
+      },
     ];
     try {
       for (const refusal of refusals) {
-        const scalar = {
-          where: { id: 10 },
-          data: { label: { set: `scalar-${refusal.name}` } },
-          ...refusal.option,
-        };
-        const relation = {
-          where: { id: 10 },
-          data: {
-            children: { create: { label: `relation-${refusal.name}` } },
-          },
-          ...refusal.option,
-        };
         await expect(
           prepareCandidateBatch(
             candidate,
             "packageParent",
             "updateMany",
-            scalar
+            refusal.input
           )
         ).rejects.toBeInstanceOf(UnsupportedOperationError);
         await expect(
-          candidate.execute("packageParent", "updateMany", scalar)
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
-        await expect(
-          prepareCandidateBatch(
-            candidate,
-            "packageParent",
-            "updateMany",
-            relation
-          )
-        ).rejects.toBeInstanceOf(UnsupportedOperationError);
-        await expect(
-          candidate.execute("packageParent", "updateMany", relation)
+          candidate.execute("packageParent", "updateMany", refusal.input)
         ).rejects.toBeInstanceOf(UnsupportedOperationError);
         assert.equal(
           driver.statements.length,

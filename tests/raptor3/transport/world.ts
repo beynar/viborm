@@ -3,6 +3,7 @@ import { createClient } from "@client/client";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { z } from "zod";
+import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import type {
   CandidateEngineFactory,
   DefaultObservation,
@@ -14,7 +15,7 @@ import type {
 import { Recorder, recordingEventLimit } from "../harness/recorder";
 import { observeFailure } from "../harness/sqlite-world";
 import type { TransportProfileId } from "../profiles";
-import { ScriptedTransport, type ActorScript, type Reply } from "./driver";
+import { type ActorScript, type Reply, ScriptedTransport } from "./driver";
 
 const faults = [
   "none",
@@ -99,6 +100,18 @@ export function transportRecipeFromPublicInput(
   publicInput: unknown
 ): TransportRecipe {
   return z.object({ recipe: recipeSchema }).parse(publicInput).recipe;
+}
+
+function faultsForRecipe(recipe: TransportRecipe): TransportRecipe["fault"][] {
+  if (recipe.multiFault)
+    return recipe.mode === "key-update"
+      ? ["consumer-rejected", "consumer-rejected-after-commit", "none"]
+      : ["producer-rejected", "consumer-rejected", "none"];
+  return [
+    recipe.fault,
+    ...(recipe.actors === 2 ? ["none" as const] : []),
+    ...(recipe.fault !== "none" ? ["none" as const] : []),
+  ];
 }
 
 interface PublicActor {
@@ -328,7 +341,8 @@ function assertActorOutcome(
   actor: PublicActor,
   outcome: OperationOutcome,
   profile: TransportProfileId,
-  correlationId: string | undefined
+  correlationId: string | undefined,
+  candidate: "commands" | "legacy"
 ) {
   if (actor.fault === "none") {
     assert.deepEqual(outcome, {
@@ -349,6 +363,10 @@ function assertActorOutcome(
   const malformed =
     actor.fault === "producer-empty" || actor.fault === "consumer-malformed";
   const ordinary = actor.operation === "update";
+  const preciseMalformed =
+    malformed &&
+    (ordinary ||
+      (candidate === "commands" && actor.fault === "consumer-malformed"));
   assert.equal(
     outcome.failure.name,
     malformed ? "QueryEngineError" : "QueryError"
@@ -357,8 +375,8 @@ function assertActorOutcome(
   assert.equal(
     outcome.failure.message,
     malformed
-      ? ordinary
-        ? `Driver "${profile}" returned a malformed int scalar for operation "update": the value is not a canonical integer.`
+      ? preciseMalformed
+        ? `Driver "${profile}" returned a malformed int scalar for operation "${actor.operation}": the value is not a canonical integer.`
         : "Record-series execution failed at a committed-segment boundary."
       : "Query execution failed"
   );
@@ -369,8 +387,13 @@ function assertActorOutcome(
   const segments = malformed
     ? precedingSegments + 1
     : precedingSegments + (ack && afterCommit ? 1 : 0);
-  const uncertain = !ack && !malformed;
+  const uncertain = !(ack || malformed);
   const meta = z.record(z.string(), z.unknown()).parse(outcome.failure.meta);
+  if (preciseMalformed) {
+    assert.equal(meta.driver, profile);
+    assert.equal(meta.operation, actor.operation);
+    assert.equal(meta.scalarType, "int");
+  }
   if (!malformed) {
     // One producer statement identifies account; an opaque consumer batch identifies its root.
     assert.equal(
@@ -399,17 +422,33 @@ function assertActorOutcome(
     );
   }
   if (ordinary) {
-    assert.equal(
+    const progress =
+      candidate === "commands" &&
+      (actor.fault === "consumer-malformed" || (ack && afterCommit))
+        ? {
+            atomicity: "segment",
+            phase: actor.fault === "consumer-malformed" ? "result" : "member",
+            committedSegments: 1,
+            completedMembers: 0,
+            committedWriteMembers: 1,
+          }
+        : undefined;
+    assert.deepEqual(
       meta.recordSeriesProgress,
-      undefined,
-      "An ordinary atomic operation does not acquire record-series progress"
+      progress,
+      candidate === "commands"
+        ? "Commands ordinary UPDATE must retain only acknowledged progress"
+        : "Legacy ordinary UPDATE retains its prior no-progress contract"
     );
-    if (malformed)
-      assert.deepEqual(meta, {
+    if (malformed) {
+      const { recordSeriesProgress: _recordSeriesProgress, ...scalarMeta } =
+        meta;
+      assert.deepEqual(scalarMeta, {
         driver: profile,
         operation: "update",
         scalarType: "int",
       });
+    }
     return;
   }
   if (segments === 0 && !uncertain) {
@@ -445,6 +484,7 @@ export async function runTransportWorld(
   } = {}
 ) {
   const recipe = recipeSchema.parse(input);
+  const candidate = options.candidateName ?? "commands";
   const scenarioId =
     recipe.mode === "key-update" ? "g2-transport" : "g1-transport";
   const recorder = new Recorder(
@@ -484,17 +524,7 @@ export async function runTransportWorld(
           : accountReference,
     })
     .map("g1_transport_tokens");
-  const multipleFaults: TransportRecipe["fault"][] =
-    recipe.mode === "key-update"
-      ? ["consumer-rejected", "consumer-rejected-after-commit", "none"]
-      : ["producer-rejected", "consumer-rejected", "none"];
-  const actorFaults: TransportRecipe["fault"][] = recipe.multiFault
-    ? multipleFaults
-    : [
-        recipe.fault,
-        ...(recipe.actors === 2 ? ["none" as const] : []),
-        ...(recipe.fault !== "none" ? ["none" as const] : []),
-      ];
+  const actorFaults = faultsForRecipe(recipe);
   const actors: PublicActor[] = actorFaults.map((fault, index) => {
     const name = `actor-${index + 1}`;
     const accountId = `account-${recipe.seed}-${index + 1}`;
@@ -548,7 +578,7 @@ export async function runTransportWorld(
     };
   });
   const scripts = actors.map((actor) =>
-    actorScript(actor, recipe.mode, options.candidateName ?? "commands")
+    actorScript(actor, recipe.mode, candidate)
   );
   const driver = new ScriptedTransport(
     scripts,
@@ -750,7 +780,8 @@ export async function runTransportWorld(
               event.phase === "queued"
                 ? [event.correlationId]
                 : []
-            )[0]
+            )[0],
+            candidate
           )
         );
         assert.deepEqual(
@@ -807,4 +838,78 @@ export async function runTransportWorld(
       },
     },
   };
+}
+
+type TransportWorld = Awaited<ReturnType<typeof runTransportWorld>>;
+
+function normalizedTransportBaseline(
+  baseline: TransportWorld,
+  candidate: TransportWorld
+): RunObservation {
+  assert.equal(baseline.record.candidate, undefined);
+  assert.equal(candidate.record.candidate, "commands");
+  assert.equal(baseline.record.profile, candidate.record.profile);
+  assert.deepEqual(baseline.record.publicInput, candidate.record.publicInput);
+  const recipe = transportRecipeFromPublicInput(baseline.record.publicInput);
+  const actorFaults = faultsForRecipe(recipe);
+  const baselineOutcomes = [
+    baseline.observation.outcome,
+    ...(baseline.observation.subsequentOutcomes ?? []),
+  ];
+  const candidateOutcomes = [
+    candidate.observation.outcome,
+    ...(candidate.observation.subsequentOutcomes ?? []),
+  ];
+  assert.equal(baselineOutcomes.length, actorFaults.length);
+  assert.equal(candidateOutcomes.length, actorFaults.length);
+  const outcomes = baselineOutcomes.map((outcome, index) => {
+    const fault = actorFaults[index];
+    const approvedMalformed =
+      recipe.mode === "key-update" && fault === "consumer-malformed";
+    const approvedAcknowledgedRejection =
+      recipe.mode === "key-update" &&
+      baseline.record.profile === "scripted-returning-ack" &&
+      fault === "consumer-rejected-after-commit";
+    if (!(approvedMalformed || approvedAcknowledgedRejection)) return outcome;
+    const candidateOutcome = candidateOutcomes[index]!;
+    assert.equal(outcome.kind, "failure");
+    assert.equal(candidateOutcome.kind, "failure");
+    const baselineMeta = z
+      .record(z.string(), z.unknown())
+      .parse(outcome.failure.meta);
+    const candidateMeta = z
+      .record(z.string(), z.unknown())
+      .parse(candidateOutcome.failure.meta);
+    assert(Object.hasOwn(candidateMeta, "recordSeriesProgress"));
+    return {
+      ...outcome,
+      failure: {
+        ...outcome.failure,
+        meta: Object.assign(
+          Object.create(Object.getPrototypeOf(outcome.failure.meta)),
+          baselineMeta,
+          { recordSeriesProgress: candidateMeta.recordSeriesProgress }
+        ),
+      },
+    };
+  });
+  return {
+    ...baseline.observation,
+    outcome: outcomes[0]!,
+    ...(outcomes.length > 1 ? { subsequentOutcomes: outcomes.slice(1) } : {}),
+  };
+}
+
+/** Exact engine oracles run before the two approved diagnostic deltas. */
+export function verifyTransportPair(
+  baseline: TransportWorld,
+  candidate: TransportWorld
+): void {
+  baseline.fixture.assert(baseline.observation);
+  candidate.fixture.assert(candidate.observation);
+  assertEquivalentRunObservations(
+    "g2-transport",
+    { ...normalizedTransportBaseline(baseline, candidate), final: {} },
+    { ...candidate.observation, final: {} }
+  );
 }

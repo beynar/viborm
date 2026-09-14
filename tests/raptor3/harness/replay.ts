@@ -29,11 +29,14 @@ import {
   G2_MIXED_KEY_CASE_IDS,
   G2_VARIANT_REMOVAL_CASE_IDS,
   G25_CASE_IDS,
+  CS03_EXTENSION_CASE_IDS,
   HARNESS_CASE_IDS,
 } from "../contracts";
 import { G0_PROFILES, TRANSPORT_PROFILES, type ProfileId } from "../profiles";
 import { fixedScenarios } from "../scenarios/contracts";
 import { findReplayScenario } from "../scenarios";
+import { extensionRecipeFromPublicInput } from "../core-structure/measurement/extension-recipes";
+import { extensionScenario } from "../core-structure/measurement/extension-scenarios";
 import {
   generatedRelations,
   recipeFromPublicInput,
@@ -159,6 +162,7 @@ const sqliteRecordSchema = z.strictObject({
     ...G2_MIXED_KEY_CASE_IDS,
     ...G2_VARIANT_REMOVAL_CASE_IDS,
     ...G25_CASE_IDS,
+    ...CS03_EXTENSION_CASE_IDS,
     ...HARNESS_CASE_IDS,
     "g1-generated-relations",
     "g2-generated-transitions",
@@ -238,17 +242,21 @@ export async function replayG0Run(record: ReplayRecord) {
           }
         )
       : await runSQLiteWorld(
-          record.scenarioId === "g1-generated-relations"
-            ? generatedRelations(
-                recipeFromPublicInput(record.publicInput),
-                record.specimen === "wrong-parent-world"
+          record.scenarioId.startsWith("cs03-extension-")
+            ? extensionScenario(
+                extensionRecipeFromPublicInput(record.publicInput)
               )
-            : record.scenarioId === "g2-generated-transitions"
-              ? generatedTransitions(
-                  transitionRecipeFromPublicInput(record.publicInput),
+            : record.scenarioId === "g1-generated-relations"
+              ? generatedRelations(
+                  recipeFromPublicInput(record.publicInput),
                   record.specimen === "wrong-parent-world"
                 )
-              : findReplayScenario(record.scenarioId),
+              : record.scenarioId === "g2-generated-transitions"
+                ? generatedTransitions(
+                    transitionRecipeFromPublicInput(record.publicInput),
+                    record.specimen === "wrong-parent-world"
+                  )
+                : findReplayScenario(record.scenarioId),
           record.profile,
           record.seed,
           {

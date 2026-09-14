@@ -17,6 +17,9 @@ it("the compound agreement fixture rejects NULL then repair", () => {
         "The compound agreement fixture declares no default callbacks"
       );
     },
+    recordCut() {
+      assert.fail("The compound agreement fixture declares no semantic cuts");
+    },
   });
   const database = new Database(":memory:");
   try {

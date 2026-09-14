@@ -1,0 +1,47 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -766,6 +766,7 @@ export class Commands {
+     this.visitPrecedingWrites(parent, visit);
+     this.visitDirectWrites(parent, visit, this.branchOf(parent));
+     if (parent.command.kind === "choose") return;
++    if (this.isSeriesMember(parent, target)) return;
+     for (const sibling of parent.children) {
+       if (sibling === target) return;
+       this.visitWrites(sibling, visit);
+@@ -882,19 +883,30 @@ export class Commands {
+   ): Generator<CommandOccurrence> {
+     yield* occurrence.children;
+   }
++  private isSeriesMember(
++    parent: CommandOccurrence,
++    child: CommandOccurrence
++  ): boolean {
++    return (
++      parent.command.kind === "series" ||
++      (isSeriesOccurrence(parent) && child.role === "member")
++    );
++  }
+   private visitFollowingReads(
+     target: CommandOccurrence,
+     visit: (read: ReadVisit) => "stop" | void
+   ): boolean {
+     let current = target;
+     while (current.parent) {
+       const parent = current.parent;
+       let follows = false;
+-      for (const sibling of this.children(parent, true)) {
+-        if (follows) {
+-          const stopped = this.visitReads(sibling, visit);
+-          if (stopped) return true;
+-        } else if (sibling === current) follows = true;
++      if (!this.isSeriesMember(parent, current)) {
++        for (const sibling of this.children(parent, true)) {
++          if (follows) {
++            const stopped = this.visitReads(sibling, visit);
++            if (stopped) return true;
++          } else if (sibling === current) follows = true;
++        }
+       }
+       current = parent;
+     }

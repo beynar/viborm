@@ -3,11 +3,14 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
-import { assertEquivalentRunObservations } from "../../benchmarks/operation-pipeline-semantics.mjs";
 import type { TransportReplayRecord } from "./harness/protocol";
 import { encodeReplayRecords, replayG0Run } from "./harness/replay";
 import { TRANSPORT_PROFILES, type TransportProfileId } from "./profiles";
-import { generateTransportRecipe, runTransportWorld } from "./transport/world";
+import {
+  generateTransportRecipe,
+  runTransportWorld,
+  verifyTransportPair,
+} from "./transport/world";
 
 it("completes the exact admitted transport seed batch", async () => {
   const firstSeed = Number(
@@ -65,23 +68,16 @@ it("completes the exact admitted transport seed batch", async () => {
             : undefined;
         if (baseline) {
           records.push(baseline.record);
-          phase = "baseline independent oracle";
-          baseline.fixture.assert(baseline.observation);
         }
         phase = "commands execute";
         const world = await runTransportWorld(recipe, profile);
         records.push(world.record);
-        phase = "independent oracle";
-        world.fixture.assert(world.observation);
         if (baseline) {
-          phase = "semantic comparison";
-          // Both route-specific physical scripts passed their own oracle. Their
-          // request tape is not database state or an across-engine schedule law.
-          assertEquivalentRunObservations(
-            "g2-transport",
-            { ...baseline.observation, final: {} },
-            { ...world.observation, final: {} }
-          );
+          phase = "independent oracles and semantic comparison";
+          verifyTransportPair(baseline, world);
+        } else {
+          phase = "independent oracle";
+          world.fixture.assert(world.observation);
         }
         phase = "exact replay";
         for (let replay = 0; replay < 3; replay++)

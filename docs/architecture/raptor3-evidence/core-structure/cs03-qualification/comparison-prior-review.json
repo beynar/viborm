@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "status": "strict-equal",
+  "comparison": "canonical recipe, schedule, and full observation; SQL and Recorder tapes excluded",
+  "cellsPerAlternative": 600,
+  "replaysPerAlternative": 1800,
+  "skippedPerAlternative": 0,
+  "reference": {
+    "production": "5502c7cf9e1ea16c6c00d3548f8eb8f030e921df1cb0b6710de3c58458f79a3e",
+    "harness": "af14a1c9b611f07cb76545f035261f9f5ee236972df8793c282f6603e037dd2e"
+  },
+  "candidate": {
+    "production": "8a7e06d86d733b20bbe8eeafe1776bbdcce8788d1342f3fdadccf45cfe97e590",
+    "harness": "3d5a08be2c6f852e4690ab99ef3d2b0534d626b7ba4263aa8a5d5eb88ca5f119"
+  },
+  "commonFiles": {
+    "tests/raptor3/core-structure/measurement/extension-a-scenario.ts": "f48081527a978cc220a409d52e1d009dab333c8b4a567c5a7c43f74dd16b55a0",
+    "tests/raptor3/core-structure/measurement/extension-b-scenario.ts": "1bd2839728e4033c3417aa0b4721564fc4f4c90ae7790cda969d929c62d40982",
+    "tests/raptor3/core-structure/measurement/extension-composition-scenario.ts": "abe0bc6084e5c4ebd1776155915b7d783912a92b88a981938ffb8eb35650a931",
+    "tests/raptor3/core-structure/measurement/extension-recipes.ts": "5e952feb88d052d9a21b176d9dabec9409a0270070302bf482737a0f2255924d",
+    "tests/raptor3/core-structure/measurement/extension-campaign.ts": "8983565b0e8038048fbf7198eb430888610b79e858950a93f0a6e77203511d3d",
+    "tests/raptor3/core-structure/measurement/extension-campaign.test.ts": "223c8a7214dc294e2ac32a94e4ecce9b1c870652b166afc91925677428f7bccb",
+    "tests/raptor3/harness/protocol.ts": "cd0c2b7a56a767bebb8e6494918b5e05cddd487668ea291e3f4d4aba94899278",
+    "tests/raptor3/harness/sqlite-world.ts": "ed2ca0a1bfdcb32d7aca9d2acafb78d8070d29f4cbe612a0272547242df63c76",
+    "tests/raptor3/harness/replay.ts": "6f647bf72ce1c6d350f3f4ed6f7311716a8c873f78609abdd3d1d736d902211c",
+    "scripts/raptor3-manifest.mjs": "22a86b4600d9d0d897083b07a8e12b259377f7ba1683b42b47dd79f4cba358bd",
+    "scripts/run-raptor3.mjs": "bdd12c00ad457e8f06445f1a52e9b3e39804ffa7b5628d7330871189bb3c066a",
+    "scripts/raptor3-campaign-receipts.test.mjs": "e4af3d25624ae557a92f6174e691a4250fc674b65602644402e20d4e005ae31c",
+    "vitest.workspace.ts": "7f65f48a5166a13f857ac0c2bb2474fa44ae345eaa4312fa4399c56321b9e474"
+  },
+  "receipts": {
+    "a": {
+      "reference": "52990f78ab2625887bc034594e7c77bf34cf1e1e7fa35c28e1d4ec07e08ecadc",
+      "candidate": "b2927275064271c6850e05f716299a7d07817c1a5355f597153d92cb137421ab"
+    },
+    "b": {
+      "reference": "e2c769661ffd0fd920f95a63d083c583579e980e07e4c3d2bfbb47fe709eee2a",
+      "candidate": "f3c2f64c2a5f91ffb93f20f499cebafa7b7002b2bd4d1e41bf884f01193c63ae"
+    },
+    "composition": {
+      "reference": "8530f5e3579638bd6eb6001fdec67a51b0b029b9bf5a386b2e8fce137d862ed6",
+      "candidate": "a05b35150ba4016365082cc3011e5e29c8541034d906090ac75e745e93c320bb"
+    }
+  }
+}

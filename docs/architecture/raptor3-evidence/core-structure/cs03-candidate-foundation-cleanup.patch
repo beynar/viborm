@@ -1,0 +1,213 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 6a8e97ef..ff409854 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -690,11 +690,6 @@ export class Commands {
+     );
+     return template && isRecordOccurrence(template) ? template : undefined;
+   }
+-  private rootOf(occurrence: CommandOccurrence): CommandOccurrence {
+-    let root = occurrence;
+-    while (root.parent) root = root.parent;
+-    return root;
+-  }
+   private compatible(left?: BranchPath, right?: BranchPath): boolean {
+     for (let a = left; a; a = a.parent)
+       for (let b = right; b; b = b.parent)
+@@ -726,7 +721,7 @@ export class Commands {
+   private visitWrites(
+     occurrence: CommandOccurrence,
+     visit: (write: WriteVisit) => void,
+-    branch = this.branchOf(occurrence)
++    branch: BranchPath | undefined
+   ): void {
+     this.visitDirectWrites(occurrence, visit, branch);
+     for (const child of occurrence.children) {
+@@ -744,7 +739,7 @@ export class Commands {
+   private visitReads(
+     occurrence: CommandOccurrence,
+     visit: (read: ReadVisit) => "stop" | void,
+-    branch = this.branchOf(occurrence)
++    branch: BranchPath | undefined
+   ): boolean {
+     const read = occurrence.dependencyRead;
+     if (read) {
+@@ -766,24 +761,28 @@ export class Commands {
+   }
+   private visitPrecedingWrites(
+     target: CommandOccurrence,
+-    visit: (write: WriteVisit) => void
++    visit: (write: WriteVisit) => void,
++    branch: BranchPath | undefined
+   ): void {
+     const parent = target.parent;
+     if (!parent) return;
+-    this.visitPrecedingWrites(parent, visit);
+-    this.visitDirectWrites(parent, visit, this.branchOf(parent));
++    const parentBranch =
++      parent.command.kind === "choose" ? branch?.parent : branch;
++    this.visitPrecedingWrites(parent, visit, parentBranch);
++    this.visitDirectWrites(parent, visit, parentBranch);
+     if (parent.command.kind === "choose") return;
+     if (this.isSeriesMember(parent, target)) return;
+     for (const sibling of parent.children) {
+       if (sibling === target) return;
+-      this.visitWrites(sibling, visit);
++      this.visitWrites(sibling, visit, parentBranch);
+     }
+     throw new Error("Command occurrence is missing from its parent");
+   }
+   private analyzeRead(occurrence: CommandOccurrence): void {
+     const read = occurrence.dependencyRead;
+     if (!read) return;
+-    const readVisit = { read, branch: this.branchOf(occurrence) };
++    const branch = this.branchOf(occurrence);
++    const readVisit = { read, branch };
+     let publishedParent: CommandOccurrence<RecordCommand> | undefined;
+     for (
+       let child: CommandOccurrence | undefined = occurrence;
+@@ -796,10 +795,14 @@ export class Commands {
+         publishedParent = this.seriesOwner(parent);
+       break;
+     }
+-    this.visitPrecedingWrites(occurrence, (write) => {
+-      if (write.write.occurrence === publishedParent) return;
+-      this.checkPair(write, readVisit);
+-    });
++    this.visitPrecedingWrites(
++      occurrence,
++      (write) => {
++        if (write.write.occurrence === publishedParent) return;
++        this.checkPair(write, readVisit);
++      },
++      branch
++    );
+   }
+   private checkPair(write: WriteVisit, read: ReadVisit): void {
+     if (!this.compatible(write.branch, read.branch)) return;
+@@ -861,27 +864,15 @@ export class Commands {
+     }
+   }
+   private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
+-    const ancestors: CommandOccurrence[] = [];
+-    for (let current = occurrence; current.parent; current = current.parent)
+-      ancestors.push(current);
+-    let branch: BranchPath | undefined;
+-    for (let index = ancestors.length - 1; index >= 0; index--) {
+-      const child = ancestors[index];
+-      const parent = child?.parent;
+-      if (!(child && parent?.command.kind === "choose")) continue;
+-      branch = {
+-        parent: branch,
+-        choice: parent,
+-        arm: child.role === "found" ? "found" : "missing",
+-      };
+-    }
+-    return branch;
+-  }
+-  private *children(
+-    occurrence: CommandOccurrence,
+-    _concreteSeries: boolean
+-  ): Generator<CommandOccurrence> {
+-    yield* occurrence.children;
++    const parent = occurrence.parent;
++    if (!parent) return undefined;
++    const branch = this.branchOf(parent);
++    if (parent.command.kind !== "choose") return branch;
++    return {
++      parent: branch,
++      choice: parent,
++      arm: occurrence.role === "found" ? "found" : "missing",
++    };
+   }
+   private isSeriesMember(
+     parent: CommandOccurrence,
+@@ -894,21 +885,33 @@ export class Commands {
+   }
+   private visitFollowingReads(
+     target: CommandOccurrence,
+-    visit: (read: ReadVisit) => "stop" | void
++    visit: (read: ReadVisit) => "stop" | void,
++    branch: BranchPath | undefined
+   ): boolean {
+     let current = target;
+     while (current.parent) {
+       const parent = current.parent;
++      const parentBranch =
++        parent.command.kind === "choose" ? branch?.parent : branch;
+       let follows = false;
+       if (!this.isSeriesMember(parent, current)) {
+-        for (const sibling of this.children(parent, true)) {
++        for (const sibling of parent.children) {
+           if (follows) {
+-            const stopped = this.visitReads(sibling, visit);
++            const siblingBranch: BranchPath | undefined =
++              parent.command.kind === "choose"
++                ? {
++                    parent: parentBranch,
++                    choice: parent,
++                    arm: sibling.role === "found" ? "found" : "missing",
++                  }
++                : parentBranch;
++            const stopped = this.visitReads(sibling, visit, siblingBranch);
+             if (stopped) return true;
+           } else if (sibling === current) follows = true;
+         }
+       }
+       current = parent;
++      branch = parentBranch;
+     }
+     return false;
+   }
+@@ -916,8 +919,6 @@ export class Commands {
+     occurrence: CommandOccurrence<SeriesOccurrence>,
+     members: readonly SelectedSeriesMember[]
+   ): SeriesRefusal | undefined {
+-    const series = occurrence.command;
+-    const root = this.rootOf(occurrence);
+     const owner = this.seriesOwner(occurrence);
+     if (!owner) throw new Error("Selected series has no enclosing analysis");
+     if (this.seriesMembers(occurrence).length)
+@@ -929,6 +930,7 @@ export class Commands {
+       return child;
+     });
+     const memberOccurrences = this.seriesMembers(occurrence);
++    const seriesBranch = this.branchOf(occurrence);
+     for (const member of memberOccurrences) this.bindTree(member, occurrence);
+     for (const member of memberOccurrences) {
+       this.analyzeOccurrence(member);
+@@ -941,16 +943,24 @@ export class Commands {
+         if (refusal) return { error: refusal, member };
+       }
+       let refusal: Error | undefined;
+-      this.visitWrites(occurrenceMember, (write) => {
+-        if (
+-          this.visitFollowingReads(occurrence, (read) => {
+-            this.checkPair(write, read);
+-            refusal ??= this.activeRefusal(read);
+-            return refusal ? "stop" : undefined;
+-          })
+-        )
+-          return;
+-      });
++      this.visitWrites(
++        occurrenceMember,
++        (write) => {
++          if (
++            this.visitFollowingReads(
++              occurrence,
++              (read) => {
++                this.checkPair(write, read);
++                refusal ??= this.activeRefusal(read);
++                return refusal ? "stop" : undefined;
++              },
++              seriesBranch
++            )
++          )
++            return;
++        },
++        seriesBranch
++      );
+       if (refusal) return { error: refusal, member };
+     }
+     return undefined;

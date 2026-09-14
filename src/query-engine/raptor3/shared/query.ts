@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { assembleAdapterSelect } from "@adapters/adapter-internals";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, TransactionError } from "@errors";
 import {
   fieldRefPayload,
   formatFieldRef,
@@ -96,7 +96,7 @@ export interface Query {
   shape: Shape;
   expectedRows?: {
     readonly count: number;
-    readonly missing: string;
+    readonly missing: Error;
   };
 }
 export interface SelectorFacts {
@@ -407,6 +407,39 @@ export class Queries {
     alias?: string,
   ): Sql | undefined {
     return this.lowerSelector(this.prepareSelector(model, where), alias);
+  }
+  lowerMutationLimit(
+    model: AnyModel,
+    where: Input | undefined,
+    limit: number | undefined
+  ): { readonly where?: Sql; readonly suffix?: Sql } {
+    const adapter = this.adapter;
+    const lowered = this.lowerWhere(model, where);
+    if (limit === undefined) return { where: lowered };
+    if (adapter.capabilities.supportsMutationRowLimit)
+      return {
+        where: lowered,
+        suffix: adapter.clauses.limit(this.value(limit)),
+      };
+    const alias = this.alias();
+    const keys = this.schema.keys(model);
+    const targetColumns = keys.map((field) => this.column(model, field));
+    const selectedColumns = keys.map((field) =>
+      this.column(model, field, alias)
+    );
+    const target =
+      targetColumns.length === 1
+        ? targetColumns[0]!
+        : sql`(${sql.join(targetColumns, ", ")})`;
+    const capped = assembleAdapterSelect(adapter, {
+      columns: sql.join(selectedColumns, ", "),
+      from: this.table(model, alias),
+      where: this.lowerWhere(model, where, alias),
+      limit: this.value(limit),
+    });
+    return {
+      where: adapter.operators.in(target, adapter.subqueries.scalar(capped)),
+    };
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
     return this.adapter.operators.and(
@@ -915,7 +948,12 @@ export class Queries {
       shape: prepared.shape,
     };
   }
-  selectSeries(model: AnyModel, select: Input, identities: Input[]): Query {
+  selectSeries(
+    model: AnyModel,
+    select: Input,
+    identities: Input[],
+    operation: "createMany" | "updateMany" = "createMany"
+  ): Query {
     const alias = this.alias();
     const prepared = this.prepareProjection(model, { select });
     const projection = this.lowerProjection(prepared, alias);
@@ -939,7 +977,19 @@ export class Queries {
       expectedRows: {
         count: identities.length,
         missing:
-          "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
+          operation === "createMany"
+            ? new QueryEngineError(
+                "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls."
+              )
+            : new TransactionError(
+                "updateMany with 'select' could not read back one of the updated rows at its final primary key.",
+                {
+                  meta: {
+                    model: model["~"].names.ts ?? "unknown",
+                    operation: "updateMany",
+                  },
+                }
+              ),
       },
     };
   }
@@ -1444,7 +1494,7 @@ export class Queries {
   }
   decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
     if (query.expectedRows && rows.length < query.expectedRows.count)
-      throw new QueryEngineError(query.expectedRows.missing);
+      throw query.expectedRows.missing;
     if (query.expectedRows && rows.length > query.expectedRows.count)
       throw new QueryEngineError(
         "Raptor 3 createMany final read returned inconsistent row counts.",

@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "status": "post-materialization-repair-source-freeze",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The 12 Raptor command and shared owners used by the accepted CS-02 census.",
+      "broader": "The 28 complete production owners used by the accepted CS-02 census; no new production owner was added."
+    }
+  },
+  "scopeBaseline": {
+    "productionIdentity": "f151ae5892627324cd95a4e71655c7bf8e27f1aabecd890c920e610b219ae70d",
+    "core": { "files": 12, "codeBearingLines": 6489, "actualParserTokens": 40505, "sourceBytes": 215249 },
+    "broader": { "files": 28, "codeBearingLines": 10563, "actualParserTokens": 65129, "sourceBytes": 448296 }
+  },
+  "foundation": {
+    "productionIdentity": "d6a72b648bb295f846ec1f4abcc5f9dab72716d53deba9360dec1ad7aa1dfcaf",
+    "patch": { "file": "candidate-foundation.patch", "sha256": "0b101afa1a1a6cb2dcb1e747a30c070717486f9dd5286cf9caa135e65a16bc83" },
+    "core": { "files": 12, "codeBearingLines": 6489, "actualParserTokens": 40416, "sourceBytes": 215168 },
+    "broader": { "files": 28, "codeBearingLines": 10563, "actualParserTokens": 65040, "sourceBytes": 448215 },
+    "deltaFromScope": { "codeBearingLines": 0, "actualParserTokens": -89, "sourceBytes": -81 },
+    "postReviewRepair": { "codeBearingLines": -10, "actualParserTokens": -56, "sourceBytes": -300 }
+  },
+  "standalone": {
+    "candidateA": {
+      "productionIdentity": "821f40dbfd6d5753f741cfe14a58609b94094bb48c9d1bdf47c7bf973586827f",
+      "patch": { "file": "candidate-extension-a.patch", "sha256": "4665e789e48cf6765fb51b7c0b338237b4c5a8370f3577206e8a7b3fcb77490e" },
+      "core": { "files": 12, "codeBearingLines": 6552, "actualParserTokens": 40727, "sourceBytes": 217279 },
+      "broader": { "files": 28, "codeBearingLines": 10626, "actualParserTokens": 65351, "sourceBytes": 450326 },
+      "deltaFromFoundation": { "codeBearingLines": 63, "actualParserTokens": 311, "sourceBytes": 2111 }
+    },
+    "candidateB": {
+      "productionIdentity": "c05956648b7295d9198a44d615f288108e29937ec139ce69ab78f8a4541f786a",
+      "patch": { "file": "candidate-extension-b.patch", "sha256": "5938949d38e9f5466ee71800b4de57592de9e8a15f35e75bcf1f75ee55426889" },
+      "core": { "files": 12, "codeBearingLines": 6536, "actualParserTokens": 40793, "sourceBytes": 216780 },
+      "broader": { "files": 28, "codeBearingLines": 10610, "actualParserTokens": 65417, "sourceBytes": 449827 },
+      "deltaFromFoundation": { "codeBearingLines": 47, "actualParserTokens": 377, "sourceBytes": 1612 }
+    }
+  },
+  "candidateAB": {
+    "productionIdentity": "36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377",
+    "harnessIdentity": "87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e",
+    "runtime": "v24.21.0",
+    "patch": { "file": "candidate-extension-a-b.patch", "sha256": "1555503911cd67225b0204f85c43531e563b0232c834b0a10a343e4149d8b0eb" },
+    "directPatch": { "file": "candidate-final.patch", "sha256": "a903fabe4b2a4f080563e5e80823e185e276a6b35afb36e32bf9eabd2074b851" },
+    "core": { "files": 12, "codeBearingLines": 6598, "actualParserTokens": 41111, "sourceBytes": 218915 },
+    "broader": { "files": 28, "codeBearingLines": 10672, "actualParserTokens": 65735, "sourceBytes": 451962 },
+    "deltaFromFoundation": { "codeBearingLines": 109, "actualParserTokens": 695, "sourceBytes": 3747 },
+    "deltaFromScope": { "codeBearingLines": 109, "actualParserTokens": 606, "sourceBytes": 3666 }
+  },
+  "referenceAB": {
+    "core": { "files": 12, "codeBearingLines": 6172, "actualParserTokens": 39218, "sourceBytes": 206007 },
+    "broader": { "files": 28, "codeBearingLines": 10246, "actualParserTokens": 63842, "sourceBytes": 439054 },
+    "deltaFromScope": { "codeBearingLines": 100, "actualParserTokens": 680, "sourceBytes": 3488 }
+  },
+  "comparison": {
+    "candidateMinusReferenceCore": { "codeBearingLines": 426, "actualParserTokens": 1893, "sourceBytes": 12908 },
+    "candidateMinusReferenceBroader": { "codeBearingLines": 426, "actualParserTokens": 1893, "sourceBytes": 12908 },
+    "claim": "The structural repair is charged to the foundation. Candidate and reference marginal A+B costs remain materially equivalent; the candidate final endpoint is larger."
+  }
+}

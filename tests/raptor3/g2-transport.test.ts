@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isRecord } from "@validation/value-guards";
 import { afterAll, describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
-import { assertEquivalentRunObservations } from "../../benchmarks/operation-pipeline-semantics.mjs";
 import type { ReplayRecord } from "./harness/protocol";
 import {
   decodeReplayRecords,
@@ -11,7 +11,11 @@ import {
   replayG0Run,
 } from "./harness/replay";
 import { TRANSPORT_PROFILES, type TransportProfileId } from "./profiles";
-import { runTransportWorld, type TransportRecipe } from "./transport/world";
+import {
+  runTransportWorld,
+  type TransportRecipe,
+  verifyTransportPair,
+} from "./transport/world";
 
 const records: ReplayRecord[] = [];
 afterAll(async () => {
@@ -45,17 +49,73 @@ async function checked(input: TransportRecipe, profile: TransportProfileId) {
     candidateName: "legacy",
   });
   records.push(baseline.record);
-  baseline.fixture.assert(baseline.observation);
   const world = await runTransportWorld(input, profile);
   records.push(world.record);
-  world.fixture.assert(world.observation);
-  assertEquivalentRunObservations(
-    "g2-transport",
-    // Each independent oracle above checks its complete physical script. The
-    // transport tape is not database state or an across-engine scheduling law.
-    { ...baseline.observation, final: {} },
-    { ...world.observation, final: {} }
-  );
+  verifyTransportPair(baseline, world);
+  if (
+    input.fault === "consumer-malformed" &&
+    profile === "scripted-returning-ack"
+  ) {
+    const outcome = world.observation.outcome;
+    assert.equal(outcome.kind, "failure");
+    assert(isRecord(outcome.failure.meta));
+    const meta = outcome.failure.meta;
+    const progress = meta.recordSeriesProgress;
+    assert(isRecord(progress));
+    for (const changedMeta of [
+      { ...meta, operation: "create" },
+      { ...meta, scalarType: "string" },
+      {
+        ...meta,
+        recordSeriesProgress: { ...progress, phase: "member" },
+      },
+      {
+        ...meta,
+        recordSeriesProgress: { ...progress, memberPath: [0] },
+      },
+    ])
+      assert.throws(() =>
+        verifyTransportPair(baseline, {
+          ...world,
+          observation: {
+            ...world.observation,
+            outcome: {
+              ...outcome,
+              failure: { ...outcome.failure, meta: changedMeta },
+            },
+          },
+        })
+      );
+  }
+  if (
+    input.fault === "consumer-rejected-after-commit" &&
+    profile === "scripted-returning-ack"
+  ) {
+    const outcome = world.observation.outcome;
+    assert.equal(outcome.kind, "failure");
+    assert(isRecord(outcome.failure.meta));
+    const poisonedObservation = {
+      ...world.observation,
+      outcome: {
+        ...outcome,
+        failure: {
+          ...outcome.failure,
+          meta: Object.assign(
+            Object.create(Object.getPrototypeOf(outcome.failure.meta)),
+            outcome.failure.meta,
+            { unapprovedDiagnostic: true }
+          ),
+        },
+      },
+    };
+    world.fixture.assert(poisonedObservation);
+    assert.throws(() =>
+      verifyTransportPair(baseline, {
+        ...world,
+        observation: poisonedObservation,
+      })
+    );
+  }
   for (const saved of decodeReplayRecords(
     encodeReplayRecords([baseline.record, world.record])
   ))

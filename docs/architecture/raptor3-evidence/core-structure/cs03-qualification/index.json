@@ -1,0 +1,30 @@
+{
+  "formatVersion": 1,
+  "status": "independent-review-pending",
+  "runtime": {
+    "node": "v24.21.0",
+    "vitest": "3.1.4",
+    "sqliteDriver": "12.6.0",
+    "platform": "darwin-arm64"
+  },
+  "seedRanges": {
+    "a": [7100, 7199],
+    "b": [7200, 7299],
+    "composition": [7300, 7399]
+  },
+  "profiles": ["sqlite-interactive", "sqlite-atomic-batch"],
+  "perAlternative": {
+    "cells": 600,
+    "sameBuildRecorderReplays": 1800,
+    "savedCorpusReplayTests": 3,
+    "skipped": 0
+  },
+  "comparison": "comparison.json",
+  "priorComparison": "comparison-prior-review.json",
+  "referenceRoot": "reference",
+  "candidateRoot": "candidate-final",
+  "priorCandidateRoot": "candidate",
+  "candidateEvidenceStatus": "post-cleanup identity; final structural review pending",
+  "reviewsRoot": "reviews",
+  "checksums": null
+}

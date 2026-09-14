@@ -1,14 +1,16 @@
 import { Sql } from "@sql";
-import type { Input } from "../shared/schema";
 import type { Query } from "../shared/query";
+import type { Input } from "../shared/schema";
 import { TransportAttempt } from "../shared/transport-attempt";
 import type { Assignments, FieldValue } from "./assignments";
 import type {
   Choose,
+  CommandOccurrence,
+  Deletion,
   JunctionCapture,
-  SelectedSeries,
-  SelectedSeriesMember,
+  RecordCommand,
   Selection,
+  SeriesOccurrence,
 } from "./commands";
 
 /** Database observations and field transports belonging to one command attempt. */
@@ -20,9 +22,9 @@ export class CommandAttempt {
   readonly missingChoices = new Map<object, Choose>();
   readonly conditionalSkips = new Map<unknown, Choose>();
   readonly series = new Map<
-    SelectedSeries,
+    CommandOccurrence<SeriesOccurrence>,
     {
-      readonly members: SelectedSeriesMember[];
+      readonly members: CommandOccurrence<RecordCommand | Deletion>[];
       readonly parentRequirement?: {
         readonly query: Query;
         readonly failure: Error;

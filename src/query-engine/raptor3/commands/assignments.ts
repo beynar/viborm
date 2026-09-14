@@ -1,6 +1,7 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { Sql } from "@sql";
+import type { SelectorFacts } from "../shared/query";
 import { type Input, record } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 
@@ -11,9 +12,9 @@ export type Origin = {
   slot?: string;
 };
 export type MembershipContribution = {
-  owner: object;
   origin: Origin;
   scope: Membership["scope"];
+  identity?: SelectorFacts;
 };
 export type FieldValue = (
   | { kind: "literal"; value: unknown }

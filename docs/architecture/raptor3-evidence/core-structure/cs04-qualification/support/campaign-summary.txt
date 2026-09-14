@@ -1,0 +1,11 @@
+All final campaigns used production 36103eff320ac096af2453b600fe2fcb8dded8c4ef9243c11b208be16ee24377, harness 87bc63c2a57e7e7b1b542606ce9d2f4e894745dbf1f75eb4e2c8bb3c0929083e, and Node v24.21.0.
+
+g2-seeds rOU4P4: 10,000 completed cells, 30,000 exact same-build replays, 0 skipped.
+g2-transport-seeds 34B05O: 10,000 completed cells, 30,000 exact same-build replays, 0 skipped.
+g3p06-seeds 519ugj: 200 completed cells, 600 exact same-build replays, 0 skipped.
+g3p06-transport-seeds 8xqE5l: 200 completed cells, 600 exact same-build replays, 0 skipped.
+cs03-extension-a-seeds XI4ptK: 200 completed cells, 600 exact same-build replays, 0 skipped.
+cs03-extension-b-seeds r1T2Ef: 200 completed cells, 600 exact same-build replays, 0 skipped.
+cs03-extension-composition-seeds 04SAhX: 200 completed cells, 600 exact same-build replays, 0 skipped.
+
+Total: 21,000 completed cells, 63,000 exact same-build replays, 0 skipped.

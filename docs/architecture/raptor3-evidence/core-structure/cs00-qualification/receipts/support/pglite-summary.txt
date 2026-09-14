@@ -1,0 +1,10 @@
+Runtime: Node v24.21.0, darwin arm64.
+Frozen identity checked before and after the five serial executions: production 2fa782174626ac1d27b31ecae3beb6fdf97f49450b86ceeb94230f90ba579e11; harness e0da0fd939ab2ba5fde32c094bb407d3648421bc40ab8f539372203c501b87ff.
+Each file ran alone through scripts/run-credential-free-tests.mjs with the registered 2560 MiB isolated live-PGlite ceiling.
+tests/raptor3/expanded/produced-legacy.test.ts: 3/3; 1467.1 MiB peak; teardown verified.
+tests/raptor3/expanded/batch-produced-legacy.test.ts: 2/2; 1537.1 MiB peak; teardown verified.
+tests/raptor3/expanded/produced-commands.test.ts: 3/3; 1537.5 MiB peak; teardown verified.
+tests/raptor3/expanded/batch-produced-commands.test.ts: 2/2; 1543.6 MiB peak; teardown verified.
+tests/raptor3/post-prep/g29-result-progress-pglite.test.ts: 1/1; 1464.6 MiB peak; teardown verified.
+Total: 11/11, zero failed or pending.
+Evidence limitation: these isolated runner commands emit no receipt directory. This file records the observed commands and output; it is not a runner-generated verified receipt.

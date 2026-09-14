@@ -6,7 +6,10 @@ import {
   RAPTOR3_FIXED_LOCAL_TESTS,
 } from "./credential-free-test-manifest.mjs";
 import {
+  assertEquivalentExtensionCampaignReceipts,
+  assertExtensionCampaignReceipt,
   assertGeneratedBatchReceipt,
+  assertStructuralMeasurementRuntime,
   G2_CAMPAIGN,
   G2_TRANSPORT_CAMPAIGN,
   G3P06_CAMPAIGN,
@@ -26,6 +29,21 @@ import {
   POST_G3_PROJECTION_PREPARATION_TESTS,
   POST_G3_SELECTOR_PREPARATION_TESTS,
   POST_G3_HISTORY_ANALYSIS_TESTS,
+  G29_MEMBER_DEPENDENCY_TESTS,
+  G29_DEPENDENCY_BOUNDARY_TESTS,
+  G29_DEPENDENCY_CHOICE_TESTS,
+  G29_RESULT_PROGRESS_TESTS,
+  CS01_STRUCTURAL_REFERENCE_TESTS,
+  CS01_EXTENSION_A_TESTS,
+  CS01_EXTENSION_B_TESTS,
+  CS01_EXTENSION_COMPOSITION_TESTS,
+  CS03_MEMBER_SCOPE_TESTS,
+  CS03_EXTENSION_CAMPAIGNS,
+  CS03_EXTENSION_CAMPAIGN_TESTS,
+  CS03_EXTENSION_SUPPORT_TESTS,
+  CS02_REPEATED_OCCURRENCE_TESTS,
+  G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+  G29_MEMBER_DEPENDENCY_PG_TESTS,
 } from "./raptor3-manifest.mjs";
 import { parseRaptor3Request } from "./run-raptor3.mjs";
 
@@ -63,6 +81,18 @@ const prepLanes = [
   },
 ];
 
+test("structural measurement qualification pins the exact Node runtime", () => {
+  const qualified = { runtime: { node: "v24.21.0" } };
+  assert.doesNotThrow(() =>
+    assertStructuralMeasurementRuntime(qualified, qualified)
+  );
+  const wrong = { runtime: { node: "v24.14.0" } };
+  assert.throws(
+    () => assertStructuralMeasurementRuntime(wrong, wrong),
+    /base runtime is not the qualified Node version/
+  );
+});
+
 test("credential-free registration isolates native Raptor suites and retains local fixed suites", () => {
   const localFixed = [
     ...G27_CONTRACT_TESTS,
@@ -75,6 +105,17 @@ test("credential-free registration isolates native Raptor suites and retains loc
     ...POST_G3_PROJECTION_PREPARATION_TESTS,
     ...POST_G3_SELECTOR_PREPARATION_TESTS,
     ...POST_G3_HISTORY_ANALYSIS_TESTS,
+    ...G29_MEMBER_DEPENDENCY_TESTS,
+    ...G29_DEPENDENCY_BOUNDARY_TESTS,
+    ...G29_DEPENDENCY_CHOICE_TESTS,
+    ...G29_RESULT_PROGRESS_TESTS,
+    ...CS01_STRUCTURAL_REFERENCE_TESTS,
+    ...CS01_EXTENSION_A_TESTS,
+    ...CS01_EXTENSION_B_TESTS,
+    ...CS01_EXTENSION_COMPOSITION_TESTS,
+    ...CS03_MEMBER_SCOPE_TESTS,
+    ...CS03_EXTENSION_SUPPORT_TESTS,
+    ...CS02_REPEATED_OCCURRENCE_TESTS,
   ];
   const native = [
     ...G27_PG_CONTRACT_TESTS,
@@ -82,13 +123,20 @@ test("credential-free registration isolates native Raptor suites and retains loc
     ...G3P04_PG_CONTRACT_TESTS,
     ...POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
     ...POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+    ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+    ...G29_MEMBER_DEPENDENCY_PG_TESTS,
   ];
+  const explicitCampaigns = [...CS03_EXTENSION_CAMPAIGN_TESTS];
 
   for (const file of localFixed) {
     assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
     assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), true, file);
   }
   for (const file of native) {
+    assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
+    assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), false, file);
+  }
+  for (const file of explicitCampaigns) {
     assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
     assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), false, file);
   }
@@ -115,6 +163,111 @@ function unitReceipt(firstSeed, profiles) {
     skipped: 0,
   };
 }
+
+function unitExtensionReceipt(campaign, identity) {
+  const completed = campaign.profiles.flatMap((profile) =>
+    Array.from({ length: campaign.seedCount }, (_, offset) => {
+      const seed = campaign.firstSeed + offset;
+      const recipe = {
+        formatVersion: 1,
+        slice: campaign.slice,
+        seed,
+        outcome: "success",
+        schedule: ["before:admit<effect"],
+      };
+      return {
+        seed,
+        profile,
+        recipe,
+        schedule: [...recipe.schedule],
+        observation: { outcome: { kind: "success", value: seed } },
+      };
+    })
+  );
+  return {
+    identity,
+    slice: campaign.slice,
+    firstSeed: campaign.firstSeed,
+    seedCount: campaign.seedCount,
+    profiles: [...campaign.profiles],
+    completed,
+    replays:
+      campaign.seedCount * campaign.profiles.length * campaign.replayCount,
+    skipped: 0,
+  };
+}
+
+test("CS-03 extension modes bind exact ranges, identities, cells, and replays", () => {
+  const identity = { production: "reference", harness: "shared" };
+  for (const [mode, campaign] of Object.entries(CS03_EXTENSION_CAMPAIGNS)) {
+    assert.equal(parseRaptor3Request([mode]).mode, mode);
+    for (const extra of ["7100", "--profile=sqlite-interactive"])
+      assert.throws(
+        () => parseRaptor3Request([mode, extra]),
+        /cannot be filtered/
+      );
+    const valid = unitExtensionReceipt(campaign, identity);
+    assertExtensionCampaignReceipt(valid, campaign, identity);
+    for (const mutate of [
+      (receipt) => receipt.completed.pop(),
+      (receipt) => {
+        receipt.completed[0].seed += 1;
+      },
+      (receipt) => {
+        receipt.completed[0].schedule = ["before:different<effect"];
+      },
+      (receipt) => {
+        receipt.completed[0].observation.outcome.kind = "failure";
+      },
+      (receipt) => {
+        receipt.replays -= 1;
+      },
+      (receipt) => {
+        receipt.skipped = 1;
+      },
+      (receipt) => {
+        receipt.identity = { production: "stale", harness: "shared" };
+      },
+    ]) {
+      const invalid = structuredClone(valid);
+      mutate(invalid);
+      assert.throws(
+        () => assertExtensionCampaignReceipt(invalid, campaign, identity),
+        { name: "AssertionError" }
+      );
+    }
+  }
+});
+
+test("CS-03 extension alternatives compare canonical recipes, schedules, and outcomes", () => {
+  const campaign = CS03_EXTENSION_CAMPAIGNS["cs03-extension-b-seeds"];
+  const reference = unitExtensionReceipt(campaign, {
+    production: "reference",
+    harness: "shared",
+  });
+  const candidate = structuredClone(reference);
+  candidate.identity.production = "candidate";
+  assertEquivalentExtensionCampaignReceipts(reference, candidate);
+  for (const mutate of [
+    (receipt) => {
+      receipt.completed[0].recipe.seed += 1;
+    },
+    (receipt) => {
+      receipt.completed[0].schedule = ["before:different<effect"];
+    },
+    (receipt) => {
+      receipt.completed[0].observation.outcome.value = "different";
+    },
+  ]) {
+    const divergent = structuredClone(candidate);
+    mutate(divergent);
+    assert.throws(
+      () =>
+        assertEquivalentExtensionCampaignReceipts(reference, divergent),
+      /CS-03 alternatives diverged/
+    );
+  }
+});
 
 test("G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns", () => {
   assert.equal(parseRaptor3Request(["g25-contracts"]).mode, "g25-contracts");

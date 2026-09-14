@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "status": "candidate-a-b-composition-checkpoint-complete",
+  "method": {
+    "codeBearingLines": "Distinct lines containing parser-owned TypeScript token starts; comments, JSDoc, blank lines, and EOF are excluded.",
+    "actualParserTokens": "Parser-owned TypeScript leaf tokens, excluding JSDoc and EOF.",
+    "sourceBytes": "Whole-file byte count.",
+    "ownerScopes": {
+      "core": "The same 12 Raptor command and shared owners used by the accepted CS-02 candidate census.",
+      "broader": "The same 28 complete production owners used by the accepted CS-02 candidate census; no new production owner was added."
+    }
+  },
+  "scopeBaseline": {
+    "productionIdentity": "f151ae5892627324cd95a4e71655c7bf8e27f1aabecd890c920e610b219ae70d",
+    "core": { "files": 12, "codeBearingLines": 6489, "actualParserTokens": 40505, "sourceBytes": 215249 },
+    "broader": { "files": 28, "codeBearingLines": 10563, "actualParserTokens": 65129, "sourceBytes": 448296 }
+  },
+  "candidateAB": {
+    "productionIdentity": "35f3f96b3723b86a643b0093459462655a1601a6f3189a26bf0dd30f15c01f03",
+    "harnessIdentity": "16d7b7dd525d354ff96524531f98e54424eea0657e912d45dc590946b6be44a3",
+    "runtime": "v24.21.0",
+    "core": { "files": 12, "codeBearingLines": 6557, "actualParserTokens": 41060, "sourceBytes": 218361 },
+    "broader": { "files": 28, "codeBearingLines": 10631, "actualParserTokens": 65684, "sourceBytes": 451408 }
+  },
+  "delta": {
+    "core": { "files": 0, "codeBearingLines": 68, "actualParserTokens": 555, "sourceBytes": 3112 },
+    "broader": { "files": 0, "codeBearingLines": 68, "actualParserTokens": 555, "sourceBytes": 3112 }
+  },
+  "standalone": {
+    "candidateA": { "codeBearingLines": 57, "actualParserTokens": 286, "sourceBytes": 1921 },
+    "candidateB": { "codeBearingLines": 15, "actualParserTokens": 262, "sourceBytes": 1185 }
+  },
+  "claim": "Candidate extensions A and B together cost +68 code-bearing lines, +555 actual parser tokens, and +3112 source bytes from the accepted candidate scope baseline. This is the directly measured composed delta."
+}

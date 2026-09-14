@@ -437,6 +437,218 @@ async function runRelationSeries(factory: CandidateEngineFactory) {
   world.assertHealthy();
 }
 
+const limitTable = "g3p03_compound_limit_records";
+
+function compoundLimitSchema() {
+  const record = s
+    .model({
+      tenant: s.string().map("tenant_key"),
+      code: s.string().map("code_key"),
+      cohort: s.string(),
+      value: s.int(),
+    })
+    .id(["tenant", "code"])
+    .map(limitTable);
+  return { record };
+}
+
+const limitInitial = {
+  records: [
+    { tenant_key: "t1", code_key: "selected-a", cohort: "selected", value: 1 },
+    { tenant_key: "t1", code_key: "selected-b", cohort: "selected", value: 2 },
+    { tenant_key: "t2", code_key: "selected-a", cohort: "selected", value: 3 },
+    { tenant_key: "t1", code_key: "delete-a", cohort: "delete", value: 4 },
+    { tenant_key: "t2", code_key: "delete-a", cohort: "delete", value: 5 },
+    { tenant_key: "t2", code_key: "control", cohort: "control", value: 6 },
+  ],
+};
+
+function assertObservedRow(
+  row: unknown
+): asserts row is Record<string, unknown> {
+  assert(row !== null && typeof row === "object" && !Array.isArray(row));
+}
+
+function observedRows(rows: readonly unknown[] | undefined) {
+  return (rows ?? []).map((row) => {
+    assertObservedRow(row);
+    return row;
+  });
+}
+
+function limitTableDefinition(names: { quote(identifier: string): string }) {
+  return `${names.quote("tenant_key")} ${textType} NOT NULL,${names.quote("code_key")} ${textType} NOT NULL,${names.quote("cohort")} ${textType} NOT NULL,${names.quote("value")} INTEGER NOT NULL,PRIMARY KEY(${names.quote("tenant_key")},${names.quote("code_key")})`;
+}
+
+async function runCompoundLimits(factory: CandidateEngineFactory) {
+  const schema = compoundLimitSchema();
+  const fixture: LiveFixture = {
+    expectedExecutions: 2,
+    initial: limitInitial,
+    tables: {
+      records: { name: limitTable, order: ["tenant_key", "code_key"] },
+    },
+    async invoke(driver, candidateFactory) {
+      assert(candidateFactory);
+      const candidate = candidateFactory({ schema, driver });
+      const updated = await candidate.execute("record", "updateMany", {
+        where: { cohort: "selected" },
+        data: { value: { set: 9 } },
+        limit: 2,
+      });
+      const deleted = await candidate.execute("record", "deleteMany", {
+        where: { cohort: "delete" },
+        limit: 1,
+      });
+      return [updated, deleted];
+    },
+    assert(observation) {
+      assert.deepEqual(observation.outcome, {
+        kind: "success",
+        value: [{ count: 2 }, { count: 1 }],
+      });
+      const rows = observedRows(observation.final.records);
+      assert.equal(rows.length, 5);
+      const selected = rows.filter((row) => row.cohort === "selected");
+      assert.equal(selected.length, 3);
+      const originalSelectedValues = new Map([
+        ["t1\u0000selected-a", 1],
+        ["t1\u0000selected-b", 2],
+        ["t2\u0000selected-a", 3],
+      ]);
+      assert.equal(selected.filter((row) => row.value === 9).length, 2);
+      for (const row of selected) {
+        const identity = `${String(row.tenant_key)}\u0000${String(row.code_key)}`;
+        const originalValue = originalSelectedValues.get(identity);
+        assert.notEqual(originalValue, undefined);
+        assert(row.value === 9 || row.value === originalValue);
+      }
+      const retainedDelete = rows.filter((row) => row.cohort === "delete");
+      assert.equal(retainedDelete.length, 1);
+      assert.deepEqual(
+        retainedDelete[0],
+        retainedDelete[0]?.value === 4
+          ? {
+              tenant_key: "t1",
+              code_key: "delete-a",
+              cohort: "delete",
+              value: 4,
+            }
+          : {
+              tenant_key: "t2",
+              code_key: "delete-a",
+              cohort: "delete",
+              value: 5,
+            }
+      );
+      assert.deepEqual(
+        rows.filter((row) => row.cohort === "control"),
+        [
+          {
+            tenant_key: "t2",
+            code_key: "control",
+            cohort: "control",
+            value: 6,
+          },
+        ]
+      );
+      assert.equal(
+        new Set(
+          rows.map(
+            (row) => `${String(row.tenant_key)}\u0000${String(row.code_key)}`
+          )
+        ).size,
+        rows.length,
+        "The capped mutations must preserve complete compound row identities"
+      );
+    },
+  };
+  const world = await runLiveWorld(
+    fixture,
+    (names) => ({ [limitTable]: limitTableDefinition(names) }),
+    factory
+  );
+  throwTerminalFailure(world);
+  assert.equal(world.statements.length, 2);
+  assert.equal(world.completions.length, 2);
+  const update = world.statements[0];
+  const deletion = world.statements[1];
+  assert(update);
+  assert(deletion);
+  assert.match(update.sql, /^\s*UPDATE\b/i);
+  assert.match(deletion.sql, /^\s*DELETE\b/i);
+  assert.equal(
+    world.statements.some((statement) => /^\s*SELECT\b/i.test(statement.sql)),
+    false,
+    "A capped scalar mutation must remain one set statement"
+  );
+  if (liveProvider === "pg") {
+    assert.equal(update.parameters.at(-1), 2);
+    assert.equal(deletion.parameters.at(-1), 1);
+    for (const statement of world.statements) {
+      assert.match(
+        statement.sql,
+        /\(\s*"tenant_key"\s*,\s*"code_key"\s*\)\s+IN\s*\(\s*SELECT\b/i,
+        "PostgreSQL must cap through both columns of the complete compound key"
+      );
+      assert.match(statement.sql, /\bLIMIT\s+\$\d+\b/i);
+    }
+  } else {
+    assert.doesNotMatch(update.sql, /\bIN\s*\(\s*SELECT\b/i);
+    assert.doesNotMatch(deletion.sql, /\bIN\s*\(\s*SELECT\b/i);
+    assert.match(update.sql, /\bLIMIT\s+2\s*$/i);
+    assert.match(
+      deletion.sql,
+      /\bLIMIT\s+1\s*$/i,
+      "MySQL must use its native mutation limit suffix"
+    );
+  }
+  fixture.assert(world.observation);
+  world.assertHealthy();
+}
+
+async function runZeroLimits(factory: CandidateEngineFactory) {
+  const schema = compoundLimitSchema();
+  const fixture: LiveFixture = {
+    expectedExecutions: 2,
+    initial: limitInitial,
+    tables: {
+      records: { name: limitTable, order: ["tenant_key", "code_key"] },
+    },
+    async invoke(driver, candidateFactory) {
+      assert(candidateFactory);
+      const candidate = candidateFactory({ schema, driver });
+      const updated = await candidate.execute("record", "updateMany", {
+        where: { cohort: "selected" },
+        data: { value: { set: 9 } },
+        limit: 0,
+      });
+      const deleted = await candidate.execute("record", "deleteMany", {
+        where: { cohort: "delete" },
+        limit: 0,
+      });
+      return [updated, deleted];
+    },
+    assert(observation) {
+      assert.deepEqual(observation.outcome, {
+        kind: "success",
+        value: [{ count: 0 }, { count: 0 }],
+      });
+      assert.deepEqual(observation.final, observation.initial);
+    },
+  };
+  const world = await runLiveWorld(
+    fixture,
+    (names) => ({ [limitTable]: limitTableDefinition(names) }),
+    factory
+  );
+  throwTerminalFailure(world);
+  assert.equal(world.statements.length, 0);
+  assert.equal(world.completions.length, 0);
+  fixture.assert(world.observation);
+  world.assertHealthy();
+}
+
 describe(`G3P-03 native ${liveProvider} set preparation`, () => {
   it(
     "g3p03-scalar-array-commit",
@@ -451,6 +663,16 @@ describe(`G3P-03 native ${liveProvider} set preparation`, () => {
   it(
     "g3p03-relation-update-many-array-order",
     () => runRelationSeries(createCommandEngine),
+    30_000
+  );
+  it(
+    "g3p03-compound-scalar-mutation-limits",
+    () => runCompoundLimits(createCommandEngine),
+    30_000
+  );
+  it(
+    "g3p03-zero-mutation-limits-run-no-statements",
+    () => runZeroLimits(createCommandEngine),
     30_000
   );
 });

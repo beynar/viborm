@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "warning": "Counters describe unlike kinds of structural work. They do not establish a runtime, bundle-size, or compression improvement.",
+  "provenance": {
+    "referenceReceiptId": "JzSNb2",
+    "referenceArchive": "reference-receipt.tar.gz",
+    "candidateReceiptId": "UUKxtm",
+    "candidateArchive": "candidate-receipt.tar.gz",
+    "sharedCounterContractSha256": "c48abbff370bfd625a639e077b8408d38dc7a10aa7ef3cea57e794e34f520f4e"
+  },
+  "reference": {
+    "overlapPairChecks": 1657,
+    "overlapAtomChecks": 6239,
+    "prefixReads": 2319,
+    "navigationPrefixReads": 0,
+    "referenceCopies": 1887,
+    "semanticPublicationCopies": 532,
+    "ownerScanReads": 12743,
+    "occurrenceVisits": 1916,
+    "constructionOccurrenceVisits": 838,
+    "logicalOccurrenceVisits": 838,
+    "physicalOccurrenceVisits": 68,
+    "expansionOccurrenceVisits": 172
+  },
+  "candidate": {
+    "overlapPairChecks": 1657,
+    "overlapAtomChecks": 5146,
+    "prefixReads": 5180,
+    "navigationPrefixReads": 1028,
+    "referenceCopies": 638,
+    "semanticPublicationCopies": 638,
+    "ownerScanReads": 0,
+    "occurrenceVisits": 2554,
+    "constructionOccurrenceVisits": 1476,
+    "logicalOccurrenceVisits": 838,
+    "physicalOccurrenceVisits": 68,
+    "expansionOccurrenceVisits": 172
+  }
+}

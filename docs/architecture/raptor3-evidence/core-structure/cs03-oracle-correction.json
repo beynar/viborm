@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "scope": "CS03 extension A missing-terminal-row progress oracle",
+  "file": "tests/raptor3/core-structure/extension-a.contract.test.ts",
+  "beforeSha256": "0e5932c6eb3dfb485f5baa141f242c8b24c27937202a4bcb800c3720c3c52286",
+  "afterSha256": "473be8e0e3d6c3b1ce567b59d45bab3d84d1bd2ba354d82fa0cb4c9416294d9d",
+  "change": {
+    "recordSeriesProgress": {
+      "before": {
+        "committedSegments": 2,
+        "committedWriteMembers": 2,
+        "completedMembers": 2
+      },
+      "after": {
+        "committedSegments": 3,
+        "committedWriteMembers": 3,
+        "completedMembers": 3
+      }
+    }
+  },
+  "rationale": "The result-phase failure follows three distinct admitted and completed write members: two outer selected update members and the nested selected delete member that removes the earlier row. OperationContext attributes and counts recursive executeMember/flush identities; the root and nested admission boundaries remain distinct.",
+  "unchanged": [
+    "failure type and message",
+    "atomicity segment",
+    "phase result",
+    "interactive rollback",
+    "batch final database state",
+    "all other extension A assertions"
+  ],
+  "fixtureCorrections": [
+    {
+      "scope": "CS03 extension B deleteMany limit postcondition SQL",
+      "file": "tests/raptor3/core-structure/extension-b.contract.test.ts",
+      "beforeSha256": "47c297494697f8341b4d5d129b985729a548017043d524b290ca78e4f582d2db",
+      "afterSha256": "cfb28e5d47cb2ac4500f5b84a5f3c08293ce2ada3d688fc6c42308cb42bf90df",
+      "failedReceipt": "QHxXLj",
+      "change": "Quote the SQLite column identifier named group in the postcondition SELECT and GROUP BY.",
+      "rationale": "GROUP is a reserved SQLite keyword. The unquoted test query failed after the deleteMany operation had already returned the expected count and satisfied its one-statement assertions.",
+      "unchanged": [
+        "public mutation input",
+        "expected count",
+        "set-oriented one-statement contract",
+        "no separate SELECT contract",
+        "final database-state oracle"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "file": "tests/raptor3/post-prep/g29-result-progress-pglite.test.ts",
+  "project": "raptor3-provider",
+  "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node",
+  "arguments": [
+    "/private/tmp/viborm-cs00-candidate.V7lUlt/node_modules/vitest/vitest.mjs",
+    "run",
+    "--workspace",
+    "vitest.workspace.ts",
+    "--project",
+    "raptor3-provider",
+    "tests/raptor3/post-prep/g29-result-progress-pglite.test.ts",
+    "--maxWorkers=1",
+    "--minWorkers=1",
+    "--no-file-parallelism",
+    "--reporter=json",
+    "--outputFile=/Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/core-structure/cs04-qualification/support/raw/pglite/g29-result-progress-pglite.test/vitest.json"
+  ],
+  "wallMs": 4448.3675,
+  "peakGroupRssKb": 1557568,
+  "rssCeiling": {
+    "limitMb": 2560,
+    "name": "isolated live-PGlite provider"
+  },
+  "code": 0,
+  "stopReason": null,
+  "teardownVerified": true,
+  "error": null
+}

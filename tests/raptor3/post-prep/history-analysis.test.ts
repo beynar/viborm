@@ -3,8 +3,9 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { NestedWriteError } from "@errors";
 import {
   type Choose,
-  type Command,
+  type CommandOccurrence,
   Commands,
+  isRecordOccurrence,
   type RecordCommand,
 } from "@query-engine/raptor3/commands/commands";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
@@ -115,11 +116,10 @@ function recordSpine(root: RecordCommand): RecordCommand[] {
   let current: RecordCommand | undefined = root;
   while (current) {
     records.push(current);
-    assert.equal(current.before.length, 0);
-    const children = current.after.filter(
-      (command): command is RecordCommand => command.kind === "record"
-    );
-    assert.equal(current.after.length, children.length);
+    const children = current.body
+      .map((occurrence) => occurrence.command)
+      .filter((command): command is RecordCommand => command.kind === "record");
+    assert.equal(current.body.length, children.length);
     assert(children.length <= 1);
     current = children[0];
   }
@@ -133,18 +133,31 @@ function literalId(command: RecordCommand): unknown {
   return id.value;
 }
 
-function requireRecord(command: Command | undefined): RecordCommand {
-  if (!command || command.kind !== "record") {
+function requireRecord(
+  occurrence: CommandOccurrence | undefined
+): RecordCommand {
+  if (!occurrence || occurrence.command.kind !== "record") {
     assert.fail("Expected a constructed record command");
   }
-  return command;
+  return occurrence.command;
 }
 
-function requireChoose(command: Command | undefined): Choose {
-  if (!command || command.kind !== "choose") {
+function requireChoose(occurrence: CommandOccurrence | undefined): Choose {
+  if (!occurrence || occurrence.command.kind !== "choose") {
     assert.fail("Expected a constructed choice command");
   }
-  return command;
+  return occurrence.command;
+}
+
+function recordOccurrences(
+  occurrence: CommandOccurrence
+): CommandOccurrence<RecordCommand>[] {
+  const records: CommandOccurrence<RecordCommand>[] = [];
+  if (!isRecordOccurrence(occurrence)) return records;
+  records.push(occurrence);
+  for (const child of occurrence.children)
+    records.push(...recordOccurrences(child));
+  return records;
 }
 
 function branchData(includeLaterSibling: boolean): Input {
@@ -186,11 +199,11 @@ describe("post-G3 command history analysis", () => {
       assert.deepEqual(admitted.data, admittedSpine(depth));
 
       const constructed = recordSpine(root);
-      const history = commands.analyze(root);
+      const history = recordOccurrences(commands.analyze(root));
       assert.equal(constructed.length, depth + 1);
       assert.equal(history.length, constructed.length);
       for (const [index, record] of constructed.entries()) {
-        assert.equal(history[index], record);
+        assert.equal(history[index]?.command, record);
         assert.equal(literalId(record), `node-${index}`);
       }
 
@@ -223,16 +236,14 @@ describe("post-G3 command history analysis", () => {
       const { admitted, commands, root } = createCommands(rawSiblings(width));
       assert.deepEqual(admitted.data, admittedSiblings(width));
 
-      const siblings = root.after.map(requireRecord);
-      assert.equal(root.before.length, 0);
+      const siblings = root.body.map(requireRecord);
       assert.equal(siblings.length, width);
-      const history = commands.analyze(root);
+      const history = recordOccurrences(commands.analyze(root));
       assert.equal(history.length, width + 1);
-      assert.equal(history[0], root);
+      assert.equal(history[0]?.command, root);
       for (const [index, sibling] of siblings.entries()) {
-        assert.equal(sibling.before.length, 0);
-        assert.equal(sibling.after.length, 0);
-        assert.equal(history[index + 1], sibling);
+        assert.equal(sibling.body.length, 0);
+        assert.equal(history[index + 1]?.command, sibling);
         assert.equal(literalId(sibling), `child-${index}`);
       }
 
@@ -256,45 +267,65 @@ describe("post-G3 command history analysis", () => {
 
   it("retains repeated occurrences of the same record identity", () => {
     const { commands, root } = createCommands(rawSpine(1));
-    const repeated = requireRecord(root.after[0]);
-    root.after.push(repeated);
+    const repeated = requireRecord(root.body[0]);
+    commands.place(root, repeated, "after", repeated.origin);
 
-    const history = commands.analyze(root);
+    const history = recordOccurrences(commands.analyze(root));
     assert.equal(history.length, 3);
-    assert.equal(history[0], root);
-    assert.equal(history[1], repeated);
-    assert.equal(history[2], repeated);
+    assert.equal(history[0]?.command, root);
+    assert.equal(history[1]?.command, repeated);
+    assert.equal(history[2]?.command, repeated);
     assert.equal(
-      history.filter((occurrence) => occurrence === repeated).length,
+      history.filter((occurrence) => occurrence.command === repeated).length,
       2
     );
   });
 
+  it("keeps nested occurrences distinct across repeated compound placements", () => {
+    const { commands, root } = createCommands(rawSpine(2));
+    const repeated = requireRecord(root.body[0]);
+    commands.place(root, repeated, "after", repeated.origin);
+
+    const history = recordOccurrences(commands.analyze(root));
+    assert.equal(history.length, 5);
+    assert.equal(history[1]?.command, repeated);
+    assert.equal(history[3]?.command, repeated);
+    assert.notEqual(history[1], history[3]);
+    assert.equal(history[2]?.command, history[4]?.command);
+    assert.notEqual(history[2], history[4]);
+  });
+
   it("isolates alternative suffixes while exposing them to a later sibling", () => {
     const isolated = createCommands(branchData(false));
-    const isolatedChoice = requireChoose(isolated.root.after[0]);
-    assert(isolatedChoice.foundRecord);
+    const isolatedChoice = requireChoose(isolated.root.body[0]);
+    assert(isolatedChoice.found);
     assert(isolatedChoice.missing);
-    const missingArmLookup = requireChoose(isolatedChoice.missing.after[0]);
+    const missingArmLookup = requireChoose(
+      isolatedChoice.missing.command.body[0]
+    );
     assert.equal(missingArmLookup.lookup.origin?.operation, "connect");
 
-    const isolatedHistory = isolated.commands.analyze(isolated.root);
-    assert.equal(isolated.root.refusal, undefined);
-    assert.equal(isolatedChoice.foundRecord.refusal, undefined);
-    assert.equal(isolatedChoice.missing.refusal, undefined);
-    assert(isolatedHistory.includes(missingArmLookup));
+    const isolatedAnalysis = isolated.commands.analyze(isolated.root);
+    assert.equal(isolatedAnalysis.refusal, undefined);
+    const analyzedChoice = isolatedAnalysis.children[0];
+    assert(analyzedChoice);
+    assert.equal(
+      isolated.commands.choiceArm(analyzedChoice, "found")?.refusal,
+      undefined
+    );
+    assert.equal(
+      isolated.commands.choiceArm(analyzedChoice, "missing")?.refusal,
+      undefined
+    );
 
     const visible = createCommands(branchData(true));
-    const earlierChoice = requireChoose(visible.root.after[0]);
-    const laterChoice = requireChoose(visible.root.after[1]);
-    const visibleHistory = visible.commands.analyze(visible.root);
-    assert(
-      visibleHistory.indexOf(earlierChoice) <
-        visibleHistory.indexOf(laterChoice)
-    );
-    assert(visible.root.refusal instanceof NestedWriteError);
-    assert.equal(visible.root.refusal.meta.operation, "upsert");
-    assert.equal(visible.root.refusal.meta.conflictsWith, "upsert");
-    assert.equal(visible.root.refusal.meta.relation, "children");
+    const earlierChoice = requireChoose(visible.root.body[0]);
+    const laterChoice = requireChoose(visible.root.body[1]);
+    const visibleAnalysis = visible.commands.analyze(visible.root);
+    assert.notEqual(earlierChoice, laterChoice);
+    assert(visibleAnalysis.refusal instanceof NestedWriteError);
+    assert.equal(visibleAnalysis.refusal.meta.operation, "upsert");
+    assert.equal(visibleAnalysis.refusal.meta.conflictsWith, "upsert");
+    assert.equal(visibleAnalysis.refusal.meta.relation, "children");
   });
 });

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "status": "qualifying",
+  "receiptId": "UUKxtm",
+  "candidateReceipt": "candidate-receipt.tar.gz",
+  "candidateReceiptSha256": "011a64d22cc61610180aa83d9156fc68f0d469bf59c650a278695557c06c44bb",
+  "referenceReceiptId": "JzSNb2",
+  "referenceReceipt": "reference-receipt.tar.gz",
+  "referenceReceiptSha256": "6b403a60ab7dcb1cbdc8e0af150752c9131bcc93fe1db0e55c85bb379fd1cd71",
+  "instrumentationPatch": "instrumentation.patch",
+  "identities": "identities.json",
+  "reducedReferenceComparison": "comparison.json",
+  "cases": 28,
+  "replays": 60,
+  "skipped": 0,
+  "counterContractSha256": "c48abbff370bfd625a639e077b8408d38dc7a10aa7ef3cea57e794e34f520f4e",
+  "eventsSha256": "291294c4ecef0928d50581b0c6308417449806b0e77e6b48995012d36db4b1ba",
+  "instrumentationPatchSha256": "4ec9b3c13717298d8bd85ceb49f78f9928e0bc36859ed18870b1fe27a4826d35"
+}

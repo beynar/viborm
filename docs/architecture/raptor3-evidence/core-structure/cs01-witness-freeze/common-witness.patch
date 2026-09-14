@@ -1,0 +1,1842 @@
+diff --git a/scripts/credential-free-test-manifest.mjs b/scripts/credential-free-test-manifest.mjs
+index 23c3dbbb..4c21abc6 100644
+--- a/scripts/credential-free-test-manifest.mjs
++++ b/scripts/credential-free-test-manifest.mjs
+@@ -30,6 +30,10 @@ import {
+   G29_DEPENDENCY_BOUNDARY_TESTS,
+   G29_DEPENDENCY_CHOICE_TESTS,
+   G29_RESULT_PROGRESS_TESTS,
++  CS01_STRUCTURAL_REFERENCE_TESTS,
++  CS01_EXTENSION_A_TESTS,
++  CS01_EXTENSION_B_TESTS,
++  CS01_EXTENSION_COMPOSITION_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_TESTS,
+   G2_DIAGNOSTIC_TESTS,
+@@ -80,6 +84,10 @@ const extendedLocalExclusions = new Set([
+   ...G29_DEPENDENCY_BOUNDARY_TESTS,
+   ...G29_DEPENDENCY_CHOICE_TESTS,
+   ...G29_RESULT_PROGRESS_TESTS,
++  ...CS01_STRUCTURAL_REFERENCE_TESTS,
++  ...CS01_EXTENSION_A_TESTS,
++  ...CS01_EXTENSION_B_TESTS,
++  ...CS01_EXTENSION_COMPOSITION_TESTS,
+   ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   ...G29_MEMBER_DEPENDENCY_PG_TESTS,
+   ...G2_DIAGNOSTIC_TESTS,
+@@ -119,6 +127,7 @@ export const RAPTOR3_FIXED_LOCAL_TESTS = Object.freeze([
+   ...G29_DEPENDENCY_BOUNDARY_TESTS,
+   ...G29_DEPENDENCY_CHOICE_TESTS,
+   ...G29_RESULT_PROGRESS_TESTS,
++  ...CS01_STRUCTURAL_REFERENCE_TESTS,
+   ...G1_GENERATED_TESTS,
+   ...G1_TRANSPORT_TESTS,
+ ]);
+diff --git a/scripts/raptor3-campaign-receipts.test.mjs b/scripts/raptor3-campaign-receipts.test.mjs
+index 0a09050f..77740f6c 100644
+--- a/scripts/raptor3-campaign-receipts.test.mjs
++++ b/scripts/raptor3-campaign-receipts.test.mjs
+@@ -30,6 +30,10 @@ import {
+   G29_DEPENDENCY_BOUNDARY_TESTS,
+   G29_DEPENDENCY_CHOICE_TESTS,
+   G29_RESULT_PROGRESS_TESTS,
++  CS01_STRUCTURAL_REFERENCE_TESTS,
++  CS01_EXTENSION_A_TESTS,
++  CS01_EXTENSION_B_TESTS,
++  CS01_EXTENSION_COMPOSITION_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_TESTS,
+ } from "./raptor3-manifest.mjs";
+@@ -85,6 +89,7 @@ test("credential-free registration isolates native Raptor suites and retains loc
+     ...G29_DEPENDENCY_BOUNDARY_TESTS,
+     ...G29_DEPENDENCY_CHOICE_TESTS,
+     ...G29_RESULT_PROGRESS_TESTS,
++    ...CS01_STRUCTURAL_REFERENCE_TESTS,
+   ];
+   const native = [
+     ...G27_PG_CONTRACT_TESTS,
+@@ -95,6 +100,11 @@ test("credential-free registration isolates native Raptor suites and retains loc
+     ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     ...G29_MEMBER_DEPENDENCY_PG_TESTS,
+   ];
++  const futureCapabilities = [
++    ...CS01_EXTENSION_A_TESTS,
++    ...CS01_EXTENSION_B_TESTS,
++    ...CS01_EXTENSION_COMPOSITION_TESTS,
++  ];
+ 
+   for (const file of localFixed) {
+     assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
+@@ -104,6 +114,10 @@ test("credential-free registration isolates native Raptor suites and retains loc
+     assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
+     assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), false, file);
+   }
++  for (const file of futureCapabilities) {
++    assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);
++    assert.equal(RAPTOR3_FIXED_LOCAL_TESTS.includes(file), false, file);
++  }
+ });
+ 
+ function unitReceipt(firstSeed, profiles) {
+diff --git a/scripts/raptor3-manifest.mjs b/scripts/raptor3-manifest.mjs
+index afae7239..129885ec 100644
+--- a/scripts/raptor3-manifest.mjs
++++ b/scripts/raptor3-manifest.mjs
+@@ -234,6 +234,30 @@ export const G29_RESULT_PROGRESS_COUNTS = Object.freeze({
+ export const G29_RESULT_PROGRESS_TESTS = Object.freeze(
+   Object.keys(G29_RESULT_PROGRESS_COUNTS),
+ );
++export const CS01_STRUCTURAL_REFERENCE_COUNTS = Object.freeze({
++  "tests/raptor3/core-structure/structural-reference.test.ts": 10,
++});
++export const CS01_STRUCTURAL_REFERENCE_TESTS = Object.freeze(
++  Object.keys(CS01_STRUCTURAL_REFERENCE_COUNTS),
++);
++export const CS01_EXTENSION_A_COUNTS = Object.freeze({
++  "tests/raptor3/core-structure/extension-a.contract.test.ts": 5,
++});
++export const CS01_EXTENSION_A_TESTS = Object.freeze(
++  Object.keys(CS01_EXTENSION_A_COUNTS),
++);
++export const CS01_EXTENSION_B_COUNTS = Object.freeze({
++  "tests/raptor3/core-structure/extension-b.contract.test.ts": 4,
++});
++export const CS01_EXTENSION_B_TESTS = Object.freeze(
++  Object.keys(CS01_EXTENSION_B_COUNTS),
++);
++export const CS01_EXTENSION_COMPOSITION_COUNTS = Object.freeze({
++  "tests/raptor3/core-structure/extension-composition.contract.test.ts": 4,
++});
++export const CS01_EXTENSION_COMPOSITION_TESTS = Object.freeze(
++  Object.keys(CS01_EXTENSION_COMPOSITION_COUNTS),
++);
+ export const G29_MEMBER_DEPENDENCY_PROVIDER_COUNTS = Object.freeze({
+   "tests/raptor3/post-prep/native-g29-member-dependency.test.ts": 2,
+ });
+diff --git a/scripts/run-raptor3.mjs b/scripts/run-raptor3.mjs
+index a976bde9..77605069 100644
+--- a/scripts/run-raptor3.mjs
++++ b/scripts/run-raptor3.mjs
+@@ -74,6 +74,14 @@ import {
+   G29_DEPENDENCY_CHOICE_TESTS,
+   G29_RESULT_PROGRESS_COUNTS,
+   G29_RESULT_PROGRESS_TESTS,
++  CS01_STRUCTURAL_REFERENCE_COUNTS,
++  CS01_STRUCTURAL_REFERENCE_TESTS,
++  CS01_EXTENSION_A_COUNTS,
++  CS01_EXTENSION_A_TESTS,
++  CS01_EXTENSION_B_COUNTS,
++  CS01_EXTENSION_B_TESTS,
++  CS01_EXTENSION_COMPOSITION_COUNTS,
++  CS01_EXTENSION_COMPOSITION_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_COUNTS,
+@@ -190,6 +198,10 @@ export function parseRaptor3Request(arguments_) {
+       "g29-dependency-boundaries",
+       "g29-dependency-choices",
+       "g29-result-progress",
++      "cs01-structural-reference",
++      "cs01-extension-a",
++      "cs01-extension-b",
++      "cs01-extension-composition",
+       "g29-member-dependency-pg",
+       "g29-member-dependency-mysql",
+       "g3p06-seeds",
+@@ -235,7 +247,7 @@ export function parseRaptor3Request(arguments_) {
+     return { mode: "replay", path, wallMs };
+   }
+   throw new Error(
+-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered.",
++    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered.",
+   );
+ }
+ 
+@@ -345,6 +357,10 @@ async function run(request) {
+     "g29-dependency-boundaries": G29_DEPENDENCY_BOUNDARY_TESTS,
+     "g29-dependency-choices": G29_DEPENDENCY_CHOICE_TESTS,
+     "g29-result-progress": G29_RESULT_PROGRESS_TESTS,
++    "cs01-structural-reference": CS01_STRUCTURAL_REFERENCE_TESTS,
++    "cs01-extension-a": CS01_EXTENSION_A_TESTS,
++    "cs01-extension-b": CS01_EXTENSION_B_TESTS,
++    "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_TESTS,
+     "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_TESTS,
+     "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     "g2-diagnostics": G2_DIAGNOSTIC_TESTS,
+@@ -464,6 +480,10 @@ async function run(request) {
+       "g29-dependency-boundaries": G29_DEPENDENCY_BOUNDARY_COUNTS,
+       "g29-dependency-choices": G29_DEPENDENCY_CHOICE_COUNTS,
+       "g29-result-progress": G29_RESULT_PROGRESS_COUNTS,
++      "cs01-structural-reference": CS01_STRUCTURAL_REFERENCE_COUNTS,
++      "cs01-extension-a": CS01_EXTENSION_A_COUNTS,
++      "cs01-extension-b": CS01_EXTENSION_B_COUNTS,
++      "cs01-extension-composition": CS01_EXTENSION_COMPOSITION_COUNTS,
+       "g29-member-dependency-pg": G29_MEMBER_DEPENDENCY_PG_COUNTS,
+       "g29-member-dependency-mysql": G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+       "g2-diagnostics": G2_DIAGNOSTIC_COUNTS,
+diff --git a/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.Do6amlJfVJ/b/tests/raptor3/core-structure/extension-a.contract.test.ts b/tests/raptor3/core-structure/extension-a.contract.test.ts
+new file mode 100644
+index 00000000..ca9b6178
+--- /dev/null
++++ b/tests/raptor3/core-structure/extension-a.contract.test.ts
+@@ -0,0 +1,323 @@
++import assert from "node:assert/strict";
++import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import {
++  TransactionError,
++  UnsupportedOperationError,
++  ValidationError,
++} from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { createClient } from "@client/client";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { it } from "vitest";
++
++interface StatementObservation {
++  readonly sql: string;
++  readonly parameters: readonly unknown[];
++  readonly context?: QueryExecutionContext;
++}
++
++class SelectionSQLiteDriver extends SQLite3Driver {
++  readonly statements: StatementObservation[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push({ sql: statement, parameters, context });
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++class SelectionBatchSQLiteDriver extends SelectionSQLiteDriver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++function selfNodeSchema() {
++  const node = s
++    .model({
++      id: s.int().id(),
++      label: s.string(),
++      parentId: s.int().nullable(),
++      parent: s
++        .toOne(() => node)
++        .fields("parentId")
++        .references("id")
++        .name("selectionTree"),
++      children: s.toMany(() => node).name("selectionTree"),
++    })
++    .map("cs01_selection_nodes");
++  return { node };
++}
++
++async function selfNodeWorld(batch = false) {
++  const database = new Database(":memory:");
++  database.pragma("foreign_keys = ON");
++  const driver = batch
++    ? new SelectionBatchSQLiteDriver({ client: database })
++    : new SelectionSQLiteDriver({ client: database });
++  const schema = selfNodeSchema();
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  driver.statements.length = 0;
++  return { client, database, driver, schema };
++}
++
++it("CS-01 A returns omitted-key rows only after every relation-series member", async () => {
++  const world = await selfNodeWorld();
++  try {
++    world.database.exec(`
++      INSERT INTO cs01_selection_nodes VALUES(2,'parent',NULL);
++      INSERT INTO cs01_selection_nodes VALUES(1,'child',2);
++    `);
++
++    const rows = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("node", "updateMany", {
++      where: { id: { in: [1, 2] } },
++      data: {
++        label: "seen",
++        children: { updateMany: { where: {}, data: { label: "touched" } } },
++      },
++      select: { label: true },
++    });
++
++    assert.deepEqual(rows, [{ label: "touched" }, { label: "seen" }]);
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++it("CS-01 A reads compound final keys while keeping injected keys private", async () => {
++  const database = new Database(":memory:");
++  database.pragma("foreign_keys = ON");
++  let childId = 0;
++  const parent = s
++    .model({
++      tenant: s.string(),
++      serial: s.int(),
++      label: s.string(),
++      children: s.toMany(() => child),
++    })
++    .id(["tenant", "serial"])
++    .map("cs01_selection_compound_parents");
++  const child = s
++    .model({
++      id: s
++        .int()
++        .id()
++        .default(() => ++childId),
++      parentTenant: s.string(),
++      parentSerial: s.int(),
++      parent: s
++        .toOne(() => parent)
++        .fields("parentTenant", "parentSerial")
++        .references("tenant", "serial"),
++    })
++    .map("cs01_selection_compound_children");
++  const schema = { parent, child };
++  const driver = new SelectionSQLiteDriver({ client: database });
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  try {
++    database.exec(`
++      INSERT INTO cs01_selection_compound_parents VALUES('t',1,'one');
++      INSERT INTO cs01_selection_compound_parents VALUES('t',2,'two');
++    `);
++    driver.statements.length = 0;
++
++    const rows = await createCommandEngine({ schema, driver }).execute(
++      "parent",
++      "updateMany",
++      {
++        where: { tenant: "t" },
++        data: {
++          serial: { increment: 10 },
++          children: { create: {} },
++        },
++        select: { label: true },
++      }
++    );
++
++    assert.deepEqual(rows, [{ label: "one" }, { label: "two" }]);
++    assert.deepEqual(
++      database
++        .prepare(
++          "SELECT tenant,serial,label FROM cs01_selection_compound_parents ORDER BY serial"
++        )
++        .all(),
++      [
++        { tenant: "t", serial: 11, label: "one" },
++        { tenant: "t", serial: 12, label: "two" },
++      ]
++    );
++    assert.deepEqual(
++      database
++        .prepare(
++          "SELECT parentTenant,parentSerial FROM cs01_selection_compound_children ORDER BY parentSerial"
++        )
++        .all(),
++      [
++        { parentTenant: "t", parentSerial: 11 },
++        { parentTenant: "t", parentSerial: 12 },
++      ]
++    );
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++});
++
++async function runMissingFinalRow(batch: boolean): Promise<void> {
++  const world = await selfNodeWorld(batch);
++  try {
++    world.database.exec(`
++      INSERT INTO cs01_selection_nodes VALUES(2,'parent',NULL);
++      INSERT INTO cs01_selection_nodes VALUES(1,'child',2);
++    `);
++    world.driver.statements.length = 0;
++
++    let failure: unknown;
++    try {
++      await createCommandEngine({
++        schema: world.schema,
++        driver: world.driver,
++      }).execute("node", "updateMany", {
++        where: { id: { in: [1, 2] } },
++        data: { label: "changed", children: { deleteMany: {} } },
++        select: { id: true, label: true },
++      });
++    } catch (caught) {
++      failure = caught;
++    }
++
++    assert(failure instanceof TransactionError);
++    assert.match(
++      failure.message,
++      /updateMany with 'select' could not read back one of the updated rows/
++    );
++    if (batch) {
++      assert.deepEqual(failure.meta.recordSeriesProgress, {
++        atomicity: "segment",
++        phase: "result",
++        committedSegments: 2,
++        committedWriteMembers: 2,
++        completedMembers: 2,
++      });
++      assert.deepEqual(
++        world.database
++          .prepare(
++            "SELECT id,label,parentId FROM cs01_selection_nodes ORDER BY id"
++          )
++          .all(),
++        [{ id: 2, label: "changed", parentId: null }]
++      );
++    } else {
++      assert.equal(failure.meta.recordSeriesProgress, undefined);
++      assert.deepEqual(
++        world.database
++          .prepare(
++            "SELECT id,label,parentId FROM cs01_selection_nodes ORDER BY id"
++          )
++          .all(),
++        [
++          { id: 1, label: "child", parentId: 2 },
++          { id: 2, label: "parent", parentId: null },
++        ]
++      );
++    }
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++}
++
++it("CS-01 A refuses a missing terminal row and rolls back interactively", async () => {
++  await runMissingFinalRow(false);
++});
++
++it("CS-01 A reports acknowledged member progress when a terminal row is missing", async () => {
++  await runMissingFinalRow(true);
++});
++
++it("CS-01 A does not widen scalar returning or projection capabilities", async () => {
++  const world = await selfNodeWorld();
++  try {
++    world.database.exec(
++      "INSERT INTO cs01_selection_nodes VALUES(1,'original',NULL);"
++    );
++    const candidate = createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    });
++    const attempts = [
++      {
++        args: {
++          where: { id: 1 },
++          data: { label: "scalar" },
++          select: { id: true },
++        },
++        error: UnsupportedOperationError,
++      },
++      {
++        args: {
++          where: { id: 1 },
++          data: { children: { create: { id: 2, label: "child" } } },
++          select: { children: true },
++        },
++        error: ValidationError,
++      },
++      {
++        args: {
++          where: { id: 1 },
++          data: { children: { create: { id: 2, label: "child" } } },
++          omit: { label: true },
++        },
++        error: UnsupportedOperationError,
++      },
++      {
++        args: {
++          where: { id: 1 },
++          data: { children: { create: { id: 2, label: "child" } } },
++          include: { children: true },
++        },
++        error: ValidationError,
++      },
++    ] as const;
++
++    for (const attempt of attempts) {
++      await assert.rejects(
++        candidate.execute("node", "updateMany", attempt.args),
++        (failure) => failure instanceof attempt.error
++      );
++    }
++    assert.equal(world.driver.statements.length, 0);
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,label,parentId FROM cs01_selection_nodes")
++        .get(),
++      { id: 1, label: "original", parentId: null }
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
+diff --git a/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.Do6amlJfVJ/b/tests/raptor3/core-structure/extension-b.contract.test.ts b/tests/raptor3/core-structure/extension-b.contract.test.ts
+new file mode 100644
+index 00000000..b0e0faa5
+--- /dev/null
++++ b/tests/raptor3/core-structure/extension-b.contract.test.ts
+@@ -0,0 +1,264 @@
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import type { QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { ValidationError } from "@errors";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { it } from "vitest";
++
++interface StatementObservation {
++  readonly sql: string;
++  readonly parameters: readonly unknown[];
++  readonly context?: QueryExecutionContext;
++}
++
++class LimitSQLiteDriver extends SQLite3Driver {
++  readonly statements: StatementObservation[] = [];
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push({ sql: statement, parameters, context });
++    return super.execute<T>(client, statement, parameters);
++  }
++}
++
++function scalarSchema() {
++  const entry = s
++    .model({
++      id: s.int().id(),
++      group: s.string(),
++      value: s.int(),
++    })
++    .map("cs01_limit_entries");
++  return { entry };
++}
++
++async function scalarWorld() {
++  const database = new Database(":memory:");
++  const driver = new LimitSQLiteDriver({ client: database });
++  const schema = scalarSchema();
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  database.exec(`
++    INSERT INTO cs01_limit_entries VALUES(1,'selected',1);
++    INSERT INTO cs01_limit_entries VALUES(2,'selected',2);
++    INSERT INTO cs01_limit_entries VALUES(3,'selected',3);
++  `);
++  driver.statements.length = 0;
++  return { client, database, driver, schema };
++}
++
++function writes(
++  statements: readonly StatementObservation[],
++  operation: "UPDATE" | "DELETE"
++) {
++  return statements.filter(({ sql }) =>
++    new RegExp(`^${operation}\\b`, "i").test(sql.trim())
++  );
++}
++
++it("CS-01 B applies a scalar updateMany limit in one set statement", async () => {
++  const world = await scalarWorld();
++  try {
++    const result = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("entry", "updateMany", {
++      where: { group: "selected" },
++      data: { value: { set: 9 } },
++      limit: 2,
++    });
++
++    assert.deepEqual(result, { count: 2 });
++    assert.equal(writes(world.driver.statements, "UPDATE").length, 1);
++    assert.equal(
++      world.driver.statements.some(({ sql }) => /^SELECT\b/i.test(sql.trim())),
++      false
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT value,COUNT(*) count FROM cs01_limit_entries GROUP BY value ORDER BY value"
++        )
++        .all(),
++      [
++        { value: 3, count: 1 },
++        { value: 9, count: 2 },
++      ]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++it("CS-01 B applies a scalar deleteMany limit in one set statement", async () => {
++  const world = await scalarWorld();
++  try {
++    const result = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("entry", "deleteMany", {
++      where: { group: "selected" },
++      limit: 2,
++    });
++
++    assert.deepEqual(result, { count: 2 });
++    assert.equal(writes(world.driver.statements, "DELETE").length, 1);
++    assert.equal(
++      world.driver.statements.some(({ sql }) => /^SELECT\b/i.test(sql.trim())),
++      false
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT group,COUNT(*) count FROM cs01_limit_entries GROUP BY group"
++        )
++        .all(),
++      [{ group: "selected", count: 1 }]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++function relationSchema(nextChildId: () => string) {
++  const shelf = s
++    .model({
++      id: s.string().id(),
++      label: s.string(),
++      children: s.toMany(() => child),
++    })
++    .map("cs01_limit_shelves");
++  const child = s
++    .model({
++      id: s.string().id().default(nextChildId),
++      shelfId: s.string(),
++      label: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id"),
++    })
++    .map("cs01_limit_children");
++  return { shelf, child };
++}
++
++async function relationWorld() {
++  const admissions: string[] = [];
++  const schema = relationSchema(() => {
++    const id = `child-${admissions.length}`;
++    admissions.push(id);
++    return id;
++  });
++  const database = new Database(":memory:");
++  database.pragma("foreign_keys = ON");
++  const driver = new LimitSQLiteDriver({ client: database });
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  database.exec(`
++    INSERT INTO cs01_limit_shelves VALUES('s1','one');
++    INSERT INTO cs01_limit_shelves VALUES('s2','two');
++    INSERT INTO cs01_limit_shelves VALUES('s3','three');
++  `);
++  driver.statements.length = 0;
++  return { admissions, client, database, driver, schema };
++}
++
++it("CS-01 B caps relation capture before admitting or executing members", async () => {
++  const world = await relationWorld();
++  try {
++    const result = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("shelf", "updateMany", {
++      where: {},
++      data: {
++        label: "capped",
++        children: { create: { label: "created" } },
++      },
++      limit: 2,
++    });
++
++    assert.deepEqual(result, { count: 2 });
++    assert.deepEqual(world.admissions, ["child-0", "child-1", "child-2"]);
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT label,COUNT(*) count,COUNT(DISTINCT shelfId) parents FROM cs01_limit_children GROUP BY label"
++        )
++        .all(),
++      [{ label: "created", count: 2, parents: 2 }]
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT label,COUNT(*) count FROM cs01_limit_shelves GROUP BY label ORDER BY label"
++        )
++        .all(),
++      [
++        { label: "capped", count: 2 },
++        { label: "three", count: 1 },
++      ]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++it("CS-01 B validates limits and makes limit zero a true no-op", async () => {
++  const world = await relationWorld();
++  try {
++    const engine = createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    });
++    const operation = (limit: number) =>
++      engine.execute("shelf", "updateMany", {
++        where: {},
++        data: {
++          label: "forbidden",
++          children: { create: { label: "forbidden" } },
++        },
++        limit,
++      });
++
++    await assert.rejects(operation(-1), ValidationError);
++    await assert.rejects(operation(1.5), ValidationError);
++    assert.equal(world.driver.statements.length, 0);
++
++    world.admissions.length = 0;
++    const result = await operation(0);
++    assert.deepEqual(result, { count: 0 });
++    assert.deepEqual(world.admissions, ["child-0"]);
++    assert.equal(world.driver.statements.length, 0);
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,label FROM cs01_limit_shelves ORDER BY id")
++        .all(),
++      [
++        { id: "s1", label: "one" },
++        { id: "s2", label: "two" },
++        { id: "s3", label: "three" },
++      ]
++    );
++    assert.deepEqual(
++      world.database.prepare("SELECT * FROM cs01_limit_children").all(),
++      []
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
+diff --git a/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.Do6amlJfVJ/b/tests/raptor3/core-structure/extension-composition.contract.test.ts b/tests/raptor3/core-structure/extension-composition.contract.test.ts
+new file mode 100644
+index 00000000..399f1e20
+--- /dev/null
++++ b/tests/raptor3/core-structure/extension-composition.contract.test.ts
+@@ -0,0 +1,350 @@
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import type { QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import { v } from "@validation";
++import { isRecord } from "@validation/value-guards";
++import Database from "better-sqlite3";
++import { it } from "vitest";
++
++interface StatementObservation {
++  readonly sql: string;
++  readonly parameters: readonly unknown[];
++  readonly context?: QueryExecutionContext;
++}
++
++class CompositionSQLiteDriver extends SQLite3Driver {
++  readonly statements: StatementObservation[] = [];
++  afterStatement?: (rows: readonly unknown[]) => void;
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push({ sql: statement, parameters, context });
++    const response = await super.execute<T>(client, statement, parameters);
++    this.afterStatement?.(response.rows);
++    return response;
++  }
++}
++
++function compositionSchema(
++  nextTicketId: () => string,
++  admitHolderLookup: (input: string) => string,
++  nextHolderId: () => string
++) {
++  const shelf = s
++    .model({
++      id: s.string().id(),
++      label: s.string(),
++      bins: s.toMany(() => bin).name("cs01CompositionShelfBins"),
++      holders: s.toMany(() => holder).name("cs01CompositionShelfHolders"),
++    })
++    .map("cs01_composition_shelves");
++  const bin = s
++    .model({
++      id: s.string().id(),
++      label: s.string(),
++      shelfId: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id")
++        .name("cs01CompositionShelfBins"),
++      tickets: s.toMany(() => ticket).name("cs01CompositionBinTickets"),
++    })
++    .map("cs01_composition_bins");
++  const ticket = s
++    .model({
++      id: s.string().id().default(nextTicketId),
++      note: s.string(),
++      binId: s.string(),
++      bin: s
++        .toOne(() => bin)
++        .fields("binId")
++        .references("id")
++        .name("cs01CompositionBinTickets"),
++    })
++    .map("cs01_composition_tickets");
++  const holder = s
++    .model({
++      id: s.string().id().default(nextHolderId),
++      lookupKey: s
++        .string()
++        .schema(v.string({ transform: admitHolderLookup }))
++        .unique(),
++      label: s.string(),
++      shelfId: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id")
++        .name("cs01CompositionShelfHolders"),
++    })
++    .map("cs01_composition_holders");
++  return { shelf, bin, ticket, holder };
++}
++
++async function compositionWorld(hasHolder: boolean) {
++  let selectedShelf: string | undefined;
++  const ticketAdmissions: Array<"template" | "member"> = [];
++  const holderAdmissions: Array<"template" | "member"> = [];
++  const schema = compositionSchema(
++    () => {
++      const scope = selectedShelf ? "member" : "template";
++      ticketAdmissions.push(scope);
++      return scope === "template" ? "template-ticket" : "member-ticket";
++    },
++    () => {
++      const scope = selectedShelf ? "member" : "template";
++      holderAdmissions.push(scope);
++      return selectedShelf
++        ? `${hasHolder ? "holder" : "missing"}-${selectedShelf}`
++        : "template-holder";
++    },
++    () => `new-${selectedShelf ?? "template"}`
++  );
++  const database = new Database(":memory:");
++  database.pragma("foreign_keys = ON");
++  const driver = new CompositionSQLiteDriver({ client: database });
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  database.exec(`
++    INSERT INTO cs01_composition_shelves VALUES('s1','one');
++    INSERT INTO cs01_composition_shelves VALUES('s2','two');
++    INSERT INTO cs01_composition_shelves VALUES('s3','three');
++    INSERT INTO cs01_composition_bins VALUES('b1','initial','s1');
++    INSERT INTO cs01_composition_bins VALUES('b2','initial','s2');
++    INSERT INTO cs01_composition_bins VALUES('b3','initial','s3');
++    CREATE TRIGGER cs01_composition_terminal_label
++    AFTER UPDATE OF label ON cs01_composition_bins
++    WHEN NEW.label='touched' AND OLD.label <> NEW.label
++    BEGIN
++      UPDATE cs01_composition_shelves
++      SET label='terminal'
++      WHERE id=NEW.shelfId;
++    END;
++    ${
++      hasHolder
++        ? `
++          INSERT INTO cs01_composition_holders VALUES('h1','holder-s1','initial','s1');
++          INSERT INTO cs01_composition_holders VALUES('h2','holder-s2','initial','s2');
++          INSERT INTO cs01_composition_holders VALUES('h3','holder-s3','initial','s3');
++        `
++        : ""
++    }
++  `);
++  driver.afterStatement = (rows) => {
++    for (const row of rows) {
++      if (
++        isRecord(row) &&
++        typeof row.id === "string" &&
++        /^s[123]$/.test(row.id)
++      ) {
++        selectedShelf = row.id;
++      }
++    }
++  };
++  driver.statements.length = 0;
++  return {
++    client,
++    database,
++    driver,
++    holderAdmissions,
++    schema,
++    ticketAdmissions,
++  };
++}
++
++function compositionArgs(limit: number) {
++  return {
++    where: {},
++    data: {
++      bins: {
++        updateMany: {
++          where: {},
++          data: {
++            label: "touched",
++            tickets: { create: { note: "created" } },
++          },
++        },
++      },
++      holders: {
++        upsert: {
++          where: { lookupKey: "raw-holder" },
++          create: { lookupKey: "raw-holder", label: "created" },
++          update: { label: "found" },
++        },
++      },
++    },
++    limit,
++    select: { label: true },
++  };
++}
++
++async function runComposition(hasHolder: boolean): Promise<void> {
++  const world = await compositionWorld(hasHolder);
++  try {
++    const rows = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("shelf", "updateMany", compositionArgs(1));
++
++    assert.deepEqual(rows, [{ label: "terminal" }]);
++    assert.deepEqual(world.ticketAdmissions, ["template", "member"]);
++    assert.deepEqual(world.holderAdmissions, [
++      "template",
++      "template",
++      "member",
++      "member",
++    ]);
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT SUM(label='terminal') terminal,SUM(label IN ('one','two','three')) untouched FROM cs01_composition_shelves"
++        )
++        .get(),
++      { terminal: 1, untouched: 2 }
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT SUM(label='touched') touched,SUM(label='initial') untouched FROM cs01_composition_bins"
++        )
++        .get(),
++      { touched: 1, untouched: 2 }
++    );
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,note FROM cs01_composition_tickets")
++        .all(),
++      [{ id: "member-ticket", note: "created" }]
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT label,COUNT(*) count FROM cs01_composition_holders GROUP BY label ORDER BY label"
++        )
++        .all(),
++      hasHolder
++        ? [
++            { label: "found", count: 1 },
++            { label: "initial", count: 2 },
++          ]
++        : [{ label: "created", count: 1 }]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++}
++
++it("CS-01 composition returns trigger-updated capped rows after an active choice arm and nested series", async () => {
++  await runComposition(true);
++});
++
++it("CS-01 composition keeps the untaken choice arm inert while returning trigger-updated capped rows", async () => {
++  await runComposition(false);
++});
++
++it("CS-01 composition keeps limit zero SQL-free across selection, series, and choice", async () => {
++  const world = await compositionWorld(true);
++  try {
++    const rows = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("shelf", "updateMany", compositionArgs(0));
++
++    assert.deepEqual(rows, []);
++    assert.deepEqual(world.ticketAdmissions, ["template"]);
++    assert.deepEqual(world.holderAdmissions, ["template", "template"]);
++    assert.equal(world.driver.statements.length, 0);
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,label FROM cs01_composition_shelves ORDER BY id")
++        .all(),
++      [
++        { id: "s1", label: "one" },
++        { id: "s2", label: "two" },
++        { id: "s3", label: "three" },
++      ]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
++
++it("CS-01 composition reaches the nested series, choice, and trigger-driven result without extension options", async () => {
++  const world = await compositionWorld(false);
++  try {
++    const { limit: _limit, select: _select, ...args } = compositionArgs(1);
++    const result = await createCommandEngine({
++      schema: world.schema,
++      driver: world.driver,
++    }).execute("shelf", "updateMany", { ...args, where: { id: "s1" } });
++
++    assert.deepEqual(result, { count: 1 });
++    assert.deepEqual(world.ticketAdmissions, [
++      "template",
++      "member",
++      "member",
++    ]);
++    assert.deepEqual(world.holderAdmissions, [
++      "template",
++      "template",
++      "member",
++      "member",
++    ]);
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,label FROM cs01_composition_shelves ORDER BY id")
++        .all(),
++      [
++        { id: "s1", label: "terminal" },
++        { id: "s2", label: "two" },
++        { id: "s3", label: "three" },
++      ]
++    );
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,label FROM cs01_composition_bins ORDER BY id")
++        .all(),
++      [
++        { id: "b1", label: "touched" },
++        { id: "b2", label: "initial" },
++        { id: "b3", label: "initial" },
++      ]
++    );
++    assert.deepEqual(
++      world.database
++        .prepare("SELECT id,note,binId FROM cs01_composition_tickets")
++        .all(),
++      [{ id: "member-ticket", note: "created", binId: "b1" }]
++    );
++    assert.deepEqual(
++      world.database
++        .prepare(
++          "SELECT id,lookupKey,label,shelfId FROM cs01_composition_holders"
++        )
++        .all(),
++      [
++        {
++          id: "new-s1",
++          lookupKey: "missing-s1",
++          label: "created",
++          shelfId: "s1",
++        },
++      ]
++    );
++  } finally {
++    await world.client.$disconnect();
++    world.database.close();
++  }
++});
+diff --git a/var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/tmp.Do6amlJfVJ/b/tests/raptor3/core-structure/structural-reference.test.ts b/tests/raptor3/core-structure/structural-reference.test.ts
+new file mode 100644
+index 00000000..219b73cb
+--- /dev/null
++++ b/tests/raptor3/core-structure/structural-reference.test.ts
+@@ -0,0 +1,679 @@
++import assert from "node:assert/strict";
++import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import {
++  NestedWriteError,
++  NotFoundError,
++  UnsupportedOperationError,
++  VibORMErrorCode,
++} from "@errors";
++import {
++  Commands,
++  type Choose,
++  type RecordCommand,
++  type SelectedSeries,
++} from "@query-engine/raptor3/commands/commands";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
++import {
++  type Arguments,
++  EngineSchema,
++  entries,
++  type Input,
++  record,
++} from "@query-engine/raptor3/shared/schema";
++import { bindMembership } from "@query-engine/raptor3/shared/storage";
++import { s } from "@schema";
++import type { AnyModel } from "@schema/model";
++import { createClient } from "@client/client";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import { isRecord } from "@validation/value-guards";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++type Profile = "sqlite-interactive" | "sqlite-atomic-batch";
++
++interface StatementObservation {
++  readonly sql: string;
++  readonly parameters: readonly unknown[];
++  readonly context?: QueryExecutionContext;
++}
++
++class StructuralSQLiteDriver extends SQLite3Driver {
++  readonly statements: StatementObservation[] = [];
++  afterStatement?: (rows: readonly unknown[]) => void;
++
++  resetObservations(): void {
++    this.statements.length = 0;
++  }
++
++  protected override async execute<T>(
++    client: Database.Database,
++    statement: string,
++    parameters: unknown[],
++    context?: QueryExecutionContext
++  ): Promise<QueryResult<T>> {
++    this.statements.push({ sql: statement, parameters, context });
++    const result = await super.execute<T>(client, statement, parameters);
++    this.afterStatement?.(result.rows);
++    return result;
++  }
++}
++
++class StructuralBatchSQLiteDriver extends StructuralSQLiteDriver {
++  override readonly supportsTransactions = false;
++  override readonly supportsBatch = true;
++
++  protected override async executeBatch<T>(
++    client: Database.Database,
++    queries: BatchQuery[]
++  ): Promise<QueryResult<T>[]> {
++    return this.transaction(client, (transaction) =>
++      super.executeBatch<T>(transaction, queries)
++    );
++  }
++}
++
++function createDriver(
++  profile: Profile,
++  database: Database.Database
++): StructuralSQLiteDriver {
++  return profile === "sqlite-interactive"
++    ? new StructuralSQLiteDriver({ client: database })
++    : new StructuralBatchSQLiteDriver({ client: database });
++}
++
++async function migrate<S extends Record<string, AnyModel>>(
++  schema: S,
++  driver: StructuralSQLiteDriver
++) {
++  const client = createClient({ schema, driver });
++  const migration = await syncLiveSchema(client);
++  assert.equal(migration.applied, true);
++  driver.resetObservations();
++  return client;
++}
++
++function hasWrite(
++  statements: readonly StatementObservation[],
++  table: string
++): boolean {
++  return statements.some(
++    ({ sql }) => /^(?:INSERT|UPDATE|DELETE)\b/.test(sql) && sql.includes(table)
++  );
++}
++
++function prioritySchema(nextTicketId: () => string) {
++  const shelf = s
++    .model({
++      id: s.string().id(),
++      label: s.string(),
++      bins: s.toMany(() => bin).name("priorityShelfBins"),
++      earlyHolders: s.toMany(() => earlyHolder).name("priorityEarlyShelf"),
++      lateHolders: s.toMany(() => lateHolder).name("priorityLateShelf"),
++    })
++    .map("cs01_priority_shelves");
++  const bin = s
++    .model({
++      id: s.string().id(),
++      shelfId: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id")
++        .name("priorityShelfBins"),
++      tickets: s.toMany(() => ticket).name("priorityBinTickets"),
++    })
++    .map("cs01_priority_bins");
++  const ticket = s
++    .model({
++      id: s.string().id().default(nextTicketId),
++      note: s.string(),
++      binId: s.string(),
++      bin: s
++        .toOne(() => bin)
++        .fields("binId")
++        .references("id")
++        .name("priorityBinTickets"),
++      earlyHolders: s.toMany(() => earlyHolder).name("priorityEarlyTicket"),
++      lateHolders: s.toMany(() => lateHolder).name("priorityLateTicket"),
++    })
++    .map("cs01_priority_tickets");
++  const earlyHolder = s
++    .model({
++      id: s.string().id(),
++      shelfId: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id")
++        .name("priorityEarlyShelf"),
++      ticketId: s.string().nullable(),
++      earlyTicket: s
++        .toOne(() => ticket)
++        .fields("ticketId")
++        .references("id")
++        .name("priorityEarlyTicket"),
++    })
++    .map("cs01_priority_early_holders");
++  const lateHolder = s
++    .model({
++      id: s.string().id(),
++      shelfId: s.string(),
++      shelf: s
++        .toOne(() => shelf)
++        .fields("shelfId")
++        .references("id")
++        .name("priorityLateShelf"),
++      ticketId: s.string().nullable(),
++      lateTicket: s
++        .toOne(() => ticket)
++        .fields("ticketId")
++        .references("id")
++        .name("priorityLateTicket"),
++    })
++    .map("cs01_priority_late_holders");
++  return { shelf, bin, ticket, earlyHolder, lateHolder };
++}
++
++function priorityArgs(lateFound: boolean) {
++  return {
++    where: { id: "s1" },
++    data: {
++      label: "prefix",
++      bins: {
++        updateMany: {
++          where: {},
++          data: { tickets: { create: { note: "member" } } },
++        },
++      },
++      earlyHolders: {
++        update: {
++          where: { id: "early" },
++          data: { earlyTicket: { connect: { id: "second" } } },
++        },
++      },
++      lateHolders: {
++        upsert: {
++          where: { id: lateFound ? "late" : "missing" },
++          create: { id: "missing", ticketId: null },
++          update: { lateTicket: { connect: { id: "first" } } },
++        },
++      },
++    },
++  };
++}
++
++function priorityCommands(
++  schema: ReturnType<typeof prioritySchema>,
++  driver: StructuralSQLiteDriver,
++  lateFound: boolean
++): {
++  readonly admitted: Arguments;
++  readonly commands: Commands;
++  readonly context: OperationContext;
++  readonly root: RecordCommand;
++} {
++  const engineSchema = new EngineSchema(schema);
++  const raw: Arguments = priorityArgs(lateFound);
++  const admitted = engineSchema.admit(schema.shelf, "update", raw);
++  const context = new OperationContext(engineSchema, driver, "shelf", "update");
++  const commands = new Commands(context);
++  const located = commands.lookup(
++    schema.shelf,
++    { kind: "query", where: admitted.where! },
++    new NotFoundError("shelf", "update")
++  );
++  const root = commands.update(located, admitted.data, raw.data);
++  for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
++  return { admitted, commands, context, root };
++}
++
++function requireChoice(root: RecordCommand, relation: string): Choose {
++  const choice = root.after.find(
++    (command): command is Choose =>
++      command.kind === "choose" && command.lookup.origin?.relation === relation
++  );
++  assert(choice);
++  return choice;
++}
++
++async function runPriorityCase(
++  profile: Profile,
++  lateFound: boolean
++): Promise<void> {
++  const database = new Database(":memory:");
++  database.pragma("foreign_keys = ON");
++  const driver = createDriver(profile, database);
++  let captureReached = false;
++  const admissions: { readonly scope: "template" | "member"; value: string }[] =
++    [];
++  let member = 0;
++  const memberValues = ["first", "second"] as const;
++  const schema = prioritySchema(() => {
++    const scope = captureReached ? "member" : "template";
++    const value = scope === "template" ? "other" : memberValues[member++]!;
++    admissions.push({ scope, value });
++    return value;
++  });
++  const client = await migrate(schema, driver);
++  try {
++    database.exec(`
++      INSERT INTO cs01_priority_shelves VALUES('s1','initial');
++      INSERT INTO cs01_priority_bins VALUES('b1','s1');
++      INSERT INTO cs01_priority_bins VALUES('b2','s1');
++      INSERT INTO cs01_priority_early_holders VALUES('early','s1',NULL);
++      INSERT INTO cs01_priority_late_holders VALUES('late','s1',NULL);
++    `);
++    driver.afterStatement = (rows) => {
++      if (
++        rows.filter(
++          (row) => isRecord(row) && (row.id === "b1" || row.id === "b2")
++        ).length === 2
++      ) {
++        captureReached = true;
++      }
++    };
++    driver.resetObservations();
++
++    const { admitted, commands, context, root } = priorityCommands(
++      schema,
++      driver,
++      lateFound
++    );
++    const earlyChoice = requireChoice(root, "earlyHolders");
++    const lateChoice = requireChoice(root, "lateHolders");
++    // This witness isolates member-major analysis from ordinary deferred branch
++    // activation: only the existing choice Selections are also observed as guards.
++    // Presence is therefore known when the series resumes; late absence deliberately
++    // remains uncached and is reobserved when that choice executes.
++    root.before.push(earlyChoice.lookup, lateChoice.lookup);
++    commands.analyze(root);
++
++    let failure: unknown;
++    try {
++      await context.run(() => commands.execution.complete(root, admitted));
++    } catch (caught) {
++      failure = caught;
++    }
++
++    assert(failure instanceof NestedWriteError);
++    assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
++    assert.deepEqual(admissions, [
++      { scope: "template", value: "other" },
++      { scope: "member", value: "first" },
++      { scope: "member", value: "second" },
++    ]);
++    const expectedRelation = lateFound ? "lateTicket" : "earlyTicket";
++    assert.equal(failure.meta.relation, expectedRelation);
++    assert.equal(failure.meta.operation, "connect");
++    assert.equal(failure.meta.conflictsWith, "create");
++    if (profile === "sqlite-atomic-batch") {
++      assert.deepEqual(failure.meta.recordSeriesProgress, {
++        atomicity: "segment",
++        phase: "planning",
++        committedSegments: 1,
++        committedWriteMembers: 1,
++        completedMembers: 0,
++        memberPath: [lateFound ? 0 : 1],
++        totalMembers: 2,
++      });
++    } else {
++      assert.equal(failure.meta.recordSeriesProgress, undefined);
++    }
++    assert.equal(hasWrite(driver.statements, "cs01_priority_tickets"), false);
++    assert.deepEqual(
++      database
++        .prepare("SELECT id,label FROM cs01_priority_shelves ORDER BY id")
++        .all(),
++      [
++        {
++          id: "s1",
++          label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
++        },
++      ]
++    );
++    assert.deepEqual(
++      database.prepare("SELECT * FROM cs01_priority_tickets").all(),
++      []
++    );
++  } finally {
++    await client.$disconnect();
++    database.close();
++  }
++}
++
++for (const profile of ["sqlite-interactive", "sqlite-atomic-batch"] as const) {
++  describe(`CS-01 member-major/read-major priority (${profile})`, () => {
++    it("chooses member zero's later guard-observed active-arm conflict before member one's earlier read", async () => {
++      await runPriorityCase(profile, true);
++    });
++
++    it("reobserves the guard-observed absence, ignores that untaken arm, and reports member one's earlier read", async () => {
++      await runPriorityCase(profile, false);
++    });
++  });
++}
++
++const occurrenceNode = s
++  .model({ id: s.string().id(), label: s.string() })
++  .map("cs01_occurrence_nodes");
++
++function occurrenceCommands(
++  driver: StructuralSQLiteDriver,
++  rawData: Input
++): { commands: Commands; root: RecordCommand } {
++  const schema = new EngineSchema({ occurrenceNode });
++  const raw: Arguments = { data: rawData };
++  const admitted = schema.admit(occurrenceNode, "create", raw);
++  const commands = new Commands(
++    new OperationContext(schema, driver, "occurrenceNode", "create")
++  );
++  return {
++    commands,
++    root: commands.create(occurrenceNode, admitted.data, raw.data),
++  };
++}
++
++describe("CS-01 Selection observation identity versus occurrence identity", () => {
++  it("observes one present Selection once across two ordered placements", async () => {
++    const database = new Database(":memory:");
++    database.exec(`
++      CREATE TABLE cs01_occurrence_nodes(id TEXT PRIMARY KEY, label TEXT NOT NULL);
++      INSERT INTO cs01_occurrence_nodes VALUES('present','existing');
++    `);
++    const driver = new StructuralSQLiteDriver({ client: database });
++    try {
++      const { commands, root } = occurrenceCommands(driver, {
++        id: "created",
++        label: "created",
++      });
++      const selection = commands.lookup(occurrenceNode, {
++        kind: "query",
++        where: { id: "present" },
++      });
++      root.before.push(selection);
++      root.after.push(selection);
++      commands.analyze(root);
++
++      await commands.execution.run(root);
++
++      assert.deepEqual(
++        driver.statements.map(({ sql }) => sql.match(/^\w+/)?.[0]),
++        ["SELECT", "INSERT"]
++      );
++    } finally {
++      await driver.disconnect();
++      database.close();
++    }
++  });
++
++  it("reobserves an absent Selection at its later placement after a producer", async () => {
++    const database = new Database(":memory:");
++    database.exec(
++      "CREATE TABLE cs01_occurrence_nodes(id TEXT PRIMARY KEY, label TEXT NOT NULL);"
++    );
++    const driver = new StructuralSQLiteDriver({ client: database });
++    try {
++      const { commands, root } = occurrenceCommands(driver, {
++        id: "created",
++        label: "created",
++      });
++      const selection = commands.lookup(occurrenceNode, {
++        kind: "query",
++        where: { id: "created" },
++      });
++      root.before.push(selection);
++      root.after.push(selection);
++      commands.analyze(root);
++
++      await commands.execution.run(root);
++
++      assert.deepEqual(
++        driver.statements.map(({ sql }) => sql.match(/^\w+/)?.[0]),
++        ["SELECT", "INSERT", "SELECT"]
++      );
++      assert.deepEqual(
++        database.prepare("SELECT id,label FROM cs01_occurrence_nodes").get(),
++        { id: "created", label: "created" }
++      );
++    } finally {
++      await driver.disconnect();
++      database.close();
++    }
++  });
++});
++
++type ReconciliationCase =
++  | "agree-partial"
++  | "agree-complete"
++  | "agree-reordered"
++  | "conflict";
++
++function reconciliationSchema() {
++  const pair = s
++    .model({
++      a: s.string(),
++      b: s.string(),
++      label: s.string(),
++      kids: s.toMany(() => kid),
++    })
++    .id(["a", "b"])
++    .map("cs01_reconcile_pairs");
++  const kid = s
++    .model({
++      id: s.string().id(),
++      slug: s.string().unique(),
++      label: s.string(),
++      pa: s.string().nullable().map("parent_a"),
++      pb: s.string().nullable().map("parent_b"),
++      pair: s
++        .toOne(() => pair)
++        .fields("pa", "pb")
++        .references("a", "b"),
++    })
++    .map("cs01_reconcile_kids");
++  return { pair, kid };
++}
++
++function reconciliationArgs(testCase: ReconciliationCase) {
++  const parent =
++    testCase === "agree-reordered"
++      ? { b: "west", a: "north", label: "parent" }
++      : { a: "north", b: "west", label: "parent" };
++  const update = {
++    ...(testCase === "agree-complete" || testCase === "conflict"
++      ? { label: "first" }
++      : {}),
++    pa: testCase === "conflict" ? "south" : "north",
++    ...(testCase === "agree-complete" ? { pb: { set: "west" } } : {}),
++  };
++  const first = {
++    where: { slug: "found" },
++    create: { id: "unused", slug: "unused", label: "unused" },
++    update,
++  };
++  return {
++    data: {
++      ...parent,
++      kids: {
++        upsert: first,
++      },
++    },
++  };
++}
++
++async function executeReconciliationPublication(
++  schema: ReturnType<typeof reconciliationSchema>,
++  driver: StructuralSQLiteDriver,
++  testCase: "agree-partial" | "agree-reordered"
++): Promise<unknown> {
++  const engineSchema = new EngineSchema(schema);
++  const raw: Arguments = reconciliationArgs(testCase);
++  const admitted = engineSchema.admit(schema.pair, "create", raw);
++  const context = new OperationContext(engineSchema, driver, "pair", "create");
++  const commands = new Commands(context);
++  const root = commands.create(schema.pair, admitted.data, raw.data);
++
++  // CREATE admits the agreeing upsert but has no later correlated mutation verb.
++  // Admit that consumer through UPDATE's real public recipe, then bind its
++  // selected-series occurrence to this root's exact resolved `kids` edge.
++  const consumerRaw: Arguments = {
++    where: { a_b: { a: "north", b: "west" } },
++    data: {
++      kids: {
++        updateMany: {
++          where: { slug: "found" },
++          data: { label: "must-not-run" },
++        },
++      },
++    },
++  };
++  const consumer = engineSchema.admit(schema.pair, "update", consumerRaw);
++  const consumerMember = entries(record(consumer.data.kids).updateMany)[0]!;
++  const rawConsumerMember = entries(
++    record(consumerRaw.data.kids).updateMany
++  )[0]!;
++  const edge = bindMembership(engineSchema, schema.pair, "kids");
++  const selection = commands.lookup(
++    schema.kid,
++    {
++      kind: "query",
++      where: record(consumerMember.where),
++      membership: { edge, parent: root.fields },
++    },
++    new NestedWriteError(
++      "Cannot update relation 'kids': target record was not found for this parent.",
++      "kids"
++    )
++  );
++  const origin = commands.createOrigin("kids", "updateMany");
++  selection.origin = origin;
++  const mutationRaw = record(rawConsumerMember.data);
++  const analysis = commands.update(
++    selection,
++    record(consumerMember.data),
++    mutationRaw,
++    true
++  );
++  analysis.origin = origin;
++  const series: SelectedSeries = {
++    selection,
++    analysis,
++    mutation: { kind: "update", raw: mutationRaw },
++  };
++  root.after.push({ kind: "series", series });
++  for (const field of engineSchema.keys(schema.pair)) root.fields.field(field);
++  commands.analyze(root);
++  return context.run(() => commands.execution.complete(root, admitted));
++}
++
++for (const testCase of [
++  "agree-partial",
++  "agree-complete",
++  "agree-reordered",
++  "conflict",
++] as const) {
++  it(`CS-01 reconciles the whole body before authoritative contribution publication: ${testCase}`, async () => {
++    const database = new Database(":memory:");
++    database.pragma("foreign_keys = ON");
++    database.exec(`
++      CREATE TABLE cs01_reconcile_pairs(
++        a TEXT NOT NULL,
++        b TEXT NOT NULL,
++        label TEXT NOT NULL,
++        PRIMARY KEY(a,b)
++      );
++      CREATE TABLE cs01_reconcile_kids(
++        id TEXT PRIMARY KEY,
++        slug TEXT NOT NULL UNIQUE,
++        label TEXT NOT NULL,
++        parent_a TEXT,
++        parent_b TEXT,
++        FOREIGN KEY(parent_a,parent_b)
++          REFERENCES cs01_reconcile_pairs(a,b)
++      );
++      INSERT INTO cs01_reconcile_pairs VALUES('old','pair','old');
++      INSERT INTO cs01_reconcile_kids
++      VALUES('target','found','stored','old','pair');
++    `);
++    const driver = new StructuralSQLiteDriver({ client: database });
++    const schema = reconciliationSchema();
++    try {
++      let value: unknown;
++      let failure: unknown;
++      try {
++        value =
++          testCase === "agree-partial" || testCase === "agree-reordered"
++            ? await executeReconciliationPublication(schema, driver, testCase)
++            : await createCommandEngine({ schema, driver }).execute(
++                "pair",
++                "create",
++                reconciliationArgs(testCase)
++              );
++      } catch (caught) {
++        failure = caught;
++      }
++
++      if (testCase === "conflict") {
++        assert(failure instanceof UnsupportedOperationError);
++        assert.match(failure.message, /owns 'pa, pb'/);
++      } else if (testCase === "agree-complete") {
++        assert.equal(failure, undefined);
++        assert.deepEqual(value, {
++          a: "north",
++          b: "west",
++          label: "parent",
++        });
++      } else {
++        const diagnostic =
++          failure instanceof Error
++            ? `${failure.name}: ${failure.message}`
++            : `thrown: ${String(failure)}`;
++        assert(failure instanceof NestedWriteError, diagnostic);
++        assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
++        assert.equal(failure.meta.operation, "updateMany");
++        assert.equal(failure.meta.conflictsWith, "upsert");
++        assert.equal(failure.meta.relation, "kids");
++      }
++      if (testCase === "agree-partial" || testCase === "agree-reordered")
++        assert.equal(driver.statements.length, 0);
++      assert.deepEqual(
++        database
++          .prepare("SELECT a,b,label FROM cs01_reconcile_pairs ORDER BY a,b")
++          .all(),
++        testCase === "agree-complete"
++          ? [
++              { a: "north", b: "west", label: "parent" },
++              { a: "old", b: "pair", label: "old" },
++            ]
++          : [{ a: "old", b: "pair", label: "old" }]
++      );
++      assert.deepEqual(
++        database
++          .prepare(
++            "SELECT id,slug,label,parent_a,parent_b FROM cs01_reconcile_kids"
++          )
++          .get(),
++        testCase === "agree-complete"
++          ? {
++              id: "target",
++              slug: "found",
++              label: "first",
++              parent_a: "north",
++              parent_b: "west",
++            }
++          : {
++              id: "target",
++              slug: "found",
++              label: "stored",
++              parent_a: "old",
++              parent_b: "pair",
++            }
++      );
++    } finally {
++      await driver.disconnect();
++      database.close();
++    }
++  });
++}
+diff --git a/vitest.workspace.ts b/vitest.workspace.ts
+index 2fcaf240..971438a9 100644
+--- a/vitest.workspace.ts
++++ b/vitest.workspace.ts
+@@ -35,6 +35,10 @@ import {
+   G29_DEPENDENCY_BOUNDARY_TESTS,
+   G29_DEPENDENCY_CHOICE_TESTS,
+   G29_RESULT_PROGRESS_TESTS,
++  CS01_STRUCTURAL_REFERENCE_TESTS,
++  CS01_EXTENSION_A_TESTS,
++  CS01_EXTENSION_B_TESTS,
++  CS01_EXTENSION_COMPOSITION_TESTS,
+   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+   G29_MEMBER_DEPENDENCY_PG_TESTS,
+   G2_DIAGNOSTIC_TESTS,
+@@ -114,6 +118,10 @@ export default defineWorkspace([
+         ...G29_DEPENDENCY_BOUNDARY_TESTS,
+         ...G29_DEPENDENCY_CHOICE_TESTS,
+         ...G29_RESULT_PROGRESS_TESTS,
++        ...CS01_STRUCTURAL_REFERENCE_TESTS,
++        ...CS01_EXTENSION_A_TESTS,
++        ...CS01_EXTENSION_B_TESTS,
++        ...CS01_EXTENSION_COMPOSITION_TESTS,
+         ...G2_DIAGNOSTIC_TESTS,
+         ...G1_GENERATED_TESTS,
+         ...G1_CAMPAIGN_TESTS,
