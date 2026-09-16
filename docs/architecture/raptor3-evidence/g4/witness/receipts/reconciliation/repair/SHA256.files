@@ -1,0 +1,6 @@
+e331824c984f9cd4b8a56399e5ff5ec4dacfbcf3aa48cf5a2f0432cae63911e1  tests/raptor3/g3/generation/transport-plans.ts
+5dfcd8d9bd76353f517e49bf224c2859399bcdb3ec409dda39f48b0ce841e9c5  tests/raptor3/g3/generation/generated-transport-smoke.test.ts
+ee6a5ba1fd4831e7de0034aaa12d6647f01ff8ca74d53a7a41dd1c0f6a917929  tests/raptor3/g4/read-codecs.test.ts
+6defc57344f99b66ce28740183e36f2706dc19d3f63aa97740de7a31125dd38a  tests/raptor3/g4/read-recursive-fit.test.ts
+e4a2210ec6503280943174e30147e2913b5a21fda39aed362ba25577b37ebc84  tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+44ac75893533ab1d5a7e0ce455bf9e1fdd9fc96dd8d010ac0cd415410456dde8  tests/raptor3/core-structure/measurement/extension-composition-scenario.ts

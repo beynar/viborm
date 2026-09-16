@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 54ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 20ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 16ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 10ms
+ ✓ |extended-local| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 14ms
+ ↓ |extended-local| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+
+ Test Files  5 passed | 1 skipped (6)
+      Tests  31 passed | 1 skipped (32)
+   Start at  04:10:57
+   Duration  2.56s (transform 1.26s, setup 12ms, collect 2.19s, tests 114ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.72s wall, 740.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

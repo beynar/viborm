@@ -1,0 +1,39 @@
+# G4-02 closure repair round 2 — independent review follow-up receipts
+# reviewer: independent; source /Users/arnaud/code/viborm @ 0cc61e61 (branch pattern-engine), nothing committed/staged
+# containers: viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 / viborm-raptor3-g3-pg-20260914 7dfda37e8eea 127.0.0.1:65504
+# node v24.21.0, vitest 3.1.4
+
+d748c7d2162db3bc  INDEX.txt
+b3189de7c793395c  author-estate-mysql.log
+52b76e6f372430df  author-estate-sqlite.log
+f9a37518b2b4cdca  cost-recheck.txt
+8678eb45b8c41aac  falsify-junction-scope.log
+8b7afbc102cab634  g1-contracts.log
+1f3c8374ab10239f  g2-contracts.log
+b6ca3440c521e53c  g2-mysql-baseline.log
+68893ae756ffc546  g2-mysql-contracts-closing.log
+f15117109aaba516  g2-mysql-contracts.log
+ad0f9da8c2381b7f  g2-pg-baseline.log
+0976701b495ed3a0  g2-pg-contracts.log
+25d3c98cff2977c4  g29-result-progress.log
+e62b88c1524f6297  g3-bulk-series.log
+55767cad97c9394e  g3-execution-review.log
+b98ba7ae3b6d073b  g3-generated-transport-smoke.log
+32a558ad065479fc  g3-suppression-retry.log
+7620b822515505e2  g3-transaction-array.log
+05d6f35f6d51d5f4  g4-lifecycle-admission.log
+acc1d416c256120d  g4-lifecycle-events.log
+a4c7851614044afd  g4-read-contracts.log
+c1a2b57f47b436dd  g4-route-admission.log
+d79539c1b2287653  g4-route-cache.log
+c872ae7370f5dd48  g4-route-lifecycle.log
+9acd604b62f99c6e  g4-route-transactions.log
+487751e16e0c71aa  identities-review-end.txt
+f19b93f114773565  identities-review-start.txt
+21b78a70b9d6a442  probe-mysql-discriminator-scope.log
+d00b5076beeca0b0  probe-mysql-scope-boundaries-closing.log
+3121b8d07df87deb  probe-mysql-scope-boundaries.log
+dbf8a74ad96039b0  probe-route-cache-codec.log
+f18e087383995068  probe-transition-owner-boundaries.log
+8882265e5fc1d42f  probe-upsert-transition-scope.log
+7f975910bb4b0c50  typecheck.log

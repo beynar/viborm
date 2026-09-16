@@ -1,0 +1,76 @@
+EXTENDED_LOCAL_TESTS 321 g4 files now in it: 70
+tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts
+tests/raptor3/g4/review/unit01-followup/empty-arm.test.ts
+tests/raptor3/g4/review/unit01-followup/nested-reversal.test.ts
+✔ a verified G3 child corpus archives and restores byte-for-byte (17.910417ms)
+✔ a child corpus archive carries the replay command of its own lane (3.8715ms)
+✔ a failed G3 child archive leaves the raw corpus unchanged (2.766083ms)
+✔ structural measurement qualification pins the exact Node runtime (0.580375ms)
+✔ credential-free registration isolates native Raptor suites and retains local fixed suites (0.12625ms)
+✔ CS-03 extension modes bind exact ranges, identities, cells, and replays (9.490709ms)
+✔ CS-03 extension alternatives compare canonical recipes, schedules, and outcomes (15.187ms)
+✔ G2.5 admits its fixed unfiltered checkpoint without changing G2 campaigns (0.211916ms)
+✔ G3 bulk series admits its exact fixed contract without filters (0.09475ms)
+✔ G3 suppression retry admits its exact fixed contract without filters (0.081667ms)
+✔ G3 transaction array admits its exact fixed contract without filters (0.058625ms)
+✔ G3 generated smoke admits its exact contract without filters (0.05675ms)
+✔ G3 transport smoke admits its exact contract without filters (0.037792ms)
+✔ G3 failure minimization admits its exact contract without filters (0.070708ms)
+✔ G3 depth recurrence admits its exact fixed contract without filters (0.036708ms)
+✔ G3 execution review admits its exact diagnostic contract (0.029791ms)
+✔ G3 author execution regressions admit their exact fixed contract (0.038292ms)
+✔ g3-scope-failure admits its exact local fixed contract (0.040625ms)
+✔ g3-bulk-result-boundary admits its exact local fixed contract (0.022833ms)
+✔ G3 pg scope composition admits its exact native contract (0.034625ms)
+✔ G3 mysql scope composition admits its exact native contract (0.021625ms)
+✔ SQLite: G3 generated receipts fail closed when stale, missing, or corrupt (0.836958ms)
+✔ scripted transport: G3 generated receipts fail closed when stale, missing, or corrupt (0.755791ms)
+✔ g3-seeds binds the exact G3 range and batch boundary (0.221ms)
+✔ g3-transport-seeds binds the exact G3 range and batch boundary (0.084958ms)
+✔ SQLite: G2 admits only the frozen range and unfiltered commands (0.199458ms)
+✔ SQLite: unit receipts require every exact cell, replay and zero skips (1.443042ms)
+✔ SQLite: unit quota claims must reach twenty percent in EACH profile (0.627834ms)
+✔ scripted transport: G2 admits only the frozen range and unfiltered commands (0.166584ms)
+✔ scripted transport: unit receipts require every exact cell, replay and zero skips (1.112791ms)
+✔ scripted transport: unit quota claims must reach twenty percent in EACH profile (0.554292ms)
+✔ SQLite: G3P-06 reserves exactly one new unfiltered batch (0.196459ms)
+✔ SQLite: G3P-06 receipts bind every new profile/seed cell (0.37875ms)
+✔ scripted transport: G3P-06 reserves exactly one new unfiltered batch (0.150625ms)
+✔ scripted transport: G3P-06 receipts bind every new profile/seed cell (0.325375ms)
+✖ G4 suites stay outside credential-free discovery while they are red (0.125334ms)
+✔ G4 fixed modes admit their exact contract without filters (0.432666ms)
+✔ G4 write lanes reuse the G3 campaign on fresh disjoint ranges (1.197166ms)
+✔ G4 campaign modes bind the frozen disjoint ranges and their subjects (0.9ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 38
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 65.7385
+
+✖ failing tests:
+
+test at scripts/raptor3-campaign-receipts.test.mjs:970:1
+✖ G4 suites stay outside credential-free discovery while they are red (0.125334ms)
+  AssertionError [ERR_ASSERTION]: tests/raptor3/g4/review/unit01/decode-strictness.test.ts
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-campaign-receipts.test.mjs:980:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+Node resources: 0.38s wall, 67.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

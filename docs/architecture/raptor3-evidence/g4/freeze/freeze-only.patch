@@ -1,0 +1,1062 @@
+--- a/src/query-engine/raptor3/AGENTS.md
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -58,6 +58,83 @@
+ These caches contain no aliases, operation demands, origins, refusals,
+ assignments, scratch references, or attempt values.
+ 
++`Queries` owns one read language. One prepared predicate vocabulary addresses a
++target — a physical column, a JSON value inside one, or an aggregate over one —
++so `where` and `having` can never admit different operators or bind an operand
++two ways. `prepareOperations`/`prepareOperation` prepare every one of them,
++`lowerPredicate`/`lowerOperation` lower them, and `prepareHaving` builds
++aggregate targets for that same walker. Do not add a second operator switch.
++
++`Queries.orderTerms` is the one order owner: scalars, `{ sort, nulls }`, to-one
++relation paths, collection `_count` and distance are all sort keys, and it marks
++the direct scalar keys a cursor may use. An unspelled `nulls` is not a
++placement — the bare direction names the provider's own default, and
++`totalOrder`, the windowed path and only it, fills the established default,
++because the cursor predicate must name the same total order the statement emits.
++
++One page owner, `Queries.page`, computes the total order, the cursor predicate,
++the signed window and `distinct` — for the root read (`select`), for the
++aggregate input window (`aggregated`) and for every nested to-many node inside
++its parent's correlation scope. Nested pagination is that same operator, never a
++second engine. `grouped` is the ONE named exception: it emits the raw signed
++`take`/`skip` without the page owner, because `groupBy` admits no `cursor` and
++no `distinct` (`validation/model/args/aggregate.ts`) and the shipped
++`operations/groupby.ts:110-114` emits the raw signed take too. That is parity,
++not a divergence; do not widen the exception to a verb that admits a cursor.
++
++`Queries.read` states each read verb's cardinality and public shape over that
++one select/projection/decoder: every verb answers `{ query, single, value,
++result }`, and the private entry adds only the public `…OrThrow` error identity.
++Consumers read those published facts (`commands/index.ts` `publishedFacts`, and
++the retained `program/` specimen's single read entry) instead of deriving them;
++there is no second `findMany`/`findUnique`/`groupBy` dispatch. A prepared shape
++carries every fact the decoder needs, including the direction of a reversed
++window (`relationShape`), so a nested negative `take` is restored per parent by
++the same decoder rather than by a second reversal site.
++
++`Queries.fieldValue` is the single destination-aware operand owner for filters,
++cursors, identities and assignments, and `decodeScalar` — reached only through
++`decodeValue` from `decodeQuery`/`decodeProjection` — is the single leaf
++decoder. Both reuse the existing validation codecs; neither may be duplicated
++per verb or per storage.
++
++`Queries.wholeValue` is the one answer to "does an admitted scalar payload name
++a whole value?". A non-plain object is one whole value in EVERY domain — a
++`Uint8Array`, `Decimal` or `Date` inherits methods with the same names, and a
++`Sql` fragment is not a record either — so only a plain or null-prototype
++record's own `set` names the value inside it. Its two consumers read that one
++answer: `prepareUpdate`, which also needs to know when the payload names an
++operator instead, and `commands/assignments.ts`'s `scalarAssignment`, which
++needs only the value. Do not restate the predicate at a consumer.
++
++`Queries.countedMemberships` is the one counted-slot owner: it answers which
++memberships a slot counts — one edge for an ordinary relation, EVERY arm for a
++variant carrier — and `correlatedCount` sums them through the adapter. The
++`_count` projection and the `_count` order term both read it, so a variant
++carrier is countable in the projection and in the ordering from one place; no
++second correlated-count subquery exists.
++
++`Queries.carriedValue` is the one carrier transport rule for a value that rides
++inside a JSON document: a value that is already JSON stays a document, a
++`bigint` crosses as text and a `blob` as hex. Its three consumers are the
++aggregate carrier, the recursive projection and the relation projection; a
++traversal does not spell a weaker rule of its own.
++
++A tagged quantifier addresses the tagged membership: `prepareSlotPredicate`
++reads `some: { type: T, is: P }` as "some member of arm `T` satisfying `P`" and
++`none: { type: T }` as "no member of arm `T`". `every` is the only one that must
++also state the arms it did not name — it is a claim about the WHOLE collection,
++so a member of any other arm falsifies it — and it conjoins `none` over every
++other configured arm.
++
++Adapter capabilities decide GeoPoint tiers and vector support.
++`Queries.distanceExpression` raises the named refusal — the three registered
++vector sentences in the shipped order and words
++(`builders/distance-builder.ts:142-188`), then the GeoPoint `distance` tier —
++and never emulates a tier in JavaScript. One distance expression serves the
++filter, the order key and the projected `_distance` leaf, so a provider tier is
++asked about once and the output name is stated once.
++
+ `Queries.prepareProjection` owns one immutable alias-free projection description
+ and decoder shape. `lowerProjection` binds that description to fresh statement
+ aliases for SELECT, RETURNING, recursive reads, and reference-value projection;
+@@ -149,10 +226,20 @@
+ work.
+ 
+ `Queries.updateValue` is the sole interpreter of admitted scalar update
+-operators. It supplies both mutation assignments and symbolic updated-key
+-expressions; operation contexts must not reconstruct those operators in
+-JavaScript. Internal mutation-target captures stay privately decoded so later
+-query planning receives canonical scalar values.
++operators. It and `updateAssignment` consume ONE prepared payload
++(`prepareUpdate`), so an operator can never be admitted in one spelling and
++refused in the other; operation contexts must not reconstruct those operators in
++JavaScript. Every operator crosses the adapter's own vocabulary, including
++`expressions.integerDivide` — the seam that exists because an integer key's
++quotient is the dialect's truncation, not JavaScript's, and the expression form
++must name the same value the `SET` clause writes. The one shape with no
++expression form is an exact decimal under `multiply`/`divide`, whose assignment
++is a guarded coefficient rewrite the provider owns; that refusal is registered.
++A payload that names no operator at all answers the shipped
++`Unknown update operation:` sentence and identity
++(`builders/set-builder.ts:217-219`), before any statement, and never degrades to
++a bare `Error`. Internal mutation-target captures stay privately decoded so
++later query planning receives canonical scalar values.
+ 
+ `finishOne` and `finishMany` state operation-owned result cardinality. That
+ cardinality is independent of the number of physical terminal queries, and
+@@ -259,10 +346,21 @@
+ replacement. A missing winner on recovery propagates the original rejection;
+ it never authorizes another INSERT.
+ 
+-Named retention: `write-engine/parse-boundary.ts` remains the existing
+-schema-to-ValidationError admission owner. Both candidates may import it
+-unchanged; charge the complete file and its engine-owned type dependencies to
+-both. This exception does not admit legacy query or mutation algorithms.
++Named retention: three modules from the shipped `query-engine/` tree are
++imported at runtime, and these are ALL of them, so a legacy scan does not have
++to re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
++`@validation/**`, `@adapters/**` and `@drivers/**` are ordinary boundaries the
++brief keeps available, and `@client/client` reaches `route/client-route.ts`.)
++`write-engine/parse-boundary.ts` (`shared/schema.ts`) remains the existing
++schema-to-ValidationError admission owner. `query-engine/bind-budget.ts`
++(`shared/operation-context.ts`) is a pure `Sql` chunker over the driver's
++normalized verified bind capacity, shared by `write-engine`, `operations`,
++`pattern` and the candidate alike — a neutral boundary, not the shipped engine.
++`result/cache-value-codecs.ts` (`route/client-route.ts`) is the official cache
++value-codec owner and imports no compiler, lowerer, executor or result parser.
++Both candidates may import them unchanged; charge the complete file and its
++engine-owned type dependencies to both. This exception does not admit legacy
++query or mutation algorithms.
+ 
+ Public raw arguments enter existing admission at the required time. Internal
+ values are trusted. Localized assertions are permitted under the central plan;
+@@ -273,18 +371,111 @@
+ The private `execute(modelName, operation, rawArgs, binding?)` boundary resolves
+ execution ownership once in `OperationContext`. With no binding, reads and
+ writes keep their qualified standalone routes. A `borrowed-transaction` binding
+-uses the exact supplied transaction driver directly; the candidate does not
+-open or close a transaction, create a savepoint, disconnect, replay, or fall
+-back to the factory driver. The optional executable `memberRollback` capability
+-is the only authority for one operation-owned member rollback region inside a
+-borrowed transaction; the context uses only the scoped driver supplied to its
+-callback. An `atomic-array` binding is a capability refusal and must throw
+-`TransactionError` before raw-argument admission or provider work. `usesBatch`
++uses the exact supplied transaction driver and never disconnects, replays, or
++falls back to the factory driver. An `atomic-array` binding is a capability
++refusal and must throw `TransactionError` before raw-argument admission or
++provider work — it is raised in the constructor, before `admit`. `usesBatch`
+ describes only the standalone physical batch route; it is not
+ an atomicity, lifecycle, recovery, or commit-certainty fact. Keep the retained
+ program specimen mechanically callable through the same private shape without
+ adding another ownership model.
++
++ONE rule decides the physical envelope, and it lives in `OperationContext.run`:
++the envelope opens at the first statement that is not the operation's ONLY
++statement. An operation that reaches its terminal statement having issued no
++other runs that statement directly — no standalone BEGIN/COMMIT and no savepoint
++inside a borrowed transaction — which is the shipped `runStatementAtomic`
++condition (`OperationExecutor`'s `compileSingleStatementCandidate` +
++`canExecuteDirectly`) restated in this engine's vocabulary. Any other operation
++raises the envelope sentinel BEFORE its first round trip and its body is
++constructed again inside the region, so nothing has reached the provider at that
++point. `dispatch()` is the one site every provider round trip crosses, which is
++what lets the rule be stated in a single place and still be the operative
++decision. A root `create` or `update` that names no relation and whose prepared
++projection is RETURNING-safe folds onto the set-oriented owner
++(`Commands.rootCreate` / `rootUpdate` -> `OperationContext.createMany` /
++`updateMany`) plus one cardinality decision; that fold is why the frozen fast
++path costs 1 statement and 0 transactions for a root `create`, the shipped
++count. A verb no longer decides the envelope in one place and the route in
++another.
+ 
++A packaged operation has no JavaScript postcondition available, so its
++single-row premise becomes a STATEMENT: one `assertions.exists` over the same
++selector, queued ahead of the mutation and declared to the array owner, which
++aborts the batch and lets this operation reconstruct its own `NotFoundError`.
++And a statement-atomic operation has no record series: `failure()` attaches
++`recordSeriesProgress` only when the transport actually has one (a prefix phase,
++a committed segment, or a segment that may have committed), and a missing-row
++premise (`published`) is a statement about the world rather than a report about
++the transport, so it carries no progress at all — which is the shipped
++`NotFoundError` meta, `{ model, operation }`, on every driver.
++
++A `borrowed-transaction` operation owns a region only when its caller SAID so.
++`operationRegion` is that grant — the callback-transaction route supplies it
++because it opened no scope of its own — and with it the candidate opens exactly
++one nested region when the operation needs more than one statement. Without the
++grant a borrowed operation owns none: its caller's scope is the unit, every
++statement runs directly on the borrowed driver, and a failing one poisons that
++scope exactly as the shipped `runStatementAtomic` and `runLinearOn` paths leave
++it. `memberRollback` is never mistaken for it — it is MEMBER isolation only, and
++a member rollback opens inside whatever scope the operation is currently running
++in, because re-entering the caller's grant from inside a region it already
++opened is the measured `TransactionError: … cannot be used while its nested
++transaction is active`. Both grants are declared on `ExecutionBinding` and read
++by `OperationContext.region()`, which is the one owner of this question.
++
++`Queries.returningSafeProjection` is the one owner of "may this projection ride
++a `RETURNING`?" — `fields.every(kind === "scalar")` — stated in the module that
++owns the field kinds. The physical owner (`OperationContext`) and the root folds
++and bulk selection in `commands/commands.ts` all consult it; a physical owner
++does not classify a projection the projection owner already understands.
++
++Whether a nested write's unique target selector names its row through the
++CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
++`commands/selection.ts`, consulted at the three nested target sites in
++`relation-body.ts` — the `disconnect`/`delete` lookup, the
++`connect`/`connectOrCreate`/`upsert`/`update` selector, and the `set` target —
++and nowhere else. The rule is per EDGE KIND because the shipped engine's is: a
++JUNCTION target is a discriminator in both phases (`RelationJunctionPart.ts`
++`buildFindUnique` at `:1509`, `:1629`, `:1663`, and `JunctionStatements.ts:322-323`
++compiling `whereUnique` with `buildWhereUnique`), while a REFERENCE-held target
++of `disconnect`/`delete`/`update` is the one family `uniqueSelectorConjuncts`
++(`write-engine/shared.ts:671`) recombines into a filter. Root verbs state
++`unique: true` themselves — their selector is the root `where`, not a nested
++target — and a bulk member's `where` never asks. `SelectionSource.unique` points
++at the predicate instead of restating the classification.
++
++The candidate's client route (`route/client-route.ts` `runCandidate`) states
++WHICH SITUATION an operation is in and never whether an envelope is needed. A
++root operation gets no binding. An existing array owner's sequential fallback
++(`driverOverride`) gets the exact borrowed driver and NO grant, so the array
++owner's transaction stays the unit, mirroring the shipped `runLinearOn`. Inside
++`$transaction(callback)` the engine is bound to a transaction driver, the caller
++opened no scope for this operation, and the route hands over both grants. The
++route opens, closes and retries nothing, and never falls back to the shipped
++engine.
++
++One prepared operation per request: `prepare(modelName, operation, rawArgs)` in
++`commands/index.ts` admits the raw input exactly ONCE and publishes the admitted
++`args` and, for a read verb, the prepared read's own facts; `execute`,
++`prepareBatch` and the route's cache codec all read that same handle. The client
++lifecycle is admission-first by construction — a cache must key before it can
++look up, and an interceptor must see the payload before it calls `proceed()` —
++so no consumer re-admits, and nothing publishes a re-rawed payload. Admission
++itself stays lazy inside the handle, because the client's own `PendingOperation`
++is lazy.
++
++A cached read's value codec is composed from the official owners in
++`result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
++`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`) through the
++leaf's own declaring `Scalar`, carried as `Leaf.scalar` by the read owner. It is
++never re-dispatched from a leaf's `type` name, which would be a second
++scalar-meaning authority. The leaves with no declaring scalar are the read
++owner's OWN values — `_count`, `exist`, a non-decimal `_avg` and `_distance` —
++and naming those three is the same classification the shipped compiler makes; a
++shape with no fixed codec, such as a recursive read's unbounded depth, is
++refused rather than half-encoded.
++
+ The private `prepareBatch(modelName, operation, rawArgs)` boundary enters the
+ same schema admission and command dispatch with a preparation-owned
+ `OperationContext`. It may return only the existing `PreparedBatchOperation`.
+@@ -335,10 +526,12 @@
+ runtime member boundary reuses the same rule for dynamic series; do not add a
+ payload walker, public permission, or operation-local policy flag.
+ 
+-Failed-INSERT producer attribution is evidence, not replay authority.
+-`OperationContext` admits attempt replacement only on the standalone physical
+-batch route after its exact rejection proof. Borrowed and preparation-owned
+-execution preserve the original failure and never replace an attempt.
++Failed-INSERT producer attribution is evidence, not replay authority. The scope
++is stated once, by `OperationContext.recoveryRejection`: it answers `undefined`
++unless the ownership is standalone AND the route is the physical batch, so
++borrowed and preparation-owned execution preserve the original failure and never
++replace an attempt. Its one caller, `CommandExecution.recover`, restarts at most
++once, and only for the exact rejected producer's own selected unique constraint.
+ 
+ A selected static record series publishes terminal state, not each member's
+ intermediate state. Retain complete identities only for successful roots, finish
+@@ -425,16 +618,42 @@
+ now would be dead code; the unit-level refusal pin stands until a reachable
+ shape exists.
+ 
+-Every other row-key shape answers the shipped engine's own sentence. A `number`
+-key under any arithmetic is refused as non-portable, and a key update naming
+-anything but exactly one operation — `set` beside an operator, or none at all —
+-is refused for its arity, before any statement. Where the post-transition key
+-value has to be named at analysis (a child-held relation whose single-member
+-reference key is the key being rewritten, with the locator's discriminator
+-pinning the pre-value), the transition owner answers first, in its own
+-sentence, so neither arm of an upsert writes. `set` never wins over an
+-accompanying operator anywhere.
++Every other row-key shape answers the shipped engine's own sentence, from ONE
++owner — `EngineSchema.keyPortabilityRefusal` — asked where the shipped engine
++asks it and WHEN the shipped engine asks it. A `number` key under any arithmetic
++is refused as non-portable, and a key update naming anything but exactly one
++operation — `set` beside an operator, or none at all — is refused for its arity.
++The positions are: admission, for a root `update`/`updateMany`
++(`EngineSchema.admit`); the found-arm gate of an `upsert` whose update payload
++names relations (`commands/commands.ts`, the shipped `updateHasRelations`
++gate); and the three NESTED positions `commands/relation-body.ts` already
++admits an update payload in — a nested child `update` or `upsert` selector arm,
++and an `updateMany` member. A nested `update` and an `updateMany` member refuse
++during construction, before any statement, because the shipped engine asserts at
++its own compile sites (`RelationWritePart.ts:856`, `:898`). A nested `upsert`
++does not: the shipped engine builds the same assertion as a closure
++(`RelationUpsertPart.ts:1006`) and invokes it only inside the FOUND arm
++(`:468`), so the candidate hands that refusal to the found arm — the arm's own
++deferred `Assignments`, raised when execution observes the choice — and an
++ABSENT target takes the create arm with its update payload unjudged, on both
++engines. A wider placement would refuse a request the shipped engine performs,
++which is what `keyPortabilityRefusal`'s docblock means by "an upsert that
++CREATES a row the arithmetic never touches".
+ 
++Two facts, then, not one absolute. At every position the predicate IS asked,
++`set` never wins over an accompanying operator, and the sentences are the
++shipped ones from the same owner: no per-verb branch, no second walk. And a root
++`upsert` whose update payload names NO relation judges the key payload on
++NEITHER engine — `UpsertOperation.ts:496` gates `updateLegality` on
++`updateHasRelations` and `commands/commands.ts` mirrors it on `namesRelation` —
++so `set` wins there on both. That is parity, stated here so the next reader does
++not take it for a regression and widen the gate. `connect`, `connectOrCreate`
++and a `deleteMany` member carry no update payload and ask nothing. Where the post-transition key value has to be named at analysis (a
++child-held relation whose single-member reference key is the key being
++rewritten, with the locator's discriminator pinning the pre-value), the
++transition owner `EngineSchema.keyTransitionRefusal` answers first, in its own
++sentence, so neither arm of an upsert writes.
++
+ A multi-statement write as an array member on a batch-only driver is PACKAGED
+ and committed, not refused. The shipped route's insertId-scratch refusal is
+ retired: the candidate's package carries the whole write and one native batch
+@@ -449,9 +668,9 @@
+ 
+ A `connect` or `connectOrCreate` stores the LOCATED row's key bytes in the
+ foreign-key column, in every position (a child-held `create`, a parent-held
+-`update`, a junction link). Under a case-insensitive collation that differs
+-from the request's literal, and the located value is the contract: the bytes
+-written always exist in the parent table.
++`update`, a junction link). Under a case-insensitive collation the stored bytes
++may differ from the request's literal, and the located value is the contract:
++the bytes written always exist in the parent table.
+ 
+ A batch-only expression publication of a non-`int` field is a registered
+ `QueryEngineError` naming the model, the field and the operation, with `meta`
+@@ -465,4 +684,7 @@
+ wherever the constraint does not cascade; the shipped engine states the same
+ order (`RelationJunctionPart.compileDelete`). A `disconnect` places the removal
+ alone and a reference-held target places its deletion alone — the ordering
+-belongs to the junction `delete` and to nothing else.
++belongs to the junction `delete` and to nothing else. The owner is the
++`disconnect`/`delete` arm of `RelationBody.relation`
++(`commands/relation-body.ts`), which places both commands with the same origin
++so the body keeps insertion order; no other verb or edge kind gains a statement.
+--- a/src/query-engine/raptor3/commands/assignments.ts
++++ b/src/query-engine/raptor3/commands/assignments.ts
+@@ -1,8 +1,7 @@
+ import { NestedWriteError, UnsupportedOperationError } from "@errors";
+ import type { AnyModel } from "@schema/model";
+-import { Sql } from "@sql";
+-import type { SelectorFacts } from "../shared/query";
+-import { type Input, record } from "../shared/schema";
++import { type SelectorFacts, wholeValue } from "../shared/query";
++import type { Input } from "../shared/schema";
+ import type { Membership } from "../shared/storage";
+ 
+ export type Origin = {
+@@ -25,16 +24,16 @@
+   return { kind: "literal", value };
+ }
+ 
++/**
++ * The final field a scalar payload requests, read from the ONE owner of "does
++ * this payload name a whole value?" (`Queries`' {@link wholeValue}). A payload
++ * that names an operator instead is held unchanged: this owner keeps the value
++ * only for key reconciliation, and an operator record is deliberately not a
++ * literal here.
++ */
+ function scalarAssignment(value: unknown): unknown {
+-  // An operator record states `set` as its OWN property. A `Uint8Array`
+-  // inherits `set` from its prototype and is one whole blob value, never an
+-  // operator record; the same holds for any class instance a codec owns.
+-  return value !== null &&
+-    typeof value === "object" &&
+-    !(value instanceof Sql) &&
+-    Object.hasOwn(value, "set")
+-    ? record(value).set
+-    : value;
++  const whole = wholeValue(value);
++  return whole ? whole.value : value;
+ }
+ 
+ /** One row's requested final fields and exact symbolic consumers. */
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -451,6 +451,27 @@
+ function isOperatorRecord(value: object): boolean {
+   const prototype = Object.getPrototypeOf(value);
+   return prototype === Object.prototype || prototype === null;
++}
++
++/**
++ * The ONE answer to "does this admitted scalar payload name a whole value?",
++ * boxed so `undefined` can mean "it names an operator instead".
++ *
++ * An admitted operator record owns its keys; a `Uint8Array`, `Decimal` or
++ * `Date` inherits methods with the same names and is one whole value in EVERY
++ * domain, as is a `Sql` fragment. Both consumers read this one answer —
++ * {@link Queries.updateValue}'s payload interpreter, which needs to know when
++ * the payload is NOT whole, and `commands/assignments.ts`'s symbolic final
++ * field, which only needs the value — so the two can never disagree about what
++ * `set` names.
++ */
++export function wholeValue(
++  value: unknown,
++): { readonly value: unknown } | undefined {
++  if (value instanceof Sql || value === null || typeof value !== "object")
++    return { value };
++  if (!isOperatorRecord(value)) return { value };
++  return Object.hasOwn(value, "set") ? { value: record(value).set } : undefined;
+ }
+ 
+ /** Query scopes and output shapes share no record-identity requirement. */
+@@ -734,14 +755,9 @@
+     field: string,
+     value: unknown,
+   ): PreparedUpdate {
+-    if (value instanceof Sql || value === null || typeof value !== "object")
+-      return { kind: "value", value };
++    const whole = wholeValue(value);
++    if (whole) return { kind: "value", value: whole.value };
+     const operation = record(value);
+-    // An admitted operator record owns its keys; a Uint8Array, Decimal or
+-    // Date inherits methods with the same names and is one whole value.
+-    if (!isOperatorRecord(value)) return { kind: "value", value };
+-    if (Object.hasOwn(operation, "set"))
+-      return { kind: "value", value: operation.set };
+     for (const operator of ARITHMETIC_UPDATES)
+       if (Object.hasOwn(operation, operator)) {
+         const by = operation[operator];
+@@ -770,8 +786,12 @@
+           members: Array.isArray(members) ? members : [members],
+         };
+       }
+-    throw new Error(
+-      `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
++    // The shipped engine's own last word on an admitted payload that names no
++    // operator (`builders/set-builder.ts:217-219`), identity included: the one
++    // reachable shape is an empty record, and it is refused here, before any
++    // statement of the update is built.
++    throw new QueryEngineError(
++      `Unknown update operation: ${Object.keys(operation).join(", ")}`,
+     );
+   }
+   /**
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -334,6 +334,39 @@
+           const source = entries(rawPayload)[index]!;
+           const conditional: Input =
+             verb === "connect" ? { where: supplied } : supplied;
++          // The child's OWN key update is judged by the same owner that judges
++          // the root's, at the position this body already admits it, and R-D2
++          // (c) is about the SHAPE, not the site. `connect` and
++          // `connectOrCreate` carry no update payload, so they ask nothing.
++          //
++          // WHEN the answer is stated is the shipped engine's placement, not
++          // this body's. A nested `update` is asserted at COMPILE time
++          // (`RelationWritePart.ts:856`), so its refusal is raised here, before
++          // anything is located. A nested `upsert` is not: the shipped engine
++          // builds the same assertion as a closure (`RelationUpsertPart.ts:1006`)
++          // and invokes it only inside the FOUND arm (`:468`), so an absent
++          // target takes the create arm and the update payload is never judged
++          // — the shape `EngineSchema.keyPortabilityRefusal`'s own docblock
++          // warns a wider placement breaks, "an upsert that CREATES a row the
++          // arithmetic never touches". The upsert's refusal is therefore handed
++          // to its found arm below, the way the ROOT upsert hands it to its own
++          // (`commands.ts:1236-1239`). The carrier differs because the position
++          // does: the root assigns `CommandOccurrence.refusal` on an already
++          // MATERIALIZED arm, while this body writes a recipe, and a recipe
++          // never carries occurrence refusal into materialization (guide,
++          // "Reusing a command or `Selection` never reuses occurrence ancestry,
++          // children, refusal, or attempt state"). The found arm's own deferred
++          // `Assignments` is the recipe-borne half of the same channel: it holds
++          // the refusal until `activate()` observes the choice
++          // (`execution.ts:259`, `:389`), which is the arm-conditional rule the
++          // guide already states for every `Choose` arm.
++          const childUpdate =
++            verb === "upsert" ? conditional.update : conditional.data;
++          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
++            edge.target,
++            childUpdate
++          );
++          if (keyRefusal && verb !== "upsert") throw keyRefusal;
+           const missing =
+             conditional.create === undefined
+               ? undefined
+@@ -469,13 +502,9 @@
+                 ? this.commands.occurrence(
+                     this.commands.update(
+                       lookup,
++                      record(childUpdate),
+                       record(
+                         verb === "upsert"
+-                          ? conditional.update
+-                          : conditional.data
+-                      ),
+-                      record(
+-                        verb === "upsert"
+                           ? source.update
+                           : (source.data ?? source)
+                       ),
+@@ -488,6 +517,11 @@
+           if (target.found) {
+             target.found.command.origin = origin;
+             target.found.command.requirement = foundRequirement;
++            // The upsert's key refusal, on the arm that owns it: the update the
++            // found arm would run is the payload being judged, its `Assignments`
++            // is deferred, and an untaken arm never activates. `undefined` for a
++            // nested `update`, which already refused above.
++            if (keyRefusal) target.found.command.fields.reject(keyRefusal);
+           }
+           this.association(edge, target, correlated);
+           this.supply(target);
+@@ -504,6 +538,13 @@
+         this.membershipSource(edge, parent.fields);
+         for (const [index, member] of entries(payload).entries()) {
+           const input = record(member);
++          // The same owner, at the third nested position that admits an update
++          // payload. A `deleteMany` member has no `data`, so it asks nothing.
++          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
++            edge.target,
++            input.data
++          );
++          if (keyRefusal) throw keyRefusal;
+           const where =
+             verb === "updateMany"
+               ? input.where === undefined
+--- /dev/null
++++ b/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
+@@ -0,0 +1,327 @@
++/**
++ * G4-02 author check (decisions round 2) — R-D2 (c) at the NESTED sites.
++ *
++ * Arnaud's decision (c) is about the SHAPE: "`set` beside an operator … revert
++ * to the shipped refusals (parity)". The first decisions round applied it at
++ * the two ROOT owners (`EngineSchema.admit` for `update`/`updateMany`, and the
++ * upsert found-arm channel in `commands.ts`), and the independent review
++ * measured four reachable NESTED shapes where `set` still won and the child's
++ * key was rewritten — byte-identical at the committed `0cc61e61`, so inherited,
++ * not introduced (`g4/decisions-review.md` finding 1, and its receipt
++ * `decisions-review-receipts/probe-nested-key-refusal.log`).
++ *
++ * Parity at every site the shipped engine states the predicate IS the decision,
++ * so the same owner — `EngineSchema.keyPortabilityRefusal`, the sentences it
++ * already states — is now asked at the three nested positions the relation body
++ * already admits an update payload in: the `update`/`upsert` child selector arm
++ * and the `updateMany` member. No new walk and no per-verb table: `connect`,
++ * `connectOrCreate` and a `deleteMany` member carry no update payload, so they
++ * ask nothing. The shipped engine states the same predicate at nine nested
++ * compile sites (`RelationWritePart.ts:856`, `:898`,
++ * `RecordUpdateCompiler.ts:1794`, `:3770`, `:3944`, `RelationUpsertPart.ts:1008`,
++ * `RelationJunctionPart.ts:2772`, `:3042`, `NestedSelectedRecordSeries.ts:226`).
++ *
++ * WHEN each position states it is the shipped engine's too (freeze review,
++ * finding 1). A nested `update` and an `updateMany` member are asserted at
++ * COMPILE time (`RelationWritePart.ts:856`, `:898`), so those refuse before
++ * anything is located. A nested `upsert` is not: the shipped engine builds the
++ * same assertion as a closure (`RelationUpsertPart.ts:1006`) and invokes it only
++ * inside the FOUND arm (`:468`), so an absent target creates its row and the
++ * update payload is never judged. The candidate hands the upsert's refusal to
++ * its found arm, and the scope-control cell measures BOTH directions.
++ *
++ * The last cell is the review's note 3: the one bare `Error` still reachable
++ * from an admitted public request in this family. A root `upsert` whose update
++ * payload names no relation never reaches the found-arm channel, so an empty
++ * key operator record fell through to `Queries.prepareUpdate`'s "not
++ * implemented" throw; it now answers the shipped engine's own sentence and
++ * identity (`builders/set-builder.ts:217-219`), before any statement.
++ *
++ * Every cell asserts the candidate against the shipped engine over the same
++ * SQLite data, answer AND rows, so a refusal that fires late enough to write
++ * something fails the cell.
++ */
++import assert from "node:assert/strict";
++import { createClient } from "@client/client";
++import type { Operations } from "@client/types";
++import { SQLite3Driver } from "@drivers/sqlite3";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
++
++const OWNERS = "g4u2nk_owners";
++const ITEMS = "g4u2nk_items";
++const NOWNERS = "g4u2nk_nowners";
++const NITEMS = "g4u2nk_nitems";
++
++const owner = s
++  .model({
++    id: s.int().id(),
++    label: s.string(),
++    items: s.toMany(() => item),
++  })
++  .map(OWNERS);
++const item = s
++  .model({
++    id: s.int().id(),
++    name: s.string(),
++    ownerId: s.int().nullable(),
++    owner: s
++      .toOne(() => owner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map(ITEMS);
++// The same shape over a `number` key, for the second sentence
++// `keyPortabilityRefusal` states ("Arithmetic updates are not portable for
++// number primary key field …").
++const nowner = s
++  .model({
++    id: s.int().id(),
++    label: s.string(),
++    items: s.toMany(() => nitem),
++  })
++  .map(NOWNERS);
++const nitem = s
++  .model({
++    id: s.number().id(),
++    name: s.string(),
++    ownerId: s.int().nullable(),
++    owner: s
++      .toOne(() => nowner)
++      .fields("ownerId")
++      .references("id"),
++  })
++  .map(NITEMS);
++const nestedSchema = { owner, item, nowner, nitem };
++
++const SEED = `
++  INSERT INTO ${OWNERS} (id,label) VALUES (1,'o');
++  INSERT INTO ${ITEMS} (id,name,ownerId) VALUES (10,'i',1);
++  INSERT INTO ${NOWNERS} (id,label) VALUES (1,'o');
++  INSERT INTO ${NITEMS} (id,name,ownerId) VALUES (10,'i',1);
++`;
++
++interface Outcome {
++  readonly answer: string;
++  readonly items: unknown[];
++  readonly owners: unknown[];
++  readonly nitems: unknown[];
++}
++
++async function run(
++  engine: "shipped" | "candidate",
++  model: keyof typeof nestedSchema,
++  operation: Operations,
++  args: unknown
++): Promise<Outcome> {
++  const database = new Database(":memory:");
++  const driver = new SQLite3Driver({ client: database });
++  const client = createClient({ schema: nestedSchema, driver });
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.equal((await syncLiveSchema(client)).applied, true);
++  database.exec(SEED);
++  const candidate = createCommandEngine({ schema: nestedSchema, driver });
++  let answer: string;
++  try {
++    const value =
++      engine === "shipped"
++        ? await (
++            client as unknown as Record<
++              string,
++              Record<string, (args: unknown) => Promise<unknown>>
++            >
++          )[model]![operation]!(args)
++        : await candidate.execute(model, operation, args);
++    answer = `ok:${JSON.stringify(value)}`;
++  } catch (error) {
++    answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++  }
++  const items = database.prepare(`SELECT * FROM ${ITEMS} ORDER BY id`).all();
++  const owners = database.prepare(`SELECT * FROM ${OWNERS} ORDER BY id`).all();
++  const nitems = database.prepare(`SELECT * FROM ${NITEMS} ORDER BY id`).all();
++  await client.$disconnect();
++  database.close();
++  return { answer, items, owners, nitems };
++}
++
++async function bothEngines(
++  model: keyof typeof nestedSchema,
++  operation: Operations,
++  args: unknown,
++  expected?: string
++): Promise<Outcome> {
++  const shipped = await run("shipped", model, operation, args);
++  const candidate = await run("candidate", model, operation, args);
++  // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++  assert.deepEqual(
++    candidate,
++    shipped,
++    `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++  );
++  if (expected !== undefined)
++    // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
++    assert.equal(candidate.answer, expected);
++  return candidate;
++}
++
++const keys = (rows: unknown[]): unknown[] =>
++  rows.map((row) => (row as { id: unknown }).id);
++
++const ARITY_SET_INCREMENT =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
++const ARITY_NONE =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.";
++
++describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
++  it("refuses a nested child update whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            update: [
++              { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("refuses a nested child upsert whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            upsert: [
++              {
++                where: { id: 10 },
++                create: { id: 10, name: "i" },
++                update: { id: { set: 11, increment: 1 } },
++              },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("refuses a nested updateMany member whose key names set beside an operator", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: {
++            updateMany: [
++              { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++            ],
++          },
++        },
++      },
++      ARITY_SET_INCREMENT
++    );
++  });
++
++  it("answers the arity sentence when a nested child key names nothing", async () => {
++    await bothEngines(
++      "owner",
++      "update",
++      {
++        where: { id: 1 },
++        data: {
++          items: { update: [{ where: { id: 10 }, data: { id: {} } }] },
++        },
++      },
++      ARITY_NONE
++    );
++  });
++
++  it("keeps the refusal inside the shipped predicate's SHAPE and POSITIONS", async () => {
++    // The scope control, in both directions. It is the shipped predicate at the
++    // shipped positions, never a wider "no nested key writes" rule.
++    //
++    // (a) SHAPE — a nested child key naming exactly one operation is reachable.
++    await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          update: [{ where: { id: 10 }, data: { id: { set: 11 } } }],
++        },
++      },
++    });
++    await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          update: [{ where: { id: 10 }, data: { id: { increment: 1 } } }],
++        },
++      },
++    });
++    // (b) POSITION — a nested `upsert` whose target is ABSENT takes the CREATE
++    // arm, and the update payload is never judged. The shipped engine builds
++    // the assertion as a closure (`RelationUpsertPart.ts:1006`) and invokes it
++    // only inside the found arm (`:468`), so the very payloads the second and
++    // third cells refuse on a PRESENT target must CREATE the row here — the
++    // failure mode `EngineSchema.keyPortabilityRefusal`'s docblock names, "an
++    // upsert that CREATES a row the arithmetic never touches". Raised as the
++    // freeze review's finding 1; a construction-time refusal fails these two.
++    const created = await bothEngines("owner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          upsert: [
++            {
++              where: { id: 999 },
++              create: { id: 999, name: "fresh" },
++              update: { id: { set: 11, increment: 1 } },
++            },
++          ],
++        },
++      },
++    });
++    assert.deepEqual(keys(created.items), [10, 999]);
++    const createdNumberKey = await bothEngines("nowner", "update", {
++      where: { id: 1 },
++      data: {
++        items: {
++          upsert: [
++            {
++              where: { id: 999 },
++              create: { id: 999, name: "fresh" },
++              update: { id: { increment: 1 } },
++            },
++          ],
++        },
++      },
++    });
++    assert.deepEqual(keys(createdNumberKey.nitems), [10, 999]);
++  });
++
++  it("answers the shipped sentence for a relation-free root upsert whose key names nothing", async () => {
++    // Review note 3: the last bare `Error` reachable from an admitted public
++    // request in this family. No relation in the update payload means the
++    // found-arm key channel never runs, exactly as shipped.
++    await bothEngines(
++      "owner",
++      "upsert",
++      {
++        where: { id: 1 },
++        create: { id: 1, label: "o" },
++        update: { id: {} },
++      },
++      "QueryEngineError: Unknown update operation: "
++    );
++  });
++});
+--- /dev/null
++++ b/tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
+@@ -0,0 +1,198 @@
++/**
++ * G4-02 native probe — the nested key refusal's POSITION, on a live provider.
++ *
++ * `nested-key-refusal.test.ts` measures the whole family on an in-memory SQLite
++ * world, which is the only world that file has. The freeze review's finding 1
++ * was about WHICH ARM runs, not about a sentence, so the reviewer asked for the
++ * repair to be measured on at least one native provider: the shipped engine's
++ * `updateLegality` closure (`RelationUpsertPart.ts:1006`, invoked at `:468`)
++ * runs inside the found arm, after the probe rows come back, and a real
++ * non-RETURNING provider reaches that arm through a different transport than
++ * SQLite does.
++ *
++ * Three rows, each on both engines over the same seeded data, answer AND rows:
++ * a nested `upsert` whose target is PRESENT must refuse and write nothing; the
++ * same payload with an ABSENT target must CREATE the row; and a nested `update`
++ * must refuse from its compile-time position (`RelationWritePart.ts:856`).
++ *
++ * Skipped unless `VIBORM_RAPTOR3_PROVIDER=mysql` names a live provider; the
++ * container and port used for a run are recorded in the receipt beside it.
++ */
++
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import { createClient } from "@client/client";
++import type { Operations } from "@client/types";
++import { MySQL2Driver } from "@drivers/mysql2";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { s } from "@schema";
++import { describe, it } from "vitest";
++
++const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
++const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
++
++const ARITY_SET_INCREMENT =
++  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
++
++interface Outcome {
++  readonly answer: string;
++  readonly items: unknown[];
++}
++
++describe.runIf(provider === "mysql" && port > 0)(
++  "G4-02 native MySQL nested key refusal",
++  () => {
++    for (const [name, args, expected, expectedKeys] of [
++      [
++        "refuses a nested upsert whose target is PRESENT, writing nothing",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              upsert: [
++                {
++                  where: { id: 10 },
++                  create: { id: 10, name: "i" },
++                  update: { id: { set: 11, increment: 1 } },
++                },
++              ],
++            },
++          },
++        },
++        ARITY_SET_INCREMENT,
++        [10],
++      ],
++      [
++        "creates the row for a nested upsert whose target is ABSENT",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              upsert: [
++                {
++                  where: { id: 999 },
++                  create: { id: 999, name: "fresh" },
++                  update: { id: { set: 11, increment: 1 } },
++                },
++              ],
++            },
++          },
++        },
++        undefined,
++        [10, 999],
++      ],
++      [
++        "refuses a nested update whose key names set beside an operator",
++        {
++          where: { id: 1 },
++          data: {
++            items: {
++              update: [
++                { where: { id: 10 }, data: { id: { set: 11, increment: 1 } } },
++              ],
++            },
++          },
++        },
++        ARITY_SET_INCREMENT,
++        [10],
++      ],
++    ] as const) {
++      it(name, async () => {
++        const suffix = randomUUID().replaceAll("-", "");
++        const owners = `g4u2nnk_owners_${suffix}`;
++        const items = `g4u2nnk_items_${suffix}`;
++        const owner = s
++          .model({
++            id: s.int().id(),
++            label: s.string(),
++            items: s.toMany(() => item),
++          })
++          .map(owners);
++        const item = s
++          .model({
++            id: s.int().id(),
++            name: s.string(),
++            ownerId: s.int().nullable(),
++            owner: s
++              .toOne(() => owner)
++              .fields("ownerId")
++              .references("id"),
++          })
++          .map(items);
++        const schema = { owner, item };
++        const driver = new MySQL2Driver({
++          options: {
++            host: "127.0.0.1",
++            port,
++            database: "raptor3_g2",
++            user: "root",
++            password: "",
++            connectionLimit: 1,
++            connectTimeout: 10_000,
++          },
++        });
++        const client = createClient({ schema, driver });
++        const seed = async (): Promise<void> => {
++          await driver._executeRaw(`DELETE FROM ${items}`);
++          await driver._executeRaw(`DELETE FROM ${owners}`);
++          await driver._executeRaw(
++            `INSERT INTO ${owners} (id, label) VALUES (1, 'o')`
++          );
++          await driver._executeRaw(
++            `INSERT INTO ${items} (id, name, ownerId) VALUES (10, 'i', 1)`
++          );
++        };
++        const measure = async (
++          engine: "shipped" | "candidate"
++        ): Promise<Outcome> => {
++          await seed();
++          let answer: string;
++          try {
++            const value =
++              engine === "shipped"
++                ? await (
++                    client as unknown as Record<
++                      string,
++                      Record<string, (input: unknown) => Promise<unknown>>
++                    >
++                  ).owner!.update!(args)
++                : await createCommandEngine({ schema, driver }).execute(
++                    "owner",
++                    "update" as Operations,
++                    args
++                  );
++            answer = `ok:${JSON.stringify(value)}`;
++          } catch (error) {
++            answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
++          }
++          const rows = await driver._executeRaw<{ id: number }>(
++            `SELECT id FROM ${items} ORDER BY id`
++          );
++          return { answer, items: rows.rows.map((row) => Number(row.id)) };
++        };
++        try {
++          assert.equal(driver.adapter.capabilities.supportsReturning, false);
++          await driver._executeRaw(
++            `CREATE TABLE ${owners} (id INT PRIMARY KEY, label VARCHAR(32) NOT NULL)`
++          );
++          await driver._executeRaw(
++            `CREATE TABLE ${items} (id INT PRIMARY KEY, name VARCHAR(32) NOT NULL, ownerId INT NULL)`
++          );
++          const shipped = await measure("shipped");
++          const candidate = await measure("candidate");
++          assert.deepEqual(
++            candidate,
++            shipped,
++            `candidate ${JSON.stringify(candidate)}\nshipped   ${JSON.stringify(shipped)}`
++          );
++          if (expected !== undefined) assert.equal(shipped.answer, expected);
++          assert.deepEqual(shipped.items, [...expectedKeys]);
++        } finally {
++          await driver._executeRaw(`DROP TABLE IF EXISTS ${items}`);
++          await driver._executeRaw(`DROP TABLE IF EXISTS ${owners}`);
++          await client.$disconnect();
++        }
++      });
++    }
++  }
++);

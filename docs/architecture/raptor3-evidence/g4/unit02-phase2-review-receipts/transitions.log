@@ -1,0 +1,43 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 186ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 76ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 211ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 33ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 27ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 47ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 104ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 71ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 55ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 22ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 92ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 203ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 73ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 66ms
+ ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 35ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 71ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 84ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 32ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests) 53ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 55ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 48ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 26ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 21ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 7ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 24ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests) 40ms
+ ✓ |raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 9ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests) 21ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 8ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 38ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 17ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 18ms
+
+ Test Files  33 passed (33)
+      Tests  434 passed (434)
+   Start at  08:50:16
+   Duration  6.96s (transform 1.56s, setup 26ms, collect 4.82s, tests 1.88s, environment 0ms, prepare 33ms)
+
+Vitest resources: 9.10s wall, 738.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

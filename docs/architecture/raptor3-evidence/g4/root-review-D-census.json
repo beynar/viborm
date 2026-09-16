@@ -1,0 +1,1263 @@
+{
+  "version": 1,
+  "producedBy": "docs/architecture/raptor3-evidence/g4/root-review-probes/D/census.mjs",
+  "producedAt": "2026-09-15T18:24:37.903Z",
+  "method": {
+    "censusOwner": "scripts/query-engine-structure.mjs",
+    "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+    "censusFunctionMatchesG3": true,
+    "definition": "Distinct lines containing parser-owned TypeScript token starts; exact existing census function, comments/JSDoc/EOF excluded",
+    "physicalLines": "newline count, the census script's own `lines`",
+    "bytes": "utf8 byte length; statBytes cross-check per file",
+    "baseCommit": "0cc61e61"
+  },
+  "identity": {
+    "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+    "harness": "838a1e1bb2080e863f5decb56ce90c5218da1e1a341532c21d5b0e04453bc6c5",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "groups": {
+    "candidateCore12": {
+      "label": "candidate-core-12",
+      "total": {
+        "files": 12,
+        "bytes": 363744,
+        "physicalLines": 10335,
+        "tokenLines": 9407
+      },
+      "files": {
+        "src/query-engine/raptor3/commands/assignments.ts": {
+          "bytes": 5074,
+          "physicalLines": 160,
+          "tokenLines": 148,
+          "statBytes": 5074
+        },
+        "src/query-engine/raptor3/commands/command-attempt.ts": {
+          "bytes": 2948,
+          "physicalLines": 88,
+          "tokenLines": 85,
+          "statBytes": 2948
+        },
+        "src/query-engine/raptor3/commands/commands.ts": {
+          "bytes": 46751,
+          "physicalLines": 1310,
+          "tokenLines": 1225,
+          "statBytes": 46751
+        },
+        "src/query-engine/raptor3/commands/execution.ts": {
+          "bytes": 25846,
+          "physicalLines": 759,
+          "tokenLines": 754,
+          "statBytes": 25846
+        },
+        "src/query-engine/raptor3/commands/index.ts": {
+          "bytes": 7698,
+          "physicalLines": 234,
+          "tokenLines": 176,
+          "statBytes": 7698
+        },
+        "src/query-engine/raptor3/commands/relation-body.ts": {
+          "bytes": 32238,
+          "physicalLines": 912,
+          "tokenLines": 867,
+          "statBytes": 32238
+        },
+        "src/query-engine/raptor3/commands/selection.ts": {
+          "bytes": 6505,
+          "physicalLines": 201,
+          "tokenLines": 162,
+          "statBytes": 6505
+        },
+        "src/query-engine/raptor3/shared/operation-context.ts": {
+          "bytes": 70094,
+          "physicalLines": 1954,
+          "tokenLines": 1781,
+          "statBytes": 70094
+        },
+        "src/query-engine/raptor3/shared/query.ts": {
+          "bytes": 139660,
+          "physicalLines": 3940,
+          "tokenLines": 3568,
+          "statBytes": 139660
+        },
+        "src/query-engine/raptor3/shared/schema.ts": {
+          "bytes": 19305,
+          "physicalLines": 526,
+          "tokenLines": 410,
+          "statBytes": 19305
+        },
+        "src/query-engine/raptor3/shared/storage.ts": {
+          "bytes": 6936,
+          "physicalLines": 233,
+          "tokenLines": 215,
+          "statBytes": 6936
+        },
+        "src/query-engine/raptor3/shared/transport-attempt.ts": {
+          "bytes": 689,
+          "physicalLines": 18,
+          "tokenLines": 16,
+          "statBytes": 689
+        }
+      }
+    },
+    "language7": {
+      "label": "language-7",
+      "total": {
+        "files": 7,
+        "bytes": 127060,
+        "physicalLines": 3664,
+        "tokenLines": 3417
+      },
+      "files": {
+        "src/query-engine/raptor3/commands/assignments.ts": {
+          "bytes": 5074,
+          "physicalLines": 160,
+          "tokenLines": 148,
+          "statBytes": 5074
+        },
+        "src/query-engine/raptor3/commands/command-attempt.ts": {
+          "bytes": 2948,
+          "physicalLines": 88,
+          "tokenLines": 85,
+          "statBytes": 2948
+        },
+        "src/query-engine/raptor3/commands/commands.ts": {
+          "bytes": 46751,
+          "physicalLines": 1310,
+          "tokenLines": 1225,
+          "statBytes": 46751
+        },
+        "src/query-engine/raptor3/commands/execution.ts": {
+          "bytes": 25846,
+          "physicalLines": 759,
+          "tokenLines": 754,
+          "statBytes": 25846
+        },
+        "src/query-engine/raptor3/commands/index.ts": {
+          "bytes": 7698,
+          "physicalLines": 234,
+          "tokenLines": 176,
+          "statBytes": 7698
+        },
+        "src/query-engine/raptor3/commands/relation-body.ts": {
+          "bytes": 32238,
+          "physicalLines": 912,
+          "tokenLines": 867,
+          "statBytes": 32238
+        },
+        "src/query-engine/raptor3/commands/selection.ts": {
+          "bytes": 6505,
+          "physicalLines": 201,
+          "tokenLines": 162,
+          "statBytes": 6505
+        }
+      }
+    },
+    "shared5": {
+      "label": "shared-5",
+      "total": {
+        "files": 5,
+        "bytes": 236684,
+        "physicalLines": 6671,
+        "tokenLines": 5990
+      },
+      "files": {
+        "src/query-engine/raptor3/shared/operation-context.ts": {
+          "bytes": 70094,
+          "physicalLines": 1954,
+          "tokenLines": 1781,
+          "statBytes": 70094
+        },
+        "src/query-engine/raptor3/shared/query.ts": {
+          "bytes": 139660,
+          "physicalLines": 3940,
+          "tokenLines": 3568,
+          "statBytes": 139660
+        },
+        "src/query-engine/raptor3/shared/schema.ts": {
+          "bytes": 19305,
+          "physicalLines": 526,
+          "tokenLines": 410,
+          "statBytes": 19305
+        },
+        "src/query-engine/raptor3/shared/storage.ts": {
+          "bytes": 6936,
+          "physicalLines": 233,
+          "tokenLines": 215,
+          "statBytes": 6936
+        },
+        "src/query-engine/raptor3/shared/transport-attempt.ts": {
+          "bytes": 689,
+          "physicalLines": 18,
+          "tokenLines": 16,
+          "statBytes": 689
+        }
+      }
+    },
+    "retained18": {
+      "label": "retained-18",
+      "total": {
+        "files": 18,
+        "bytes": 270439,
+        "physicalLines": 7506,
+        "tokenLines": 4927
+      },
+      "files": {
+        "src/adapters/adapter-core-types.ts": {
+          "bytes": 2618,
+          "physicalLines": 57,
+          "tokenLines": 15,
+          "statBytes": 2618
+        },
+        "src/adapters/adapter-internals.ts": {
+          "bytes": 1760,
+          "physicalLines": 58,
+          "tokenLines": 47,
+          "statBytes": 1760
+        },
+        "src/adapters/constraint-identity.ts": {
+          "bytes": 1763,
+          "physicalLines": 55,
+          "tokenLines": 47,
+          "statBytes": 1763
+        },
+        "src/adapters/databases/mysql/mysql-adapter.ts": {
+          "bytes": 44676,
+          "physicalLines": 1075,
+          "tokenLines": 559,
+          "statBytes": 44676
+        },
+        "src/adapters/databases/postgres/postgres-adapter.ts": {
+          "bytes": 27394,
+          "physicalLines": 689,
+          "tokenLines": 372,
+          "statBytes": 27394
+        },
+        "src/adapters/databases/sqlite/sqlite-adapter.ts": {
+          "bytes": 36903,
+          "physicalLines": 889,
+          "tokenLines": 447,
+          "statBytes": 36903
+        },
+        "src/adapters/shared/batch-refs.ts": {
+          "bytes": 2280,
+          "physicalLines": 65,
+          "tokenLines": 59,
+          "statBytes": 2280
+        },
+        "src/drivers/driver-instrumentation.ts": {
+          "bytes": 34476,
+          "physicalLines": 1017,
+          "tokenLines": 801,
+          "statBytes": 34476
+        },
+        "src/drivers/error-mapping.ts": {
+          "bytes": 17730,
+          "physicalLines": 578,
+          "tokenLines": 460,
+          "statBytes": 17730
+        },
+        "src/query-engine/JunctionStatements.ts": {
+          "bytes": 19105,
+          "physicalLines": 568,
+          "tokenLines": 493,
+          "statBytes": 19105
+        },
+        "src/query-engine/bind-budget.ts": {
+          "bytes": 2007,
+          "physicalLines": 63,
+          "tokenLines": 47,
+          "statBytes": 2007
+        },
+        "src/query-engine/types.ts": {
+          "bytes": 15839,
+          "physicalLines": 530,
+          "tokenLines": 289,
+          "statBytes": 15839
+        },
+        "src/query-engine/unique-conflict-target.ts": {
+          "bytes": 2563,
+          "physicalLines": 55,
+          "tokenLines": 43,
+          "statBytes": 2563
+        },
+        "src/query-engine/write-engine/parse-boundary.ts": {
+          "bytes": 4755,
+          "physicalLines": 98,
+          "tokenLines": 41,
+          "statBytes": 4755
+        },
+        "src/schema/model/keys.ts": {
+          "bytes": 10247,
+          "physicalLines": 253,
+          "tokenLines": 138,
+          "statBytes": 10247
+        },
+        "src/schema/model/model.ts": {
+          "bytes": 22177,
+          "physicalLines": 630,
+          "tokenLines": 422,
+          "statBytes": 22177
+        },
+        "src/schema/validation/rules/model.ts": {
+          "bytes": 16048,
+          "physicalLines": 577,
+          "tokenLines": 471,
+          "statBytes": 16048
+        },
+        "src/schema/validation/validator.ts": {
+          "bytes": 8098,
+          "physicalLines": 249,
+          "tokenLines": 176,
+          "statBytes": 8098
+        }
+      }
+    },
+    "raptor3Tree": {
+      "label": "raptor3-tree",
+      "total": {
+        "files": 15,
+        "bytes": 399356,
+        "physicalLines": 11349,
+        "tokenLines": 10280
+      },
+      "files": {
+        "src/query-engine/raptor3/commands/assignments.ts": {
+          "bytes": 5074,
+          "physicalLines": 160,
+          "tokenLines": 148,
+          "statBytes": 5074
+        },
+        "src/query-engine/raptor3/commands/command-attempt.ts": {
+          "bytes": 2948,
+          "physicalLines": 88,
+          "tokenLines": 85,
+          "statBytes": 2948
+        },
+        "src/query-engine/raptor3/commands/commands.ts": {
+          "bytes": 46751,
+          "physicalLines": 1310,
+          "tokenLines": 1225,
+          "statBytes": 46751
+        },
+        "src/query-engine/raptor3/commands/execution.ts": {
+          "bytes": 25846,
+          "physicalLines": 759,
+          "tokenLines": 754,
+          "statBytes": 25846
+        },
+        "src/query-engine/raptor3/commands/index.ts": {
+          "bytes": 7698,
+          "physicalLines": 234,
+          "tokenLines": 176,
+          "statBytes": 7698
+        },
+        "src/query-engine/raptor3/commands/relation-body.ts": {
+          "bytes": 32238,
+          "physicalLines": 912,
+          "tokenLines": 867,
+          "statBytes": 32238
+        },
+        "src/query-engine/raptor3/commands/selection.ts": {
+          "bytes": 6505,
+          "physicalLines": 201,
+          "tokenLines": 162,
+          "statBytes": 6505
+        },
+        "src/query-engine/raptor3/program/index.ts": {
+          "bytes": 1794,
+          "physicalLines": 61,
+          "tokenLines": 56,
+          "statBytes": 1794
+        },
+        "src/query-engine/raptor3/program/program.ts": {
+          "bytes": 18938,
+          "physicalLines": 575,
+          "tokenLines": 570,
+          "statBytes": 18938
+        },
+        "src/query-engine/raptor3/route/client-route.ts": {
+          "bytes": 14880,
+          "physicalLines": 378,
+          "tokenLines": 247,
+          "statBytes": 14880
+        },
+        "src/query-engine/raptor3/shared/operation-context.ts": {
+          "bytes": 70094,
+          "physicalLines": 1954,
+          "tokenLines": 1781,
+          "statBytes": 70094
+        },
+        "src/query-engine/raptor3/shared/query.ts": {
+          "bytes": 139660,
+          "physicalLines": 3940,
+          "tokenLines": 3568,
+          "statBytes": 139660
+        },
+        "src/query-engine/raptor3/shared/schema.ts": {
+          "bytes": 19305,
+          "physicalLines": 526,
+          "tokenLines": 410,
+          "statBytes": 19305
+        },
+        "src/query-engine/raptor3/shared/storage.ts": {
+          "bytes": 6936,
+          "physicalLines": 233,
+          "tokenLines": 215,
+          "statBytes": 6936
+        },
+        "src/query-engine/raptor3/shared/transport-attempt.ts": {
+          "bytes": 689,
+          "physicalLines": 18,
+          "tokenLines": 16,
+          "statBytes": 689
+        }
+      }
+    },
+    "g3CompleteChargedPerimeter30": {
+      "label": "g3-complete-charged-perimeter-30",
+      "total": {
+        "files": 30,
+        "bytes": 634183,
+        "physicalLines": 17841,
+        "tokenLines": 14334
+      },
+      "files": {
+        "src/query-engine/raptor3/commands/assignments.ts": {
+          "bytes": 5074,
+          "physicalLines": 160,
+          "tokenLines": 148,
+          "statBytes": 5074
+        },
+        "src/query-engine/raptor3/commands/command-attempt.ts": {
+          "bytes": 2948,
+          "physicalLines": 88,
+          "tokenLines": 85,
+          "statBytes": 2948
+        },
+        "src/query-engine/raptor3/commands/commands.ts": {
+          "bytes": 46751,
+          "physicalLines": 1310,
+          "tokenLines": 1225,
+          "statBytes": 46751
+        },
+        "src/query-engine/raptor3/commands/execution.ts": {
+          "bytes": 25846,
+          "physicalLines": 759,
+          "tokenLines": 754,
+          "statBytes": 25846
+        },
+        "src/query-engine/raptor3/commands/index.ts": {
+          "bytes": 7698,
+          "physicalLines": 234,
+          "tokenLines": 176,
+          "statBytes": 7698
+        },
+        "src/query-engine/raptor3/commands/relation-body.ts": {
+          "bytes": 32238,
+          "physicalLines": 912,
+          "tokenLines": 867,
+          "statBytes": 32238
+        },
+        "src/query-engine/raptor3/commands/selection.ts": {
+          "bytes": 6505,
+          "physicalLines": 201,
+          "tokenLines": 162,
+          "statBytes": 6505
+        },
+        "src/query-engine/raptor3/shared/operation-context.ts": {
+          "bytes": 70094,
+          "physicalLines": 1954,
+          "tokenLines": 1781,
+          "statBytes": 70094
+        },
+        "src/query-engine/raptor3/shared/query.ts": {
+          "bytes": 139660,
+          "physicalLines": 3940,
+          "tokenLines": 3568,
+          "statBytes": 139660
+        },
+        "src/query-engine/raptor3/shared/schema.ts": {
+          "bytes": 19305,
+          "physicalLines": 526,
+          "tokenLines": 410,
+          "statBytes": 19305
+        },
+        "src/query-engine/raptor3/shared/storage.ts": {
+          "bytes": 6936,
+          "physicalLines": 233,
+          "tokenLines": 215,
+          "statBytes": 6936
+        },
+        "src/query-engine/raptor3/shared/transport-attempt.ts": {
+          "bytes": 689,
+          "physicalLines": 18,
+          "tokenLines": 16,
+          "statBytes": 689
+        },
+        "src/adapters/adapter-core-types.ts": {
+          "bytes": 2618,
+          "physicalLines": 57,
+          "tokenLines": 15,
+          "statBytes": 2618
+        },
+        "src/adapters/adapter-internals.ts": {
+          "bytes": 1760,
+          "physicalLines": 58,
+          "tokenLines": 47,
+          "statBytes": 1760
+        },
+        "src/adapters/constraint-identity.ts": {
+          "bytes": 1763,
+          "physicalLines": 55,
+          "tokenLines": 47,
+          "statBytes": 1763
+        },
+        "src/adapters/databases/mysql/mysql-adapter.ts": {
+          "bytes": 44676,
+          "physicalLines": 1075,
+          "tokenLines": 559,
+          "statBytes": 44676
+        },
+        "src/adapters/databases/postgres/postgres-adapter.ts": {
+          "bytes": 27394,
+          "physicalLines": 689,
+          "tokenLines": 372,
+          "statBytes": 27394
+        },
+        "src/adapters/databases/sqlite/sqlite-adapter.ts": {
+          "bytes": 36903,
+          "physicalLines": 889,
+          "tokenLines": 447,
+          "statBytes": 36903
+        },
+        "src/adapters/shared/batch-refs.ts": {
+          "bytes": 2280,
+          "physicalLines": 65,
+          "tokenLines": 59,
+          "statBytes": 2280
+        },
+        "src/drivers/driver-instrumentation.ts": {
+          "bytes": 34476,
+          "physicalLines": 1017,
+          "tokenLines": 801,
+          "statBytes": 34476
+        },
+        "src/drivers/error-mapping.ts": {
+          "bytes": 17730,
+          "physicalLines": 578,
+          "tokenLines": 460,
+          "statBytes": 17730
+        },
+        "src/query-engine/JunctionStatements.ts": {
+          "bytes": 19105,
+          "physicalLines": 568,
+          "tokenLines": 493,
+          "statBytes": 19105
+        },
+        "src/query-engine/bind-budget.ts": {
+          "bytes": 2007,
+          "physicalLines": 63,
+          "tokenLines": 47,
+          "statBytes": 2007
+        },
+        "src/query-engine/types.ts": {
+          "bytes": 15839,
+          "physicalLines": 530,
+          "tokenLines": 289,
+          "statBytes": 15839
+        },
+        "src/query-engine/unique-conflict-target.ts": {
+          "bytes": 2563,
+          "physicalLines": 55,
+          "tokenLines": 43,
+          "statBytes": 2563
+        },
+        "src/query-engine/write-engine/parse-boundary.ts": {
+          "bytes": 4755,
+          "physicalLines": 98,
+          "tokenLines": 41,
+          "statBytes": 4755
+        },
+        "src/schema/model/keys.ts": {
+          "bytes": 10247,
+          "physicalLines": 253,
+          "tokenLines": 138,
+          "statBytes": 10247
+        },
+        "src/schema/model/model.ts": {
+          "bytes": 22177,
+          "physicalLines": 630,
+          "tokenLines": 422,
+          "statBytes": 22177
+        },
+        "src/schema/validation/rules/model.ts": {
+          "bytes": 16048,
+          "physicalLines": 577,
+          "tokenLines": 471,
+          "statBytes": 16048
+        },
+        "src/schema/validation/validator.ts": {
+          "bytes": 8098,
+          "physicalLines": 249,
+          "tokenLines": 176,
+          "statBytes": 8098
+        }
+      }
+    },
+    "routeWhole": {
+      "label": "route-whole",
+      "total": {
+        "files": 1,
+        "bytes": 14880,
+        "physicalLines": 378,
+        "tokenLines": 247
+      },
+      "files": {
+        "src/query-engine/raptor3/route/client-route.ts": {
+          "bytes": 14880,
+          "physicalLines": 378,
+          "tokenLines": 247,
+          "statBytes": 14880
+        }
+      }
+    },
+    "programSpecimen": {
+      "label": "program-specimen",
+      "total": {
+        "files": 2,
+        "bytes": 20732,
+        "physicalLines": 636,
+        "tokenLines": 626
+      },
+      "files": {
+        "src/query-engine/raptor3/program/index.ts": {
+          "bytes": 1794,
+          "physicalLines": 61,
+          "tokenLines": 56,
+          "statBytes": 1794
+        },
+        "src/query-engine/raptor3/program/program.ts": {
+          "bytes": 18938,
+          "physicalLines": 575,
+          "tokenLines": 570,
+          "statBytes": 18938
+        }
+      }
+    },
+    "newlyRetainedCacheOwners": {
+      "label": "newly-retained-cache-owners",
+      "total": {
+        "files": 3,
+        "bytes": 22613,
+        "physicalLines": 758,
+        "tokenLines": 695
+      },
+      "files": {
+        "src/query-engine/result/cache-value-codecs.ts": {
+          "bytes": 15600,
+          "physicalLines": 506,
+          "tokenLines": 457,
+          "statBytes": 15600
+        },
+        "src/query-engine/result/cache-json-codec.ts": {
+          "bytes": 3521,
+          "physicalLines": 129,
+          "tokenLines": 124,
+          "statBytes": 3521
+        },
+        "src/query-engine/result/cache-snapshot-structure.ts": {
+          "bytes": 3492,
+          "physicalLines": 123,
+          "tokenLines": 114,
+          "statBytes": 3492
+        }
+      }
+    }
+  },
+  "atBase": {
+    "candidateCore12": {
+      "files": 12,
+      "bytes": 230397,
+      "physicalLines": 6997,
+      "tokenLines": 6927,
+      "missing": []
+    },
+    "g3CompleteChargedPerimeter30": {
+      "files": 30,
+      "bytes": 499927,
+      "physicalLines": 14486,
+      "tokenLines": 11849,
+      "missing": []
+    }
+  },
+  "g4ChargedDeltasOutsideRaptor3": {
+    "src/client/client.ts": {
+      "numstat": {
+        "addedLines": 31,
+        "deletedLines": 4
+      },
+      "base": {
+        "bytes": 45809,
+        "physicalLines": 1308,
+        "tokenLines": 1020
+      },
+      "now": {
+        "bytes": 46549,
+        "physicalLines": 1335,
+        "tokenLines": 1043
+      },
+      "delta": {
+        "bytes": 740,
+        "physicalLines": 27,
+        "tokenLines": 23
+      },
+      "inG3Perimeter": false
+    },
+    "src/query-engine/query-engine.ts": {
+      "numstat": {
+        "addedLines": 12,
+        "deletedLines": 2
+      },
+      "base": {
+        "bytes": 7164,
+        "physicalLines": 227,
+        "tokenLines": 175
+      },
+      "now": {
+        "bytes": 7594,
+        "physicalLines": 237,
+        "tokenLines": 180
+      },
+      "delta": {
+        "bytes": 430,
+        "physicalLines": 10,
+        "tokenLines": 5
+      },
+      "inG3Perimeter": false
+    },
+    "src/query-engine/pending-operation.ts": {
+      "numstat": {
+        "addedLines": 126,
+        "deletedLines": 17
+      },
+      "base": {
+        "bytes": 30889,
+        "physicalLines": 874,
+        "tokenLines": 760
+      },
+      "now": {
+        "bytes": 35202,
+        "physicalLines": 983,
+        "tokenLines": 830
+      },
+      "delta": {
+        "bytes": 4313,
+        "physicalLines": 109,
+        "tokenLines": 70
+      },
+      "inG3Perimeter": false
+    },
+    "src/adapters/database-adapter.ts": {
+      "numstat": {
+        "addedLines": 13,
+        "deletedLines": 0
+      },
+      "base": {
+        "bytes": 30679,
+        "physicalLines": 757,
+        "tokenLines": 256
+      },
+      "now": {
+        "bytes": 31416,
+        "physicalLines": 770,
+        "tokenLines": 257
+      },
+      "delta": {
+        "bytes": 737,
+        "physicalLines": 13,
+        "tokenLines": 1
+      },
+      "inG3Perimeter": false
+    },
+    "src/adapters/databases/mysql/mysql-adapter.ts": {
+      "numstat": {
+        "addedLines": 5,
+        "deletedLines": 0
+      },
+      "base": {
+        "bytes": 44425,
+        "physicalLines": 1070,
+        "tokenLines": 557
+      },
+      "now": {
+        "bytes": 44676,
+        "physicalLines": 1075,
+        "tokenLines": 559
+      },
+      "delta": {
+        "bytes": 251,
+        "physicalLines": 5,
+        "tokenLines": 2
+      },
+      "inG3Perimeter": true
+    },
+    "src/adapters/databases/postgres/postgres-adapter.ts": {
+      "numstat": {
+        "addedLines": 5,
+        "deletedLines": 0
+      },
+      "base": {
+        "bytes": 27107,
+        "physicalLines": 684,
+        "tokenLines": 371
+      },
+      "now": {
+        "bytes": 27394,
+        "physicalLines": 689,
+        "tokenLines": 372
+      },
+      "delta": {
+        "bytes": 287,
+        "physicalLines": 5,
+        "tokenLines": 1
+      },
+      "inG3Perimeter": true
+    },
+    "src/adapters/databases/sqlite/sqlite-adapter.ts": {
+      "numstat": {
+        "addedLines": 7,
+        "deletedLines": 0
+      },
+      "base": {
+        "bytes": 36532,
+        "physicalLines": 882,
+        "tokenLines": 445
+      },
+      "now": {
+        "bytes": 36903,
+        "physicalLines": 889,
+        "tokenLines": 447
+      },
+      "delta": {
+        "bytes": 371,
+        "physicalLines": 7,
+        "tokenLines": 2
+      },
+      "inG3Perimeter": true
+    }
+  },
+  "g4CompleteCharged": {
+    "perimeter30Now": {
+      "files": 30,
+      "bytes": 634183,
+      "physicalLines": 17841,
+      "tokenLines": 14334
+    },
+    "routeWhole": {
+      "files": 1,
+      "bytes": 14880,
+      "physicalLines": 378,
+      "tokenLines": 247
+    },
+    "chargedDeltasOutsidePerimeter": {
+      "bytes": 6220,
+      "physicalLines": 159,
+      "tokenLines": 99,
+      "addedLines": 182,
+      "deletedLines": 23
+    },
+    "total": {
+      "files": 31,
+      "bytes": 655283,
+      "physicalLines": 18378,
+      "tokenLines": 14680
+    },
+    "withNewlyRetainedCacheOwners": {
+      "files": 34,
+      "bytes": 677896,
+      "physicalLines": 19136,
+      "tokenLines": 15375,
+      "rationale": "If the G3 retained-owner rule (a shipped engine owner the candidate imports at runtime is charged whole, as write-engine/parse-boundary.ts is) is applied to the three official cache codec owners the G4 route newly imports, the candidate perimeter is this. Reported as an alternative, not substituted for the G3 file list."
+    },
+    "note": "Charged deltas for the four files outside the G3 perimeter (client.ts, query-engine.ts, pending-operation.ts, database-adapter.ts). The three dialect adapters are inside the G3 perimeter and are counted whole there; their G4 deltas are reported but not added again."
+  },
+  "g3Closure": {
+    "core": {
+      "files": 12,
+      "tokenLines": 6927,
+      "physicalLines": 6997,
+      "bytes": 230397
+    },
+    "complete": {
+      "files": 30,
+      "bytes": 499927,
+      "physicalLines": 14486,
+      "tokenLines": 11849
+    },
+    "recomputedFromPerFileRecords": {
+      "language": {
+        "files": 7,
+        "bytes": 106740,
+        "physicalLines": 3228,
+        "tokenLines": 3197
+      },
+      "shared": {
+        "files": 5,
+        "bytes": 123657,
+        "physicalLines": 3769,
+        "tokenLines": 3730
+      },
+      "retained": {
+        "files": 18,
+        "bytes": 269530,
+        "physicalLines": 7489,
+        "tokenLines": 4922
+      }
+    }
+  },
+  "shippedChargedPerimeter": {
+    "files": 171,
+    "bytes": 2511682,
+    "physicalLines": 70983,
+    "tokenLines": 53787
+  },
+  "testHarness": {
+    "newTestFiles": {
+      "files": 199,
+      "bytes": 1306678,
+      "physicalLines": 38124,
+      "tokenLines": 31867
+    },
+    "trackedHarnessDiff": {
+      "total": {
+        "files": 18,
+        "addedLines": 1715,
+        "deletedLines": 88
+      },
+      "files": [
+        {
+          "file": "scripts/credential-free-test-manifest.mjs",
+          "addedLines": 55,
+          "deletedLines": 0
+        },
+        {
+          "file": "scripts/raptor3-campaign-receipts.test.mjs",
+          "addedLines": 502,
+          "deletedLines": 0
+        },
+        {
+          "file": "scripts/raptor3-cli.test.mjs",
+          "addedLines": 90,
+          "deletedLines": 0
+        },
+        {
+          "file": "scripts/raptor3-manifest.mjs",
+          "addedLines": 422,
+          "deletedLines": 0
+        },
+        {
+          "file": "scripts/run-raptor3.mjs",
+          "addedLines": 312,
+          "deletedLines": 21
+        },
+        {
+          "file": "tests/contracts/adapters/dialect-vocabulary.core.test.ts",
+          "addedLines": 12,
+          "deletedLines": 0
+        },
+        {
+          "file": "tests/pattern/pack/program-dump.ts",
+          "addedLines": 4,
+          "deletedLines": 2
+        },
+        {
+          "file": "tests/raptor3/core-structure/measurement/extension-a-scenario.ts",
+          "addedLines": 20,
+          "deletedLines": 1
+        },
+        {
+          "file": "tests/raptor3/core-structure/measurement/extension-composition-scenario.ts",
+          "addedLines": 10,
+          "deletedLines": 1
+        },
+        {
+          "file": "tests/raptor3/g3/generation/generated-transport-smoke.test.ts",
+          "addedLines": 16,
+          "deletedLines": 0
+        },
+        {
+          "file": "tests/raptor3/g3/generation/recipe.ts",
+          "addedLines": 22,
+          "deletedLines": 2
+        },
+        {
+          "file": "tests/raptor3/g3/generation/sqlite-campaign.ts",
+          "addedLines": 39,
+          "deletedLines": 19
+        },
+        {
+          "file": "tests/raptor3/g3/generation/transport-campaign.ts",
+          "addedLines": 39,
+          "deletedLines": 24
+        },
+        {
+          "file": "tests/raptor3/g3/generation/transport-plans.ts",
+          "addedLines": 15,
+          "deletedLines": 2
+        },
+        {
+          "file": "tests/raptor3/post-prep/g29-result-progress-pglite.test.ts",
+          "addedLines": 6,
+          "deletedLines": 4
+        },
+        {
+          "file": "tests/raptor3/post-prep/g29-result-progress.test.ts",
+          "addedLines": 25,
+          "deletedLines": 7
+        },
+        {
+          "file": "tests/raptor3/transitions/live-world.ts",
+          "addedLines": 88,
+          "deletedLines": 5
+        },
+        {
+          "file": "vitest.workspace.ts",
+          "addedLines": 38,
+          "deletedLines": 0
+        }
+      ]
+    },
+    "note": "Tests and harness are counted separately from the charged production perimeter (plan §7). Not added to any charged figure."
+  },
+  "comparisons": {
+    "coreVsG3Closure": {
+      "tokenLines": {
+        "g3": 6927,
+        "g4": 9407,
+        "delta": 2480
+      },
+      "physicalLines": {
+        "g3": 6997,
+        "g4": 10335,
+        "delta": 3338
+      },
+      "bytes": {
+        "g3": 230397,
+        "g4": 363744,
+        "delta": 133347
+      }
+    },
+    "completeVsG3Closure": {
+      "perimeter30": {
+        "tokenLines": {
+          "g3": 11849,
+          "g4": 14334,
+          "delta": 2485
+        },
+        "physicalLines": {
+          "g3": 14486,
+          "g4": 17841,
+          "delta": 3355
+        },
+        "bytes": {
+          "g3": 499927,
+          "g4": 634183,
+          "delta": 134256
+        }
+      },
+      "completeWithG4Additions": {
+        "tokenLines": {
+          "g3": 11849,
+          "g4": 14680,
+          "delta": 2831
+        },
+        "physicalLines": {
+          "g3": 14486,
+          "g4": 18378,
+          "delta": 3892
+        },
+        "bytes": {
+          "g3": 499927,
+          "g4": 655283,
+          "delta": 155356
+        }
+      }
+    },
+    "vsShippedChargedPerimeter": {
+      "shipped": {
+        "files": 171,
+        "bytes": 2511682,
+        "physicalLines": 70983,
+        "tokenLines": 53787
+      },
+      "candidateComplete": {
+        "files": 31,
+        "bytes": 655283,
+        "physicalLines": 18378,
+        "tokenLines": 14680
+      },
+      "ratioTokenLines": 0.27292840277390445,
+      "ratioPhysicalLines": 0.25890706225434257,
+      "ratioBytes": 0.2608940940771961,
+      "ratioTokenLinesWithRetainedCacheOwners": 0.28584974064364993,
+      "targets": {
+        "tokenLines": "<= 0.60 of the frozen baseline (plan §7)",
+        "physicalLines": "<= 0.70 of the frozen baseline (plan §7)"
+      }
+    },
+    "g3CumulativeGuidepost": {
+      "guidepostTokenLines": 14000,
+      "classification": "Review trigger, not an automatic stop-loss verdict (plan §7 size table)",
+      "perimeter30Now": 14334,
+      "completeWithG4Additions": 14680,
+      "crossed": true
+    }
+  },
+  "perUnitCumulative": {
+    "scope": "candidate core, 12 files, token-lines. Each row is one tree state in the order the tree actually reached it, so the deltas sum to the measured total; `owner` attributes the delta to a unit.",
+    "base": {
+      "stage": "0cc61e61",
+      "tokenLines": 6927,
+      "source": "measured here from git show; reproduces g3 source-cost.json exactly"
+    },
+    "chain": [
+      {
+        "stage": "G4-01 r2",
+        "tokenLines": 8573,
+        "delta": 1646,
+        "owner": "G4-01",
+        "note": "unit01/note.md 'Cost after Repair 2'"
+      },
+      {
+        "stage": "G4-01 r3",
+        "tokenLines": 8626,
+        "delta": 53,
+        "owner": "G4-01",
+        "note": "unit01/note.md"
+      },
+      {
+        "stage": "G4-01 r4",
+        "tokenLines": 8641,
+        "delta": 15,
+        "owner": "G4-01",
+        "note": "unit01-review-followup2/core-cost-recheck.json"
+      },
+      {
+        "stage": "G4-02 phase 1 (measured on the r4 tree)",
+        "tokenLines": 8982,
+        "delta": 341,
+        "owner": "G4-02",
+        "note": "unit02/note.md §9.4 / §R.6; the unit's own eight-file increment is +345, measured against a slightly different eight-file base"
+      },
+      {
+        "stage": "G4-01 r5 merged into the phase-2 tree",
+        "tokenLines": 9001,
+        "delta": 19,
+        "owner": "G4-01",
+        "note": "unit01/note.md 'Cost after Repair 3' (8,641 -> 8,660 in isolation); unit02/note.md §P.10 states the phase-1 figure predates this merge, so the r5 delta lands here in the tree-state sequence"
+      },
+      {
+        "stage": "G4-02 phase 2",
+        "tokenLines": 9227,
+        "delta": 226,
+        "owner": "G4-02",
+        "note": "unit02/note.md §P.10"
+      },
+      {
+        "stage": "G4-02 phase-2 repairs",
+        "tokenLines": 9277,
+        "delta": 50,
+        "owner": "G4-02",
+        "note": "unit02/note.md (two rounds, 9,277)"
+      },
+      {
+        "stage": "G4-02 closure",
+        "tokenLines": 9337,
+        "delta": 60,
+        "owner": "G4-02",
+        "note": "unit02/note.md closure"
+      },
+      {
+        "stage": "G4-02 closure r2",
+        "tokenLines": 9342,
+        "delta": 5,
+        "owner": "G4-02",
+        "note": "unit02/note.md §R5"
+      },
+      {
+        "stage": "G4-02 closure r3",
+        "tokenLines": 9357,
+        "delta": 15,
+        "owner": "G4-02",
+        "note": "unit02/note.md §R6.7"
+      },
+      {
+        "stage": "decisions unit",
+        "tokenLines": 9398,
+        "delta": 41,
+        "owner": "decisions",
+        "note": "unit02/note.md decisions round (schema.ts +23)"
+      },
+      {
+        "stage": "freeze r1",
+        "tokenLines": 9406,
+        "delta": 8,
+        "owner": "freeze",
+        "note": "freeze/note.md §4"
+      },
+      {
+        "stage": "freeze r2",
+        "tokenLines": 9407,
+        "delta": 1,
+        "owner": "freeze",
+        "note": "freeze/note.md §R2.7"
+      }
+    ],
+    "measuredAtFreeze": 9407,
+    "perUnitTotals": {
+      "G4-01": 1733,
+      "G4-02 (phases 1-2, repairs, closure)": 697,
+      "decisions": 41,
+      "freeze": 9,
+      "G4-03 (route + seams; 0 in the core by construction)": 0,
+      "witness / harness (tests and scripts only)": 0,
+      "sum": 2480,
+      "measuredDelta": 2480
+    },
+    "outsideCore": {
+      "route/client-route.ts": {
+        "atUnit03Close": 143,
+        "atUnit03b": 144,
+        "atFreeze": 247,
+        "ownerOfTheGrowth": "G4-02 closure (transferred route): +103"
+      },
+      "pending-operation.ts": {
+        "atUnit03Close": 68,
+        "atFreeze": 70
+      },
+      "client.ts": {
+        "atUnit03Close": 20,
+        "atFreeze": 23
+      },
+      "query-engine.ts": {
+        "atUnit03Close": 5,
+        "atFreeze": 5
+      },
+      "adapters (3 dialect + database-adapter)": {
+        "atFreeze": 6,
+        "note": "the three dialect adapters are inside the G3 perimeter (+5); database-adapter.ts is a separate charged delta (+1)"
+      },
+      "program specimen (2 files)": {
+        "g3": 622,
+        "atFreeze": 626
+      }
+    }
+  }
+}

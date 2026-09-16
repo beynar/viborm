@@ -1,0 +1,25 @@
+== ATTRIBUTION CHECK: three production files restored to their PRE-freeze identities, the new cell file parked ==
+3bf284452f04aa8d18116fd2cf21043697f5c969d28bb432210cbf5cfb412aec  src/query-engine/raptor3/commands/relation-body.ts
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  src/query-engine/raptor3/commands/assignments.ts
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts(48,60): error TS2554: Expected 3 arguments, but got 4.
+tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts(75,60): error TS2554: Expected 3 arguments, but got 4.
+tests/raptor3/g4/review/unit02-decisions/junction-link-bytes.review.test.ts(220,32): error TS18048: 'link.ownerId' is possibly 'undefined'.
+tests/raptor3/g4/review/unit02-decisions/junction-link-bytes.review.test.ts(222,30): error TS18048: 'link.tagId' is possibly 'undefined'.
+tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts(74,42): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+TypeScript (whole estate, native): 7.90s wall, 6303.9 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+exit=1
+== RESTORED from the scratchpad copies (never git checkout) ==
+854d3f11319e718ab3017d5415f4b08cdee31b14cf0336d46cebe42b083e787a  src/query-engine/raptor3/commands/relation-body.ts
+0cc8ac08d653fc8bb4ec8c888c4e541b4a65e83fa2bb80b82ffb53fb7b7110d8  src/query-engine/raptor3/shared/query.ts
+654a27a2f8c59b5eaf0c3aa17dddce92b31adfad385220933355309dcb64592d  src/query-engine/raptor3/commands/assignments.ts
+dad9fe25d90a81f8912237063bfc6962f59cfd81757e8a2ee35609030d03c8ab  src/query-engine/raptor3/AGENTS.md
+59487465e09dbdb6f2e68ddc717258b15bdf3f26980b177309d87b30a3607566  tests/raptor3/g4/unit02/nested-key-refusal.test.ts

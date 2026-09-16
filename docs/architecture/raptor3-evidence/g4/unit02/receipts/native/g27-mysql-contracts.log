@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/ownership/live.test.ts (1 test) 58ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:54
+   Duration  1.71s (transform 1.00s, setup 9ms, collect 1.52s, tests 58ms, environment 0ms, prepare 30ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FpZAGy/vitest.json
+Vitest resources: 3.65s wall, 525.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g27-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FpZAGy
+exit=0 (port 65515)

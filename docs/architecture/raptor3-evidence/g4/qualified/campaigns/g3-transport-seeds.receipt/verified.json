@@ -1,0 +1,1727 @@
+{
+  "mode": "g3-transport-seeds",
+  "identity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 8000,
+    "seedCount": 10000,
+    "batchSize": 100,
+    "replayCount": 3,
+    "completionLimit": 10000,
+    "profiles": [
+      "scripted-returning-weak",
+      "scripted-returning-ack"
+    ]
+  },
+  "batches": [
+    {
+      "firstSeed": 8000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-5ZMH2P",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 83715941,
+        "originalSha256": "466fad89683e1bf89fe77815b83ebf9a3497dbd54c1093545790aa939a19fef3",
+        "archiveBytes": 1632897,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-F0QeQA",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 79169176,
+        "originalSha256": "ce5371cd587c5b36a58b8b9e7a28d9aafaf882facf9ba66f3f2dd0bd4b6f1aff",
+        "archiveBytes": 1546675,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-oN4wva",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 77322469,
+        "originalSha256": "e8ef32dc421807d7c9e0c653fd7eabb496eff513232b2ca1b4172800998669c7",
+        "archiveBytes": 1561059,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-BauepO",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 73680865,
+        "originalSha256": "25ba3890eb8ae33bfaeff63c50963898003389b73725b03f89d4956748a813a3",
+        "archiveBytes": 1468370,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3IPSiJ",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 73724432,
+        "originalSha256": "6804b247794f6d6edfca92f2b30f84c25f58f761b313d8d57bbf6ee5d9577e80",
+        "archiveBytes": 1462132,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-xJLxwU",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 67796196,
+        "originalSha256": "867a1eeecb77111580a635b815dcc8847fa69242a72a62140eb248186919f3af",
+        "archiveBytes": 1394493,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-7Lrt1h",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 74306875,
+        "originalSha256": "5e85b5fa06dbf7e9b187213fcd6a49d079c7d2ea47abe3b76f3bd8f0467f1bed",
+        "archiveBytes": 1521814,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3gTKtd",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 65956964,
+        "originalSha256": "398113ad0ab36e254365757c1b5a4f9031d18a67cd91c01b2bb73c47c6bd255d",
+        "archiveBytes": 1364542,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9Mb0B8",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 64819771,
+        "originalSha256": "f68d2c5f48a962e46590c7c0e7109bc43b0e021de1f8d47bb6be3b313848a7ec",
+        "archiveBytes": 1365777,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 8900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-cXaqNo",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 60980422,
+        "originalSha256": "97d80bf020ca9e9626a3dbee5e3a37a0f20205a79cb9e32a7b14053bf82e5f85",
+        "archiveBytes": 1236880,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-x9t6aK",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 89411907,
+        "originalSha256": "0d53541da41aeb6e3c299eb43e8033fbaa27d71c4a4f6a49043ee40e744f08ad",
+        "archiveBytes": 1767470,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-E3IggH",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 102394654,
+        "originalSha256": "53a577c93ecbbd7c51d4abb68121024a87f358cfcf83043b83e383c2b7b0b0c6",
+        "archiveBytes": 1967171,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6B59Lc",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 81522761,
+        "originalSha256": "1f45ece40cb2f5a1481bdab382db194de9642e2b2baf9884dd702514e6a7b73c",
+        "archiveBytes": 1592396,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-EVtPYb",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 86030065,
+        "originalSha256": "9788c0117fea70398ffc7c18c19ff1b2b1114b14398e50c04ef508d6e1617cf2",
+        "archiveBytes": 1703013,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-tpxXix",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 94527948,
+        "originalSha256": "b24aad4e9e10ca641c864bcd9ad526d61bdba6d7ae16a65e192a3dd01ab335f7",
+        "archiveBytes": 1874182,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JyS2ch",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 62373572,
+        "originalSha256": "22790543f98ed18f887c71ebdf99b56a303b04cba1c0afde96399b437152f0ef",
+        "archiveBytes": 1248172,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OXpOkb",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 61625680,
+        "originalSha256": "40177434ac49c1eebc5158afca1f09304911eb910706ea84509d3fce8d1bd3da",
+        "archiveBytes": 1276458,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-gr1YTI",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 71729215,
+        "originalSha256": "f6ee0584bac98ecf1f0b8e43f479228569841b6af693a00967a1bc9a21ac2112",
+        "archiveBytes": 1426820,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-VWigBA",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 72093208,
+        "originalSha256": "25b1117e90deb0e6000cc35a204ecff057bea65313e91713e5f6bbbf54673a70",
+        "archiveBytes": 1443276,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 9900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-aoXjWZ",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 74793261,
+        "originalSha256": "404e447d78a15bc02229db7a1b973cc000cec643e3455af0183794f3a35d34cf",
+        "archiveBytes": 1541021,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-DEJI0D",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 82241276,
+        "originalSha256": "483ab86b7f51d8736ee112cad47a73f0f2d25b7d2d49e58949f0271a435ca2bc",
+        "archiveBytes": 1615472,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Tc0gY4",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 91006841,
+        "originalSha256": "ab22b42aa5328259bfdadf09d6b163699dbb53dadd198ee7f9f4c39404fb8df2",
+        "archiveBytes": 1806776,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-kEMRuL",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 77293875,
+        "originalSha256": "5b8e49c154144ab3b9addd3d407d30eb9d142227701c5e8a6494e8268eb84464",
+        "archiveBytes": 1507040,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-tYzprz",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 79241349,
+        "originalSha256": "72c2edaaded46a2204f342e1c1ca19358d8495d963203e577c8a5fdd655346f3",
+        "archiveBytes": 1611276,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YqJVyv",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 72938730,
+        "originalSha256": "9fdd803c480ff73cba82b876e660d5fdf4ead275260657e1bc1ab3359275aca7",
+        "archiveBytes": 1487463,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-kdyUYr",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 71582484,
+        "originalSha256": "a76c9f6d4d5b6c04e62368db03d950751bdb39a3d9572051e989116ffd2cc69b",
+        "archiveBytes": 1440909,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JejBa0",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 67555002,
+        "originalSha256": "d712cb45c705180f14352c5841f06293e851d9ee5fb4565091939065503d0050",
+        "archiveBytes": 1385617,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OhhDBT",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 57624817,
+        "originalSha256": "45ae1149565da6cd8926cc086ed8825cac985275913eb467f742cb091444c455",
+        "archiveBytes": 1177068,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-8oA3Z1",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 75188034,
+        "originalSha256": "4a11389254183e676995919e6d745183eab293c3ec6efb3a29c20397f52b2bf6",
+        "archiveBytes": 1510805,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 10900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-sRDz7z",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 56949106,
+        "originalSha256": "142723f6ffe001ee3f6c48e0ab9177d50496e3e9ca1f357f96c91667812fc46b",
+        "archiveBytes": 1198145,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-vSU41D",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 96527151,
+        "originalSha256": "341d9f7277facaba1deab627581755c59602ae12ba77eb993c5cc1cbb27115a8",
+        "archiveBytes": 1872222,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-v75gg4",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 94751052,
+        "originalSha256": "b59a1815e6272c083d2d2ef2f6c685496210d0d6c1ad3a1a902a429aef3aa034",
+        "archiveBytes": 1867036,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-x6jxgm",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 98323065,
+        "originalSha256": "5fe9facbf5d31bcd1620dee27af3352cea00063f480effd3f4fe80fd0b120219",
+        "archiveBytes": 1916019,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-11B1Em",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 94090472,
+        "originalSha256": "d0a34c63696526fd08b1505de2514e0a2b4e7d81e22ac8a57d74dcad6496996f",
+        "archiveBytes": 1795431,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-vgtojw",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 97873126,
+        "originalSha256": "10974050c7d3b8dd2838a3c0b10d5bd1dc6c8b3d5cd923c68352556c10a1711e",
+        "archiveBytes": 1876140,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jUP9Cd",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 84408962,
+        "originalSha256": "5fcfecc4e6fb8d1a9b68e894b3b066c594968f2eb79c6024419b51c08c7859a0",
+        "archiveBytes": 1659054,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-kvH3aL",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 72218033,
+        "originalSha256": "e79c0315bc45231cf94ac39663ceae08d7fcf2f9063316ae41a3c5d0346dc0e8",
+        "archiveBytes": 1479743,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-vEqkxE",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 63281726,
+        "originalSha256": "a5cacd9b42de953f1dd9d5c7ef80650c68374bcaa53d0d0c2c2dab016b24bc17",
+        "archiveBytes": 1317326,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-hPM1i5",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 69532748,
+        "originalSha256": "accb0e13145395a1f3d257e3588257179cfeaf75ecb84968eb85ce62f094e835",
+        "archiveBytes": 1394807,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 11900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Xmr2ym",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 74495642,
+        "originalSha256": "fa5103e0d17f530f43f029ee3c3abd6497a8c584b47820ba2cbd906544a461d0",
+        "archiveBytes": 1505501,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-EoZxsc",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 100264213,
+        "originalSha256": "f12f0d320901c61dbdb2eb670e3c47b35d444fa3c0a244467e404a7737e84d28",
+        "archiveBytes": 1899693,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-SxYD1E",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 98258367,
+        "originalSha256": "6b9f62b3dec43cec1da10eb1b3f3b0869d10eb82ca3b556db200bfea8f1c0771",
+        "archiveBytes": 1932264,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-51ZY7n",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 76768449,
+        "originalSha256": "f31aaa7d232aa8e0f64c8c6b044f2865ff5ccd9841bf0fd9ba7c75ff0d6500f8",
+        "archiveBytes": 1574786,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3UINQ1",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 102199239,
+        "originalSha256": "5acf7d0119a60c19c9a2a49a6d951249a16a722d3bef06552fd6bb1425e3eda0",
+        "archiveBytes": 1928218,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-RHro47",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 101850368,
+        "originalSha256": "3a14300dd5fb7e38b1c20f3fd6e10e74ece5241ed095fd6e4babbffe17d01787",
+        "archiveBytes": 1944815,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-fPcaiX",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 76659192,
+        "originalSha256": "3999063ed9eab3386ac3142cfcd44a9d96a63cf25baf2b4a9bcb4bd04aaa419c",
+        "archiveBytes": 1603485,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-UPIi6E",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 58252431,
+        "originalSha256": "47709f545bbeef403c44bcc221052baec96de2750e410265ddb6df347ec95497",
+        "archiveBytes": 1230469,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Zjt9Co",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 61899125,
+        "originalSha256": "dc36d025deea9057987fab903cef1e1e5824061e5a592fb74236a773329bc156",
+        "archiveBytes": 1289376,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-4bMEXQ",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 66431191,
+        "originalSha256": "84c93447f00903d0538bd8ce8013666628ced4a949a87f5306d23c7ada42e41f",
+        "archiveBytes": 1349673,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 12900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Y0MidV",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 63825090,
+        "originalSha256": "e5f9ab795a3507e610a5aaa9010ff4e320f9c87f1a9bc666ba01c2c8cd3bc591",
+        "archiveBytes": 1311157,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-AjKTA9",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 76853910,
+        "originalSha256": "c32b72762ad0e4a06990374f4b655bd8d55b98784fdf5f877d7176825c7f0c5f",
+        "archiveBytes": 1596336,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-BdH81A",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 88207488,
+        "originalSha256": "b99cc5b6483a01327b198616c7e28dd1f8082d5b6dacfc1d3aa9c429b3b675de",
+        "archiveBytes": 1774919,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-kT5rNb",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 87265790,
+        "originalSha256": "55528eb4fb06a7f8f111ce1d5f76b6c9ffce2152df1ad96a44de9b57ce2ed639",
+        "archiveBytes": 1721909,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pGuaau",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 80285388,
+        "originalSha256": "e022dfc08547644781a251337f24cba88fa93f8e5ad24dd9b915db8979d865e8",
+        "archiveBytes": 1605423,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-w7SKQV",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 91970948,
+        "originalSha256": "640e47c0f7eb63a96af6750e33194dd14ebdd95d7680eafd56e7bb44cccbae94",
+        "archiveBytes": 1789974,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-7o5C1f",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 87624288,
+        "originalSha256": "6c6c65d93e7794219be18f5d85c5fc0b57bbbe27877960ec73be881329d88675",
+        "archiveBytes": 1688087,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-n2C1ly",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 74877395,
+        "originalSha256": "84e1b3de5b230798e91d1aff9cf31f85fe8e1cf30f5189948dae1de8b6e70e57",
+        "archiveBytes": 1539114,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-VOOxJF",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 63338821,
+        "originalSha256": "24fcac6235e523ab18a69bab8ff13b2e4c1b78645042d10cb39d9971c9e6c19a",
+        "archiveBytes": 1296314,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-u0Ejny",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 73490856,
+        "originalSha256": "a6f9cac308ba7df18d5d733d0da9bb6bc3e5072a78c0d8712c17aa311038162b",
+        "archiveBytes": 1534708,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 13900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Gr9xQv",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 65963880,
+        "originalSha256": "dbebc6f16b939763f989130d978b21562ed2dff0c050692a68477b72a452eaf2",
+        "archiveBytes": 1347361,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-MlzC9b",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 89693021,
+        "originalSha256": "0000ff0da30f7e2efbf2003fe5a6b897affbf6d8ef92897d0af740c5f235f18d",
+        "archiveBytes": 1764973,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-4F62Qe",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 93956649,
+        "originalSha256": "155c1681ea972510c9711c6677a08bb73c628e1f951dcfb23c2e8469bbe0d55a",
+        "archiveBytes": 1840286,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mVQbP4",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 90762910,
+        "originalSha256": "6198c8644613cc61b5d15c21deb1631a6dfea9b84d9fbfec52a62a60d2579dac",
+        "archiveBytes": 1743070,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YHqwIW",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 91315048,
+        "originalSha256": "445c0e7c539af5d05abc55f70f29ed1592cd48ae013d4ba09e5bedbc8b8d942a",
+        "archiveBytes": 1847688,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-VeBdeK",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 90433441,
+        "originalSha256": "20ebf757066f065869b3952d891f0eed97c8beec774258907f256b4f1d54beb4",
+        "archiveBytes": 1769498,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-tv8m77",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 87448466,
+        "originalSha256": "a331aa7a2ebca0a5d540ce2ab301ae93aba1082682382ec5fbc80ffecc31b6d6",
+        "archiveBytes": 1708524,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-O6P32m",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 80617597,
+        "originalSha256": "a57e6cba980a6292f92d96a1663e13fe5aff6b3524f9cd54bfc115d12e651e92",
+        "archiveBytes": 1614608,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-juDBTf",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 52357834,
+        "originalSha256": "ed66c52abf12d992e57a6d9a93c0d19d4b320bb67297789fe9089f47981d6255",
+        "archiveBytes": 1101289,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ZrjA7K",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 62323451,
+        "originalSha256": "d5b5acdfc9554d828b0a3366bcd4205c8d88c0fe083afebb9b65ca069413a2fd",
+        "archiveBytes": 1303215,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 14900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YBFay0",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 68645008,
+        "originalSha256": "7b540baeb002c430c25f087f5ffb316c6551a7b31beda8ec9ec6339c290908e8",
+        "archiveBytes": 1396862,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Iz7WBE",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 60421691,
+        "originalSha256": "8d7e16f0713752740a900f5dda078c8fcf06c5ae394675c4e32927f323e21ec3",
+        "archiveBytes": 1229342,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-FFeU4Z",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 85500475,
+        "originalSha256": "efbfabd7aad478d2c4a72a83a0e2615cbe0f03f5c0395f2fae061fb80825fc59",
+        "archiveBytes": 1690379,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-X6GNCV",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 90806169,
+        "originalSha256": "02b0e85d5591fcc7ae9e01c7faa24a637310abe61dcd2f2aec5a33da3ffed4e9",
+        "archiveBytes": 1767768,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-bXD0LF",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 89348364,
+        "originalSha256": "1f554492f7caf16ab6464b4dbdcb5a1c496b5e439510431752685e32944b2d6d",
+        "archiveBytes": 1751794,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yOw5Fe",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 78405428,
+        "originalSha256": "3e14e5a37cdc31f096863e70582b7996b37b578df267c16eadba7a2fb43ae5a7",
+        "archiveBytes": 1571020,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OTXWyU",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 102644049,
+        "originalSha256": "d4918b65bbdcee5ca3d81c9b666b7088e4093be08c3106fe936c4c1e094c900d",
+        "archiveBytes": 1982363,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-A9R3nz",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 73425239,
+        "originalSha256": "1e972b1e83b31ba753c5fa672a339ed5da01203d709f3c0e3b9fbf1938658080",
+        "archiveBytes": 1510839,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jK3MIW",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 82722863,
+        "originalSha256": "746563be9d6e94c1972fd6221bd738b62eb29e9908ccba1e79145270022ab606",
+        "archiveBytes": 1683046,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Ehf3lZ",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 65588800,
+        "originalSha256": "f42833108eed05f3bb8424f2605a548283ebc3e01c0343278393349ff33925f1",
+        "archiveBytes": 1357079,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 15900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-kfve95",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 68122980,
+        "originalSha256": "9a92946ac5975b69dcc9e680616dd490b0bd70738f282451d712ae78d288cdb5",
+        "archiveBytes": 1386534,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pl3O6e",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 62088761,
+        "originalSha256": "295b9f822350bd1b72ec4b6c497fad1c4c7aaa2f7432cdd9924a9e6b4c70d456",
+        "archiveBytes": 1266801,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Tf4Rcb",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 94281565,
+        "originalSha256": "de64a6087e42e05b3ded730d3ceea5148c1cb767be332d6e64f908135331be48",
+        "archiveBytes": 1892791,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-lQV1gX",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 114123794,
+        "originalSha256": "6e632930e5525b240a0ffe634f75b3f74600bc3e9c80ac0dd9188b471ef21d10",
+        "archiveBytes": 2170546,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YCsWKq",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 100464599,
+        "originalSha256": "0245421a2dec7850321a71a04545f7cc5b9653c212b223f9357453a1931ed638",
+        "archiveBytes": 1931143,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-4HCf2P",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 120689046,
+        "originalSha256": "80d855bf13d875cdba0db013fa76029e865d17e67b7b7783f493d465b48e5ff0",
+        "archiveBytes": 2291515,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-S0RyWk",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 89124252,
+        "originalSha256": "ba284e51752596aabcfc7ba62be9a433350f64a1e96914ae0c768ce37e6c76eb",
+        "archiveBytes": 1715966,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-oUOi1z",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 83554792,
+        "originalSha256": "2fe8dd41e753235d93d6dad37daac9537b2c6d149fadbbbd111fbbf9e57b35dd",
+        "archiveBytes": 1747097,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6Fs4jd",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 74789813,
+        "originalSha256": "df9dd73a30a9e8da9382c5e11449c3910c8eb7dafd873a4b7ba96a57b40a60cd",
+        "archiveBytes": 1518585,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-MQu6jR",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 77745195,
+        "originalSha256": "29aeae6429e457be0b6d8c83b9241e1ecad9a7324673d9c51c2d4b5e909fec25",
+        "archiveBytes": 1536711,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 16900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yn33aR",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 59337191,
+        "originalSha256": "ad6a211a79a01c9a00c2961b7cd97008c5c45aabed418df5f50a0f4ca78bc188",
+        "archiveBytes": 1195172,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-L6VgUC",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 63681596,
+        "originalSha256": "0c123a2b22a24e1d9a51712b7bc2a5b944ae7ea5a05ce1bde47226f8c66c0a3c",
+        "archiveBytes": 1281542,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YcX3ng",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 88871570,
+        "originalSha256": "40b5514b399d9f916d3260e6e1cfd4532e364d0bedd3a32fcc4761518e370bcb",
+        "archiveBytes": 1824697,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-rdevGg",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 94270478,
+        "originalSha256": "785dbc8a924fd1d7e6045828c321cbdcd0be169261725d958ceb6ed6d9557b5e",
+        "archiveBytes": 1815742,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Vx3tB5",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 88800083,
+        "originalSha256": "66281ae6a83774ca510ed870ae69538a8c445784beee4b1058e6834bfbaa7c65",
+        "archiveBytes": 1737519,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9Fjj1T",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 102362037,
+        "originalSha256": "d8a5867c39be415c2274a6b688fd595b26460aa3210d3dfc0e1ffb210abe7cf7",
+        "archiveBytes": 1992914,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Q8Wzxs",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 109596644,
+        "originalSha256": "88144774b595bead00800262e5e7c2d80892c6242b7c730a5af22dfecd9ca671",
+        "archiveBytes": 2095424,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pNAef2",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 75709523,
+        "originalSha256": "eb099e12518c254a3d5aaacfc11674bfa85e45315a6fd613f9ef4c50e63e156d",
+        "archiveBytes": 1452188,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YYqwTF",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 62673545,
+        "originalSha256": "036239a7c66e6c1f421f010387439b2ed9e08308f791fe5065dc8c5051c61a62",
+        "archiveBytes": 1317769,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-egIq1D",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 67440210,
+        "originalSha256": "d2796f74ef4836d7b0c657f55cb97d569bcaf7c9b6cc663afe1d1659d0d1c647",
+        "archiveBytes": 1357603,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    },
+    {
+      "firstSeed": 17900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Hx5uSk",
+      "corpusArchive": {
+        "formatVersion": 1,
+        "source": "generated-corpus.json",
+        "file": "generated-corpus.json.gz",
+        "encoding": "gzip",
+        "originalBytes": 69162134,
+        "originalSha256": "d045c2217580cce6f2d1837c878c9345b5da6337c4eda34139ee75e6c77b5479",
+        "archiveBytes": 1408424,
+        "receipt": "generated-corpus.archive.json",
+        "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+        "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+        "replayCommand": "cd \"/private/tmp/viborm-g4-lane-6/\"; node scripts/run-raptor3.mjs replay \"$g3_corpus_restore_dir/generated-corpus.json\""
+      }
+    }
+  ]
+}

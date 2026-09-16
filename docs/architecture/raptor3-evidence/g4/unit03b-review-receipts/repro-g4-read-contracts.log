@@ -1,0 +1,79 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 145ms
+ ❯ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests | 1 failed) 91ms
+   ✓ G4 C12 scalar and list codec read crossings > pins the physical spelling the codec witnesses read back 9ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values 6ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read 4ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-06 refuses decimal-list ordering and value aggregation (RF-05) 5ms
+   ✓ G4 C12 scalar and list codec read crossings > Q-R01 refuses a malformed provider row at the decode boundary 4ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > pins the physical spelling of a point column 6ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within 14ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support 3ms
+   × G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier 15ms
+     → The required refusal did not fire
+ ❯ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests | 1 failed) 21ms
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth 11ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ undefined
+- '100.05'
+
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 applies descendant where, select and orderBy at every level 5ms
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 orders roots by seed and keeps one statement per traversal 5ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 72ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 50ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 33ms
+ ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 33ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 41ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier
+AssertionError: The required refusal did not fire
+
+simple
+
+ ❯ observeFailure tests/raptor3/g4/witness-world.ts:147:17
+    145|     };
+    146|   }
+    147|   return assert.fail("The required refusal did not fire");
+       |                 ^
+    148| }
+    149| 
+ ❯ tests/raptor3/g4/read-codecs.test.ts:457:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ undefined
+- '100.05'
+
+
+simple
+
+ ❯ tests/raptor3/g4/read-recursive-fit.test.ts:254:12
+    252|     const root = byCode.get("root");
+    253|     assert.ok(root);
+    254|     assert.equal(canonicalizeDecimal(root.amount), "100.05");
+       |            ^
+    255|     assert.ok(root.amount instanceof Decimal);
+    256|     assert.ok(root.moment instanceof Date);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 6 passed (8)
+      Tests  2 failed | 60 passed (62)
+   Start at  11:14:00
+   Duration  3.94s (transform 1.64s, setup 24ms, collect 3.18s, tests 486ms, environment 0ms, prepare 56ms)
+
+Vitest resources: 9.71s wall, 655.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

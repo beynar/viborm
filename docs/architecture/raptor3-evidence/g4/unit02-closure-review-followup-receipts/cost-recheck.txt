@@ -1,0 +1,6 @@
+four phase-2 files: files=4 bytes=262286 physical=7402 tokenLines=6738
+schema.ts: files=1 bytes=17464 physical=485 tokenLines=387
+selection+relation-body: files=2 bytes=34114 physical=1025 tokenLines=994
+client-route.ts: files=1 bytes=14880 physical=378 tokenLines=247
+candidate core (12): files=12 bytes=355351 physical=10171 tokenLines=9342
+raptor3 tree (15): files=15 bytes=390963 physical=11185 tokenLines=10215

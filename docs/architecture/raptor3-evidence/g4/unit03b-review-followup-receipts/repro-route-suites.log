@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests) 200ms
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 19ms
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts (4 tests | 1 failed) 16ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-admission: one awaited operation admits its request exactly once 5ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-transform: the extension chain transforms one request once 2ms
+   × G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache 6ms
+     → The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: the same oracle rejects a route that always serves the cache 2ms
+ ✓ |raptor3| tests/raptor3/g4/lifecycle-events.test.ts (3 tests) 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts > G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache
+UnsupportedOperationError: The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 41 passed (42)
+   Start at  11:48:53
+   Duration  4.88s (transform 2.38s, setup 18ms, collect 4.17s, tests 306ms, environment 0ms, prepare 59ms)
+
+Vitest resources: 9.12s wall, 701.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

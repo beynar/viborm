@@ -1,0 +1,175 @@
+=== INDEPENDENT baseline classification: reviewer's own round-6 probe, unmodified (sha fa150058...), run in the CLEAN 0cc61e61 worktree ===
+=== 2026-09-15T14:51:37Z container viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+--- tree identities ---
+874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  src/query-engine/raptor3/commands/selection.ts
+79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  src/query-engine/raptor3/commands/relation-body.ts
+e0c4d420548f288a3323f1fbdb58c740c0d21f9e9d39dbd50d7f5ce9e8b6a27a  src/query-engine/raptor3/shared/query.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-perf-baseline
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested upsert, collation-equal selector (the title is the evidence)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested upsert, exact-byte selector (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"updated","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested connectOrCreate on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested update, exact-byte selector (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"u","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"u","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested update, EXTENDED selector, collation-equal halves]
+  shipped   NestedWriteError: Cannot update relation 'notes': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"u","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested delete, COMPOUND selector, collation-equal members]
+  shipped   NestedWriteError: Cannot delete relation 'parts': target record was not found for this parent.
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested delete, COMPOUND selector, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[nested set, COMPOUND selector, collation-equal members]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction connect on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction disconnect on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction disconnect, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction delete on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags []
+  candidate ForeignKeyError: Foreign key constraint violation
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction delete, exact bytes (control)]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [] tags []
+  candidate ForeignKeyError: Foreign key constraint violation
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction set on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+[junction update on a collation-equal key]
+  shipped   ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"u"}]
+  candidate ok:{"id":"wanted","name":"winner"}
+            notes [{"id":"n1","title":"T","ownerId":"wanted"}] parts [{"region":"eu","slug":"alpha","label":"p","ownerId":"wanted"}] links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"u"}]
+
+ ❯ |g4-review-unit02-closure2-reviewcheck| tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts (1 test | 1 failed) 642ms
+   × G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does 642ms
+     → diverging call sites
++ actual - expected
+
++ [
++   'nested update, EXTENDED selector, collation-equal halves',
++   'nested delete, COMPOUND selector, collation-equal members',
++   'junction delete on a collation-equal key',
++   'junction delete, exact bytes (control)'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure2-reviewcheck| tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts > G4-02 closure round 2 review — the narrowed scope's other call sites > answers every remaining nested call site the way the shipped engine does
+AssertionError: diverging call sites
++ actual - expected
+
++ [
++   'nested update, EXTENDED selector, collation-equal halves',
++   'nested delete, COMPOUND selector, collation-equal members',
++   'junction delete on a collation-equal key',
++   'junction delete, exact bytes (control)'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "nested update, EXTENDED selector, collation-equal halves",[39m
+[31m+   "nested delete, COMPOUND selector, collation-equal members",[39m
+[31m+   "junction delete on a collation-equal key",[39m
+[31m+   "junction delete, exact bytes (control)",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02-closure2-reviewcheck/mysql-scope-boundaries.review.test.ts:434:14
+    432|         await setup.disconnect();
+    433|       }
+    434|       assert.deepEqual(divergences, [], "diverging call sites");
+       |              ^
+    435|     }, 180_000);
+    436|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:51:38
+   Duration  2.48s (transform 1.13s, setup 9ms, collect 1.64s, tests 642ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 3.09s wall, 469.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+=== the probe copy was removed after the run; baseline worktree status below (empty = clean) ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership

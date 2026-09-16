@@ -1,0 +1,143 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (5 tests | 4 skipped) 105ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests | 3 failed) 80ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > multiplies an int key the way the shipped engine does 9ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > divides an int key with the dialect's truncation, as shipped 4ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > multiplies and divides a bigint key the way the shipped engine does 10ms
+   ✓ G4-02 — the updated key is NAMED on a non-RETURNING provider > still increments and decrements a key as it did 12ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > decimal key multiply: the candidate answers what the shipped engine answers 4ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > number key multiply: the candidate answers what the shipped engine answers 3ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > decimal key divide: the candidate answers what the shipped engine answers 3ms
+   ✓ G4-02 — the row key's portability contract, as the shipped engine states it > int key divide by zero: the candidate answers what the shipped engine answers 3ms
+   × G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (a) THE CONTRACT: names a decimal key increment, which is exact in coefficient space 6ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
++     id: 700,
+-     id: '700',
+      label: 'a'
+    }
+  ]
+
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence 3ms
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (c) PARITY: the same sentence when `set` accompanies an operator phase 2 added 2ms
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (b) PARITY: refuses a number key increment with the shipped sentence 6ms
+   ✓ G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (a) leaves the exact-domain decimal operators reachable and the rounding ones refused 4ms
+   ✓ G4-02 — the integer quotient is the dialect's own spelling > names an int key's quotient through expressions.integerDivide 0ms
+   ✓ G4-02 — the integer quotient is the dialect's own spelling > names a multiplied key natively on every dialect 0ms
+   ✓ G4-02 — the one shape with no expression form stays refused > refuses to name an exact decimal under multiply, with its registered identity 0ms
+   ✓ G4-02 — the one shape with no expression form stays refused > names an exact decimal under increment and decrement, which are exact 0ms
+   × G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key increment under a batch with its registered identity 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [Object: null prototype] {
+- {
+    field: 'id',
+    model: 'numKey',
+    operation: 'upsert'
+  }
+
+   × G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key multiply under a batch with its registered identity 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [Object: null prototype] {
+- {
+    field: 'id',
+    model: 'numKey',
+    operation: 'upsert'
+  }
+
+   ✓ G4-02 — R-D3: the batch publication gap has a public identity > answers an INT key under the same batch profile on both engines 2ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 114ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 11ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 27ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 18ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 32ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 19ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 12ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 14ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 14ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 6ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 5ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 17ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests | 5 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 6ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D2, decided by Arnaud on 2026-09-15 > R-D2 (a) THE CONTRACT: names a decimal key increment, which is exact in coefficient space
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
++     id: 700,
+-     id: '700',
+      label: 'a'
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "id": "700",[39m
+[31m+     "id": 700,[39m
+[2m      "label": "a",[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:275:12
+    273|     );
+    274|     assert.equal(candidate.answer, 'ok:{"id":"7","label":"a"}');
+    275|     assert.deepEqual(candidate.rows, [{ id: "700", label: "a" }]);
+       |            ^
+    276|   });
+    277| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key increment under a batch with its registered identity
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts > G4-02 — R-D3: the batch publication gap has a public identity > R-D3 refuses a number key multiply under a batch with its registered identity
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [Object: null prototype] {
+- {
+    field: 'id',
+    model: 'numKey',
+    operation: 'upsert'
+  }
+
+
+[2mCompared values have no visual difference.[22m
+
+ ❯ tests/raptor3/g4/unit02/key-arithmetic.test.ts:550:14
+    548|       );
+    549|       assert.equal(candidate.raised instanceof QueryEngineError, true);
+    550|       assert.deepEqual((candidate.raised as QueryEngineError).meta, {
+       |              ^
+    551|         field: "id",
+    552|         model: "numKey",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed | 16 passed | 2 skipped (19)
+      Tests  3 failed | 102 passed | 10 skipped (115)
+   Start at  17:20:12
+   Duration  4.63s (transform 1.65s, setup 20ms, collect 3.93s, tests 484ms, environment 0ms, prepare 44ms)
+
+Vitest resources: 5.33s wall, 701.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

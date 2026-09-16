@@ -1,0 +1,46 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test | 1 failed) 20ms
+   × executes and exactly replays the representative C08-C11 transport matrix 20ms
+     → g3-transport:transport-form; Wrong transport form: g3-c08-8020-1:bulk
+
+'execute' !== 'batch'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts > executes and exactly replays the representative C08-C11 transport matrix
+AssertionError: g3-transport:transport-form; Wrong transport form: g3-c08-8020-1:bulk
+
+'execute' !== 'batch'
+
+
+Expected: [32m"batch"[39m
+Received: [31m"execute"[39m
+
+ ❯ ScriptedTransport.answer tests/raptor3/transport/driver.ts:161:14
+    159|       assert(expected, `Unscripted redispatch by ${script.name}`);
+    160|       reply = expected;
+    161|       assert.equal(
+       |              ^
+    162|         via,
+    163|         reply.via,
+ ❯ ScriptedTransport.execute tests/raptor3/transport/driver.ts:108:32
+ ❯ executeProvider src/drivers/driver-transaction-base.ts:199:43
+ ❯ ScriptedTransport.executeNormalizedStatement src/drivers/driver-instrumentation.ts:921:20
+ ❯ executeQuery src/drivers/driver-transaction-base.ts:209:16
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:1115:13
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:498:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  23:20:47
+   Duration  1.92s (transform 1.18s, setup 8ms, collect 1.75s, tests 20ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4GFI38/vitest.json
+Vitest resources: 3.96s wall, 532.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4GFI38

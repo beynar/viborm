@@ -1,0 +1,25 @@
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/flat-scalar-update/prepare/retained replicate 1/5: baseline
+sqlite3/flat-scalar-update/prepare/retained replicate 1/5: candidate
+file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:519
+          new Error(
+          ^
+
+Error: candidate worker failed (1):
+file:///private/tmp/viborm-g4-perf-candidate/benchmarks/operation-pipeline-worker.mjs:363
+  throw new Error(`Harness ${workloadName} does not implement ${stage}`);
+        ^
+
+Error: Harness flat-scalar-update does not implement prepare
+    at file:///private/tmp/viborm-g4-perf-candidate/benchmarks/operation-pipeline-worker.mjs:363:9
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+Node.js v24.21.0
+
+    at ChildProcess.<anonymous> (file:///private/tmp/viborm-g4-perf-baseline/benchmarks/operation-pipeline-compare.mjs:519:11)
+    at ChildProcess.wrapper (node:events:639:12)
+    at ChildProcess.emit (node:events:514:28)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12)
+
+Node.js v24.21.0

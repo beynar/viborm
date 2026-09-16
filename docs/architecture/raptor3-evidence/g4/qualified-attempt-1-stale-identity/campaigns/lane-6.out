@@ -1,0 +1,7 @@
+=== 20:03:12 g3-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g3-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-dZt5bF
+=== 20:45:37 g2-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g2-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-IzHS80
+=== 20:45:44 g1-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g1-transport-seeds exit=0 Raptor 3 g1-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g1-transport-seeds-L4EnUy
+=== 20:49:12 g3p06-transport-seeds (/private/tmp/viborm-g4-lane-6) ===

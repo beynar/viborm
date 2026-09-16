@@ -28,6 +28,24 @@ import {
   G3_GENERATED_TRANSPORT_SMOKE_TESTS,
   G3_GENERATED_CAMPAIGN_TESTS,
   G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  G4_READ_TESTS,
+  G4_LIFECYCLE_EVENTS_TESTS,
+  G4_LIFECYCLE_ADMISSION_TESTS,
+  G4_ROUTE_LIFECYCLE_TESTS,
+  G4_ROUTE_ADMISSION_TESTS,
+  G4_ROUTE_CACHE_TESTS,
+  G4_ROUTE_TRANSACTION_TESTS,
+  G4_GENERATION_SELFTEST_TESTS,
+  G4_GENERATED_CAMPAIGN_TESTS,
+  G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  G4_WRITE_CAMPAIGN_TESTS,
+  G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+  G4_UNIT01_AUTHOR_TESTS,
+  G4_UNIT02_AUTHOR_TESTS,
+  G4_UNIT02_MYSQL_TESTS,
+  G4_UNIT02_PG_TESTS,
+  G4_NATIVE_PG_TESTS,
+  G4_NATIVE_MYSQL_TESTS,
   G3_EXECUTION_REVIEW_TESTS,
   G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
   G3_SCOPE_FAILURE_TESTS,
@@ -99,6 +117,34 @@ const extendedLocalExclusions = new Set([
   ...G3_GENERATED_TRANSPORT_SMOKE_TESTS,
   ...G3_GENERATED_CAMPAIGN_TESTS,
   ...G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  // G4 suites are deliberately red against the frozen candidate and are
+  // reached only through their registered Raptor modes. They join the
+  // credential-free fixed stage when they go green, not because a file walk
+  // can see them.
+  ...G4_READ_TESTS,
+  ...G4_LIFECYCLE_EVENTS_TESTS,
+  ...G4_LIFECYCLE_ADMISSION_TESTS,
+  ...G4_ROUTE_LIFECYCLE_TESTS,
+  ...G4_ROUTE_ADMISSION_TESTS,
+  ...G4_ROUTE_CACHE_TESTS,
+  ...G4_ROUTE_TRANSACTION_TESTS,
+  ...G4_GENERATION_SELFTEST_TESTS,
+  ...G4_GENERATED_CAMPAIGN_TESTS,
+  ...G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  ...G4_WRITE_CAMPAIGN_TESTS,
+  ...G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+  // The G4-01 author's own checks, landed from that unit's worktree. The
+  // reviewer probes beside them live under `tests/raptor3/g4/review/`, which
+  // the walk already skips; only this directory needs naming.
+  ...G4_UNIT01_AUTHOR_TESTS,
+  // The G4-02 author's checks, registered at the freeze as `g4-unit02-author`
+  // plus two native arms (the runner refuses skipped cells, so the
+  // provider-gated files are their own modes).
+  ...G4_UNIT02_AUTHOR_TESTS,
+  ...G4_UNIT02_MYSQL_TESTS,
+  ...G4_UNIT02_PG_TESTS,
+  ...G4_NATIVE_PG_TESTS,
+  ...G4_NATIVE_MYSQL_TESTS,
   ...G3_EXECUTION_REVIEW_TESTS,
   ...G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
   ...G3_SCOPE_FAILURE_TESTS,
@@ -203,6 +249,15 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
           file.endsWith(".core.test.ts") ||
           file.startsWith("tests/package/") ||
           file.startsWith("tests/providers/") ||
+          // Review- and unit-owned scratch suites under a milestone's
+          // evidence tree. They belong to no lane and to no registered Raptor
+          // mode; a file walk must not adopt them into the credential-free
+          // estate. `tests/raptor3/g4/unit01/` is NOT here: it was landed from
+          // its author's worktree, is registered as `g4-unit01-author`, and is
+          // therefore named in `extendedLocalExclusions` like every other
+          // registered G4 suite, and so is `tests/raptor3/g4/unit02/` since
+          // its registration at the G4 freeze.
+          file.startsWith("tests/raptor3/g4/review/") ||
           extendedLocalExclusions.has(file)
         )
     )

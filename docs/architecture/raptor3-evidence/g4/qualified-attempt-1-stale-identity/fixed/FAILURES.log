@@ -1,0 +1,10 @@
+FAILED g4-lifecycle-events
+FAILED g4-route-lifecycle
+FAILED g4-route-cache
+FAILED g4-generation-selftests
+FAILED g4-unit01-review
+FAILED g4-unit02-author
+FAILED post-g3-selector-preparation
+FAILED post-g3-history-analysis
+FAILED g29-member-dependency
+FAILED g2-generated

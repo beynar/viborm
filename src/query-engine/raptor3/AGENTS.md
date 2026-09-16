@@ -58,6 +58,83 @@ topology, edges, and members; freeze only the newly owned wrappers and arrays.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.
 
+`Queries` owns one read language. One prepared predicate vocabulary addresses a
+target — a physical column, a JSON value inside one, or an aggregate over one —
+so `where` and `having` can never admit different operators or bind an operand
+two ways. `prepareOperations`/`prepareOperation` prepare every one of them,
+`lowerPredicate`/`lowerOperation` lower them, and `prepareHaving` builds
+aggregate targets for that same walker. Do not add a second operator switch.
+
+`Queries.orderTerms` is the one order owner: scalars, `{ sort, nulls }`, to-one
+relation paths, collection `_count` and distance are all sort keys, and it marks
+the direct scalar keys a cursor may use. An unspelled `nulls` is not a
+placement — the bare direction names the provider's own default, and
+`totalOrder`, the windowed path and only it, fills the established default,
+because the cursor predicate must name the same total order the statement emits.
+
+One page owner, `Queries.page`, computes the total order, the cursor predicate,
+the signed window and `distinct` — for the root read (`select`), for the
+aggregate input window (`aggregated`) and for every nested to-many node inside
+its parent's correlation scope. Nested pagination is that same operator, never a
+second engine. `grouped` is the ONE named exception: it emits the raw signed
+`take`/`skip` without the page owner, because `groupBy` admits no `cursor` and
+no `distinct` (`validation/model/args/aggregate.ts`) and the shipped
+`operations/groupby.ts:110-114` emits the raw signed take too. That is parity,
+not a divergence; do not widen the exception to a verb that admits a cursor.
+
+`Queries.read` states each read verb's cardinality and public shape over that
+one select/projection/decoder: every verb answers `{ query, single, value,
+result }`, and the private entry adds only the public `…OrThrow` error identity.
+Consumers read those published facts (`commands/index.ts` `publishedFacts`, and
+the retained `program/` specimen's single read entry) instead of deriving them;
+there is no second `findMany`/`findUnique`/`groupBy` dispatch. A prepared shape
+carries every fact the decoder needs, including the direction of a reversed
+window (`relationShape`), so a nested negative `take` is restored per parent by
+the same decoder rather than by a second reversal site.
+
+`Queries.fieldValue` is the single destination-aware operand owner for filters,
+cursors, identities and assignments, and `decodeScalar` — reached only through
+`decodeValue` from `decodeQuery`/`decodeProjection` — is the single leaf
+decoder. Both reuse the existing validation codecs; neither may be duplicated
+per verb or per storage.
+
+`Queries.wholeValue` is the one answer to "does an admitted scalar payload name
+a whole value?". A non-plain object is one whole value in EVERY domain — a
+`Uint8Array`, `Decimal` or `Date` inherits methods with the same names, and a
+`Sql` fragment is not a record either — so only a plain or null-prototype
+record's own `set` names the value inside it. Its two consumers read that one
+answer: `prepareUpdate`, which also needs to know when the payload names an
+operator instead, and `commands/assignments.ts`'s `scalarAssignment`, which
+needs only the value. Do not restate the predicate at a consumer.
+
+`Queries.countedMemberships` is the one counted-slot owner: it answers which
+memberships a slot counts — one edge for an ordinary relation, EVERY arm for a
+variant carrier — and `correlatedCount` sums them through the adapter. The
+`_count` projection and the `_count` order term both read it, so a variant
+carrier is countable in the projection and in the ordering from one place; no
+second correlated-count subquery exists.
+
+`Queries.carriedValue` is the one carrier transport rule for a value that rides
+inside a JSON document: a value that is already JSON stays a document, a
+`bigint` crosses as text and a `blob` as hex. Its three consumers are the
+aggregate carrier, the recursive projection and the relation projection; a
+traversal does not spell a weaker rule of its own.
+
+A tagged quantifier addresses the tagged membership: `prepareSlotPredicate`
+reads `some: { type: T, is: P }` as "some member of arm `T` satisfying `P`" and
+`none: { type: T }` as "no member of arm `T`". `every` is the only one that must
+also state the arms it did not name — it is a claim about the WHOLE collection,
+so a member of any other arm falsifies it — and it conjoins `none` over every
+other configured arm.
+
+Adapter capabilities decide GeoPoint tiers and vector support.
+`Queries.distanceExpression` raises the named refusal — the three registered
+vector sentences in the shipped order and words
+(`builders/distance-builder.ts:142-188`), then the GeoPoint `distance` tier —
+and never emulates a tier in JavaScript. One distance expression serves the
+filter, the order key and the projected `_distance` leaf, so a provider tier is
+asked about once and the output name is stated once.
+
 `Queries.prepareProjection` owns one immutable alias-free projection description
 and decoder shape. `lowerProjection` binds that description to fresh statement
 aliases for SELECT, RETURNING, recursive reads, and reference-value projection;
@@ -149,10 +226,20 @@ its error identity with a generic record-series failure or replay acknowledged
 work.
 
 `Queries.updateValue` is the sole interpreter of admitted scalar update
-operators. It supplies both mutation assignments and symbolic updated-key
-expressions; operation contexts must not reconstruct those operators in
-JavaScript. Internal mutation-target captures stay privately decoded so later
-query planning receives canonical scalar values.
+operators. It and `updateAssignment` consume ONE prepared payload
+(`prepareUpdate`), so an operator can never be admitted in one spelling and
+refused in the other; operation contexts must not reconstruct those operators in
+JavaScript. Every operator crosses the adapter's own vocabulary, including
+`expressions.integerDivide` — the seam that exists because an integer key's
+quotient is the dialect's truncation, not JavaScript's, and the expression form
+must name the same value the `SET` clause writes. The one shape with no
+expression form is an exact decimal under `multiply`/`divide`, whose assignment
+is a guarded coefficient rewrite the provider owns; that refusal is registered.
+A payload that names no operator at all answers the shipped
+`Unknown update operation:` sentence and identity
+(`builders/set-builder.ts:217-219`), before any statement, and never degrades to
+a bare `Error`. Internal mutation-target captures stay privately decoded so
+later query planning receives canonical scalar values.
 
 `finishOne` and `finishMany` state operation-owned result cardinality. That
 cardinality is independent of the number of physical terminal queries, and
@@ -259,10 +346,21 @@ history, confirmed/uncertain progress and the one-recovery allowance survive
 replacement. A missing winner on recovery propagates the original rejection;
 it never authorizes another INSERT.
 
-Named retention: `write-engine/parse-boundary.ts` remains the existing
-schema-to-ValidationError admission owner. Both candidates may import it
-unchanged; charge the complete file and its engine-owned type dependencies to
-both. This exception does not admit legacy query or mutation algorithms.
+Named retention: three modules from the shipped `query-engine/` tree are
+imported at runtime, and these are ALL of them, so a legacy scan does not have
+to re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
+`@validation/**`, `@adapters/**` and `@drivers/**` are ordinary boundaries the
+brief keeps available, and `@client/client` reaches `route/client-route.ts`.)
+`write-engine/parse-boundary.ts` (`shared/schema.ts`) remains the existing
+schema-to-ValidationError admission owner. `query-engine/bind-budget.ts`
+(`shared/operation-context.ts`) is a pure `Sql` chunker over the driver's
+normalized verified bind capacity, shared by `write-engine`, `operations`,
+`pattern` and the candidate alike — a neutral boundary, not the shipped engine.
+`result/cache-value-codecs.ts` (`route/client-route.ts`) is the official cache
+value-codec owner and imports no compiler, lowerer, executor or result parser.
+Both candidates may import them unchanged; charge the complete file and its
+engine-owned type dependencies to both. This exception does not admit legacy
+query or mutation algorithms.
 
 Public raw arguments enter existing admission at the required time. Internal
 values are trusted. Localized assertions are permitted under the central plan;
@@ -273,17 +371,146 @@ parent/model cursors or classes for each verb, storage orientation or depth.
 The private `execute(modelName, operation, rawArgs, binding?)` boundary resolves
 execution ownership once in `OperationContext`. With no binding, reads and
 writes keep their qualified standalone routes. A `borrowed-transaction` binding
-uses the exact supplied transaction driver directly; the candidate does not
-open or close a transaction, create a savepoint, disconnect, replay, or fall
-back to the factory driver. The optional executable `memberRollback` capability
-is the only authority for one operation-owned member rollback region inside a
-borrowed transaction; the context uses only the scoped driver supplied to its
-callback. An `atomic-array` binding is a capability refusal and must throw
-`TransactionError` before raw-argument admission or provider work. `usesBatch`
+uses the exact supplied transaction driver and never disconnects, replays, or
+falls back to the factory driver. An `atomic-array` binding is a capability
+refusal and must throw `TransactionError` before raw-argument admission or
+provider work — it is raised in the constructor, before `admit`. `usesBatch`
 describes only the standalone physical batch route; it is not
 an atomicity, lifecycle, recovery, or commit-certainty fact. Keep the retained
 program specimen mechanically callable through the same private shape without
 adding another ownership model.
+
+ONE rule decides the physical envelope, and it lives in `OperationContext.run`:
+the envelope opens at the first statement that is not the operation's ONLY
+statement. An operation that reaches its terminal statement having issued no
+other runs that statement directly — no standalone BEGIN/COMMIT and no savepoint
+inside a borrowed transaction — which is the shipped `runStatementAtomic`
+condition (`OperationExecutor`'s `compileSingleStatementCandidate` +
+`canExecuteDirectly`) restated in this engine's vocabulary. Any other operation
+raises the envelope sentinel BEFORE its first round trip and its body is
+constructed again inside the region, so nothing has reached the provider at that
+point. `dispatch()` is the one site every provider round trip crosses, which is
+what lets the rule be stated in a single place and still be the operative
+decision. A root `create` or `update` that names no relation and whose prepared
+projection is RETURNING-safe folds onto the set-oriented owner
+(`Commands.rootCreate` / `rootUpdate` -> `OperationContext.createMany` /
+`updateMany`) plus one cardinality decision; that fold is why the frozen fast
+path costs 1 statement and 0 transactions for a root `create`, the shipped
+count. A verb no longer decides the envelope in one place and the route in
+another.
+
+The same rule answers the TRANSPORT and not only the envelope: a set-oriented
+mutation that is the operation's ONLY statement runs on the plain execute path
+on every driver, a batch-only one included, so `OperationContext.setMutations`
+asks the rule before it chooses between `_execute` and `_executeBatch` — which
+is where the shipped `runStatementAtomic` sends this exact shape. That is
+Arnaud's **D-7** decision (2026-09-15): a one-statement BATCH is what made the
+driver seam attribute `statementIndex: 0` (`drivers/driver-diagnostics.ts:35-36`)
+to a rejection the shipped engine attributes no index to — for the folded root
+write and for every relation-free `createMany`/`updateMany`/`deleteMany` alike —
+and with the envelope gone that whole family of candidate-only meta disappears,
+at the price he accepted: a folded root single-record write rejected on a
+batch-only transport publishes the shipped raw error, with no segment progress
+and no `mayHaveCommittedSegment` at all.
+
+A packaged operation has no JavaScript postcondition available, so its
+single-row premise becomes a STATEMENT: one `assertions.exists` over the same
+selector, queued ahead of the mutation and declared to the array owner, which
+aborts the batch and lets this operation reconstruct its own `NotFoundError`.
+And a statement-atomic operation has no record series: `failure()` attaches
+`recordSeriesProgress` only when the transport actually has one — a prefix
+phase, a committed segment, or a segment that may have committed AND a record
+series to report it on. A set-oriented statement's window is not a member, so
+an UNCERTAIN outcome on it stays internal, which is the shipped single-operation
+meta; a window that DID commit is a committed segment like any other and still
+reports, witnessed by `g4/unit02/malformed-result-cuts.test.ts` cell 1b and by
+`g4/unit02/lone-statement-transport.test.ts` row 6 — the shapes that still have
+a series after D-7, since the G2.9 atomic-batch specimen now publishes none.
+Internal is not lost: the durable
+phase reaches the client's cache rail from the transport that learned it,
+through `ExecutionBinding.writeOutcome` (`WriteOutcomeSeam`) — `submit()` for a
+batch and `dispatchSetMutations` for the lone statement D-7 leaves outside one,
+which are the same two situations the shipped executor notifies from
+(`runAtomicBatch` and `runBorrowedStatementAtomic`) — so no consumer reads a
+cache signal back out of published progress. The OPERATION's own failure stays
+primary whenever the client's listener throws, in ONE composition
+(`retainOutcomeFailure`, the shipped `retainWriteOutcomeFailure` restated — the
+candidate may not import `@extensions/query`: it pulls in the shipped write
+engine's routing table): `stateWriteOutcome` composes where the primary is
+already in hand, and the batch transport, which acknowledges before it decodes,
+HOLDS the listener's failure and composes it once the operation has answered
+(`settleSubmitted`), which is the shipped `runAtomicBatch` order. A missing-row
+premise (`published`) is a statement about the world rather than a report about
+the transport, so it carries no progress at all — which is the shipped
+`NotFoundError` meta, `{ model, operation }`, on every driver.
+
+A `borrowed-transaction` operation owns a region only when its caller SAID so.
+`operationRegion` is that grant — the callback-transaction route supplies it
+because it opened no scope of its own — and with it the candidate opens exactly
+one nested region when the operation needs more than one statement. Without the
+grant a borrowed operation owns none: its caller's scope is the unit, every
+statement runs directly on the borrowed driver, and a failing one poisons that
+scope exactly as the shipped `runStatementAtomic` and `runLinearOn` paths leave
+it. `memberRollback` is never mistaken for it — it is MEMBER isolation only, and
+a member rollback opens inside whatever scope the operation is currently running
+in, because re-entering the caller's grant from inside a region it already
+opened is the measured `TransactionError: … cannot be used while its nested
+transaction is active`. Both grants are declared on `ExecutionBinding` and read
+by `OperationContext.region()`, which is the one owner of this question.
+
+`Queries.returningSafeProjection` is the one owner of "may this projection ride
+a `RETURNING`?" — `fields.every(kind === "scalar")` — stated in the module that
+owns the field kinds. The physical owner (`OperationContext`) and the root folds
+and bulk selection in `commands/commands.ts` all consult it; a physical owner
+does not classify a projection the projection owner already understands.
+
+Whether a nested write's unique target selector names its row through the
+CONSTRAINT is one predicate, `nestedTargetAddressesConstraint(edge, verb)` in
+`commands/selection.ts`, consulted at the three nested target sites in
+`relation-body.ts` — the `disconnect`/`delete` lookup, the
+`connect`/`connectOrCreate`/`upsert`/`update` selector, and the `set` target —
+and nowhere else. The rule is per EDGE KIND because the shipped engine's is: a
+JUNCTION target is a discriminator in both phases (`RelationJunctionPart.ts`
+`buildFindUnique` at `:1509`, `:1629`, `:1663`, and `JunctionStatements.ts:322-323`
+compiling `whereUnique` with `buildWhereUnique`), while a REFERENCE-held target
+of `disconnect`/`delete`/`update` is the one family `uniqueSelectorConjuncts`
+(`write-engine/shared.ts:671`) recombines into a filter. Root verbs state
+`unique: true` themselves — their selector is the root `where`, not a nested
+target — and a bulk member's `where` never asks. `SelectionSource.unique` points
+at the predicate instead of restating the classification.
+
+The candidate's client route (`route/client-route.ts` `runCandidate`) states
+WHICH SITUATION an operation is in and never whether an envelope is needed. A
+root operation is `standalone` — no borrowed driver, no grant. An existing array
+owner's sequential fallback (`driverOverride`) gets the exact borrowed driver
+and NO grant, so the array owner's transaction stays the unit, mirroring the
+shipped `runLinearOn`. Inside `$transaction(callback)` the engine is bound to a
+transaction driver, the caller opened no scope for this operation, and the route
+hands over both grants. Every situation also carries `writeOutcome`, the
+client's own cache-invalidation rail — not a fourth situation, just the rail
+handed to the only thing that knows when a write became durable. The route
+opens, closes and retries nothing, and never falls back to the shipped engine.
+
+One prepared operation per request: `prepare(modelName, operation, rawArgs)` in
+`commands/index.ts` admits the raw input exactly ONCE and publishes the admitted
+`args` and, for a read verb, the prepared read's own facts; `execute`,
+`prepareBatch` and the route's cache codec all read that same handle. The client
+lifecycle is admission-first by construction — a cache must key before it can
+look up, and an interceptor must see the payload before it calls `proceed()` —
+so no consumer re-admits, and nothing publishes a re-rawed payload. Admission
+itself stays lazy inside the handle, because the client's own `PendingOperation`
+is lazy.
+
+A cached read's value codec is composed from the official owners in
+`result/cache-value-codecs.ts` (`compileScalarCodec`, `compileWidenedSumCodec`,
+`recordCodec`, `arrayCodec`, `nullableCodec`, `taggedRelationCodec`) through the
+leaf's own declaring `Scalar`, carried as `Leaf.scalar` by the read owner. It is
+never re-dispatched from a leaf's `type` name, which would be a second
+scalar-meaning authority. The leaves with no declaring scalar are the read
+owner's OWN values — `_count`, `exist`, a non-decimal `_avg` and `_distance` —
+and naming those three is the same classification the shipped compiler makes; a
+shape with no fixed codec, such as a recursive read's unbounded depth, is
+refused rather than half-encoded.
 
 The private `prepareBatch(modelName, operation, rawArgs)` boundary enters the
 same schema admission and command dispatch with a preparation-owned
@@ -335,10 +562,12 @@ refusals remain conditional. It fires before the enclosing root can write. The
 runtime member boundary reuses the same rule for dynamic series; do not add a
 payload walker, public permission, or operation-local policy flag.
 
-Failed-INSERT producer attribution is evidence, not replay authority.
-`OperationContext` admits attempt replacement only on the standalone physical
-batch route after its exact rejection proof. Borrowed and preparation-owned
-execution preserve the original failure and never replace an attempt.
+Failed-INSERT producer attribution is evidence, not replay authority. The scope
+is stated once, by `OperationContext.recoveryRejection`: it answers `undefined`
+unless the ownership is standalone AND the route is the physical batch, so
+borrowed and preparation-owned execution preserve the original failure and never
+replace an attempt. Its one caller, `CommandExecution.recover`, restarts at most
+once, and only for the exact rejected producer's own selected unique constraint.
 
 A selected static record series publishes terminal state, not each member's
 intermediate state. Retain complete identities only for successful roots, finish
@@ -408,3 +637,90 @@ S1–S4 passing is only the representation checkpoint, not completion of G1.
 Early timing precision is deferred to G4; correctness and safe resource bounds
 remain mandatory. Do not select, merge, widen or publicly route a candidate
 before the measured checkpoint and adversarial review.
+
+Six observable answers were decided by Arnaud on 2026-09-15 and are contracts
+from here on; do not re-open them as divergences, and do not "fix" them toward
+the shipped engine.
+
+An exact-decimal primary key under `increment`/`decrement` is SUPPORTED. The
+arithmetic is exact in coefficient space, the provider's own assignment names
+it, and the registered G3 witness reads it back. `multiply`/`divide` on the
+same key stay refused in the shipped engine's sentence, because those two carry
+a provider-chosen rounding no engine can name portably. The rule is the
+operator's domain, not the field's: keep it in the one owner
+(`EngineSchema.keyPortabilityRefusal`) and never add a second sentence. Naming
+an exact decimal under `multiply`/`divide` as a symbolic expression is
+AUTHORIZED but unwritten: no admitted public request reaches it, so writing it
+now would be dead code; the unit-level refusal pin stands until a reachable
+shape exists.
+
+Every other row-key shape answers the shipped engine's own sentence, from ONE
+owner — `EngineSchema.keyPortabilityRefusal` — asked where the shipped engine
+asks it and WHEN the shipped engine asks it. A `number` key under any arithmetic
+is refused as non-portable, and a key update naming anything but exactly one
+operation — `set` beside an operator, or none at all — is refused for its arity.
+The positions are: admission, for a root `update`/`updateMany`
+(`EngineSchema.admit`); the found-arm gate of an `upsert` whose update payload
+names relations (`commands/commands.ts`, the shipped `updateHasRelations`
+gate); and the three NESTED positions `commands/relation-body.ts` already
+admits an update payload in — a nested child `update` or `upsert` selector arm,
+and an `updateMany` member. A nested `update` and an `updateMany` member refuse
+during construction, before any statement, because the shipped engine asserts at
+its own compile sites (`RelationWritePart.ts:856`, `:898`). A nested `upsert`
+does not: the shipped engine builds the same assertion as a closure
+(`RelationUpsertPart.ts:1006`) and invokes it only inside the FOUND arm
+(`:468`), so the candidate hands that refusal to the found arm — the arm's own
+deferred `Assignments`, raised when execution observes the choice — and an
+ABSENT target takes the create arm with its update payload unjudged, on both
+engines. A wider placement would refuse a request the shipped engine performs,
+which is what `keyPortabilityRefusal`'s docblock means by "an upsert that
+CREATES a row the arithmetic never touches".
+
+Two facts, then, not one absolute. At every position the predicate IS asked,
+`set` never wins over an accompanying operator, and the sentences are the
+shipped ones from the same owner: no per-verb branch, no second walk. And a root
+`upsert` whose update payload names NO relation judges the key payload on
+NEITHER engine — `UpsertOperation.ts:496` gates `updateLegality` on
+`updateHasRelations` and `commands/commands.ts` mirrors it on `namesRelation` —
+so `set` wins there on both. That is parity, stated here so the next reader does
+not take it for a regression and widen the gate. `connect`, `connectOrCreate`
+and a `deleteMany` member carry no update payload and ask nothing. Where the post-transition key value has to be named at analysis (a
+child-held relation whose single-member reference key is the key being
+rewritten, with the locator's discriminator pinning the pre-value), the
+transition owner `EngineSchema.keyTransitionRefusal` answers first, in its own
+sentence, so neither arm of an upsert writes.
+
+A multi-statement write as an array member on a batch-only driver is PACKAGED
+and committed, not refused. The shipped route's insertId-scratch refusal is
+retired: the candidate's package carries the whole write and one native batch
+commits it. Do not re-introduce that refusal in the route, and do not re-derive
+"does this package use scratch?" anywhere outside the packaging rule.
+
+The query interceptor's `context.input` for `upsert` is the ONE admission —
+scalar defaults filled into `create`, assignments normalized to `{ set: … }` in
+`update` — on both arms. It is the payload that actually runs, which is the rule
+every other verb already obeyed. Never publish a re-rawed arm: reading the
+caller's arms back would be a second admission.
+
+A `connect` or `connectOrCreate` stores the LOCATED row's key bytes in the
+foreign-key column, in every position (a child-held `create`, a parent-held
+`update`, a junction link). Under a case-insensitive collation the stored bytes
+may differ from the request's literal, and the located value is the contract:
+the bytes written always exist in the parent table.
+
+A batch-only expression publication of a non-`int` field is a registered
+`QueryEngineError` naming the model, the field and the operation, with `meta`
+`{ model, operation, field }`, raised before any statement of that update is
+dispatched. It is a capability boundary with a public identity, not an internal
+invariant: keep the identity if the batch scratch ever learns a second domain,
+and never let it degrade to a bare `Error`.
+
+A junction `delete` removes the LINK row and then the target, in one region.
+The link references the target, so the reverse order is a foreign-key violation
+wherever the constraint does not cascade; the shipped engine states the same
+order (`RelationJunctionPart.compileDelete`). A `disconnect` places the removal
+alone and a reference-held target places its deletion alone — the ordering
+belongs to the junction `delete` and to nothing else. The owner is the
+`disconnect`/`delete` arm of `RelationBody.relation`
+(`commands/relation-body.ts`), which places both commands with the same origin
+so the body keeps insertion order; no other verb or edge kind gains a statement.

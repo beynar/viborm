@@ -1,0 +1,14 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+TypeScript (whole estate, native): 24.58s wall, 5301.3 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+ℹ dist/contract-ZKRIvjOj.d.mts                          1.40 kB │ gzip:   0.57 kB
+ℹ dist/fs-estate-ClkEzmCl.d.mts                         0.30 kB │ gzip:   0.21 kB
+ℹ 181 files, total: 6446.73 kB
+✔ Build complete in 8375ms
+Node resources: 13.29s wall, 781.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

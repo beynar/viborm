@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/unit02/probe-createmany.test.ts > probe createMany progress > shipped createMany with select on a batch-only driver
+SHIPPED-CREATEMANY {
+  "statements": [
+    "INSERT INTO \"probe_cm\" (\"id\", \"code\") VALUES (?, ?), (?, ?) RETURNING \"id\" AS \"id\""
+  ],
+  "rows": [
+    {
+      "id": 1
+    },
+    {
+      "id": 2
+    }
+  ],
+  "failure": {
+    "ctor": "QueryEngineError",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",
+    "meta": {
+      "driver": "sqlite3",
+      "operation": "createMany",
+      "scalarType": "int"
+    }
+  }
+}
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/probe-createmany.test.ts (1 test) 15ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  05:28:09
+   Duration  1.70s (transform 1.06s, setup 9ms, collect 1.57s, tests 15ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 2.22s wall, 447.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

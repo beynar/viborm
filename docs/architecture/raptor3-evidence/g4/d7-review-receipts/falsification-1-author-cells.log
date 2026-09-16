@@ -1,0 +1,19 @@
+   × G4-02 D-7 — a lone statement leaves the batch > create: one statement rejected before dispatch answers the shipped failure exactly 27ms
+   × G4-02 D-7 — a lone statement leaves the batch > createMany: one statement rejected before dispatch answers the shipped failure exactly 5ms
+   × G4-02 D-7 — a lone statement leaves the batch > updateMany: one statement rejected before dispatch answers the shipped failure exactly 7ms
+   × G4-02 D-7 — a lone statement leaves the batch > deleteMany: one statement rejected before dispatch answers the shipped failure exactly 7ms
+   ✓ G4-02 D-7 — a lone statement leaves the batch > 5. a multi-statement batch is still a batch, and still agrees with the shipped engine 5ms
+   × G4-02 D-7 — a lone statement leaves the batch > 7. root update/delete: the shipped two-statement fold keeps an index the candidate's one-statement fold has none of 6ms
+   ✓ G4-02 D-7 — a lone statement leaves the batch > 6. a set window that committed still publishes its record-series progress 2ms
+   × G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 6ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+   ✓ G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress 14ms
+   × G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  3 failed (3)
+      Tests  7 failed | 9 passed (16)

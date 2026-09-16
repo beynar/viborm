@@ -1,0 +1,16 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Startup Error ⎯⎯⎯⎯⎯⎯⎯⎯
+Error: No projects matched the filter "scripts".
+    at Vitest._setServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:8926:11)
+    at async handler (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:9840:6)
+    at async _createServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vite@6.4.3_@types+node@22.15.21_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:38815:20)
+    at async createViteServer (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:6873:17)
+    at async createVitest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:9881:17)
+    at async prepareVitest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:10272:14)
+    at async startVitest (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cli-api.BzebkJv7.js:10205:14)
+    at async start (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cac.KrMo52r1.js:1462:15)
+    at async CAC.run (file:///Users/arnaud/code/viborm/node_modules/.pnpm/vitest@3.1.4_@types+debug@4.1.13_@types+node@22.15.21_@vitest+ui@3.1.4_jiti@2.7.0_lightningcss@1.33.0_yaml@2.9.0/node_modules/vitest/dist/chunks/cac.KrMo52r1.js:1437:2)
+
+
+
+Vitest resources: 2.03s wall, 287.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

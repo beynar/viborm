@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (16 tests) 83ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (7 tests) 44ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 188ms
+
+ Test Files  3 passed (3)
+      Tests  28 passed (28)
+   Start at  13:02:06
+   Duration  2.81s (transform 1.41s, setup 16ms, collect 2.31s, tests 314ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.32s wall, 634.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

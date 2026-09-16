@@ -1,0 +1,23 @@
+=== source identities at followup-review start ===
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+31528299cbf52124def84145d0eb51eba417c80eddb4e3942a5513a4b6f0a7cd  src/query-engine/raptor3/commands/selection.ts
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+5aef8e7f52ba2b28b6f57cce5ef8a550c5067b5c82429e77bd6baa2357a4876a  src/query-engine/result/cache-value-codecs.ts
+1dd38ed31a23679b247402e5c609179945032df87e1915de44e43bc5fe2beb00  src/adapters/databases/mysql/mysql-adapter.ts
+5e0b62d4728bca44595799a2bb6183549e25af07c29177940ad6e45a345f0cdb  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+38920ca800c4d3fc6e236b550cde97c58cfd32545b4a7dd7ab01ba1cac2e9f87  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch
+10afd357942d82c6a4ec5a9a62886baea3bbb03fa44100c1e3e9f49b3b6b8a67  tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts
+95c63c940fb5a629be965c454962a4d54f1ac89be6d925f39675ff70140f2e8f  tests/raptor3/g4/review/unit02-closure/review.workspace.ts
+d84ed09570c119871f0612209768942e86f8f20370d6a8180c50e99bf4a3e49e  tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts
+558ce7d090ebfbb8889d162e33b771a8c8c2cb9382b9868f87dff82947bef496  tests/raptor3/g4/review/unit02-closure/upsert-transition-scope.review.test.ts
+=== containers ===
+d6da412eec3c viborm-raptor3-g3-mysql-20260914 127.0.0.1:65515->3306/tcp
+7dfda37e8eea viborm-raptor3-g3-pg-20260914 127.0.0.1:65504->5432/tcp
+=== git ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+     603
+=== node ===
+v24.21.0

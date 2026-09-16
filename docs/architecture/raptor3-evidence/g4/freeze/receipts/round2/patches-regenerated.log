@@ -1,0 +1,32 @@
+== round 2 patch regeneration ==
+
+base for the unit02 closure pair (unchanged since round 1, scratchpad copies):
+  f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  ./src/query-engine/raptor3/commands/commands.ts
+  79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  ./src/query-engine/raptor3/commands/relation-body.ts
+  874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  ./src/query-engine/raptor3/commands/selection.ts
+  82ba9c9e8848c09ee4d29e7ac824a305c9fb3a052424005f446e2e167490b111  ./src/query-engine/raptor3/route/client-route.ts
+  8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  ./src/query-engine/raptor3/shared/operation-context.ts
+  5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  ./src/query-engine/raptor3/shared/query.ts
+  07b3df1af03638667abfbb236d739fe947993f9a4f2fd96793ef3bcc46956613  ./src/query-engine/raptor3/shared/schema.ts
+  89e7673d02aca62f0bc5d820ccd36df8424f35ecfd850f92ca63f7b6fbe91cdb  ./tests/raptor3/g4/route-cache.test.ts
+  1e557cd9657b424d1afb36f3f0227afc9c7170dbd1eb96f6d219c38e56821e1e  ./tests/raptor3/g4/route-lifecycle.test.ts
+  8c93d18a668b51d53f0eeb446498250a81075b09741d62812d59fdf61ad545dd  ./tests/raptor3/g4/route-transactions.test.ts
+  d054df6d22c15520ac0d9d4503c8a25164d64acc94decc4c4280e8d169827ed9  ./tests/raptor3/g4/unit02/key-arithmetic.test.ts
+  5a3ff24d00b3d3f281ca39c954de9cca249fa28844b8bee0884af86a04f1dc0c  ./tests/raptor3/g4/unit02/upsert-key-portability.test.ts
+
+base for freeze-only.patch (the pre-freeze copies):
+  f2c9de89678285608bd861ee00d38092b3efd12d7168f4faaca1ce908491fe5f  AGENTS.md
+  1e9b7c529d75f9dd75d40f503d6f8e31bd3c36e87f4677f1b8c23447e3292102  assignments.ts
+  7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  query.ts
+  3bf284452f04aa8d18116fd2cf21043697f5c969d28bb432210cbf5cfb412aec  relation-body.ts
+
+forward-apply verification (patch -p1 into a fresh copy of each base, then cmp against the tree):
+  production-closure.patch + tests-closure.patch -> 15/15 files byte-identical
+  freeze-only.patch -> 6/6 files byte-identical
+  guide-and-predicate.patch is byte-identical to a live 'git diff 0cc61e61' of its three files
+
+new patch hashes:
+  0e8dd379831fc243c2858842e06e57c7b9ec6646eb7784acc2f01ed393e3074b  docs/architecture/raptor3-evidence/g4/freeze/guide-and-predicate.patch
+  6e313fbccc51200f1aabe614b84b7f11d88f4928c1e3617e7852646b241dbd16  docs/architecture/raptor3-evidence/g4/freeze/freeze-only.patch
+  2bb20d133cdd3e34c3dd0b8b4f836a94912a2d694ea0678fd4779326a749cdc8  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+  b45552977e8d06a41ed603c5dc9841f993101a9dd2344dec071fc5a9a9d79d9b  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch

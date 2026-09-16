@@ -1,0 +1,3501 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2559ms
+   ✓ executes one complete G4 SQLite read seed batch  2558ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:58:25
+   Duration  8.72s (transform 2.18s, setup 14ms, collect 3.36s, tests 2.56s, environment 0ms, prepare 55ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ecO9Kp/vitest.json
+Vitest resources: 15.12s wall, 617.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ecO9Kp
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1950ms
+   ✓ executes one complete G4 SQLite read seed batch  1949ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:58:40
+   Duration  6.97s (transform 1.72s, setup 12ms, collect 2.61s, tests 1.95s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-m6Jm75/vitest.json
+Vitest resources: 11.79s wall, 639.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-m6Jm75
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1657ms
+   ✓ executes one complete G4 SQLite read seed batch  1657ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:58:54
+   Duration  5.49s (transform 1.36s, setup 9ms, collect 2.01s, tests 1.66s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5USNpM/vitest.json
+Vitest resources: 10.54s wall, 746.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5USNpM
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1919ms
+   ✓ executes one complete G4 SQLite read seed batch  1918ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:59:08
+   Duration  6.51s (transform 1.54s, setup 10ms, collect 2.35s, tests 1.92s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TYbgnM/vitest.json
+Vitest resources: 11.39s wall, 749.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TYbgnM
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1864ms
+   ✓ executes one complete G4 SQLite read seed batch  1863ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:59:22
+   Duration  6.54s (transform 1.64s, setup 14ms, collect 2.48s, tests 1.86s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-uQYOWK/vitest.json
+Vitest resources: 12.27s wall, 728.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-uQYOWK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1713ms
+   ✓ executes one complete G4 SQLite read seed batch  1712ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:59:36
+   Duration  6.12s (transform 1.59s, setup 11ms, collect 2.35s, tests 1.71s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8BbYUk/vitest.json
+Vitest resources: 11.51s wall, 732.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8BbYUk
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2089ms
+   ✓ executes one complete G4 SQLite read seed batch  2088ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:59:51
+   Duration  6.51s (transform 1.60s, setup 10ms, collect 2.37s, tests 2.09s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kP5q8h/vitest.json
+Vitest resources: 12.50s wall, 742.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kP5q8h
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2182ms
+   ✓ executes one complete G4 SQLite read seed batch  2181ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:00:07
+   Duration  7.56s (transform 2.10s, setup 14ms, collect 3.19s, tests 2.18s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-q2ubZx/vitest.json
+Vitest resources: 14.57s wall, 729.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-q2ubZx
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2614ms
+   ✓ executes one complete G4 SQLite read seed batch  2614ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:00:24
+   Duration  9.02s (transform 2.05s, setup 14ms, collect 3.00s, tests 2.61s, environment 0ms, prepare 53ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-laZhkH/vitest.json
+Vitest resources: 16.17s wall, 756.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-laZhkH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2981ms
+   ✓ executes one complete G4 SQLite read seed batch  2980ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:00:44
+   Duration  11.06s (transform 2.71s, setup 18ms, collect 4.03s, tests 2.98s, environment 0ms, prepare 57ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cbEaVo/vitest.json
+Vitest resources: 18.72s wall, 681.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cbEaVo
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 3460ms
+   ✓ executes one complete G4 SQLite read seed batch  3459ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:01:06
+   Duration  10.58s (transform 2.57s, setup 13ms, collect 3.75s, tests 3.46s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hat7rV/vitest.json
+Vitest resources: 19.12s wall, 643.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hat7rV
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 3167ms
+   ✓ executes one complete G4 SQLite read seed batch  3166ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:01:29
+   Duration  8.56s (transform 2.00s, setup 11ms, collect 2.93s, tests 3.17s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DkDLD5/vitest.json
+Vitest resources: 16.57s wall, 741.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DkDLD5
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2313ms
+   ✓ executes one complete G4 SQLite read seed batch  2312ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:01:50
+   Duration  7.68s (transform 1.85s, setup 12ms, collect 2.71s, tests 2.31s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-teVTlI/vitest.json
+Vitest resources: 16.20s wall, 752.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-teVTlI
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2564ms
+   ✓ executes one complete G4 SQLite read seed batch  2563ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:02:10
+   Duration  9.22s (transform 2.25s, setup 15ms, collect 3.33s, tests 2.56s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3FXTMZ/vitest.json
+Vitest resources: 17.62s wall, 765.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3FXTMZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2403ms
+   ✓ executes one complete G4 SQLite read seed batch  2403ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:02:30
+   Duration  8.46s (transform 1.97s, setup 20ms, collect 2.91s, tests 2.40s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6n3J0T/vitest.json
+Vitest resources: 16.05s wall, 690.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6n3J0T
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2422ms
+   ✓ executes one complete G4 SQLite read seed batch  2422ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:02:49
+   Duration  8.49s (transform 1.92s, setup 14ms, collect 2.85s, tests 2.42s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TVc2HI/vitest.json
+Vitest resources: 15.84s wall, 723.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TVc2HI
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2402ms
+   ✓ executes one complete G4 SQLite read seed batch  2401ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:03:07
+   Duration  8.36s (transform 2.13s, setup 13ms, collect 3.12s, tests 2.40s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PHgQTe/vitest.json
+Vitest resources: 15.65s wall, 706.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PHgQTe
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2015ms
+   ✓ executes one complete G4 SQLite read seed batch  2015ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:03:25
+   Duration  7.57s (transform 1.94s, setup 13ms, collect 2.90s, tests 2.02s, environment 0ms, prepare 49ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HM0y69/vitest.json
+Vitest resources: 14.79s wall, 738.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HM0y69
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1800ms
+   ✓ executes one complete G4 SQLite read seed batch  1800ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:03:42
+   Duration  7.94s (transform 1.87s, setup 12ms, collect 2.87s, tests 1.80s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rYThF4/vitest.json
+Vitest resources: 14.20s wall, 735.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rYThF4
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1773ms
+   ✓ executes one complete G4 SQLite read seed batch  1772ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:03:59
+   Duration  7.29s (transform 1.85s, setup 12ms, collect 2.75s, tests 1.77s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TuVXr3/vitest.json
+Vitest resources: 13.00s wall, 726.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TuVXr3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1948ms
+   ✓ executes one complete G4 SQLite read seed batch  1947ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:04:15
+   Duration  7.76s (transform 1.85s, setup 17ms, collect 2.74s, tests 1.95s, environment 0ms, prepare 49ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EZH7b0/vitest.json
+Vitest resources: 14.50s wall, 730.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EZH7b0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2127ms
+   ✓ executes one complete G4 SQLite read seed batch  2126ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:04:30
+   Duration  8.15s (transform 1.97s, setup 21ms, collect 2.93s, tests 2.13s, environment 0ms, prepare 54ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4vdHta/vitest.json
+Vitest resources: 14.01s wall, 724.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4vdHta
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1763ms
+   ✓ executes one complete G4 SQLite read seed batch  1763ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:04:46
+   Duration  7.35s (transform 1.79s, setup 14ms, collect 2.64s, tests 1.76s, environment 0ms, prepare 52ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kR1n0k/vitest.json
+Vitest resources: 12.22s wall, 713.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kR1n0k
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2069ms
+   ✓ executes one complete G4 SQLite read seed batch  2069ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:05:02
+   Duration  6.52s (transform 1.59s, setup 10ms, collect 2.39s, tests 2.07s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oC0kNr/vitest.json
+Vitest resources: 12.51s wall, 744.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oC0kNr
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1768ms
+   ✓ executes one complete G4 SQLite read seed batch  1768ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:05:18
+   Duration  6.23s (transform 1.59s, setup 18ms, collect 2.35s, tests 1.77s, environment 0ms, prepare 58ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TxGGFd/vitest.json
+Vitest resources: 12.84s wall, 759.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TxGGFd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1812ms
+   ✓ executes one complete G4 SQLite read seed batch  1811ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:05:34
+   Duration  7.51s (transform 1.93s, setup 11ms, collect 2.92s, tests 1.81s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JMcXFu/vitest.json
+Vitest resources: 13.77s wall, 708.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JMcXFu
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1903ms
+   ✓ executes one complete G4 SQLite read seed batch  1902ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:05:51
+   Duration  7.02s (transform 1.64s, setup 11ms, collect 2.48s, tests 1.90s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Y0DBSZ/vitest.json
+Vitest resources: 13.12s wall, 736.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Y0DBSZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2223ms
+   ✓ executes one complete G4 SQLite read seed batch  2222ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:06:07
+   Duration  6.34s (transform 1.50s, setup 12ms, collect 2.31s, tests 2.22s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7hM51d/vitest.json
+Vitest resources: 13.38s wall, 739.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7hM51d
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1872ms
+   ✓ executes one complete G4 SQLite read seed batch  1871ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:06:24
+   Duration  6.97s (transform 1.52s, setup 11ms, collect 2.25s, tests 1.87s, environment 0ms, prepare 56ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-eGVIa9/vitest.json
+Vitest resources: 13.41s wall, 734.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-eGVIa9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1706ms
+   ✓ executes one complete G4 SQLite read seed batch  1706ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:06:41
+   Duration  6.92s (transform 1.78s, setup 12ms, collect 2.71s, tests 1.71s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-L65wiR/vitest.json
+Vitest resources: 13.66s wall, 725.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-L65wiR
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1789ms
+   ✓ executes one complete G4 SQLite read seed batch  1788ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:06:57
+   Duration  7.15s (transform 1.64s, setup 13ms, collect 2.53s, tests 1.79s, environment 0ms, prepare 56ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-84DLNo/vitest.json
+Vitest resources: 13.83s wall, 719.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-84DLNo
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2441ms
+   ✓ executes one complete G4 SQLite read seed batch  2440ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:07:14
+   Duration  7.30s (transform 1.55s, setup 11ms, collect 2.30s, tests 2.44s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DQqt21/vitest.json
+Vitest resources: 14.05s wall, 726.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DQqt21
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1881ms
+   ✓ executes one complete G4 SQLite read seed batch  1880ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:07:29
+   Duration  7.26s (transform 1.72s, setup 19ms, collect 2.56s, tests 1.88s, environment 0ms, prepare 49ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-QWUqZK/vitest.json
+Vitest resources: 13.58s wall, 722.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-QWUqZK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2182ms
+   ✓ executes one complete G4 SQLite read seed batch  2181ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:07:45
+   Duration  8.23s (transform 1.74s, setup 14ms, collect 2.54s, tests 2.18s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WyBW50/vitest.json
+Vitest resources: 13.67s wall, 698.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WyBW50
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1821ms
+   ✓ executes one complete G4 SQLite read seed batch  1820ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:08:02
+   Duration  6.41s (transform 1.66s, setup 11ms, collect 2.49s, tests 1.82s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ke6Cxh/vitest.json
+Vitest resources: 11.89s wall, 753.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ke6Cxh
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1858ms
+   ✓ executes one complete G4 SQLite read seed batch  1857ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:08:19
+   Duration  6.33s (transform 1.51s, setup 10ms, collect 2.20s, tests 1.86s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DdEFJF/vitest.json
+Vitest resources: 13.65s wall, 741.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DdEFJF
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1788ms
+   ✓ executes one complete G4 SQLite read seed batch  1787ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:08:36
+   Duration  6.37s (transform 1.71s, setup 21ms, collect 2.50s, tests 1.79s, environment 0ms, prepare 54ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-XbcR6R/vitest.json
+Vitest resources: 13.34s wall, 733.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-XbcR6R
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1875ms
+   ✓ executes one complete G4 SQLite read seed batch  1874ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:08:52
+   Duration  7.15s (transform 1.75s, setup 13ms, collect 2.60s, tests 1.87s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fE6Ct1/vitest.json
+Vitest resources: 13.98s wall, 733.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fE6Ct1
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2119ms
+   ✓ executes one complete G4 SQLite read seed batch  2119ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:09:09
+   Duration  7.08s (transform 1.90s, setup 14ms, collect 2.78s, tests 2.12s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wPrdps/vitest.json
+Vitest resources: 13.92s wall, 737.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wPrdps
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1773ms
+   ✓ executes one complete G4 SQLite read seed batch  1772ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:09:26
+   Duration  7.01s (transform 1.62s, setup 17ms, collect 2.38s, tests 1.77s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-chptLQ/vitest.json
+Vitest resources: 13.17s wall, 711.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-chptLQ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1671ms
+   ✓ executes one complete G4 SQLite read seed batch  1670ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:09:44
+   Duration  9.09s (transform 1.97s, setup 12ms, collect 4.09s, tests 1.67s, environment 0ms, prepare 59ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Lndtoy/vitest.json
+Vitest resources: 16.39s wall, 730.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Lndtoy
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2114ms
+   ✓ executes one complete G4 SQLite read seed batch  2114ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:10:03
+   Duration  6.89s (transform 1.76s, setup 9ms, collect 2.67s, tests 2.11s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jgsRnZ/vitest.json
+Vitest resources: 13.44s wall, 732.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jgsRnZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1758ms
+   ✓ executes one complete G4 SQLite read seed batch  1757ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:10:20
+   Duration  6.07s (transform 1.56s, setup 13ms, collect 2.33s, tests 1.76s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iWa7bN/vitest.json
+Vitest resources: 13.53s wall, 750.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iWa7bN
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1856ms
+   ✓ executes one complete G4 SQLite read seed batch  1856ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:10:36
+   Duration  7.08s (transform 1.87s, setup 16ms, collect 2.77s, tests 1.86s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-vLjaQJ/vitest.json
+Vitest resources: 13.58s wall, 699.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-vLjaQJ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2223ms
+   ✓ executes one complete G4 SQLite read seed batch  2222ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:10:53
+   Duration  7.14s (transform 1.89s, setup 10ms, collect 2.82s, tests 2.22s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wQ3y2c/vitest.json
+Vitest resources: 14.80s wall, 717.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wQ3y2c
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2133ms
+   ✓ executes one complete G4 SQLite read seed batch  2132ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:11:08
+   Duration  6.51s (transform 1.54s, setup 11ms, collect 2.31s, tests 2.13s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PG6fxv/vitest.json
+Vitest resources: 12.46s wall, 742.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PG6fxv
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1875ms
+   ✓ executes one complete G4 SQLite read seed batch  1875ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:11:25
+   Duration  6.21s (transform 1.65s, setup 13ms, collect 2.51s, tests 1.88s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-l7ViiN/vitest.json
+Vitest resources: 12.79s wall, 746.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-l7ViiN
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2046ms
+   ✓ executes one complete G4 SQLite read seed batch  2046ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:11:42
+   Duration  6.48s (transform 1.75s, setup 11ms, collect 2.63s, tests 2.05s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ERkZjR/vitest.json
+Vitest resources: 14.02s wall, 677.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ERkZjR
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1890ms
+   ✓ executes one complete G4 SQLite read seed batch  1889ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:11:57
+   Duration  7.06s (transform 1.38s, setup 11ms, collect 2.09s, tests 1.89s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-F5ycah/vitest.json
+Vitest resources: 12.75s wall, 754.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-F5ycah
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2087ms
+   ✓ executes one complete G4 SQLite read seed batch  2087ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:12:14
+   Duration  6.55s (transform 1.57s, setup 12ms, collect 2.31s, tests 2.09s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Y0MHW4/vitest.json
+Vitest resources: 13.52s wall, 748.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Y0MHW4
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1524ms
+   ✓ executes one complete G4 SQLite read seed batch  1524ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:12:30
+   Duration  6.39s (transform 1.54s, setup 10ms, collect 2.30s, tests 1.52s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UJXruZ/vitest.json
+Vitest resources: 13.42s wall, 749.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UJXruZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1959ms
+   ✓ executes one complete G4 SQLite read seed batch  1958ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:12:46
+   Duration  7.50s (transform 1.71s, setup 13ms, collect 2.50s, tests 1.96s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AA95MP/vitest.json
+Vitest resources: 13.87s wall, 699.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AA95MP
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1865ms
+   ✓ executes one complete G4 SQLite read seed batch  1864ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:13:01
+   Duration  7.70s (transform 1.84s, setup 12ms, collect 2.78s, tests 1.86s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-NT3GMq/vitest.json
+Vitest resources: 13.45s wall, 697.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-NT3GMq
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2115ms
+   ✓ executes one complete G4 SQLite read seed batch  2114ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:13:17
+   Duration  7.36s (transform 1.68s, setup 10ms, collect 2.46s, tests 2.11s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4aH4A1/vitest.json
+Vitest resources: 13.34s wall, 695.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4aH4A1
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1865ms
+   ✓ executes one complete G4 SQLite read seed batch  1864ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:13:34
+   Duration  6.17s (transform 1.43s, setup 10ms, collect 2.12s, tests 1.87s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pjL2X9/vitest.json
+Vitest resources: 12.59s wall, 712.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pjL2X9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1822ms
+   ✓ executes one complete G4 SQLite read seed batch  1822ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:13:50
+   Duration  6.42s (transform 1.63s, setup 11ms, collect 2.43s, tests 1.82s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ukHBrm/vitest.json
+Vitest resources: 11.70s wall, 742.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ukHBrm
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1981ms
+   ✓ executes one complete G4 SQLite read seed batch  1981ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:14:07
+   Duration  6.37s (transform 1.54s, setup 10ms, collect 2.24s, tests 1.98s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-phvr6p/vitest.json
+Vitest resources: 13.44s wall, 753.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-phvr6p
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1490ms
+   ✓ executes one complete G4 SQLite read seed batch  1490ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:14:23
+   Duration  6.25s (transform 1.71s, setup 10ms, collect 2.57s, tests 1.49s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-xYMxbG/vitest.json
+Vitest resources: 12.92s wall, 735.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-xYMxbG
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1994ms
+   ✓ executes one complete G4 SQLite read seed batch  1994ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:14:39
+   Duration  7.62s (transform 2.06s, setup 12ms, collect 3.02s, tests 1.99s, environment 0ms, prepare 49ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-U3tOwd/vitest.json
+Vitest resources: 14.50s wall, 701.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-U3tOwd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1845ms
+   ✓ executes one complete G4 SQLite read seed batch  1845ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:14:56
+   Duration  6.90s (transform 1.75s, setup 13ms, collect 2.76s, tests 1.85s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZVP9Bv/vitest.json
+Vitest resources: 13.73s wall, 724.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZVP9Bv
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1713ms
+   ✓ executes one complete G4 SQLite read seed batch  1713ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:15:12
+   Duration  6.36s (transform 1.68s, setup 12ms, collect 2.51s, tests 1.71s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kQTq2S/vitest.json
+Vitest resources: 12.32s wall, 731.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kQTq2S
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1767ms
+   ✓ executes one complete G4 SQLite read seed batch  1767ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:15:29
+   Duration  6.49s (transform 1.36s, setup 9ms, collect 2.02s, tests 1.77s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hC4qjx/vitest.json
+Vitest resources: 13.58s wall, 760.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hC4qjx
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1825ms
+   ✓ executes one complete G4 SQLite read seed batch  1824ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:15:46
+   Duration  6.63s (transform 1.64s, setup 12ms, collect 2.45s, tests 1.82s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8dQpsV/vitest.json
+Vitest resources: 13.94s wall, 737.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8dQpsV
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1755ms
+   ✓ executes one complete G4 SQLite read seed batch  1755ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:16:03
+   Duration  6.63s (transform 1.65s, setup 10ms, collect 2.46s, tests 1.76s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fVwzEk/vitest.json
+Vitest resources: 13.70s wall, 726.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fVwzEk
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2459ms
+   ✓ executes one complete G4 SQLite read seed batch  2458ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:16:21
+   Duration  8.99s (transform 2.31s, setup 13ms, collect 3.74s, tests 2.46s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OaCsND/vitest.json
+Vitest resources: 17.72s wall, 698.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OaCsND
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1964ms
+   ✓ executes one complete G4 SQLite read seed batch  1964ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:16:38
+   Duration  7.59s (transform 1.87s, setup 12ms, collect 3.01s, tests 1.96s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pOqqrc/vitest.json
+Vitest resources: 14.35s wall, 718.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pOqqrc
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1865ms
+   ✓ executes one complete G4 SQLite read seed batch  1864ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:16:55
+   Duration  6.38s (transform 1.56s, setup 13ms, collect 2.36s, tests 1.86s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3Jwk1W/vitest.json
+Vitest resources: 13.18s wall, 740.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3Jwk1W
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1904ms
+   ✓ executes one complete G4 SQLite read seed batch  1904ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:17:11
+   Duration  7.18s (transform 1.82s, setup 10ms, collect 2.74s, tests 1.90s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cGlclR/vitest.json
+Vitest resources: 13.16s wall, 732.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cGlclR
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1850ms
+   ✓ executes one complete G4 SQLite read seed batch  1849ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:17:27
+   Duration  6.75s (transform 1.75s, setup 20ms, collect 2.68s, tests 1.85s, environment 0ms, prepare 62ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-gQK8x6/vitest.json
+Vitest resources: 12.59s wall, 715.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-gQK8x6
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2107ms
+   ✓ executes one complete G4 SQLite read seed batch  2106ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:17:44
+   Duration  6.66s (transform 1.59s, setup 13ms, collect 2.37s, tests 2.11s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4DFy2W/vitest.json
+Vitest resources: 14.12s wall, 705.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4DFy2W
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2031ms
+   ✓ executes one complete G4 SQLite read seed batch  2030ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:18:00
+   Duration  7.63s (transform 1.78s, setup 10ms, collect 2.89s, tests 2.03s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dL9klG/vitest.json
+Vitest resources: 13.79s wall, 726.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dL9klG
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1886ms
+   ✓ executes one complete G4 SQLite read seed batch  1885ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:18:18
+   Duration  6.66s (transform 1.52s, setup 9ms, collect 2.26s, tests 1.89s, environment 0ms, prepare 101ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-bYXMwW/vitest.json
+Vitest resources: 13.35s wall, 755.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-bYXMwW
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1739ms
+   ✓ executes one complete G4 SQLite read seed batch  1738ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:18:33
+   Duration  6.77s (transform 1.87s, setup 13ms, collect 2.81s, tests 1.74s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hR9Nd7/vitest.json
+Vitest resources: 12.91s wall, 718.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hR9Nd7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2036ms
+   ✓ executes one complete G4 SQLite read seed batch  2035ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:18:50
+   Duration  6.65s (transform 1.55s, setup 11ms, collect 2.28s, tests 2.04s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZjlOOF/vitest.json
+Vitest resources: 12.79s wall, 696.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZjlOOF
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1833ms
+   ✓ executes one complete G4 SQLite read seed batch  1832ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:19:05
+   Duration  6.26s (transform 1.70s, setup 9ms, collect 2.51s, tests 1.83s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JY7E5g/vitest.json
+Vitest resources: 12.31s wall, 757.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JY7E5g
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1611ms
+   ✓ executes one complete G4 SQLite read seed batch  1611ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:19:20
+   Duration  6.13s (transform 1.67s, setup 14ms, collect 2.46s, tests 1.61s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-g68Ga3/vitest.json
+Vitest resources: 11.78s wall, 754.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-g68Ga3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1740ms
+   ✓ executes one complete G4 SQLite read seed batch  1739ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:19:36
+   Duration  5.60s (transform 1.35s, setup 8ms, collect 2.01s, tests 1.74s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tO65Eo/vitest.json
+Vitest resources: 12.58s wall, 735.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tO65Eo
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1464ms
+   ✓ executes one complete G4 SQLite read seed batch  1463ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:19:53
+   Duration  5.27s (transform 1.44s, setup 11ms, collect 2.15s, tests 1.46s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0jM1zY/vitest.json
+Vitest resources: 11.99s wall, 720.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0jM1zY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2048ms
+   ✓ executes one complete G4 SQLite read seed batch  2047ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:20:08
+   Duration  6.81s (transform 1.49s, setup 10ms, collect 2.19s, tests 2.05s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8IDPqN/vitest.json
+Vitest resources: 14.07s wall, 718.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8IDPqN
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1654ms
+   ✓ executes one complete G4 SQLite read seed batch  1653ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:20:25
+   Duration  6.04s (transform 1.55s, setup 11ms, collect 2.34s, tests 1.65s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YHWkBY/vitest.json
+Vitest resources: 13.06s wall, 749.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YHWkBY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2076ms
+   ✓ executes one complete G4 SQLite read seed batch  2075ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:20:41
+   Duration  7.08s (transform 1.73s, setup 10ms, collect 2.55s, tests 2.08s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-x1lKN1/vitest.json
+Vitest resources: 13.76s wall, 746.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-x1lKN1
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2094ms
+   ✓ executes one complete G4 SQLite read seed batch  2093ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:20:57
+   Duration  6.85s (transform 1.63s, setup 10ms, collect 2.44s, tests 2.09s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-56sIgt/vitest.json
+Vitest resources: 13.41s wall, 728.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-56sIgt
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2066ms
+   ✓ executes one complete G4 SQLite read seed batch  2065ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:21:12
+   Duration  7.27s (transform 1.81s, setup 10ms, collect 2.71s, tests 2.07s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-sAP3P8/vitest.json
+Vitest resources: 13.02s wall, 734.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-sAP3P8
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1825ms
+   ✓ executes one complete G4 SQLite read seed batch  1824ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:21:29
+   Duration  5.87s (transform 1.47s, setup 9ms, collect 2.16s, tests 1.82s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-T3JriF/vitest.json
+Vitest resources: 11.82s wall, 745.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-T3JriF
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2046ms
+   ✓ executes one complete G4 SQLite read seed batch  2046ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:21:44
+   Duration  7.12s (transform 1.60s, setup 19ms, collect 2.33s, tests 2.05s, environment 0ms, prepare 61ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dVSQg9/vitest.json
+Vitest resources: 13.87s wall, 721.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dVSQg9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2069ms
+   ✓ executes one complete G4 SQLite read seed batch  2068ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:21:59
+   Duration  6.74s (transform 1.75s, setup 11ms, collect 2.60s, tests 2.07s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-RyhN3g/vitest.json
+Vitest resources: 11.93s wall, 745.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-RyhN3g
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1759ms
+   ✓ executes one complete G4 SQLite read seed batch  1758ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:22:12
+   Duration  5.95s (transform 1.63s, setup 15ms, collect 2.42s, tests 1.76s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZPfHj3/vitest.json
+Vitest resources: 10.85s wall, 748.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZPfHj3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1857ms
+   ✓ executes one complete G4 SQLite read seed batch  1857ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:22:26
+   Duration  5.55s (transform 1.48s, setup 8ms, collect 2.19s, tests 1.86s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-l0Tf0m/vitest.json
+Vitest resources: 11.65s wall, 759.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-l0Tf0m
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1740ms
+   ✓ executes one complete G4 SQLite read seed batch  1739ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:22:41
+   Duration  5.87s (transform 1.61s, setup 10ms, collect 2.41s, tests 1.74s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qwY9Io/vitest.json
+Vitest resources: 11.54s wall, 750.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qwY9Io
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1746ms
+   ✓ executes one complete G4 SQLite read seed batch  1745ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:22:55
+   Duration  5.82s (transform 1.51s, setup 13ms, collect 2.23s, tests 1.75s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qng2uQ/vitest.json
+Vitest resources: 11.99s wall, 744.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qng2uQ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2359ms
+   ✓ executes one complete G4 SQLite read seed batch  2359ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:23:10
+   Duration  7.98s (transform 2.04s, setup 12ms, collect 2.99s, tests 2.36s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1s5b0x/vitest.json
+Vitest resources: 13.89s wall, 642.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1s5b0x
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1945ms
+   ✓ executes one complete G4 SQLite read seed batch  1944ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:23:26
+   Duration  6.29s (transform 1.57s, setup 9ms, collect 2.32s, tests 1.94s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-yTQGxF/vitest.json
+Vitest resources: 12.66s wall, 721.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-yTQGxF
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1948ms
+   ✓ executes one complete G4 SQLite read seed batch  1948ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:23:41
+   Duration  6.35s (transform 1.55s, setup 9ms, collect 2.28s, tests 1.95s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WAK2Zz/vitest.json
+Vitest resources: 12.54s wall, 734.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WAK2Zz
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2110ms
+   ✓ executes one complete G4 SQLite read seed batch  2109ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:23:58
+   Duration  6.21s (transform 1.52s, setup 9ms, collect 2.27s, tests 2.11s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6fl4r5/vitest.json
+Vitest resources: 13.33s wall, 745.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6fl4r5
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1797ms
+   ✓ executes one complete G4 SQLite read seed batch  1797ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:24:12
+   Duration  7.27s (transform 1.93s, setup 15ms, collect 2.85s, tests 1.80s, environment 0ms, prepare 71ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aiOnFc/vitest.json
+Vitest resources: 13.41s wall, 689.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aiOnFc
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2084ms
+   ✓ executes one complete G4 SQLite read seed batch  2083ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:24:28
+   Duration  7.07s (transform 1.84s, setup 12ms, collect 2.72s, tests 2.08s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZwXVL9/vitest.json
+Vitest resources: 12.94s wall, 685.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZwXVL9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2158ms
+   ✓ executes one complete G4 SQLite read seed batch  2157ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:24:44
+   Duration  6.85s (transform 1.92s, setup 9ms, collect 2.88s, tests 2.16s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-CMIgo0/vitest.json
+Vitest resources: 12.63s wall, 639.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-CMIgo0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1739ms
+   ✓ executes one complete G4 SQLite read seed batch  1739ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:24:59
+   Duration  5.77s (transform 1.47s, setup 9ms, collect 2.17s, tests 1.74s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-SXPyK3/vitest.json
+Vitest resources: 11.66s wall, 738.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-SXPyK3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1700ms
+   ✓ executes one complete G4 SQLite read seed batch  1699ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:25:15
+   Duration  6.53s (transform 1.92s, setup 10ms, collect 2.83s, tests 1.70s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cVywdP/vitest.json
+Vitest resources: 12.79s wall, 674.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cVywdP
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1911ms
+   ✓ executes one complete G4 SQLite read seed batch  1911ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:25:31
+   Duration  6.02s (transform 1.49s, setup 9ms, collect 2.20s, tests 1.91s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AncCds/vitest.json
+Vitest resources: 13.21s wall, 732.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AncCds
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1622ms
+   ✓ executes one complete G4 SQLite read seed batch  1622ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:25:46
+   Duration  6.30s (transform 1.65s, setup 12ms, collect 2.43s, tests 1.62s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kKQPAa/vitest.json
+Vitest resources: 12.13s wall, 730.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-kKQPAa
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2051ms
+   ✓ executes one complete G4 SQLite read seed batch  2050ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:26:02
+   Duration  6.95s (transform 1.84s, setup 10ms, collect 2.76s, tests 2.05s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0CyAVO/vitest.json
+Vitest resources: 13.64s wall, 685.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0CyAVO
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1726ms
+   ✓ executes one complete G4 SQLite read seed batch  1726ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:26:16
+   Duration  6.37s (transform 1.76s, setup 10ms, collect 2.57s, tests 1.73s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fOCBgt/vitest.json
+Vitest resources: 12.05s wall, 764.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fOCBgt
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2309ms
+   ✓ executes one complete G4 SQLite read seed batch  2309ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:26:34
+   Duration  7.29s (transform 1.68s, setup 10ms, collect 2.47s, tests 2.31s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rg8EfA/vitest.json
+Vitest resources: 14.63s wall, 764.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rg8EfA
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1824ms
+   ✓ executes one complete G4 SQLite read seed batch  1824ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:26:51
+   Duration  6.60s (transform 1.51s, setup 13ms, collect 2.23s, tests 1.82s, environment 0ms, prepare 46ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jtZZ9t/vitest.json
+Vitest resources: 14.23s wall, 751.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jtZZ9t
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2119ms
+   ✓ executes one complete G4 SQLite read seed batch  2118ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:27:07
+   Duration  8.45s (transform 1.90s, setup 26ms, collect 2.76s, tests 2.12s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rwEIiz/vitest.json
+Vitest resources: 14.57s wall, 719.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rwEIiz
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2148ms
+   ✓ executes one complete G4 SQLite read seed batch  2147ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:27:26
+   Duration  7.44s (transform 1.77s, setup 11ms, collect 2.61s, tests 2.15s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-14QcD0/vitest.json
+Vitest resources: 14.43s wall, 713.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-14QcD0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1963ms
+   ✓ executes one complete G4 SQLite read seed batch  1962ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:27:43
+   Duration  6.51s (transform 1.47s, setup 9ms, collect 2.18s, tests 1.96s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PbAcI1/vitest.json
+Vitest resources: 14.02s wall, 721.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-PbAcI1
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1890ms
+   ✓ executes one complete G4 SQLite read seed batch  1889ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:28:00
+   Duration  7.31s (transform 1.63s, setup 9ms, collect 2.41s, tests 1.89s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OknKwq/vitest.json
+Vitest resources: 13.53s wall, 767.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OknKwq
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1711ms
+   ✓ executes one complete G4 SQLite read seed batch  1711ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:28:17
+   Duration  7.34s (transform 1.81s, setup 13ms, collect 2.62s, tests 1.71s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tfnVRS/vitest.json
+Vitest resources: 14.06s wall, 718.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tfnVRS
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2012ms
+   ✓ executes one complete G4 SQLite read seed batch  2012ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:28:34
+   Duration  7.40s (transform 1.94s, setup 9ms, collect 2.83s, tests 2.01s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HMqj2W/vitest.json
+Vitest resources: 14.08s wall, 670.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HMqj2W
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1924ms
+   ✓ executes one complete G4 SQLite read seed batch  1924ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:28:52
+   Duration  6.55s (transform 1.51s, setup 10ms, collect 2.20s, tests 1.92s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rvfWQU/vitest.json
+Vitest resources: 13.40s wall, 739.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-rvfWQU
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2053ms
+   ✓ executes one complete G4 SQLite read seed batch  2052ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:29:09
+   Duration  7.49s (transform 1.80s, setup 18ms, collect 2.64s, tests 2.05s, environment 0ms, prepare 55ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ffWusE/vitest.json
+Vitest resources: 14.60s wall, 755.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ffWusE
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2033ms
+   ✓ executes one complete G4 SQLite read seed batch  2032ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:29:26
+   Duration  7.61s (transform 1.63s, setup 11ms, collect 2.40s, tests 2.03s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-932bam/vitest.json
+Vitest resources: 13.75s wall, 692.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-932bam
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2084ms
+   ✓ executes one complete G4 SQLite read seed batch  2084ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:29:43
+   Duration  6.74s (transform 1.41s, setup 9ms, collect 2.08s, tests 2.08s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-d0RFhB/vitest.json
+Vitest resources: 13.60s wall, 734.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-d0RFhB
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1761ms
+   ✓ executes one complete G4 SQLite read seed batch  1761ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:30:00
+   Duration  6.20s (transform 1.32s, setup 8ms, collect 1.94s, tests 1.76s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-For5mf/vitest.json
+Vitest resources: 12.72s wall, 730.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-For5mf
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1696ms
+   ✓ executes one complete G4 SQLite read seed batch  1696ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:30:17
+   Duration  6.85s (transform 1.52s, setup 11ms, collect 2.22s, tests 1.70s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6nBCPn/vitest.json
+Vitest resources: 14.05s wall, 735.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-6nBCPn
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2136ms
+   ✓ executes one complete G4 SQLite read seed batch  2135ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:30:34
+   Duration  7.46s (transform 1.76s, setup 9ms, collect 2.56s, tests 2.14s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-2VG99v/vitest.json
+Vitest resources: 13.77s wall, 701.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-2VG99v
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1610ms
+   ✓ executes one complete G4 SQLite read seed batch  1609ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:30:51
+   Duration  6.18s (transform 1.32s, setup 11ms, collect 1.93s, tests 1.61s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fdKSeH/vitest.json
+Vitest resources: 12.57s wall, 749.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-fdKSeH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2069ms
+   ✓ executes one complete G4 SQLite read seed batch  2068ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:31:07
+   Duration  7.12s (transform 1.70s, setup 9ms, collect 2.53s, tests 2.07s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7PYJn9/vitest.json
+Vitest resources: 12.94s wall, 754.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7PYJn9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1985ms
+   ✓ executes one complete G4 SQLite read seed batch  1985ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:31:25
+   Duration  7.01s (transform 1.67s, setup 9ms, collect 2.48s, tests 1.99s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cpWpDP/vitest.json
+Vitest resources: 13.66s wall, 753.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-cpWpDP
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2070ms
+   ✓ executes one complete G4 SQLite read seed batch  2069ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:31:42
+   Duration  7.05s (transform 1.64s, setup 12ms, collect 2.42s, tests 2.07s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3X5XKb/vitest.json
+Vitest resources: 13.60s wall, 697.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3X5XKb
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1849ms
+   ✓ executes one complete G4 SQLite read seed batch  1848ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:31:59
+   Duration  6.82s (transform 1.56s, setup 10ms, collect 2.29s, tests 1.85s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8Fn9zI/vitest.json
+Vitest resources: 12.80s wall, 744.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8Fn9zI
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2051ms
+   ✓ executes one complete G4 SQLite read seed batch  2050ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:32:14
+   Duration  7.36s (transform 1.93s, setup 9ms, collect 2.90s, tests 2.05s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iX2Jxf/vitest.json
+Vitest resources: 13.13s wall, 740.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iX2Jxf
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1873ms
+   ✓ executes one complete G4 SQLite read seed batch  1872ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:32:32
+   Duration  6.63s (transform 1.63s, setup 9ms, collect 2.42s, tests 1.87s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZgBNGt/vitest.json
+Vitest resources: 13.71s wall, 711.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ZgBNGt
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1898ms
+   ✓ executes one complete G4 SQLite read seed batch  1897ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:32:48
+   Duration  7.25s (transform 1.37s, setup 9ms, collect 2.03s, tests 1.90s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aRQNZw/vitest.json
+Vitest resources: 13.37s wall, 740.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aRQNZw
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2163ms
+   ✓ executes one complete G4 SQLite read seed batch  2162ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:33:05
+   Duration  8.08s (transform 1.87s, setup 8ms, collect 2.73s, tests 2.16s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jMVd7d/vitest.json
+Vitest resources: 14.29s wall, 608.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jMVd7d
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1902ms
+   ✓ executes one complete G4 SQLite read seed batch  1902ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:33:26
+   Duration  6.39s (transform 1.47s, setup 8ms, collect 2.19s, tests 1.90s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jb9dpw/vitest.json
+Vitest resources: 13.96s wall, 758.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jb9dpw
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1810ms
+   ✓ executes one complete G4 SQLite read seed batch  1810ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:33:46
+   Duration  6.44s (transform 1.88s, setup 12ms, collect 2.76s, tests 1.81s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ta1vRl/vitest.json
+Vitest resources: 14.92s wall, 743.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ta1vRl
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2058ms
+   ✓ executes one complete G4 SQLite read seed batch  2058ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:34:01
+   Duration  7.02s (transform 1.64s, setup 10ms, collect 2.42s, tests 2.06s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0FCV5B/vitest.json
+Vitest resources: 12.45s wall, 726.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0FCV5B
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1749ms
+   ✓ executes one complete G4 SQLite read seed batch  1748ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:34:17
+   Duration  6.14s (transform 1.48s, setup 8ms, collect 2.16s, tests 1.75s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pHzM4Y/vitest.json
+Vitest resources: 13.16s wall, 733.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pHzM4Y
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1547ms
+   ✓ executes one complete G4 SQLite read seed batch  1547ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:34:35
+   Duration  6.17s (transform 1.49s, setup 10ms, collect 2.25s, tests 1.55s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TxAtiL/vitest.json
+Vitest resources: 13.38s wall, 730.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TxAtiL
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1733ms
+   ✓ executes one complete G4 SQLite read seed batch  1733ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:34:52
+   Duration  6.17s (transform 1.29s, setup 11ms, collect 1.90s, tests 1.73s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O14jqs/vitest.json
+Vitest resources: 12.89s wall, 745.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O14jqs
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2101ms
+   ✓ executes one complete G4 SQLite read seed batch  2100ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:35:08
+   Duration  6.82s (transform 1.58s, setup 10ms, collect 2.38s, tests 2.10s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-FmTJSJ/vitest.json
+Vitest resources: 13.03s wall, 673.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-FmTJSJ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1867ms
+   ✓ executes one complete G4 SQLite read seed batch  1867ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:35:23
+   Duration  7.18s (transform 1.52s, setup 10ms, collect 2.25s, tests 1.87s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TvG47z/vitest.json
+Vitest resources: 13.08s wall, 761.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TvG47z
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2089ms
+   ✓ executes one complete G4 SQLite read seed batch  2088ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:35:39
+   Duration  7.62s (transform 1.96s, setup 10ms, collect 2.91s, tests 2.09s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-QKKpF3/vitest.json
+Vitest resources: 13.13s wall, 683.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-QKKpF3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2062ms
+   ✓ executes one complete G4 SQLite read seed batch  2062ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:35:56
+   Duration  6.78s (transform 1.66s, setup 10ms, collect 2.46s, tests 2.06s, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wixrD6/vitest.json
+Vitest resources: 13.70s wall, 732.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wixrD6
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2540ms
+   ✓ executes one complete G4 SQLite read seed batch  2540ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:36:11
+   Duration  8.35s (transform 1.74s, setup 15ms, collect 2.60s, tests 2.54s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-B15o9c/vitest.json
+Vitest resources: 14.10s wall, 754.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-B15o9c
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2510ms
+   ✓ executes one complete G4 SQLite read seed batch  2509ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:36:29
+   Duration  7.10s (transform 1.60s, setup 10ms, collect 2.37s, tests 2.51s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8tbq7l/vitest.json
+Vitest resources: 13.41s wall, 686.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8tbq7l
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1832ms
+   ✓ executes one complete G4 SQLite read seed batch  1832ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:36:45
+   Duration  6.31s (transform 1.56s, setup 11ms, collect 2.33s, tests 1.83s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-uJxPqd/vitest.json
+Vitest resources: 12.60s wall, 754.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-uJxPqd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2054ms
+   ✓ executes one complete G4 SQLite read seed batch  2053ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:37:01
+   Duration  6.72s (transform 1.45s, setup 9ms, collect 2.13s, tests 2.05s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ov2BHZ/vitest.json
+Vitest resources: 13.21s wall, 757.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ov2BHZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1981ms
+   ✓ executes one complete G4 SQLite read seed batch  1980ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:37:17
+   Duration  5.96s (transform 1.45s, setup 12ms, collect 2.15s, tests 1.98s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-H8tHSC/vitest.json
+Vitest resources: 12.32s wall, 757.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-H8tHSC
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1767ms
+   ✓ executes one complete G4 SQLite read seed batch  1766ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:37:30
+   Duration  6.13s (transform 1.59s, setup 10ms, collect 2.35s, tests 1.77s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ls6mCz/vitest.json
+Vitest resources: 10.86s wall, 731.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ls6mCz
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1949ms
+   ✓ executes one complete G4 SQLite read seed batch  1949ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:37:45
+   Duration  5.72s (transform 1.50s, setup 10ms, collect 2.20s, tests 1.95s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-lWR6Pa/vitest.json
+Vitest resources: 11.72s wall, 750.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-lWR6Pa
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2027ms
+   ✓ executes one complete G4 SQLite read seed batch  2026ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:37:59
+   Duration  6.00s (transform 1.27s, setup 11ms, collect 1.91s, tests 2.03s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-LWG1wt/vitest.json
+Vitest resources: 11.44s wall, 756.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-LWG1wt
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2027ms
+   ✓ executes one complete G4 SQLite read seed batch  2026ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:38:13
+   Duration  5.83s (transform 1.45s, setup 9ms, collect 2.14s, tests 2.03s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-VxThIl/vitest.json
+Vitest resources: 11.57s wall, 738.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-VxThIl
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1542ms
+   ✓ executes one complete G4 SQLite read seed batch  1542ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:38:27
+   Duration  5.33s (transform 1.35s, setup 18ms, collect 2.03s, tests 1.54s, environment 0ms, prepare 41ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-I4P7we/vitest.json
+Vitest resources: 10.73s wall, 746.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-I4P7we
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2051ms
+   ✓ executes one complete G4 SQLite read seed batch  2050ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:38:41
+   Duration  6.50s (transform 1.62s, setup 21ms, collect 2.37s, tests 2.05s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-mZisFM/vitest.json
+Vitest resources: 11.84s wall, 743.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-mZisFM
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1695ms
+   ✓ executes one complete G4 SQLite read seed batch  1695ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:38:55
+   Duration  5.57s (transform 1.47s, setup 9ms, collect 2.17s, tests 1.70s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-olVokE/vitest.json
+Vitest resources: 11.28s wall, 733.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-olVokE
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1927ms
+   ✓ executes one complete G4 SQLite read seed batch  1926ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:39:09
+   Duration  6.45s (transform 1.62s, setup 11ms, collect 2.44s, tests 1.93s, environment 0ms, prepare 47ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1fGErO/vitest.json
+Vitest resources: 11.38s wall, 735.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1fGErO
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1980ms
+   ✓ executes one complete G4 SQLite read seed batch  1979ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:39:24
+   Duration  6.12s (transform 1.59s, setup 19ms, collect 2.34s, tests 1.98s, environment 0ms, prepare 56ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AxppSm/vitest.json
+Vitest resources: 11.93s wall, 712.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-AxppSm
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1919ms
+   ✓ executes one complete G4 SQLite read seed batch  1919ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:39:37
+   Duration  6.39s (transform 1.53s, setup 12ms, collect 2.24s, tests 1.92s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-xpTUTc/vitest.json
+Vitest resources: 11.16s wall, 767.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-xpTUTc
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1852ms
+   ✓ executes one complete G4 SQLite read seed batch  1852ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:39:50
+   Duration  6.08s (transform 1.31s, setup 9ms, collect 1.93s, tests 1.85s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-K26B8D/vitest.json
+Vitest resources: 10.60s wall, 744.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-K26B8D
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1690ms
+   ✓ executes one complete G4 SQLite read seed batch  1690ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:40:04
+   Duration  6.24s (transform 1.46s, setup 12ms, collect 2.15s, tests 1.69s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-NwUCUu/vitest.json
+Vitest resources: 10.68s wall, 740.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-NwUCUu
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1685ms
+   ✓ executes one complete G4 SQLite read seed batch  1685ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:40:19
+   Duration  5.97s (transform 1.55s, setup 11ms, collect 2.31s, tests 1.69s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1wOlgY/vitest.json
+Vitest resources: 11.33s wall, 760.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1wOlgY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1774ms
+   ✓ executes one complete G4 SQLite read seed batch  1773ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:40:33
+   Duration  6.37s (transform 1.41s, setup 12ms, collect 2.10s, tests 1.77s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OAEkeu/vitest.json
+Vitest resources: 12.10s wall, 751.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OAEkeu
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1979ms
+   ✓ executes one complete G4 SQLite read seed batch  1979ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:40:48
+   Duration  6.13s (transform 1.44s, setup 10ms, collect 2.13s, tests 1.98s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5yuspS/vitest.json
+Vitest resources: 11.45s wall, 747.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5yuspS
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1650ms
+   ✓ executes one complete G4 SQLite read seed batch  1650ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:41:02
+   Duration  6.16s (transform 1.48s, setup 14ms, collect 2.21s, tests 1.65s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8QcaVs/vitest.json
+Vitest resources: 12.00s wall, 741.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8QcaVs
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1831ms
+   ✓ executes one complete G4 SQLite read seed batch  1830ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:41:17
+   Duration  6.86s (transform 1.58s, setup 11ms, collect 2.35s, tests 1.83s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tyClZ5/vitest.json
+Vitest resources: 12.29s wall, 742.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tyClZ5
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1901ms
+   ✓ executes one complete G4 SQLite read seed batch  1901ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:41:32
+   Duration  6.49s (transform 1.59s, setup 11ms, collect 2.36s, tests 1.90s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-2IFk9D/vitest.json
+Vitest resources: 12.43s wall, 741.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-2IFk9D
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1651ms
+   ✓ executes one complete G4 SQLite read seed batch  1650ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:41:46
+   Duration  7.19s (transform 1.78s, setup 19ms, collect 2.73s, tests 1.65s, environment 0ms, prepare 48ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aP9Q4f/vitest.json
+Vitest resources: 12.95s wall, 710.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aP9Q4f
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1765ms
+   ✓ executes one complete G4 SQLite read seed batch  1764ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:42:02
+   Duration  6.97s (transform 1.76s, setup 14ms, collect 2.61s, tests 1.76s, environment 0ms, prepare 50ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4l49fa/vitest.json
+Vitest resources: 12.55s wall, 732.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4l49fa
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1712ms
+   ✓ executes one complete G4 SQLite read seed batch  1711ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:42:17
+   Duration  6.56s (transform 1.70s, setup 10ms, collect 2.54s, tests 1.71s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O29Ix7/vitest.json
+Vitest resources: 12.66s wall, 727.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O29Ix7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 3215ms
+   ✓ executes one complete G4 SQLite read seed batch  3214ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:42:32
+   Duration  8.00s (transform 1.67s, setup 12ms, collect 2.55s, tests 3.22s, environment 0ms, prepare 49ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1sfkwR/vitest.json
+Vitest resources: 14.93s wall, 605.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1sfkwR
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2856ms
+   ✓ executes one complete G4 SQLite read seed batch  2856ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:42:52
+   Duration  11.20s (transform 2.83s, setup 17ms, collect 4.45s, tests 2.86s, environment 0ms, prepare 57ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-onjmI4/vitest.json
+Vitest resources: 17.60s wall, 618.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-onjmI4
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2126ms
+   ✓ executes one complete G4 SQLite read seed batch  2126ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:43:11
+   Duration  7.35s (transform 1.78s, setup 12ms, collect 2.66s, tests 2.13s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ByU1uK/vitest.json
+Vitest resources: 13.47s wall, 733.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ByU1uK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1785ms
+   ✓ executes one complete G4 SQLite read seed batch  1784ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:43:26
+   Duration  6.34s (transform 1.47s, setup 9ms, collect 2.18s, tests 1.79s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wZwgx0/vitest.json
+Vitest resources: 11.67s wall, 738.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wZwgx0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1882ms
+   ✓ executes one complete G4 SQLite read seed batch  1881ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:43:40
+   Duration  6.13s (transform 1.34s, setup 10ms, collect 1.99s, tests 1.88s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-SApwV9/vitest.json
+Vitest resources: 11.23s wall, 739.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-SApwV9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1735ms
+   ✓ executes one complete G4 SQLite read seed batch  1735ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:43:55
+   Duration  6.63s (transform 1.46s, setup 12ms, collect 2.11s, tests 1.74s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-LEEMAu/vitest.json
+Vitest resources: 12.69s wall, 712.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-LEEMAu
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1697ms
+   ✓ executes one complete G4 SQLite read seed batch  1697ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:44:11
+   Duration  5.52s (transform 1.55s, setup 9ms, collect 2.31s, tests 1.70s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-t7NOC4/vitest.json
+Vitest resources: 11.07s wall, 742.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-t7NOC4
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1694ms
+   ✓ executes one complete G4 SQLite read seed batch  1693ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:44:24
+   Duration  6.18s (transform 1.38s, setup 10ms, collect 2.06s, tests 1.69s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dOOPCh/vitest.json
+Vitest resources: 11.67s wall, 732.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dOOPCh
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2077ms
+   ✓ executes one complete G4 SQLite read seed batch  2077ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:44:39
+   Duration  6.29s (transform 1.48s, setup 10ms, collect 2.19s, tests 2.08s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7hh5dM/vitest.json
+Vitest resources: 11.77s wall, 742.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7hh5dM
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1490ms
+   ✓ executes one complete G4 SQLite read seed batch  1489ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:44:54
+   Duration  5.66s (transform 1.33s, setup 12ms, collect 1.97s, tests 1.49s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-BTAWNQ/vitest.json
+Vitest resources: 11.79s wall, 730.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-BTAWNQ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1815ms
+   ✓ executes one complete G4 SQLite read seed batch  1814ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:45:09
+   Duration  5.68s (transform 1.34s, setup 9ms, collect 2.00s, tests 1.82s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7XBePK/vitest.json
+Vitest resources: 12.49s wall, 763.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-7XBePK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1802ms
+   ✓ executes one complete G4 SQLite read seed batch  1801ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:45:25
+   Duration  5.12s (transform 1.41s, setup 9ms, collect 2.09s, tests 1.80s, environment 0ms, prepare 39ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dfHdy4/vitest.json
+Vitest resources: 11.60s wall, 752.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dfHdy4
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 2148ms
+   ✓ executes one complete G4 SQLite read seed batch  2148ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:45:38
+   Duration  5.86s (transform 1.42s, setup 9ms, collect 2.10s, tests 2.15s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Qxd2k9/vitest.json
+Vitest resources: 12.48s wall, 745.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Qxd2k9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1665ms
+   ✓ executes one complete G4 SQLite read seed batch  1664ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:45:52
+   Duration  5.68s (transform 1.36s, setup 9ms, collect 2.02s, tests 1.66s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-77UF4T/vitest.json
+Vitest resources: 10.47s wall, 743.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-77UF4T
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1697ms
+   ✓ executes one complete G4 SQLite read seed batch  1696ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:46:07
+   Duration  5.36s (transform 1.38s, setup 10ms, collect 2.05s, tests 1.70s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-s6oH8n/vitest.json
+Vitest resources: 12.00s wall, 754.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-s6oH8n
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1546ms
+   ✓ executes one complete G4 SQLite read seed batch  1546ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:46:22
+   Duration  6.98s (transform 1.86s, setup 13ms, collect 2.86s, tests 1.55s, environment 0ms, prepare 57ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4kRNg7/vitest.json
+Vitest resources: 13.07s wall, 740.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-4kRNg7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1792ms
+   ✓ executes one complete G4 SQLite read seed batch  1791ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:46:38
+   Duration  7.38s (transform 1.71s, setup 12ms, collect 2.50s, tests 1.79s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wIoeg7/vitest.json
+Vitest resources: 13.71s wall, 747.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-wIoeg7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1764ms
+   ✓ executes one complete G4 SQLite read seed batch  1764ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:46:53
+   Duration  6.18s (transform 1.63s, setup 9ms, collect 2.44s, tests 1.76s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pULLrV/vitest.json
+Vitest resources: 11.44s wall, 752.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-pULLrV
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1868ms
+   ✓ executes one complete G4 SQLite read seed batch  1868ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:47:06
+   Duration  5.77s (transform 1.41s, setup 8ms, collect 2.09s, tests 1.87s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O76r3I/vitest.json
+Vitest resources: 11.19s wall, 745.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-O76r3I
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1441ms
+   ✓ executes one complete G4 SQLite read seed batch  1441ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:47:21
+   Duration  4.57s (transform 1.34s, setup 10ms, collect 1.97s, tests 1.44s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-sqMXvT/vitest.json
+Vitest resources: 10.41s wall, 750.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-sqMXvT
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1583ms
+   ✓ executes one complete G4 SQLite read seed batch  1582ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:47:35
+   Duration  5.67s (transform 1.35s, setup 9ms, collect 2.05s, tests 1.58s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-CwyXgK/vitest.json
+Vitest resources: 12.07s wall, 743.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-CwyXgK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1627ms
+   ✓ executes one complete G4 SQLite read seed batch  1626ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:47:49
+   Duration  4.93s (transform 1.34s, setup 10ms, collect 1.98s, tests 1.63s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-yZmt34/vitest.json
+Vitest resources: 10.34s wall, 743.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-yZmt34
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1768ms
+   ✓ executes one complete G4 SQLite read seed batch  1767ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:01
+   Duration  5.68s (transform 1.53s, setup 9ms, collect 2.25s, tests 1.77s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OEfITU/vitest.json
+Vitest resources: 10.86s wall, 747.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OEfITU
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1837ms
+   ✓ executes one complete G4 SQLite read seed batch  1836ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:13
+   Duration  5.86s (transform 1.50s, setup 9ms, collect 2.21s, tests 1.84s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EJuclH/vitest.json
+Vitest resources: 10.35s wall, 720.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EJuclH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1836ms
+   ✓ executes one complete G4 SQLite read seed batch  1836ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:25
+   Duration  5.37s (transform 1.35s, setup 9ms, collect 2.02s, tests 1.84s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DxecrH/vitest.json
+Vitest resources: 9.78s wall, 731.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DxecrH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1965ms
+   ✓ executes one complete G4 SQLite read seed batch  1964ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:37
+   Duration  5.11s (transform 1.53s, setup 9ms, collect 2.27s, tests 1.96s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-N2Jcdb/vitest.json
+Vitest resources: 10.67s wall, 722.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-N2Jcdb
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1700ms
+   ✓ executes one complete G4 SQLite read seed batch  1699ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:49
+   Duration  5.43s (transform 1.45s, setup 10ms, collect 2.15s, tests 1.70s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aQXZdD/vitest.json
+Vitest resources: 10.23s wall, 758.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-aQXZdD
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1762ms
+   ✓ executes one complete G4 SQLite read seed batch  1762ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:49:11
+   Duration  4.77s (transform 1.42s, setup 10ms, collect 2.09s, tests 1.76s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OtDMZI/vitest.json
+Vitest resources: 8.25s wall, 733.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OtDMZI
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1604ms
+   ✓ executes one complete G4 SQLite read seed batch  1603ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:49:19
+   Duration  4.42s (transform 1.30s, setup 11ms, collect 1.97s, tests 1.60s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-GoO8uy/vitest.json
+Vitest resources: 6.95s wall, 749.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-GoO8uy
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1485ms
+   ✓ executes one complete G4 SQLite read seed batch  1485ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:49:39
+   Duration  4.68s (transform 1.34s, setup 9ms, collect 1.98s, tests 1.48s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HOubwc/vitest.json
+Vitest resources: 7.32s wall, 772.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HOubwc
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1472ms
+   ✓ executes one complete G4 SQLite read seed batch  1471ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:49:49
+   Duration  4.27s (transform 1.32s, setup 10ms, collect 1.96s, tests 1.47s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OGP7AO/vitest.json
+Vitest resources: 8.07s wall, 744.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-OGP7AO
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1607ms
+   ✓ executes one complete G4 SQLite read seed batch  1606ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:00
+   Duration  4.35s (transform 1.38s, setup 10ms, collect 2.05s, tests 1.61s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rseq4M/vitest.json
+Vitest resources: 8.50s wall, 729.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rseq4M
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1891ms
+   ✓ executes one complete G4 SQLite read seed batch  1890ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:07
+   Duration  5.45s (transform 1.39s, setup 10ms, collect 2.08s, tests 1.89s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TAdikX/vitest.json
+Vitest resources: 8.31s wall, 742.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-TAdikX
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1609ms
+   ✓ executes one complete G4 SQLite read seed batch  1609ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:17
+   Duration  4.48s (transform 1.36s, setup 10ms, collect 2.01s, tests 1.61s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ADpJF9/vitest.json
+Vitest resources: 8.11s wall, 751.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ADpJF9
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1610ms
+   ✓ executes one complete G4 SQLite read seed batch  1609ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:28
+   Duration  4.42s (transform 1.38s, setup 11ms, collect 2.05s, tests 1.61s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-enmveA/vitest.json
+Vitest resources: 8.86s wall, 756.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-enmveA
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1750ms
+   ✓ executes one complete G4 SQLite read seed batch  1749ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:37
+   Duration  4.96s (transform 1.45s, setup 13ms, collect 2.16s, tests 1.75s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YDsRj7/vitest.json
+Vitest resources: 8.92s wall, 758.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YDsRj7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1729ms
+   ✓ executes one complete G4 SQLite read seed batch  1729ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:46
+   Duration  5.22s (transform 1.40s, setup 9ms, collect 2.06s, tests 1.73s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Yf0myz/vitest.json
+Vitest resources: 8.72s wall, 748.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Yf0myz
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1712ms
+   ✓ executes one complete G4 SQLite read seed batch  1712ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:50:56
+   Duration  4.95s (transform 1.46s, setup 10ms, collect 2.16s, tests 1.71s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-BAk7iT/vitest.json
+Vitest resources: 7.81s wall, 740.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-BAk7iT
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1593ms
+   ✓ executes one complete G4 SQLite read seed batch  1593ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:07
+   Duration  4.58s (transform 1.39s, setup 9ms, collect 2.08s, tests 1.59s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-XJsrv2/vitest.json
+Vitest resources: 8.96s wall, 759.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-XJsrv2
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1763ms
+   ✓ executes one complete G4 SQLite read seed batch  1763ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:18
+   Duration  4.61s (transform 1.38s, setup 9ms, collect 2.04s, tests 1.76s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DIjUwV/vitest.json
+Vitest resources: 9.17s wall, 749.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DIjUwV
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1764ms
+   ✓ executes one complete G4 SQLite read seed batch  1763ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:26
+   Duration  5.42s (transform 1.44s, setup 13ms, collect 2.14s, tests 1.76s, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-u83WUy/vitest.json
+Vitest resources: 8.41s wall, 755.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-u83WUy
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1679ms
+   ✓ executes one complete G4 SQLite read seed batch  1679ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:37
+   Duration  4.53s (transform 1.47s, setup 9ms, collect 2.20s, tests 1.68s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HO64Xn/vitest.json
+Vitest resources: 9.07s wall, 761.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HO64Xn
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1683ms
+   ✓ executes one complete G4 SQLite read seed batch  1682ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:46
+   Duration  5.00s (transform 1.44s, setup 9ms, collect 2.12s, tests 1.68s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YvYmIH/vitest.json
+Vitest resources: 7.70s wall, 744.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YvYmIH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1680ms
+   ✓ executes one complete G4 SQLite read seed batch  1679ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:51:55
+   Duration  5.38s (transform 1.40s, setup 10ms, collect 2.08s, tests 1.68s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UT0lCT/vitest.json
+Vitest resources: 9.32s wall, 740.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UT0lCT
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1714ms
+   ✓ executes one complete G4 SQLite read seed batch  1713ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:05
+   Duration  4.48s (transform 1.45s, setup 8ms, collect 2.14s, tests 1.71s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-byylOH/vitest.json
+Vitest resources: 8.10s wall, 755.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-byylOH
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1687ms
+   ✓ executes one complete G4 SQLite read seed batch  1687ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:14
+   Duration  5.61s (transform 1.52s, setup 11ms, collect 2.24s, tests 1.69s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JenqZE/vitest.json
+Vitest resources: 8.55s wall, 766.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-JenqZE
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1778ms
+   ✓ executes one complete G4 SQLite read seed batch  1777ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:25
+   Duration  4.83s (transform 1.47s, setup 10ms, collect 2.16s, tests 1.78s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0cNuRq/vitest.json
+Vitest resources: 9.19s wall, 738.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-0cNuRq
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1692ms
+   ✓ executes one complete G4 SQLite read seed batch  1691ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:34
+   Duration  5.28s (transform 1.41s, setup 9ms, collect 2.10s, tests 1.69s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hyeUNd/vitest.json
+Vitest resources: 8.49s wall, 750.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hyeUNd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1670ms
+   ✓ executes one complete G4 SQLite read seed batch  1669ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:45
+   Duration  5.14s (transform 1.59s, setup 9ms, collect 2.36s, tests 1.67s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tPWTWF/vitest.json
+Vitest resources: 9.48s wall, 750.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tPWTWF
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1799ms
+   ✓ executes one complete G4 SQLite read seed batch  1798ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:52:55
+   Duration  4.99s (transform 1.44s, setup 10ms, collect 2.13s, tests 1.80s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8KzD3B/vitest.json
+Vitest resources: 9.11s wall, 738.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-8KzD3B
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1659ms
+   ✓ executes one complete G4 SQLite read seed batch  1658ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:04
+   Duration  5.23s (transform 1.46s, setup 8ms, collect 2.17s, tests 1.66s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1Rc92R/vitest.json
+Vitest resources: 8.31s wall, 760.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-1Rc92R
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1799ms
+   ✓ executes one complete G4 SQLite read seed batch  1798ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:14
+   Duration  4.54s (transform 1.50s, setup 10ms, collect 2.23s, tests 1.80s, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-S9rkBC/vitest.json
+Vitest resources: 8.29s wall, 728.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-S9rkBC
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1605ms
+   ✓ executes one complete G4 SQLite read seed batch  1605ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:25
+   Duration  4.47s (transform 1.36s, setup 10ms, collect 2.01s, tests 1.61s, environment 0ms, prepare 38ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YKAAuk/vitest.json
+Vitest resources: 9.08s wall, 745.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-YKAAuk
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1656ms
+   ✓ executes one complete G4 SQLite read seed batch  1655ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:35
+   Duration  5.22s (transform 1.43s, setup 13ms, collect 2.10s, tests 1.66s, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3sZ7E7/vitest.json
+Vitest resources: 9.53s wall, 757.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-3sZ7E7
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1683ms
+   ✓ executes one complete G4 SQLite read seed batch  1682ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:45
+   Duration  5.07s (transform 1.45s, setup 9ms, collect 2.14s, tests 1.68s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dbUX1N/vitest.json
+Vitest resources: 8.53s wall, 747.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-dbUX1N
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1800ms
+   ✓ executes one complete G4 SQLite read seed batch  1799ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:53:54
+   Duration  5.47s (transform 1.45s, setup 13ms, collect 2.14s, tests 1.80s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hgLplJ/vitest.json
+Vitest resources: 8.57s wall, 737.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hgLplJ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1670ms
+   ✓ executes one complete G4 SQLite read seed batch  1670ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:05
+   Duration  5.00s (transform 1.49s, setup 11ms, collect 2.21s, tests 1.67s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ys49YC/vitest.json
+Vitest resources: 9.26s wall, 756.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Ys49YC
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1635ms
+   ✓ executes one complete G4 SQLite read seed batch  1634ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:14
+   Duration  5.22s (transform 1.45s, setup 10ms, collect 2.15s, tests 1.63s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-f2v5wV/vitest.json
+Vitest resources: 8.99s wall, 733.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-f2v5wV
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1813ms
+   ✓ executes one complete G4 SQLite read seed batch  1812ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:25
+   Duration  5.02s (transform 1.55s, setup 10ms, collect 2.31s, tests 1.81s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oeEhvY/vitest.json
+Vitest resources: 8.79s wall, 739.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oeEhvY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1584ms
+   ✓ executes one complete G4 SQLite read seed batch  1584ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:35
+   Duration  4.13s (transform 1.46s, setup 9ms, collect 2.15s, tests 1.58s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5k7ZOJ/vitest.json
+Vitest resources: 8.37s wall, 755.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5k7ZOJ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1676ms
+   ✓ executes one complete G4 SQLite read seed batch  1675ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:44
+   Duration  4.72s (transform 1.51s, setup 11ms, collect 2.23s, tests 1.68s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WVJ04W/vitest.json
+Vitest resources: 7.69s wall, 740.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-WVJ04W
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1586ms
+   ✓ executes one complete G4 SQLite read seed batch  1586ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:54:53
+   Duration  5.03s (transform 1.40s, setup 10ms, collect 2.06s, tests 1.59s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DfPLih/vitest.json
+Vitest resources: 8.72s wall, 753.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-DfPLih
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1625ms
+   ✓ executes one complete G4 SQLite read seed batch  1625ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:04
+   Duration  4.92s (transform 1.46s, setup 10ms, collect 2.18s, tests 1.63s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tblUg0/vitest.json
+Vitest resources: 8.82s wall, 757.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tblUg0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1794ms
+   ✓ executes one complete G4 SQLite read seed batch  1793ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:14
+   Duration  5.45s (transform 1.58s, setup 9ms, collect 2.33s, tests 1.79s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EsURSa/vitest.json
+Vitest resources: 9.76s wall, 753.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EsURSa
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1784ms
+   ✓ executes one complete G4 SQLite read seed batch  1783ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:23
+   Duration  4.94s (transform 1.47s, setup 9ms, collect 2.19s, tests 1.78s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iYtWhK/vitest.json
+Vitest resources: 8.01s wall, 732.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iYtWhK
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1650ms
+   ✓ executes one complete G4 SQLite read seed batch  1649ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:32
+   Duration  4.20s (transform 1.33s, setup 9ms, collect 1.96s, tests 1.65s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-j2D7KZ/vitest.json
+Vitest resources: 7.27s wall, 758.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-j2D7KZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1576ms
+   ✓ executes one complete G4 SQLite read seed batch  1575ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:43
+   Duration  4.42s (transform 1.42s, setup 9ms, collect 2.10s, tests 1.58s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-US7IcU/vitest.json
+Vitest resources: 9.15s wall, 732.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-US7IcU
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1662ms
+   ✓ executes one complete G4 SQLite read seed batch  1662ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:55:53
+   Duration  5.10s (transform 1.48s, setup 10ms, collect 2.18s, tests 1.66s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qPDr9K/vitest.json
+Vitest resources: 9.23s wall, 731.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-qPDr9K
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1768ms
+   ✓ executes one complete G4 SQLite read seed batch  1767ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:02
+   Duration  4.74s (transform 1.38s, setup 9ms, collect 2.04s, tests 1.77s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ikbADj/vitest.json
+Vitest resources: 8.18s wall, 763.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-ikbADj
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1698ms
+   ✓ executes one complete G4 SQLite read seed batch  1697ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:11
+   Duration  4.65s (transform 1.42s, setup 9ms, collect 2.09s, tests 1.70s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-VlNFZ2/vitest.json
+Vitest resources: 7.83s wall, 746.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-VlNFZ2
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1683ms
+   ✓ executes one complete G4 SQLite read seed batch  1682ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:22
+   Duration  4.35s (transform 1.53s, setup 10ms, collect 2.27s, tests 1.68s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hNAEaz/vitest.json
+Vitest resources: 8.58s wall, 757.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-hNAEaz
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1596ms
+   ✓ executes one complete G4 SQLite read seed batch  1595ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:29
+   Duration  5.20s (transform 1.45s, setup 9ms, collect 2.15s, tests 1.60s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-bYFajG/vitest.json
+Vitest resources: 8.01s wall, 747.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-bYFajG
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1793ms
+   ✓ executes one complete G4 SQLite read seed batch  1793ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:39
+   Duration  5.38s (transform 1.46s, setup 10ms, collect 2.14s, tests 1.79s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jiTzuB/vitest.json
+Vitest resources: 9.23s wall, 737.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jiTzuB
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1568ms
+   ✓ executes one complete G4 SQLite read seed batch  1567ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:49
+   Duration  4.97s (transform 1.43s, setup 9ms, collect 2.10s, tests 1.57s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oBbbdI/vitest.json
+Vitest resources: 7.90s wall, 738.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-oBbbdI
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1682ms
+   ✓ executes one complete G4 SQLite read seed batch  1681ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:56:57
+   Duration  5.31s (transform 1.41s, setup 9ms, collect 2.06s, tests 1.68s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EPiZbZ/vitest.json
+Vitest resources: 8.32s wall, 748.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-EPiZbZ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1620ms
+   ✓ executes one complete G4 SQLite read seed batch  1620ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:08
+   Duration  5.28s (transform 1.58s, setup 9ms, collect 2.38s, tests 1.62s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-k0Ldst/vitest.json
+Vitest resources: 8.90s wall, 731.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-k0Ldst
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1741ms
+   ✓ executes one complete G4 SQLite read seed batch  1741ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:19
+   Duration  4.58s (transform 1.42s, setup 10ms, collect 2.08s, tests 1.74s, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-9GCpPJ/vitest.json
+Vitest resources: 8.88s wall, 724.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-9GCpPJ
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1549ms
+   ✓ executes one complete G4 SQLite read seed batch  1549ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:28
+   Duration  5.03s (transform 1.38s, setup 9ms, collect 2.04s, tests 1.55s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UDQMVk/vitest.json
+Vitest resources: 8.26s wall, 727.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-UDQMVk
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1624ms
+   ✓ executes one complete G4 SQLite read seed batch  1624ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:39
+   Duration  4.96s (transform 1.52s, setup 43ms, collect 2.21s, tests 1.62s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tXIfUs/vitest.json
+Vitest resources: 9.23s wall, 738.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-tXIfUs
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1741ms
+   ✓ executes one complete G4 SQLite read seed batch  1741ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:47
+   Duration  4.80s (transform 1.39s, setup 10ms, collect 2.04s, tests 1.74s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rh8ufi/vitest.json
+Vitest resources: 8.05s wall, 741.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-Rh8ufi
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1525ms
+   ✓ executes one complete G4 SQLite read seed batch  1524ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:57:57
+   Duration  4.62s (transform 1.43s, setup 11ms, collect 2.11s, tests 1.52s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HGSGxX/vitest.json
+Vitest resources: 7.69s wall, 734.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-HGSGxX
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1743ms
+   ✓ executes one complete G4 SQLite read seed batch  1743ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:07
+   Duration  4.80s (transform 1.53s, setup 8ms, collect 2.26s, tests 1.74s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5LdE2B/vitest.json
+Vitest resources: 9.21s wall, 742.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-5LdE2B
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1739ms
+   ✓ executes one complete G4 SQLite read seed batch  1739ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:16
+   Duration  5.09s (transform 1.46s, setup 9ms, collect 2.15s, tests 1.74s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-zF5Cbw/vitest.json
+Vitest resources: 8.47s wall, 752.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-zF5Cbw
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1658ms
+   ✓ executes one complete G4 SQLite read seed batch  1657ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:25
+   Duration  5.18s (transform 1.40s, setup 9ms, collect 2.06s, tests 1.66s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-R2RQNu/vitest.json
+Vitest resources: 8.16s wall, 749.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-R2RQNu
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1559ms
+   ✓ executes one complete G4 SQLite read seed batch  1558ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:36
+   Duration  4.12s (transform 1.49s, setup 10ms, collect 2.21s, tests 1.56s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jpwyjj/vitest.json
+Vitest resources: 8.46s wall, 742.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-jpwyjj
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1636ms
+   ✓ executes one complete G4 SQLite read seed batch  1636ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:44
+   Duration  5.14s (transform 1.43s, setup 9ms, collect 2.11s, tests 1.64s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iT7wN6/vitest.json
+Vitest resources: 8.19s wall, 727.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-iT7wN6
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-1
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1658ms
+   ✓ executes one complete G4 SQLite read seed batch  1657ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:58:54
+   Duration  4.73s (transform 1.35s, setup 10ms, collect 1.98s, tests 1.66s, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-g3Yu2M/vitest.json
+Vitest resources: 8.30s wall, 750.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject candidate, qualifying) contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g0-g3Yu2M
+Raptor 3 g4-seeds (subject candidate, qualifying) campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g4-seeds-FVnwtb

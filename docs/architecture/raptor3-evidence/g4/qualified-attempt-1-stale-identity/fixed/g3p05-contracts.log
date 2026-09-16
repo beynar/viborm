@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 46ms
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 233ms
+ ✓ |raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 97ms
+
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   Start at  20:13:11
+   Duration  8.25s (transform 2.50s, setup 15ms, collect 4.35s, tests 375ms, environment 0ms, prepare 42ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-V7Wmkz/vitest.json
+Vitest resources: 19.23s wall, 556.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-V7Wmkz

@@ -1,0 +1,89 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests | 3 failed) 116ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 36ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 14ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 5ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 8ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 6ms
+     → query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.
+   × G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction containing a read is packaged on a batch-only driver on both routes 9ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError:query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[[{"email":"read-array@example.test"}]]'
+
+   × G4-03 C13 candidate transactions, arrays and raw > D-5 PIN a MULTI-statement array member is refused by the shipped route and packaged by the candidate on a batch-only driver 10ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[{"email":"d5@example.test"}]'
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 a statement-atomic write inside a callback transaction opens no region on either route 5ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-14 a multi-statement write inside a callback transaction opens exactly one region on either route 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02 a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on both routes 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 10ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 2ms
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests) 35ms
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 28ms
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 23ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner
+TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction containing a read is packaged on a batch-only driver on both routes
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError:query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[[{"email":"read-array@example.test"}]]'
+
+
+Expected: [32m"ok:[[{"email":"read-array@example.test"}]]"[39m
+Received: [31m"TransactionError:query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:405:12
+    403|     }, "batch-only");
+    404| 
+    405|     assert.equal(observations.candidate.outcome, observations.shipped.…
+       |            ^
+    406|     assert.equal(
+    407|       observations.candidate.outcome,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > D-5 PIN a MULTI-statement array member is refused by the shipped route and packaged by the candidate on a batch-only driver
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch.'
+- 'ok:[{"email":"d5@example.test"}]'
+
+
+Expected: [32m"ok:[{"email":"d5@example.test"}]"[39m
+Received: [31m"TransactionError: query-engine-v2 cannot merge an insertId-scratch operation into a shared driver batch."[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:498:12
+    496| 
+    497|     // The candidate answer, spelled out: one native batch, committed …
+    498|     assert.equal(
+       |            ^
+    499|       observations.candidate.outcome,
+    500|       'ok:[{"email":"d5@example.test"}]'
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  3 failed | 32 passed (35)
+   Start at  11:43:24
+   Duration  3.73s (transform 1.83s, setup 19ms, collect 3.12s, tests 202ms, environment 0ms, prepare 61ms)
+
+Vitest resources: 8.07s wall, 727.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,1426 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "status": "author-qualification-evidence-complete-independent-and-root-acceptance-pending",
+  "baselineCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "frozenIdentity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "fixed": [
+    {
+      "mode": "cs01-extension-a",
+      "receipt": "fixed/cs01-extension-a.receipt",
+      "testFiles": 1,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-extension-b",
+      "receipt": "fixed/cs01-extension-b.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-extension-composition",
+      "receipt": "fixed/cs01-extension-composition.receipt",
+      "testFiles": 1,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "cs01-structural-reference",
+      "receipt": "fixed/cs01-structural-reference.receipt",
+      "testFiles": 4,
+      "tests": 10,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-member-scope",
+      "receipt": "fixed/cs03-member-scope.receipt",
+      "testFiles": 3,
+      "tests": 8,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g0",
+      "receipt": "fixed/g0.receipt",
+      "testFiles": 5,
+      "tests": 33,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-baseline",
+      "receipt": "fixed/g1-baseline.receipt",
+      "testFiles": 11,
+      "tests": 141,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-compare",
+      "receipt": "fixed/g1-compare.receipt",
+      "testFiles": 14,
+      "tests": 66,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-contracts",
+      "receipt": "fixed/g1-contracts.receipt",
+      "testFiles": 14,
+      "tests": 143,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-generated",
+      "receipt": "fixed/g1-generated.receipt",
+      "testFiles": 4,
+      "tests": 35,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-transport",
+      "receipt": "fixed/g1-transport.receipt",
+      "testFiles": 3,
+      "tests": 44,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-baseline",
+      "receipt": "fixed/g2-baseline.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-contracts",
+      "receipt": "fixed/g2-contracts.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-diagnostics",
+      "receipt": "fixed/g2-diagnostics.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-generated",
+      "receipt": "fixed/g2-generated.receipt",
+      "testFiles": 2,
+      "tests": 52,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-transport",
+      "receipt": "fixed/g2-transport.receipt",
+      "testFiles": 3,
+      "tests": 16,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g25-contracts",
+      "receipt": "fixed/g25-contracts.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g27-contracts",
+      "receipt": "fixed/g27-contracts.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-dependency-boundaries",
+      "receipt": "fixed/g29-dependency-boundaries.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-dependency-choices",
+      "receipt": "fixed/g29-dependency-choices.receipt",
+      "testFiles": 5,
+      "tests": 10,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-member-dependency",
+      "receipt": "fixed/g29-member-dependency.receipt",
+      "testFiles": 9,
+      "tests": 14,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g29-result-progress",
+      "receipt": "fixed/g29-result-progress.receipt",
+      "testFiles": 3,
+      "tests": 2,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-author-execution-regressions",
+      "receipt": "fixed/g3-author-execution-regressions.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-bulk-result-boundary",
+      "receipt": "fixed/g3-bulk-result-boundary.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-bulk-series",
+      "receipt": "fixed/g3-bulk-series.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-depth-recurrence",
+      "receipt": "fixed/g3-depth-recurrence.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-execution-review",
+      "receipt": "fixed/g3-execution-review.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-minimization",
+      "receipt": "fixed/g3-generated-minimization.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-smoke",
+      "receipt": "fixed/g3-generated-smoke.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-transport-smoke",
+      "receipt": "fixed/g3-generated-transport-smoke.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-scope-failure",
+      "receipt": "fixed/g3-scope-failure.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-suppression-retry",
+      "receipt": "fixed/g3-suppression-retry.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-transaction-array",
+      "receipt": "fixed/g3-transaction-array.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p02-contracts",
+      "receipt": "fixed/g3p02-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p03-contracts",
+      "receipt": "fixed/g3p03-contracts.receipt",
+      "testFiles": 4,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-contracts",
+      "receipt": "fixed/g3p04-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-review-contracts",
+      "receipt": "fixed/g3p04-review-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-contracts",
+      "receipt": "fixed/g3p05-contracts.receipt",
+      "testFiles": 6,
+      "tests": 21,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-recursive-read-fit",
+      "receipt": "fixed/g3p05-recursive-read-fit.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-selector-dependencies",
+      "receipt": "fixed/g3p05-selector-dependencies.receipt",
+      "testFiles": 2,
+      "tests": 11,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-variant-collection-order",
+      "receipt": "fixed/g3p05-variant-collection-order.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-generation-selftests",
+      "receipt": "fixed/g4-generation-selftests.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-lifecycle-admission",
+      "receipt": "fixed/g4-lifecycle-admission.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-lifecycle-events",
+      "receipt": "fixed/g4-lifecycle-events.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-aggregates",
+      "receipt": "fixed/g4-read-aggregates.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-codecs",
+      "receipt": "fixed/g4-read-codecs.receipt",
+      "testFiles": 4,
+      "tests": 12,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-contracts",
+      "receipt": "fixed/g4-read-contracts.receipt",
+      "testFiles": 21,
+      "tests": 62,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-filters",
+      "receipt": "fixed/g4-read-filters.receipt",
+      "testFiles": 3,
+      "tests": 13,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-operations",
+      "receipt": "fixed/g4-read-operations.receipt",
+      "testFiles": 2,
+      "tests": 11,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-ordering",
+      "receipt": "fixed/g4-read-ordering.receipt",
+      "testFiles": 3,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-pagination",
+      "receipt": "fixed/g4-read-pagination.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-projection",
+      "receipt": "fixed/g4-read-projection.receipt",
+      "testFiles": 3,
+      "tests": 7,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-recursive-fit",
+      "receipt": "fixed/g4-read-recursive-fit.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-admission",
+      "receipt": "fixed/g4-route-admission.receipt",
+      "testFiles": 2,
+      "tests": 7,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-cache",
+      "receipt": "fixed/g4-route-cache.receipt",
+      "testFiles": 2,
+      "tests": 7,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-lifecycle",
+      "receipt": "fixed/g4-route-lifecycle.receipt",
+      "testFiles": 2,
+      "tests": 8,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-transactions",
+      "receipt": "fixed/g4-route-transactions.receipt",
+      "testFiles": 2,
+      "tests": 13,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-unit01-author",
+      "receipt": "fixed/g4-unit01-author.receipt",
+      "testFiles": 29,
+      "tests": 83,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-unit01-review",
+      "receipt": "fixed/g4-unit01-review.receipt",
+      "testFiles": 64,
+      "tests": 200,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-unit02-author",
+      "receipt": "fixed/g4-unit02-author.receipt",
+      "testFiles": 50,
+      "tests": 127,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-clearability-contracts",
+      "receipt": "fixed/post-g3-clearability-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-history-analysis",
+      "receipt": "fixed/post-g3-history-analysis.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-projection-preparation",
+      "receipt": "fixed/post-g3-projection-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-schema-views",
+      "receipt": "fixed/post-g3-schema-views.receipt",
+      "testFiles": 2,
+      "tests": 1,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "post-g3-selector-preparation",
+      "receipt": "fixed/post-g3-selector-preparation.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    }
+  ],
+  "laneFixedModes": [
+    {
+      "mode": "g0",
+      "receipt": "campaigns/g0.receipt",
+      "testFiles": 5,
+      "tests": 33,
+      "status": "passed"
+    }
+  ],
+  "logOnlySelectors": "selector-launch-provenance.json",
+  "native": {
+    "postgres": [
+      {
+        "mode": "g2-pg-baseline",
+        "receipt": "native-pg/g2-pg-baseline.receipt",
+        "testFiles": 12,
+        "tests": 17,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g2-pg-contracts",
+        "receipt": "native-pg/g2-pg-contracts.receipt",
+        "testFiles": 12,
+        "tests": 18,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g25-pg-contracts",
+        "receipt": "native-pg/g25-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g27-pg-contracts",
+        "receipt": "native-pg/g27-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 1,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g29-member-dependency-pg",
+        "receipt": "native-pg/g29-member-dependency-pg.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3-scope-composition-pg",
+        "receipt": "native-pg/g3-scope-composition-pg.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p02-pg-contracts",
+        "receipt": "native-pg/g3p02-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p03-pg-contracts",
+        "receipt": "native-pg/g3p03-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p04-pg-contracts",
+        "receipt": "native-pg/g3p04-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 4,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g4-read-envelope-pg-contracts",
+        "receipt": "native-pg/g4-read-envelope-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g4-unit02-pg-contracts",
+        "receipt": "native-pg/g4-unit02-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 1,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "post-g3-clearability-pg-contracts",
+        "receipt": "native-pg/post-g3-clearability-pg-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      }
+    ],
+    "mysql": [
+      {
+        "mode": "g2-mysql-baseline",
+        "receipt": "native-mysql/g2-mysql-baseline.receipt",
+        "testFiles": 8,
+        "tests": 13,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g2-mysql-contracts",
+        "receipt": "native-mysql/g2-mysql-contracts.receipt",
+        "testFiles": 8,
+        "tests": 13,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g27-mysql-contracts",
+        "receipt": "native-mysql/g27-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 1,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g29-member-dependency-mysql",
+        "receipt": "native-mysql/g29-member-dependency-mysql.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3-scope-composition-mysql",
+        "receipt": "native-mysql/g3-scope-composition-mysql.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p02-mysql-contracts",
+        "receipt": "native-mysql/g3p02-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p03-mysql-contracts",
+        "receipt": "native-mysql/g3p03-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g3p04-mysql-contracts",
+        "receipt": "native-mysql/g3p04-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 4,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g4-read-envelope-mysql-contracts",
+        "receipt": "native-mysql/g4-read-envelope-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 5,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "g4-unit02-mysql-contracts",
+        "receipt": "native-mysql/g4-unit02-mysql-contracts.receipt",
+        "testFiles": 9,
+        "tests": 17,
+        "failedTests": 0,
+        "status": "passed"
+      },
+      {
+        "mode": "post-g3-clearability-mysql-contracts",
+        "receipt": "native-mysql/post-g3-clearability-mysql-contracts.receipt",
+        "testFiles": 2,
+        "tests": 2,
+        "failedTests": 0,
+        "status": "passed"
+      }
+    ]
+  },
+  "campaigns": [
+    {
+      "mode": "cs03-extension-a-seeds",
+      "receipt": "campaigns/cs03-extension-a-seeds.receipt",
+      "firstSeed": 7100,
+      "lastSeed": 7199,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retention": "parent",
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-extension-b-seeds",
+      "receipt": "campaigns/cs03-extension-b-seeds.receipt",
+      "firstSeed": 7200,
+      "lastSeed": 7299,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retention": "parent",
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "cs03-extension-composition-seeds",
+      "receipt": "campaigns/cs03-extension-composition-seeds.receipt",
+      "firstSeed": 7300,
+      "lastSeed": 7399,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retention": "parent",
+      "retainedChildReceipts": 0,
+      "retentionBoundary": "single parent receipt retains the full extension campaign and corpus",
+      "status": "passed"
+    },
+    {
+      "mode": "g1-seeds",
+      "receipt": "campaigns/g1-seeds.receipt",
+      "firstSeed": 1000,
+      "lastSeed": 1999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 2000,
+      "exactReplays": 6000,
+      "skipped": 0,
+      "reportedBatches": 10,
+      "retention": "all",
+      "retainedChildReceipts": 10,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g1-transport-seeds",
+      "receipt": "campaigns/g1-transport-seeds.receipt",
+      "firstSeed": 1000,
+      "lastSeed": 1999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 2000,
+      "exactReplays": 6000,
+      "skipped": 0,
+      "reportedBatches": 10,
+      "retention": "all",
+      "retainedChildReceipts": 10,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g2-seeds",
+      "receipt": "campaigns/g2-seeds.receipt",
+      "firstSeed": 2000,
+      "lastSeed": 6999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 10000,
+      "exactReplays": 30000,
+      "skipped": 0,
+      "reportedBatches": 50,
+      "retention": "all",
+      "retainedChildReceipts": 50,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g2-transport-seeds",
+      "receipt": "campaigns/g2-transport-seeds.receipt",
+      "firstSeed": 2000,
+      "lastSeed": 6999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 10000,
+      "exactReplays": 30000,
+      "skipped": 0,
+      "reportedBatches": 50,
+      "retention": "all",
+      "retainedChildReceipts": 50,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g3-seeds",
+      "receipt": "campaigns/g3-seeds.receipt",
+      "firstSeed": 8000,
+      "lastSeed": 17999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 20000,
+      "exactReplays": 60000,
+      "skipped": 0,
+      "reportedBatches": 100,
+      "retention": "all",
+      "retainedChildReceipts": 100,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g3-transport-seeds",
+      "receipt": "campaigns/g3-transport-seeds.receipt",
+      "firstSeed": 8000,
+      "lastSeed": 17999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 20000,
+      "exactReplays": 60000,
+      "skipped": 0,
+      "reportedBatches": 100,
+      "retention": "all",
+      "retainedChildReceipts": 100,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g3p06-seeds",
+      "receipt": "campaigns/g3p06-seeds.receipt",
+      "firstSeed": 7000,
+      "lastSeed": 7099,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retention": "compact",
+      "retainedChildReceipts": 1,
+      "retentionBoundary": "parent attempt/verified receipt and log plus the required compact child verified/Vitest/generated-campaign receipt",
+      "status": "passed"
+    },
+    {
+      "mode": "g3p06-transport-seeds",
+      "receipt": "campaigns/g3p06-transport-seeds.receipt",
+      "firstSeed": 7000,
+      "lastSeed": 7099,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 200,
+      "exactReplays": 600,
+      "skipped": 0,
+      "reportedBatches": 1,
+      "retention": "compact",
+      "retainedChildReceipts": 1,
+      "retentionBoundary": "parent attempt/verified receipt and log plus the required compact child verified/Vitest/generated-campaign receipt",
+      "status": "passed"
+    },
+    {
+      "mode": "g4-seeds",
+      "receipt": "campaigns/g4-seeds.receipt",
+      "firstSeed": 20000,
+      "lastSeed": 44999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 50000,
+      "exactReplays": 150000,
+      "skipped": 0,
+      "reportedBatches": 250,
+      "retention": "all",
+      "retainedChildReceipts": 250,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g4-transport-seeds",
+      "receipt": "campaigns/g4-transport-seeds.receipt",
+      "firstSeed": 50000,
+      "lastSeed": 74999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 50000,
+      "exactReplays": 150000,
+      "skipped": 0,
+      "reportedBatches": 250,
+      "retention": "all",
+      "retainedChildReceipts": 250,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g4-write-seeds",
+      "receipt": "campaigns/g4-write-seeds.receipt",
+      "firstSeed": 75000,
+      "lastSeed": 99999,
+      "profiles": [
+        "sqlite-interactive",
+        "sqlite-atomic-batch"
+      ],
+      "cells": 50000,
+      "exactReplays": 150000,
+      "skipped": 0,
+      "reportedBatches": 250,
+      "retention": "all",
+      "retainedChildReceipts": 250,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    },
+    {
+      "mode": "g4-write-transport-seeds",
+      "receipt": "campaigns/g4-write-transport-seeds.receipt",
+      "firstSeed": 100000,
+      "lastSeed": 124999,
+      "profiles": [
+        "scripted-returning-weak",
+        "scripted-returning-ack"
+      ],
+      "cells": 50000,
+      "exactReplays": 150000,
+      "skipped": 0,
+      "reportedBatches": 250,
+      "retention": "all",
+      "retainedChildReceipts": 250,
+      "retentionBoundary": "parent receipt plus durably retained compressed child receipts",
+      "status": "passed"
+    }
+  ],
+  "replay": {
+    "passed": [
+      {
+        "name": "cs03-extension-a-seeds",
+        "receipt": "replays/receipts/cs03-extension-a-seeds.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "cs03-extension-b-seeds",
+        "receipt": "replays/receipts/cs03-extension-b-seeds.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "cs03-extension-composition-seeds",
+        "receipt": "replays/receipts/cs03-extension-composition-seeds.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g3-seeds-8000",
+        "receipt": "replays/receipts/g3-seeds-8000.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g3-transport-seeds-8000",
+        "receipt": "replays/receipts/g3-transport-seeds-8000.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g4-write-seeds-75000",
+        "receipt": "replays/receipts/g4-write-seeds-75000.receipt",
+        "status": "passed"
+      },
+      {
+        "name": "g4-write-transport-seeds-100000",
+        "receipt": "replays/receipts/g4-write-transport-seeds-100000.receipt",
+        "status": "passed"
+      }
+    ],
+    "staleIdentityRefusals": [
+      {
+        "name": "cs03-extension-a-stale",
+        "receipt": "replays/receipts/cs03-extension-a-stale.receipt",
+        "evidence": "replays/cs03-extension-a-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "cs03-extension-b-stale",
+        "receipt": "replays/receipts/cs03-extension-b-stale.receipt",
+        "evidence": "replays/cs03-extension-b-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "cs03-extension-composition-stale",
+        "receipt": "replays/receipts/cs03-extension-composition-stale.receipt",
+        "evidence": "replays/cs03-extension-composition-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "g2-conditional-upsert-stale",
+        "receipt": "replays/receipts/g2-conditional-upsert-stale.receipt",
+        "evidence": "replays/g2-conditional-upsert-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "g25-polish-stale",
+        "receipt": "replays/receipts/g25-polish-stale.receipt",
+        "evidence": "replays/g25-polish-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "g3-sqlite-8000-stale",
+        "receipt": "replays/receipts/g3-sqlite-8000-stale.receipt",
+        "evidence": "replays/g3-sqlite-8000-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "g3-transport-8000-stale",
+        "receipt": "replays/receipts/g3-transport-8000-stale.receipt",
+        "evidence": "replays/g3-transport-8000-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "historical-g2-conditional-upsert-stale",
+        "receipt": "replays/receipts/historical-g2-conditional-upsert-stale.receipt",
+        "evidence": "replays/historical-g2-conditional-upsert-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      },
+      {
+        "name": "historical-g25-polish-stale",
+        "receipt": "replays/receipts/historical-g25-polish-stale.receipt",
+        "evidence": "replays/historical-g25-polish-stale.log",
+        "exitCode": 1,
+        "status": "expected-refusal"
+      }
+    ],
+    "unsupportedReplayInputs": [
+      {
+        "name": "g4-seeds-20000",
+        "receipt": "replays/receipts/g4-seeds-20000.not-a-replay-input.receipt",
+        "evidence": "replays/g4-seeds-20000.not-a-replay-input.log",
+        "reason": "A G4 read child corpus carries the campaign subject (\"candidate\"/\"shipped\"); the generic replay gate's corpus schema rejects unknown keys. The runner reproduces a G4 read child by re-running its own seed batch, which is what that family's archive descriptor names as its replayCommand.",
+        "reproduction": "scripts/run-raptor3.mjs g4-seed-batch 20000 --subject=candidate",
+        "note": "replays/NOTE.md",
+        "status": "input-not-accepted-by-replay-gate"
+      },
+      {
+        "name": "g4-transport-seeds-50000",
+        "receipt": "replays/receipts/g4-transport-seeds-50000.not-a-replay-input.receipt",
+        "evidence": "replays/g4-transport-seeds-50000.not-a-replay-input.log",
+        "reason": "A G4 read child corpus carries the campaign subject (\"candidate\"/\"shipped\"); the generic replay gate's corpus schema rejects unknown keys. The runner reproduces a G4 read child by re-running its own seed batch, which is what that family's archive descriptor names as its replayCommand.",
+        "reproduction": "scripts/run-raptor3.mjs g4-transport-seed-batch 50000 --subject=candidate",
+        "note": "replays/NOTE.md",
+        "status": "input-not-accepted-by-replay-gate"
+      }
+    ],
+    "readChildReproductions": [
+      {
+        "name": "g4-seed-batch-20000",
+        "receipt": "replays/receipts/g4-seed-batch-20000.receipt",
+        "subject": "candidate",
+        "cells": 200,
+        "exactReplays": 600,
+        "skipped": 0,
+        "reproducesRetainedChild": "../../../campaigns/g4-seeds/seed-20000.receipt",
+        "byteIdenticalToRetainedChild": true,
+        "status": "passed"
+      },
+      {
+        "name": "g4-transport-seed-batch-50000",
+        "receipt": "replays/receipts/g4-transport-seed-batch-50000.receipt",
+        "subject": "candidate",
+        "cells": 200,
+        "exactReplays": 600,
+        "skipped": 0,
+        "reproducesRetainedChild": "../../../campaigns/g4-transport-seeds/seed-50000.receipt",
+        "byteIdenticalToRetainedChild": true,
+        "status": "passed"
+      }
+    ],
+    "note": "replays/NOTE.md"
+  },
+  "support": {
+    "driverIntegration": {
+      "files": 2,
+      "tests": 16,
+      "evidence": "support/driver-integration.vitest.json"
+    },
+    "receiptSelftests": {
+      "tests": 39,
+      "failed": 0,
+      "evidence": "support/receipts-selftest.log"
+    },
+    "cli": {
+      "tests": 10,
+      "failed": 0,
+      "evidence": "support/cli-selftest.log"
+    },
+    "typecheck": {
+      "exitCode": 1,
+      "historicalDiagnosticsOnly": true,
+      "diagnostics": [
+        "src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.",
+        "src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'."
+      ],
+      "evidence": "support/typecheck.log"
+    },
+    "queryEngineStructure": "support/query-engine-structure.log"
+  },
+  "structure": {
+    "cases": 28,
+    "exactReplays": 60,
+    "skipped": 0,
+    "alternative": "shared-occurrence-candidate",
+    "instrumentationRestored": true,
+    "evidence": "structural-measurement/receipt/verified.json"
+  },
+  "source": {
+    "cost": "support/source-cost.json",
+    "current": {
+      "charged": {
+        "files": 171,
+        "bytes": 2518074,
+        "physicalLines": 71146,
+        "tokenLines": 53890
+      },
+      "navigationSubtotal": {
+        "files": 147,
+        "bytes": 2201864,
+        "physicalLines": 62274,
+        "tokenLines": 47710
+      },
+      "censusOwner": "scripts/query-engine-structure.mjs",
+      "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+      "status": "source-accounted-bundle-pending"
+    },
+    "parserTokenCensus": "support/source-cost.json#files (per-file token-line census by the same census owner and function hash)",
+    "frozenIdentityManifest": "support/frozen-identity-manifest.json",
+    "allowlist": "source-allowlist.json",
+    "patch": "source.patch",
+    "claimBoundary": "source cost only; no runtime or bundle improvement claim"
+  },
+  "retention": {
+    "audit": "support/retained-corpora-audit.json",
+    "packaging": "support/corpus-packaging.json",
+    "retentionMap": "support/corpus-retention.json",
+    "retainedCorpora": 1320,
+    "archiveBytes": 1054375465,
+    "originalBytes": 53996673706,
+    "perCampaign": [
+      {
+        "campaign": "g4-seeds",
+        "retention": "all",
+        "count": 250,
+        "firstSeed": 20000,
+        "lastSeed": 44900,
+        "archiveBytes": 2848067,
+        "originalBytes": 82232810
+      },
+      {
+        "campaign": "g4-transport-seeds",
+        "retention": "all",
+        "count": 250,
+        "firstSeed": 50000,
+        "lastSeed": 74900,
+        "archiveBytes": 2846893,
+        "originalBytes": 82338366
+      },
+      {
+        "campaign": "g4-write-seeds",
+        "retention": "all",
+        "count": 250,
+        "firstSeed": 75000,
+        "lastSeed": 99900,
+        "archiveBytes": 339696458,
+        "originalBytes": 18055416620
+      },
+      {
+        "campaign": "g4-write-transport-seeds",
+        "retention": "all",
+        "count": 250,
+        "firstSeed": 100000,
+        "lastSeed": 124900,
+        "archiveBytes": 395168829,
+        "originalBytes": 19937950653
+      },
+      {
+        "campaign": "g3-seeds",
+        "retention": "all",
+        "count": 100,
+        "firstSeed": 8000,
+        "lastSeed": 17900,
+        "archiveBytes": 134249144,
+        "originalBytes": 7135845594
+      },
+      {
+        "campaign": "g3-transport-seeds",
+        "retention": "all",
+        "count": 100,
+        "firstSeed": 8000,
+        "lastSeed": 17900,
+        "archiveBytes": 159346875,
+        "originalBytes": 7994691613
+      },
+      {
+        "campaign": "g2-seeds",
+        "retention": "all",
+        "count": 50,
+        "firstSeed": 2000,
+        "lastSeed": 6900,
+        "archiveBytes": 14463082,
+        "originalBytes": 430586409
+      },
+      {
+        "campaign": "g2-transport-seeds",
+        "retention": "all",
+        "count": 50,
+        "firstSeed": 2000,
+        "lastSeed": 6900,
+        "archiveBytes": 4261137,
+        "originalBytes": 217867237
+      },
+      {
+        "campaign": "g1-seeds",
+        "retention": "all",
+        "count": 10,
+        "firstSeed": 1000,
+        "lastSeed": 1900,
+        "archiveBytes": 944284,
+        "originalBytes": 38423377
+      },
+      {
+        "campaign": "g1-transport-seeds",
+        "retention": "all",
+        "count": 10,
+        "firstSeed": 1000,
+        "lastSeed": 1900,
+        "archiveBytes": 550696,
+        "originalBytes": 21321027
+      }
+    ],
+    "compact": [
+      {
+        "campaign": "g3p06-seeds",
+        "retention": "compact",
+        "directory": "campaigns/g3p06-seeds/seed-7000.receipt",
+        "firstSeed": 7000,
+        "cells": 200,
+        "replays": 600,
+        "skipped": 0,
+        "corpusRetained": false,
+        "files": [
+          {
+            "file": "verified.json",
+            "bytes": 472,
+            "sha256": "f8ede55071befac0c1008a38d554cb8a412577660ef3f9e5d1ec011be074962f"
+          },
+          {
+            "file": "vitest.json",
+            "bytes": 896,
+            "sha256": "fee1414910d8399ebd5c7511d82c87b41e41dc3c6135667824715172112be564"
+          },
+          {
+            "file": "generated-campaign.json",
+            "bytes": 38695,
+            "sha256": "881faf8085ebbb6437875cb3c12c7dc09af128ca2cd29e94c1891d0c30e8eb55"
+          }
+        ]
+      },
+      {
+        "campaign": "g3p06-transport-seeds",
+        "retention": "compact",
+        "directory": "campaigns/g3p06-transport-seeds/seed-7000.receipt",
+        "firstSeed": 7000,
+        "cells": 200,
+        "replays": 600,
+        "skipped": 0,
+        "corpusRetained": false,
+        "files": [
+          {
+            "file": "verified.json",
+            "bytes": 482,
+            "sha256": "e9a78dfea68778d078d023e2368b2c7b92daa30edbce752a1a368c59a22328e1"
+          },
+          {
+            "file": "vitest.json",
+            "bytes": 894,
+            "sha256": "93b729aa12414622b5ed0a5f00b5f783c6477431c8b87253b62e3739e00bfc89"
+          },
+          {
+            "file": "generated-campaign.json",
+            "bytes": 22879,
+            "sha256": "53784cf33d0b5332fb065fdd7896cdf4b29ca66a87ffde46f390a3649a123dde"
+          }
+        ]
+      }
+    ],
+    "retentionFamilies": {
+      "g4-seeds": "all",
+      "g4-transport-seeds": "all",
+      "g4-write-seeds": "all",
+      "g4-write-transport-seeds": "all",
+      "g3-seeds": "all",
+      "g3-transport-seeds": "all",
+      "g2-seeds": "all",
+      "g2-transport-seeds": "all",
+      "g1-seeds": "all",
+      "g1-transport-seeds": "all",
+      "g3p06-seeds": "compact",
+      "g3p06-transport-seeds": "compact",
+      "cs03-extension-a-seeds": "parent",
+      "cs03-extension-b-seeds": "parent",
+      "cs03-extension-composition-seeds": "parent"
+    },
+    "retainedFiles": "retained-files.json",
+    "checksums": "SHA256SUMS",
+    "taskCommitAllowlist": "task-commit-allowlist.json"
+  },
+  "evidenceBoundaries": {
+    "nativeSuites": "Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (PostgreSQL 127.0.0.1:65504, MySQL 127.0.0.1:65515); no claim about any other provider build or deployment",
+    "readCampaignProfiles": "The four G4 read profiles are distinguished by the transport model each cell actually exhibits, checked per child; profile names alone are not the claim",
+    "writeCampaign": "g4-write-seeds and g4-write-transport-seeds are the accepted G3 write generator on fresh disjoint seed ranges; they are new inputs, not a new generator",
+    "acceptance": "Independent and root review attestations are external to this sealed author tree"
+  },
+  "gaps": [],
+  "totals": {
+    "fixedModes": 65,
+    "fixedTestExecutions": 1742,
+    "fixedModesNotPassed": 0,
+    "laneFixedModes": 1,
+    "laneFixedTestExecutions": 33,
+    "laneFixedModesNotPassed": 0,
+    "postgresModes": 12,
+    "postgresTests": 64,
+    "postgresModesNotPassed": 0,
+    "mysqlModes": 11,
+    "mysqlTests": 69,
+    "mysqlModesNotPassed": 0,
+    "campaignModes": 15,
+    "campaignCells": 265000,
+    "campaignExactReplays": 795000,
+    "campaignSkips": 0,
+    "campaignModesNotPassed": 0,
+    "selectedReplays": 7,
+    "unsupportedReplayInputs": 2,
+    "readChildReproductions": 2,
+    "staleIdentityRefusals": 9
+  }
+}

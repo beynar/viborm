@@ -1,0 +1,19 @@
+{
+  "mode": "g4-read-envelope-pg-contracts",
+  "identity": {
+    "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+    "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

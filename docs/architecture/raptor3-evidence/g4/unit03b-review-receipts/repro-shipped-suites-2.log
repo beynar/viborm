@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 30ms
+ ✓ |coverage-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 13ms
+ ✓ |coverage-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 31ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 16ms
+ ✓ |layer-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 3ms
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 63ms
+ ✓ |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests) 14ms
+ ✓ |raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 16ms
+ ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 30ms
+ ✓ |raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 30ms
+ ✓ |raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (5 tests) 19ms
+ ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 27ms
+ ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 34ms
+
+ Test Files  18 passed (18)
+      Tests  128 passed (128)
+   Start at  11:13:28
+   Duration  9.27s (transform 4.17s, setup 38ms, collect 8.14s, tests 346ms, environment 0ms, prepare 116ms)
+
+Vitest resources: 12.06s wall, 753.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,376 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g3-02-specimen-review| tests/raptor3/g4/review/g3-02-specimen/specimen-parity.review.test.ts (5 tests | 1 failed) 54ms
+   ✓ G3-02 specimen review probes > R1. half A's sentence is the SHIPPED engine's own answer for the same request 27ms
+   × G3-02 specimen review probes > R2. half B's progress is measured against the SHIPPED engine for the same request 15ms
+     → shipped/candidate differential for half B's request: {
+  "candidate": {
+    "batchCalls": 2,
+    "childRows": [
+      {
+        "id": 1,
+        "label": "left-1",
+        "parentId": 1
+      }
+    ],
+    "corrupted": true,
+    "corruptedStatements": [
+      "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END"
+    ],
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int",
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "result",
+          "committedSegments": 1,
+          "completedMembers": 2,
+          "committedWriteMembers": 2
+        }
+      },
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",
+      "name": "QueryEngineError"
+    },
+    "parentRows": [
+      {
+        "id": 1,
+        "label": "batched"
+      }
+    ],
+    "recordRows": [],
+    "statements": [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ],
+    "windows": [
+      [
+        "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+        "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+        "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+        "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))"
+      ],
+      [
+        "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+      ]
+    ]
+  },
+  "shipped": {
+    "batchCalls": 1,
+    "childRows": [
+      {
+        "id": 1,
+        "label": "left-1",
+        "parentId": 1
+      }
+    ],
+    "corrupted": true,
+    "corruptedStatements": [
+      "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1"
+    ],
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true,
+          "memberPath": [
+            0
+          ],
+          "totalMembers": 1
+        }
+      },
+      "message": "Fragment output 'parent.create.id' did not resolve to a runtime value.",
+      "name": "QueryEngineError"
+    },
+    "parentRows": [
+      {
+        "id": 1,
+        "label": "batched"
+      }
+    ],
+    "recordRows": [],
+    "statements": [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ],
+    "windows": [
+      [
+        "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+        "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+        "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+        "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+        "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+      ]
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V9001',
++     message: 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+-     message: "Fragment output 'parent.create.id' did not resolve to a runtime value.",
+      meta: {
++       driver: 'sqlite3',
++       operation: 'createMany',
+        recordSeriesProgress: {
+          atomicity: 'segment',
++         committedSegments: 1,
++         committedWriteMembers: 2,
++         completedMembers: 2,
++         phase: 'result'
+-         committedSegments: 0,
+-         committedWriteMembers: 0,
+-         completedMembers: 0,
+-         mayHaveCommittedSegment: true,
+-         memberPath: [
+-           0
+-         ],
+-         phase: 'member',
+-         totalMembers: 1
+        },
++       scalarType: 'int'
+      },
+      name: 'QueryEngineError'
+    },
+    parents: [
+      {
+
+   ✓ G3-02 specimen review probes > R3. half A's sentence holds on a transaction-capable transport too 7ms
+   ✓ G3-02 specimen review probes > R4. half B's acknowledged write window commits BEFORE the malformed row arrives 2ms
+   ✓ G3-02 specimen review probes > R5. the cut is stated over ROWS: the same write without `select` is untouched 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g3-02-specimen-review| tests/raptor3/g4/review/g3-02-specimen/specimen-parity.review.test.ts > G3-02 specimen review probes > R2. half B's progress is measured against the SHIPPED engine for the same request
+AssertionError: shipped/candidate differential for half B's request: {
+  "candidate": {
+    "batchCalls": 2,
+    "childRows": [
+      {
+        "id": 1,
+        "label": "left-1",
+        "parentId": 1
+      }
+    ],
+    "corrupted": true,
+    "corruptedStatements": [
+      "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END"
+    ],
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "driver": "sqlite3",
+        "operation": "createMany",
+        "scalarType": "int",
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "result",
+          "committedSegments": 1,
+          "completedMembers": 2,
+          "committedWriteMembers": 2
+        }
+      },
+      "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",
+      "name": "QueryEngineError"
+    },
+    "parentRows": [
+      {
+        "id": 1,
+        "label": "batched"
+      }
+    ],
+    "recordRows": [],
+    "statements": [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ],
+    "windows": [
+      [
+        "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+        "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+        "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+        "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))"
+      ],
+      [
+        "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"g3_author_execution_parents\" AS \"q0\" WHERE \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) ORDER BY CASE WHEN \"q0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) THEN ? ELSE ? END",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+      ]
+    ]
+  },
+  "shipped": {
+    "batchCalls": 1,
+    "childRows": [
+      {
+        "id": 1,
+        "label": "left-1",
+        "parentId": 1
+      }
+    ],
+    "corrupted": true,
+    "corruptedStatements": [
+      "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1"
+    ],
+    "failure": {
+      "code": "V9001",
+      "meta": {
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true,
+          "memberPath": [
+            0
+          ],
+          "totalMembers": 1
+        }
+      },
+      "message": "Fragment output 'parent.create.id' did not resolve to a runtime value.",
+      "name": "QueryEngineError"
+    },
+    "parentRows": [
+      {
+        "id": 1,
+        "label": "batched"
+      }
+    ],
+    "recordRows": [],
+    "statements": [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+      "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ],
+    "windows": [
+      [
+        "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+        "INSERT INTO \"g3_author_execution_parents\" (\"label\") VALUES (?)",
+        "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+        "INSERT INTO \"g3_author_execution_left_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER))",
+        "SELECT \"t0\".\"id\" AS \"id\" FROM \"g3_author_execution_parents\" AS \"t0\" WHERE \"t0\".\"id\" = CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER) LIMIT 1",
+        "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+      ]
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V9001',
++     message: 'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+-     message: "Fragment output 'parent.create.id' did not resolve to a runtime value.",
+      meta: {
++       driver: 'sqlite3',
++       operation: 'createMany',
+        recordSeriesProgress: {
+          atomicity: 'segment',
++         committedSegments: 1,
++         committedWriteMembers: 2,
++         completedMembers: 2,
++         phase: 'result'
+-         committedSegments: 0,
+-         committedWriteMembers: 0,
+-         completedMembers: 0,
+-         mayHaveCommittedSegment: true,
+-         memberPath: [
+-           0
+-         ],
+-         phase: 'member',
+-         totalMembers: 1
+        },
++       scalarType: 'int'
+      },
+      name: 'QueryEngineError'
+    },
+    parents: [
+      {
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,22 +1,20 @@[39m
+[2m  {[22m
+[2m    "failure": {[22m
+[2m      "code": "V9001",[22m
+[32m-     "message": "Fragment output 'parent.create.id' did not resolve to a runtime value.",[39m
+[31m+     "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer.",[39m
+[2m      "meta": {[22m
+[31m+       "driver": "sqlite3",[39m
+[31m+       "operation": "createMany",[39m
+[2m        "recordSeriesProgress": {[22m
+[2m          "atomicity": "segment",[22m
+[32m-         "committedSegments": 0,[39m
+[32m-         "committedWriteMembers": 0,[39m
+[32m-         "completedMembers": 0,[39m
+[32m-         "mayHaveCommittedSegment": true,[39m
+[32m-         "memberPath": [[39m
+[32m-           0,[39m
+[32m-         ],[39m
+[32m-         "phase": "member",[39m
+[32m-         "totalMembers": 1,[39m
+[31m+         "committedSegments": 1,[39m
+[31m+         "committedWriteMembers": 2,[39m
+[31m+         "completedMembers": 2,[39m
+[31m+         "phase": "result",[39m
+[2m        },[22m
+[31m+       "scalarType": "int",[39m
+[2m      },[22m
+[2m      "name": "QueryEngineError",[22m
+[2m    },[22m
+[2m    "parents": [[22m
+[2m      {[22m
+
+ ❯ tests/raptor3/g4/review/g3-02-specimen/specimen-parity.review.test.ts:343:12
+    341|     // Recorded as measured; a divergence here is data for the note, n…
+    342|     // claim the unit made.
+    343|     assert.deepEqual(
+       |            ^
+    344|       { failure: candidate.failure, parents: candidate.parentRows },
+    345|       { failure: shipped.failure, parents: shipped.parentRows },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  01:48:23
+   Duration  2.00s (transform 1.26s, setup 9ms, collect 1.80s, tests 54ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.52s wall, 474.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

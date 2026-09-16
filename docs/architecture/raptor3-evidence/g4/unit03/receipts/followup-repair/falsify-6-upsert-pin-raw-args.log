@@ -1,0 +1,312 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests) 191ms
+ ❯ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests | 2 failed) 52ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-01 a model call is lazy and memoizes one preparation, value and failure 10ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-09/LX-11 request transforms run once, before admission, and default omit still applies 6ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-10 the extension chain keeps its order and its collision refusal 4ms
+   × G4-03 C13 candidate client lifecycle > LX-12 a query interceptor owns proceed() and short-circuit, and its input is the admitted payload on both routes 14ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      select: {
+        email: true
+      },
+      where: {
++       email: 'intercepted@example.test'
+-       email: {
+-         equals: 'intercepted@example.test'
+-       }
+      }
+    }
+  ]
+
+   × G4-03 C13 candidate client lifecycle > D-6 PIN the interceptor input for upsert is the caller's raw arms on the shipped route and the ONE admission on the candidate 9ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    },
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    }
+  ]
+
+   ✓ G4-03 C13 candidate client lifecycle > LX-13 statement transforms see the same statements on both routes 4ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-14 every observed unit matches the shipped route, operation and statement alike 3ms
+   ✓ G4-03 C13 candidate client lifecycle > LX-16/LX-17 lifecycle and introspection stay on the existing owners 2ms
+ ❯ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests | 1 failed) 29ms
+   ✓ G4-03 C13 candidate admission, results and refusals > one admitted input is evaluated exactly once, request transform first 4ms
+   ✓ G4-03 C13 candidate admission, results and refusals > the same admission count as the shipped route for the same payload 3ms
+   × G4-03 C13 candidate admission, results and refusals > the payload published before proceed() is the ONE admission, on both routes 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      data: {
+-       id: undefined,
+        slug: 'payload',
++       title: 'value'
+-       title: 'value-admitted'
+      },
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined
+    }
+  ]
+
+   ✓ G4-03 C13 candidate admission, results and refusals > every client verb is answered by the route and agrees with the shipped route 12ms
+   ✓ G4-03 C13 candidate admission, results and refusals > results are fresh containers and errors keep their public identity 3ms
+   ✓ G4-03 C13 candidate admission, results and refusals > B-3 the candidate admits through the schema registry the client handed it 1ms
+   ✓ G4-03 C13 candidate admission, results and refusals > a findUnique miss answers null on both routes 2ms
+ ❯ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests | 1 failed) 19ms
+   ✓ G4-03 C13 official cache over the candidate route > LX-08/NS-04 a committed candidate write publishes exactly one invalidation 7ms
+   ✓ G4-03 C13 official cache over the candidate route > LX-08 a rolled-back candidate write publishes no invalidation 2ms
+   ✓ G4-03 C13 official cache over the candidate route > LX-08 a transaction publishes its members' invalidations only after commit 1ms
+   ✓ G4-03 C13 official cache over the candidate route > RF-10/LX-07 a cached read inside a transaction bypasses the cache entirely 1ms
+   ✓ G4-03 C13 official cache over the candidate route > LX-07 a raw read is never a cached operation on either route 1ms
+   × G4-03 C13 official cache over the candidate route > NS-04 the payload a cache entry is keyed on is identical on both routes 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    select: {
+      label: true
+    },
+    where: {
++     label: {
++       equals: 'keyed'
++     }
+-     label: 'keyed'
+    }
+  }
+
+   ✓ G4-03 C13 official cache over the candidate route > LX-07 PENDING blocker B-1c: a cached read refuses at the candidate result codec 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-admission.test.ts > G4-03 C13 candidate admission, results and refusals > the payload published before proceed() is the ONE admission, on both routes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      data: {
+-       id: undefined,
+        slug: 'payload',
++       title: 'value'
+-       title: 'value-admitted'
+      },
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "data": {[22m
+[32m-       "id": undefined,[39m
+[2m        "slug": "payload",[22m
+[32m-       "title": "value-admitted",[39m
+[31m+       "title": "value",[39m
+[2m      },[22m
+[32m-     "include": undefined,[39m
+[32m-     "omit": undefined,[39m
+[32m-     "select": undefined,[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-admission.test.ts:209:12
+    207|     assert.deepEqual(candidate.admissions, shipped.admissions);
+    208|     // And the payload the interceptor saw is the ADMITTED one on both…
+    209|     assert.deepEqual(candidate.seen, shipped.seen);
+       |            ^
+    210|     assert.equal(
+    211|       (candidate.seen[0] as { data: { title: string } }).data.title,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-cache.test.ts > G4-03 C13 official cache over the candidate route > NS-04 the payload a cache entry is keyed on is identical on both routes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    select: {
+      label: true
+    },
+    where: {
++     label: {
++       equals: 'keyed'
++     }
+-     label: 'keyed'
+    }
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "select": {[22m
+[2m      "label": true,[22m
+[2m    },[22m
+[2m    "where": {[22m
+[32m-     "label": "keyed",[39m
+[31m+     "label": {[39m
+[31m+       "equals": "keyed",[39m
+[31m+     },[39m
+[2m    },[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/route-cache.test.ts:234:12
+    232|     // which is the same payload the shipped route's constructed opera…
+    233|     // retains — the seam blocker B-1 named, now consumed.
+    234|     assert.deepEqual(keyed(shipped), keyed(candidate));
+       |            ^
+    235|     assert.deepEqual(keyed(candidate), {
+    236|       select: { label: true },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-lifecycle.test.ts > G4-03 C13 candidate client lifecycle > LX-12 a query interceptor owns proceed() and short-circuit, and its input is the admitted payload on both routes
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+      select: {
+        email: true
+      },
+      where: {
++       email: 'intercepted@example.test'
+-       email: {
+-         equals: 'intercepted@example.test'
+-       }
+      }
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,11 +2,9 @@[39m
+[2m    {[22m
+[2m      "select": {[22m
+[2m        "email": true,[22m
+[2m      },[22m
+[2m      "where": {[22m
+[32m-       "email": {[39m
+[32m-         "equals": "intercepted@example.test",[39m
+[32m-       },[39m
+[31m+       "email": "intercepted@example.test",[39m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-lifecycle.test.ts:351:12
+    349|     // keys on (`PendingOperation.cacheKeyArgs`), which the NS-04 cell…
+    350|     // `route-cache.test.ts` compares directly.
+    351|     assert.deepEqual(observations.candidate.seen, observations.shipped…
+       |            ^
+    352|     assert.deepEqual(observations.candidate.seen, [
+    353|       {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-lifecycle.test.ts > G4-03 C13 candidate client lifecycle > D-6 PIN the interceptor input for upsert is the caller's raw arms on the shipped route and the ONE admission on the candidate
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    },
+    {
+-     include: undefined,
+-     omit: undefined,
+-     select: undefined,
+-     setWhere: undefined,
+-     targetWhere: undefined,
+      where: {
+        email: 'upsert@example.test'
+      }
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "include": undefined,[39m
+[32m-     "omit": undefined,[39m
+[32m-     "select": undefined,[39m
+[32m-     "setWhere": undefined,[39m
+[32m-     "targetWhere": undefined,[39m
+[2m      "where": {[22m
+[2m        "email": "upsert@example.test",[22m
+[2m      },[22m
+[2m    },[22m
+[2m    {[22m
+[32m-     "include": undefined,[39m
+[32m-     "omit": undefined,[39m
+[32m-     "select": undefined,[39m
+[32m-     "setWhere": undefined,[39m
+[32m-     "targetWhere": undefined,[39m
+[2m      "where": {[22m
+[2m        "email": "upsert@example.test",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-lifecycle.test.ts:447:12
+    445|       ...envelope
+    446|     }: Record<string, unknown>) => envelope;
+    447|     assert.deepEqual(
+       |            ^
+    448|       observations.candidate.seen.map(envelopeOf),
+    449|       observations.shipped.seen.map(envelopeOf)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  4 failed | 31 passed (35)
+   Start at  11:43:03
+   Duration  5.14s (transform 2.50s, setup 20ms, collect 4.42s, tests 291ms, environment 0ms, prepare 111ms)
+
+Vitest resources: 8.87s wall, 707.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

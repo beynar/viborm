@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (4 tests) 102ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  22:25:35
+   Duration  5.53s (transform 3.20s, setup 24ms, collect 4.69s, tests 102ms, environment 0ms, prepare 93ms)
+
+Vitest resources: 9.71s wall, 554.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

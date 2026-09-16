@@ -1,0 +1,7 @@
+patching file 'src/query-engine/raptor3/shared/query.ts'
+patching file 'src/query-engine/raptor3/shared/schema.ts'
+patching file 'src/query-engine/raptor3/commands/commands.ts'
+patching file 'src/query-engine/raptor3/commands/selection.ts'
+patching file 'src/query-engine/raptor3/commands/relation-body.ts'
+patching file 'src/query-engine/raptor3/route/client-route.ts'
+patching file 'src/query-engine/raptor3/shared/operation-context.ts'

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests) 228ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  22:01:35
+   Duration  15.33s (transform 8.93s, setup 0ms, collect 14.27s, tests 228ms, environment 0ms, prepare 236ms)
+
+Vitest resources: 16.95s wall, 464.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

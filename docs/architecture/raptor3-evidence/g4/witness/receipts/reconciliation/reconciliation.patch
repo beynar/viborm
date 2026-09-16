@@ -1,0 +1,150 @@
+diff --git a/tests/raptor3/core-structure/measurement/extension-a-scenario.ts b/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+index 4d6a4229..4053744b 100644
+--- a/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
++++ b/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+@@ -11,7 +11,15 @@ import type {
+ import type { ExtensionARecipe } from "./extension-recipes";
+ 
+ const whitespace = /\s+/;
+-const lookupWhere = /WHERE[\s\S]*"lookup"\s*=/;
++// The nested upsert's locate binds `lookup` through a PUBLIC text filter, which
++// the candidate spells with the adapter's exact-text operator: the operator
++// names the binary collation between the column and the comparison
++// (`"lookup" COLLATE BINARY = ?` on SQLite, `COLLATE "C"` on Postgres). The cut
++// is the locate statement, not one provider's punctuation, so the recognizer
++// reads the key binding with or without the collation. `parentId` /
++// `parentTenant` are the relation scope's own key equality, not a public text
++// filter, and carry no collation.
++const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:"[^"]+"|\w+))?\s*=/;
+ const parentIdWhere = /WHERE[\s\S]*"parentId"\s*=/;
+ const parentTenantWhere = /WHERE[\s\S]*"parentTenant"\s*=/;
+ const terminalRowFailure = /could not read back one of the updated rows/;
+@@ -534,6 +542,12 @@ export function extensionAScenario(
+             sql.includes(nestedTable) &&
+             lookupWhere.test(sql)
+           ) {
++            // The locate is the observation point because it is what decides
++            // found from missing: the composition slice pins the same property.
++            assert.equal(
++              completion.rows.length,
++              recipe.nestedShape === "upsert-found" ? 1 : 0
++            );
+             cuts.push(
+               `choice:${recipe.nestedShape.slice("upsert-".length)}/root-member/${choiceObservation}`
+             );
+diff --git a/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts b/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
+index dde3d87f..d2f4efa9 100644
+--- a/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
++++ b/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
+@@ -6,6 +6,13 @@ import type { ScenarioDefinition } from "../../harness/protocol";
+ import type { ExtensionCompositionRecipe } from "./extension-recipes";
+ 
+ const whitespace = /\s+/;
++// The holder upsert's locate binds `lookup` through a PUBLIC text filter, which
++// the candidate spells with the adapter's exact-text operator: the operator
++// names the binary collation between the column and the comparison
++// (`"lookup" COLLATE BINARY = ?` on SQLite, `COLLATE "C"` on Postgres). The cut
++// is the locate statement, not one provider's punctuation, so the recognizer
++// reads the key binding with or without the collation.
++const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:"[^"]+"|\w+))?\s*=/;
+ 
+ function assertScheduledCut(
+   schedule: readonly string[],
+@@ -501,7 +508,7 @@ export function extensionCompositionScenario(
+             isSelect &&
+             choiceObservation < selectedCount &&
+             completion.sql.includes(holderTable) &&
+-            /WHERE[\s\S]*"lookup"\s*=/.test(completion.sql)
++            lookupWhere.test(completion.sql)
+           ) {
+             assert.equal(
+               completion.rows.length,
+diff --git a/tests/raptor3/g3/generation/transport-plans.ts b/tests/raptor3/g3/generation/transport-plans.ts
+index 90da7753..b87372db 100644
+--- a/tests/raptor3/g3/generation/transport-plans.ts
++++ b/tests/raptor3/g3/generation/transport-plans.ts
+@@ -529,12 +529,20 @@ function ordinaryRecurrenceReplies(
+   fault: boolean
+ ): Reply[] {
+   const insertCount = recipe.depth + 1 + recipe.depth * recipe.fanout;
++  // `insertCount === 1` (depth 0) is the scalar-only root `create`: it names no
++  // relation, its projection is RETURNING-safe and the adapter has RETURNING,
++  // so the candidate folds the write and the read into one statement and
++  // publishes the row from the INSERT's own RETURNING — the shipped engine's
++  // tape. There is no re-read left to script. A depth >= 1 recipe names a
++  // relation, does not fold, and keeps the trailing SELECT.
++  // (`g4/unit02/note.md` §P.4.7, §R2.5 — recorded root-`create` fold.)
++  const folded = insertCount === 1;
+   return [
+     recurrenceSegment(
+       `${name}:recurrence-0`,
+       [
+         ...expectedStatements("INSERT", insertCount, firstParameter),
+-        ...expectedStatements("SELECT", 1),
++        ...(folded ? [] : expectedStatements("SELECT", 1)),
+       ],
+       expected,
+       fault
+diff --git a/tests/raptor3/g4/read-codecs.test.ts b/tests/raptor3/g4/read-codecs.test.ts
+index 6fbe7219..cec64226 100644
+--- a/tests/raptor3/g4/read-codecs.test.ts
++++ b/tests/raptor3/g4/read-codecs.test.ts
+@@ -438,7 +438,7 @@ describe("G4 C12 vector capability boundary (SC-13)", () => {
+    * trip itself is witnessed only on a capable provider, in
+    * `tests/raptor3/g4/native/`.
+    */
+-  it("SC-13 refuses a vector write and read identically on a provider without the tier", async () => {
++  it("SC-13 refuses a vector write identically, and neither engine refuses the read of an empty table", async () => {
+     const shippedWrite = await observeFailure(() =>
+       Promise.resolve(
+         world.shipped.embedded?.create?.({ data: { ...EMBEDDINGS[0] } })
+@@ -454,20 +454,19 @@ describe("G4 C12 vector capability boundary (SC-13)", () => {
+       shippedWrite.constructorName,
+       `the candidate raised ${candidateWrite.constructorName} (${candidateWrite.message}) where the shipped engine raises ${shippedWrite.constructorName}`
+     );
+-    const shippedRead = await observeFailure(() =>
+-      Promise.resolve(
+-        world.shipped.embedded?.findMany?.({ select: { embedding: true } })
+-      )
+-    );
+-    const candidateRead = await observeFailure(() =>
+-      world.candidate.execute("embedded", "findMany", {
+-        select: { embedding: true },
+-      })
+-    );
+-    assert.equal(
+-      candidateRead.constructorName,
+-      shippedRead.constructorName,
+-      `the candidate raised ${candidateRead.constructorName} (${candidateRead.message}) where the shipped engine raises ${shippedRead.constructorName}`
++    // The write is where the capability is asked; the READ over the table the
++    // refused write left empty is answered by both engines, because neither
++    // result parser consults the vector tier when there is no value to decode.
++    // The contract here is therefore parity on the answer, not a refusal.
++    const shippedRead = await world.shipped.embedded?.findMany?.({
++      select: { embedding: true },
++    });
++    const candidateRead = await world.candidate.execute(
++      "embedded",
++      "findMany",
++      { select: { embedding: true } }
+     );
++    assert.deepEqual(candidateRead, shippedRead);
++    assert.deepEqual(candidateRead, []);
+   });
+ });
+diff --git a/tests/raptor3/g4/read-recursive-fit.test.ts b/tests/raptor3/g4/read-recursive-fit.test.ts
+index 62f1c3e1..7ff37cc3 100644
+--- a/tests/raptor3/g4/read-recursive-fit.test.ts
++++ b/tests/raptor3/g4/read-recursive-fit.test.ts
+@@ -240,7 +240,10 @@ describe("G4 RF-16 recursive-read fit on the fuller codec set", () => {
+       if (value === null || typeof value !== "object") return;
+       const row = value as Record<string, unknown>;
+       if (typeof row.code === "string") flat.push(row);
+-      for (const nested of Object.values(row)) walk(nested);
++      // The traversal relation is the thing being flattened. Descending every
++      // nested value also pushes the row's own `document` JSON payload, whose
++      // `code` then replaces the traversal row in the map below.
++      walk(row.children);
+     };
+     walk(rows);
+     const byCode = new Map(flat.map((row) => [String(row.code), row]));

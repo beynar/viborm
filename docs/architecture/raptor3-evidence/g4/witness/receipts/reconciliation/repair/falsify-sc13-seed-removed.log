@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests | 1 failed) 99ms
+   ✓ G4 C12 scalar and list codec read crossings > pins the physical spelling the codec witnesses read back 30ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique 10ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values 11ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct 9ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read 5ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates 5ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-06 refuses decimal-list ordering and value aggregation (RF-05) 6ms
+   ✓ G4 C12 scalar and list codec read crossings > Q-R01 refuses a malformed provider row at the decode boundary 5ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > pins the physical spelling of a point column 2ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within 3ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support 9ms
+   × G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write identically and decodes a stored vector 4ms
+     → Cannot read properties of undefined (reading 'embedded_vector')
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write identically and decodes a stored vector
+TypeError: Cannot read properties of undefined (reading 'embedded_vector')
+ ❯ tests/raptor3/g4/read-codecs.test.ts:471:25
+    469|       .prepare(`SELECT embedded_vector FROM ${VECTOR_TABLE} WHERE id =…
+    470|       .get(seeded.id) as Record<string, unknown>;
+    471|     assert.equal(stored.embedded_vector, "[1,0,0]");
+       |                         ^
+    472|     // One read, two facts: the refused write stored nothing (a leaked…
+    473|     // show up as a second member) and both engines decode the stored …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  14:06:28
+   Duration  2.17s (transform 1.28s, setup 8ms, collect 1.87s, tests 99ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.35s wall, 577.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

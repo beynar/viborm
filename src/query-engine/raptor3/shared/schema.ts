@@ -1,4 +1,5 @@
 import type { AnyDriver } from "@drivers";
+import { QueryEngineError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
 import { getModelKeyCatalog, type AnyModel } from "@schema/model";
 import {
@@ -23,19 +24,53 @@ import {
 } from "./storage";
 
 export type Input = Record<string, unknown>;
+export type ReadOperation =
+  | "findMany"
+  | "findUnique"
+  | "findFirst"
+  | "count"
+  | "exist"
+  | "aggregate"
+  | "groupBy";
 export type Operation =
   | "create"
   | "createMany"
   | "update"
   | "upsert"
   | "updateMany"
+  | "delete"
   | "deleteMany"
-  | "findMany"
-  | "findUnique"
-  | "groupBy";
+  | ReadOperation;
+
+const READ_OPERATIONS: ReadonlySet<string> = new Set<ReadOperation>([
+  "findMany",
+  "findUnique",
+  "findFirst",
+  "count",
+  "exist",
+  "aggregate",
+  "groupBy",
+]);
+
+/** One classification of an admitted operation; a read allocates no write work. */
+export function isReadOperation(
+  operation: Operation
+): operation is ReadOperation {
+  return READ_OPERATIONS.has(operation);
+}
+/**
+ * The client's already-resolved schema views. A client that composed them once
+ * hands them over by identity; the candidate never re-hydrates or re-validates
+ * a schema a caller already resolved (g4/unit03/note.md B-3).
+ */
+export interface ResolvedSchemaViews {
+  readonly index: ReturnType<typeof validateClientSchemaOrThrow>;
+  readonly registry: ReturnType<typeof createResolvedSchemaRegistry>;
+}
 export interface EngineConfig {
   schema: Schema;
   driver: AnyDriver;
+  resolved?: ResolvedSchemaViews;
 }
 export interface Arguments extends Input {
   data: Input;
@@ -49,12 +84,38 @@ export interface Arguments extends Input {
   orderBy?: Input | Input[];
   take?: number;
   skip?: number;
+  cursor?: Input;
+  distinct?: string[];
   by?: string[];
   having?: Input;
   limit?: number;
   omit?: Input;
   skipDuplicates?: boolean;
+  _count?: true | Input;
+  _avg?: Input;
+  _sum?: Input;
+  _min?: Input;
+  _max?: Input;
 }
+
+/**
+ * The two update operators whose result a provider ROUNDS — the ones an exact
+ * decimal row key cannot carry portably, and the ones phase 2 made reachable.
+ */
+const ROUNDING_KEY_UPDATES: readonly string[] = ["multiply", "divide"];
+
+/**
+ * Every operation a key update may name, in the shipped engine's own order
+ * (`operations/mutation-identity.ts` `assertPortablePrimaryKeyUpdateInput`),
+ * because the refusal sentence lists them in it.
+ */
+const KEY_UPDATE_OPERATIONS = [
+  "set",
+  "increment",
+  "decrement",
+  "multiply",
+  "divide",
+] as const;
 
 /** These casts attach the existing admission schema's dynamic model correlation. */
 export function record(value: unknown): Input {
@@ -83,13 +144,36 @@ export class EngineSchema {
     ResolvedSlot,
     ClearableMembership
   >();
-  constructor(readonly schema: Schema) {
+  constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+    if (resolved) {
+      this.index = resolved.index;
+      this.registry = resolved.registry;
+      return;
+    }
     hydrateSchemaNames(schema);
     this.index = validateClientSchemaOrThrow(schema);
     this.registry = createResolvedSchemaRegistry(schema, this.index);
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
-    if (operation === "upsert") return this.upsert(model, raw);
+    const admitted =
+      operation === "upsert"
+        ? this.upsert(model, raw)
+        : this.admitArguments(model, operation, raw);
+    // WHERE the shipped engine states the key's portability contract, mirrored:
+    // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
+    // from their own validator); an `upsert` asserts on its FOUND arm and only
+    // when the update payload names relations, which `Commands` attaches there.
+    if (operation === "update" || operation === "updateMany") {
+      const refusal = this.keyPortabilityRefusal(model, admitted.data);
+      if (refusal) throw refusal;
+    }
+    return admitted;
+  }
+  private admitArguments(
+    model: AnyModel,
+    operation: Operation,
+    raw: unknown
+  ): Arguments {
     const schema = this.registry.getModelSchemas(model).args[operation];
     const input =
       operation === "update" && isRecord(raw) && isRecord(raw.data)
@@ -107,12 +191,159 @@ export class EngineSchema {
         : raw;
     return parseValidated(schema, input, operation, "") as Arguments;
   }
+  /**
+   * Does this payload name a relation of the model? One spelling, asked by the
+   * upsert's create arm below and by the found-arm key-portability gate in
+   * `commands.ts`.
+   */
+  namesRelation(model: AnyModel, data: Input): boolean {
+    return model["~"].relationNames.some((name) => data[name] !== undefined);
+  }
+  /**
+   * The row key's PORTABILITY contract for the two operators phase 2 made
+   * reachable, as one refusal the caller raises where the shipped engine raises
+   * it — never a second walker, never a second sentence.
+   *
+   * A key's post-update value has to be NAMEABLE: a non-returning readback and
+   * every dependent's key transition address the row by it. `multiply` and
+   * `divide` carry a provider-chosen rounding on a `number` or `decimal` key
+   * that no engine can name portably, and a `divide` by zero has no value at
+   * all, so the shipped engine refuses both from its own validator
+   * (`assertPortablePrimaryKeyUpdateInput`). Until phase 2 implemented the two
+   * operators the candidate answered "not implemented" for every one of these
+   * payloads; implementing them is what brought the shapes within reach, so the
+   * refusals arrive with them, in the shipped engine's own sentences.
+   *
+   * WHAT it says is the shipped assertion with exactly ONE adopted divergence,
+   * R-D2 (a) (Arnaud, 2026-09-15): an EXACT-DOMAIN arithmetic update of a
+   * `decimal` key — `increment` / `decrement` — is supported, because it is
+   * exact in coefficient space, and the registered G3 witness
+   * `tests/raptor3/g3/review-execution-boundaries.test.ts` pins that capability.
+   * `multiply` / `divide` on the same key still carry the provider's rounding,
+   * so they stay refused. Everything else is parity: R-D2 (b), a `number` key
+   * under any arithmetic, and R-D2 (c), `set` beside another operation, answer
+   * the shipped sentences (they used to be divergences, pinned on both engines;
+   * the decision reverted them). The shipped non-finite-operand arm is
+   * deliberately NOT mirrored — after the rules below it is reachable only for
+   * an `int`/`bigint` key, whose validation refuses a non-finite operand, so it
+   * would be a guard whose unique coverage cannot be named.
+   *
+   * WHERE it is raised belongs to each caller, because the shipped engine does
+   * not raise it in one place: `admit` raises it for `update`/`updateMany`, and
+   * the upsert's found arm carries it (`commands.ts`) exactly when the update
+   * payload names relations — the shipped gate, note §R3.1. A wider placement
+   * refuses requests the shipped engine performs, including an upsert that
+   * CREATES a row the arithmetic never touches.
+   */
+  keyPortabilityRefusal(model: AnyModel, data: unknown): Error | undefined {
+    if (!isRecord(data)) return undefined;
+    for (const keyField of this.keys(model)) {
+      const update = data[keyField];
+      if (!isRecord(update)) continue;
+      const named = KEY_UPDATE_OPERATIONS.filter(
+        (operation) => update[operation] !== undefined
+      );
+      if (named.length !== 1)
+        return new QueryEngineError(
+          `Primary key field '${keyField}' accepts exactly one update operation; received ${named.join(", ") || "none"}.`
+        );
+      const operation = named[0]!;
+      if (operation === "set") continue;
+      const scalarType = model["~"].state.scalars[keyField]?.["~"].state.type;
+      if (
+        scalarType === "number" ||
+        (scalarType === "decimal" && ROUNDING_KEY_UPDATES.includes(operation))
+      )
+        return new QueryEngineError(
+          `Arithmetic updates are not portable for ${scalarType} primary key field '${keyField}'. Use an explicit set value.`
+        );
+      if (update.divide === 0 || update.divide === 0n)
+        return new QueryEngineError(
+          `Cannot divide primary key field '${keyField}' by zero.`
+        );
+    }
+    return undefined;
+  }
+  /**
+   * The key TRANSITION's own refusal — the shipped engine's THIRD key owner,
+   * and a different question from {@link keyPortabilityRefusal}.
+   *
+   * A child-held relation written beside a key update forces the parent's
+   * POST-transition key value to be named at ANALYSIS: the child rows this
+   * payload writes reference it, and the compiler builds their FK before any
+   * row is located. The shipped engine names it in
+   * `RecordUpdateCompilerState.interpretReferencedKeyTransition`
+   * (`write-engine/RecordUpdateCompiler.ts:3319` ->
+   * `operations/mutation-identity.ts:357`), reached from the `UpsertOperation`
+   * CONSTRUCTOR (`:480`) — so for an upsert it runs before either arm is
+   * selected, and a payload whose post-value cannot be computed is refused
+   * with the transition's own sentence rather than the validator's, before
+   * either arm writes anything. Two payloads cannot be computed, and they are
+   * the two `getSafeUpdatedScalarValue` refuses (`mutation-identity.ts:298`,
+   * `:336`): a key naming anything other than exactly one operation, which is
+   * R-D2 (c)'s `set`-beside-an-operator shape and answers `:187`'s sentence,
+   * and a `divide` by zero, which has no value at all.
+   *
+   * Its three structural conditions are the shipped ones, measured
+   * (`upsert-key-portability.test.ts`, the third describe):
+   *
+   * - the relation is CHILD-held and references the key being rewritten. That
+   *   fact is NOT re-derived here: the command tree already records it while it
+   *   expands the payload (`RelationBody.relation` ->
+   *   `RecordCommand.transitions`), and this method reads that list. A
+   *   parent-held relation beside the same `divide` builds no transition, and
+   *   both engines answer the validator's sentence;
+   * - the reference key has exactly ONE member (`RecordUpdateCompiler.ts:3310`
+   *   `referencedFields.length === 1`, whose comment is explicit that "a
+   *   compound one falls through to the per-member compile-time source rather
+   *   than borrowing member zero's answer") — a compound reference key reaches
+   *   the validator's sentence on both engines;
+   * - the locator's DISCRIMINATOR pins the pre-value as a literal, which is
+   *   what makes the transition nameable at analysis. `pinned` is the prepared
+   *   selector's `facts.keys` — the `key: true` columns, which are the shipped
+   *   `pinnedTargetValues` entries (`write-engine/shared.ts:154-166`) — never
+   *   its `facts.equals`, which also collects an extended `where`'s filter half
+   *   and its `AND`/`OR`/`NOT` arms.
+   *
+   * A payload naming exactly one computable operation — `set`, or an
+   * arithmetic one the provider can carry — builds its transition and is not
+   * this owner's business; the found arm's {@link keyPortabilityRefusal} is
+   * what still judges the operator's portability, exactly as shipped.
+   */
+  keyTransitionRefusal(
+    model: AnyModel,
+    data: unknown,
+    pinned: ReadonlyMap<string, unknown>,
+    transitions: readonly Extract<Membership, { kind: "reference" }>[]
+  ): Error | undefined {
+    if (!isRecord(data)) return undefined;
+    for (const keyField of this.keys(model)) {
+      if (!pinned.has(keyField)) continue;
+      const update = data[keyField];
+      if (!isRecord(update)) continue;
+      if (
+        !transitions.some(
+          (edge) =>
+            edge.pairs.length === 1 && edge.pairs[0]!.source === keyField
+        )
+      )
+        continue;
+      const named = KEY_UPDATE_OPERATIONS.filter(
+        (operation) => update[operation] !== undefined
+      );
+      if (named.length !== 1)
+        return new QueryEngineError(
+          `Cannot determine the updated primary key for model '${model["~"].names.ts!}' because field '${keyField}' uses an unsupported operation.`
+        );
+      if (update.divide === 0 || update.divide === 0n)
+        return new QueryEngineError("Cannot divide a primary key by zero.");
+    }
+    return undefined;
+  }
   private upsert(model: AnyModel, raw: unknown): Arguments {
     const envelope = parseValidated(upsertEnvelopeSchema, raw, "upsert", "");
     const schemas = this.registry.getModelSchemas(model);
-    const createHasRelations = model["~"].relationNames.some(
-      (name) => envelope.create[name] !== undefined
-    );
+    const createHasRelations = this.namesRelation(model, envelope.create);
     const updateScalars = Object.fromEntries(
       Object.entries(envelope.update).filter(
         ([name]) => !model["~"].relationNames.includes(name)

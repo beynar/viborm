@@ -1,0 +1,750 @@
+[
+  {
+    "seed": 7133,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "a",
+      "seed": 7133,
+      "rootCount": 2,
+      "keyShape": "single-kept",
+      "nestedShape": "upsert-found",
+      "missingTerminalRow": false,
+      "outcome": "success",
+      "schedule": [
+        "before:admit:root-template<capture:roots/2",
+        "before:capture:roots/2<admit:root-member/0",
+        "before:admit:root-member/0<effect:root/0",
+        "before:capture:roots/2<admit:root-member/1",
+        "before:admit:root-member/1<effect:root/0",
+        "before:choice:found/root-member/0<effect:upsert-found/root-member/0",
+        "before:effect:root/0<effect:upsert-found/root-member/0",
+        "before:effect:upsert-found/root-member/0<effect:root/1",
+        "before:choice:found/root-member/1<effect:upsert-found/root-member/1",
+        "before:effect:root/1<effect:upsert-found/root-member/1",
+        "before:effect:upsert-found/root-member/1<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:root-template",
+      "capture:roots/2",
+      "admit:root-member/0",
+      "admit:root-member/1",
+      "effect:root/0",
+      "effect:root/1",
+      "choice:found/root-member/0",
+      "choice:found/root-member/1",
+      "effect:upsert-found/root-member/0",
+      "effect:upsert-found/root-member/1",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:root-template",
+      "capture:roots/2",
+      "admit:root-member/0",
+      "admit:root-member/1",
+      "effect:root/0",
+      "effect:upsert-found/root-member/0",
+      "effect:root/1",
+      "effect:upsert-found/root-member/1",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"kind\" AS \"kind\", \"q0\".\"lookup\" AS \"lookup\", \"q0\".\"label\" AS \"label\", \"q0\".\"rootToken\" AS \"rootToken\", \"q0\".\"nestedToken\" AS \"nestedToken\", \"q0\".\"deleteGroup\" AS \"deleteGroup\", \"q0\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q0\" WHERE \"q0\".\"kind\" COLLATE BINARY = ? ORDER BY \"q0\".\"id\" ASC",
+        "rows": 2
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ?, \"rootToken\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"id\" AS \"id\", \"q1\".\"kind\" AS \"kind\", \"q1\".\"lookup\" AS \"lookup\", \"q1\".\"label\" AS \"label\", \"q1\".\"rootToken\" AS \"rootToken\", \"q1\".\"nestedToken\" AS \"nestedToken\", \"q1\".\"deleteGroup\" AS \"deleteGroup\", \"q1\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q1\" WHERE \"q1\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q1\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q2\".\"id\" AS \"id\", \"q2\".\"kind\" AS \"kind\", \"q2\".\"lookup\" AS \"lookup\", \"q2\".\"label\" AS \"label\", \"q2\".\"rootToken\" AS \"rootToken\", \"q2\".\"nestedToken\" AS \"nestedToken\", \"q2\".\"deleteGroup\" AS \"deleteGroup\", \"q2\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q2\" WHERE (\"q2\".\"parentId\" = ? AND \"q2\".\"lookup\" COLLATE BINARY = ? AND \"q2\".\"id\" = ?) ORDER BY \"q2\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ? WHERE \"id\" = ?",
+        "rows": 0
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ?, \"rootToken\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q3\".\"id\" AS \"id\", \"q3\".\"kind\" AS \"kind\", \"q3\".\"lookup\" AS \"lookup\", \"q3\".\"label\" AS \"label\", \"q3\".\"rootToken\" AS \"rootToken\", \"q3\".\"nestedToken\" AS \"nestedToken\", \"q3\".\"deleteGroup\" AS \"deleteGroup\", \"q3\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q3\" WHERE \"q3\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q3\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q4\".\"id\" AS \"id\", \"q4\".\"kind\" AS \"kind\", \"q4\".\"lookup\" AS \"lookup\", \"q4\".\"label\" AS \"label\", \"q4\".\"rootToken\" AS \"rootToken\", \"q4\".\"nestedToken\" AS \"nestedToken\", \"q4\".\"deleteGroup\" AS \"deleteGroup\", \"q4\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q4\" WHERE (\"q4\".\"parentId\" = ? AND \"q4\".\"lookup\" COLLATE BINARY = ? AND \"q4\".\"id\" = ?) ORDER BY \"q4\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ? WHERE \"id\" = ?",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q5\".\"id\" AS \"id\", \"q5\".\"label\" AS \"label\" FROM \"cs03_a_nodes\" AS \"q5\" WHERE (\"q5\".\"id\" = ? OR \"q5\".\"id\" = ?) ORDER BY CASE WHEN \"q5\".\"id\" = ? THEN ? WHEN \"q5\".\"id\" = ? THEN ? ELSE ? END",
+        "rows": 2
+      }
+    ]
+  },
+  {
+    "seed": 7144,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "a",
+      "seed": 7144,
+      "rootCount": 1,
+      "keyShape": "compound-omitted",
+      "nestedShape": "upsert-found",
+      "missingTerminalRow": false,
+      "outcome": "success",
+      "schedule": [
+        "before:admit:root-template<capture:roots/1",
+        "before:capture:roots/1<admit:root-member/0",
+        "before:admit:root-member/0<effect:root/0",
+        "before:choice:found/root-member/0<effect:upsert-found/root-member/0",
+        "before:effect:root/0<effect:upsert-found/root-member/0",
+        "before:effect:upsert-found/root-member/0<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:root-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "effect:root/0",
+      "choice:found/root-member/0",
+      "effect:upsert-found/root-member/0",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:root-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "effect:root/0",
+      "effect:upsert-found/root-member/0",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"tenant\" AS \"tenant\", \"q0\".\"serial\" AS \"serial\", \"q0\".\"label\" AS \"label\", \"q0\".\"rootToken\" AS \"rootToken\" FROM \"cs03_a_parents\" AS \"q0\" WHERE \"q0\".\"tenant\" COLLATE BINARY = ? ORDER BY \"q0\".\"tenant\" ASC, \"q0\".\"serial\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_parents\" SET \"label\" = ?, \"rootToken\" = ? WHERE (\"tenant\" = ? AND \"serial\" = ?) RETURNING \"tenant\" AS \"tenant\", \"serial\" AS \"serial\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"id\" AS \"id\", \"q1\".\"lookup\" AS \"lookup\", \"q1\".\"label\" AS \"label\", \"q1\".\"nestedToken\" AS \"nestedToken\", \"q1\".\"deleteGroup\" AS \"deleteGroup\", \"q1\".\"parentTenant\" AS \"parentTenant\", \"q1\".\"parentSerial\" AS \"parentSerial\" FROM \"cs03_a_children\" AS \"q1\" WHERE \"q1\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q1\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q2\".\"id\" AS \"id\", \"q2\".\"lookup\" AS \"lookup\", \"q2\".\"label\" AS \"label\", \"q2\".\"nestedToken\" AS \"nestedToken\", \"q2\".\"deleteGroup\" AS \"deleteGroup\", \"q2\".\"parentTenant\" AS \"parentTenant\", \"q2\".\"parentSerial\" AS \"parentSerial\" FROM \"cs03_a_children\" AS \"q2\" WHERE ((\"q2\".\"parentTenant\" = ? AND \"q2\".\"parentSerial\" = ?) AND \"q2\".\"lookup\" COLLATE BINARY = ? AND \"q2\".\"id\" = ?) ORDER BY \"q2\".\"id\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_children\" SET \"label\" = ? WHERE \"id\" = ?",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q3\".\"label\" AS \"label\" FROM \"cs03_a_parents\" AS \"q3\" WHERE (\"q3\".\"tenant\" = ? AND \"q3\".\"serial\" = ?) ORDER BY CASE WHEN (\"q3\".\"tenant\" = ? AND \"q3\".\"serial\" = ?) THEN ? ELSE ? END",
+        "rows": 1
+      }
+    ]
+  },
+  {
+    "seed": 7160,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "a",
+      "seed": 7160,
+      "rootCount": 1,
+      "keyShape": "compound-omitted",
+      "nestedShape": "upsert-missing",
+      "missingTerminalRow": false,
+      "outcome": "success",
+      "schedule": [
+        "before:admit:root-template<capture:roots/1",
+        "before:capture:roots/1<admit:root-member/0",
+        "before:admit:root-member/0<effect:root/0",
+        "before:choice:missing/root-member/0<effect:upsert-missing/root-member/0",
+        "before:effect:root/0<effect:upsert-missing/root-member/0",
+        "before:effect:upsert-missing/root-member/0<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:root-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "effect:root/0",
+      "choice:missing/root-member/0",
+      "effect:upsert-missing/root-member/0",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:root-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "effect:root/0",
+      "effect:upsert-missing/root-member/0",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"tenant\" AS \"tenant\", \"q0\".\"serial\" AS \"serial\", \"q0\".\"label\" AS \"label\", \"q0\".\"rootToken\" AS \"rootToken\" FROM \"cs03_a_parents\" AS \"q0\" WHERE \"q0\".\"tenant\" COLLATE BINARY = ? ORDER BY \"q0\".\"tenant\" ASC, \"q0\".\"serial\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"id\" AS \"id\", \"q1\".\"lookup\" AS \"lookup\", \"q1\".\"label\" AS \"label\", \"q1\".\"nestedToken\" AS \"nestedToken\", \"q1\".\"deleteGroup\" AS \"deleteGroup\", \"q1\".\"parentTenant\" AS \"parentTenant\", \"q1\".\"parentSerial\" AS \"parentSerial\" FROM \"cs03_a_children\" AS \"q1\" WHERE ((\"q1\".\"parentTenant\" = ? AND \"q1\".\"parentSerial\" = ?) AND (NOT (? = ?) OR NOT (? = (CAST(? AS INTEGER) + ?)))) ORDER BY \"q1\".\"id\" ASC LIMIT ?",
+        "rows": 0
+      },
+      {
+        "sql": "UPDATE \"cs03_a_parents\" SET \"serial\" = \"serial\" + ?, \"label\" = ?, \"rootToken\" = ? WHERE (\"tenant\" = ? AND \"serial\" = ?) RETURNING \"tenant\" AS \"tenant\", \"serial\" AS \"serial\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q2\".\"id\" AS \"id\", \"q2\".\"lookup\" AS \"lookup\", \"q2\".\"label\" AS \"label\", \"q2\".\"nestedToken\" AS \"nestedToken\", \"q2\".\"deleteGroup\" AS \"deleteGroup\", \"q2\".\"parentTenant\" AS \"parentTenant\", \"q2\".\"parentSerial\" AS \"parentSerial\" FROM \"cs03_a_children\" AS \"q2\" WHERE \"q2\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q2\".\"id\" ASC LIMIT ?",
+        "rows": 0
+      },
+      {
+        "sql": "INSERT INTO \"cs03_a_children\" (\"id\", \"lookup\", \"label\", \"nestedToken\", \"deleteGroup\", \"parentTenant\", \"parentSerial\") VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q3\".\"label\" AS \"label\" FROM \"cs03_a_parents\" AS \"q3\" WHERE (\"q3\".\"tenant\" = ? AND \"q3\".\"serial\" = ?) ORDER BY CASE WHEN (\"q3\".\"tenant\" = ? AND \"q3\".\"serial\" = ?) THEN ? ELSE ? END",
+        "rows": 1
+      }
+    ]
+  },
+  {
+    "seed": 7128,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "a",
+      "seed": 7128,
+      "rootCount": 1,
+      "keyShape": "compound-omitted",
+      "nestedShape": "updateMany",
+      "missingTerminalRow": false,
+      "outcome": "success",
+      "schedule": [
+        "before:admit:root-template<capture:roots/1",
+        "before:admit:root-template<admit:nested-template",
+        "before:admit:nested-template<capture:roots/1",
+        "before:capture:roots/1<admit:root-member/0",
+        "before:admit:root-member/0<effect:root/0",
+        "before:admit:root-member/0<admit:nested-template/root-member/0",
+        "before:admit:nested-template/root-member/0<effect:root/0",
+        "before:capture:nested/root-member/0<admit:nested-member/0",
+        "before:admit:nested-member/0<effect:updateMany/root-member/0",
+        "before:effect:root/0<effect:updateMany/root-member/0",
+        "before:effect:updateMany/root-member/0<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:root-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "effect:root/0",
+      "admit:nested-template",
+      "admit:nested-template/root-member/0",
+      "capture:nested/root-member/0",
+      "admit:nested-member/0",
+      "effect:updateMany/root-member/0",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:root-template",
+      "admit:nested-template",
+      "capture:roots/1",
+      "admit:root-member/0",
+      "admit:nested-template/root-member/0",
+      "effect:root/0",
+      "capture:nested/root-member/0",
+      "admit:nested-member/0",
+      "effect:updateMany/root-member/0",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"tenant\" AS \"tenant\", \"q0\".\"serial\" AS \"serial\", \"q0\".\"label\" AS \"label\", \"q0\".\"rootToken\" AS \"rootToken\" FROM \"cs03_a_parents\" AS \"q0\" WHERE \"q0\".\"tenant\" COLLATE BINARY = ? ORDER BY \"q0\".\"tenant\" ASC, \"q0\".\"serial\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_parents\" SET \"label\" = ?, \"rootToken\" = ? WHERE (\"tenant\" = ? AND \"serial\" = ?) RETURNING \"tenant\" AS \"tenant\", \"serial\" AS \"serial\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"tenant\" AS \"tenant\", \"q1\".\"serial\" AS \"serial\" FROM \"cs03_a_parents\" AS \"q1\" WHERE (\"q1\".\"tenant\" COLLATE BINARY = ? AND \"q1\".\"serial\" = ?)",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q3\".\"id\" AS \"id\", \"q3\".\"lookup\" AS \"lookup\", \"q3\".\"label\" AS \"label\", \"q3\".\"nestedToken\" AS \"nestedToken\", \"q3\".\"deleteGroup\" AS \"deleteGroup\", \"q3\".\"parentTenant\" AS \"parentTenant\", \"q3\".\"parentSerial\" AS \"parentSerial\" FROM \"cs03_a_children\" AS \"q3\" WHERE ((\"q3\".\"parentTenant\" = ? AND \"q3\".\"parentSerial\" = ?) AND 1) ORDER BY \"q3\".\"id\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_a_children\" SET \"label\" = ?, \"nestedToken\" = ? WHERE \"id\" = ?",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q4\".\"label\" AS \"label\" FROM \"cs03_a_parents\" AS \"q4\" WHERE (\"q4\".\"tenant\" = ? AND \"q4\".\"serial\" = ?) ORDER BY CASE WHEN (\"q4\".\"tenant\" = ? AND \"q4\".\"serial\" = ?) THEN ? ELSE ? END",
+        "rows": 1
+      }
+    ]
+  },
+  {
+    "seed": 7149,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "a",
+      "seed": 7149,
+      "rootCount": 2,
+      "keyShape": "single-kept",
+      "nestedShape": "deleteMany",
+      "missingTerminalRow": true,
+      "outcome": "missing-terminal-row",
+      "schedule": [
+        "before:admit:root-template<capture:roots/2",
+        "before:admit:root-template<admit:nested-template",
+        "before:admit:nested-template<capture:roots/2",
+        "before:capture:roots/2<admit:root-member/0",
+        "before:admit:root-member/0<effect:root/0",
+        "before:admit:root-member/0<admit:nested-template/root-member/0",
+        "before:admit:nested-template/root-member/0<effect:root/0",
+        "before:capture:roots/2<admit:root-member/1",
+        "before:admit:root-member/1<effect:root/0",
+        "before:admit:root-member/1<admit:nested-template/root-member/1",
+        "before:admit:nested-template/root-member/1<effect:root/0",
+        "before:capture:nested/root-member/0<effect:root/1",
+        "before:capture:nested/root-member/1<effect:deleteMany/root-member/1",
+        "before:effect:root/1<effect:deleteMany/root-member/1",
+        "before:effect:deleteMany/root-member/1<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:root-template",
+      "capture:roots/2",
+      "admit:root-member/0",
+      "admit:root-member/1",
+      "effect:root/0",
+      "effect:root/1",
+      "admit:nested-template",
+      "admit:nested-template/root-member/0",
+      "admit:nested-template/root-member/1",
+      "capture:nested/root-member/0",
+      "capture:nested/root-member/1",
+      "effect:deleteMany/root-member/1",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:root-template",
+      "admit:nested-template",
+      "capture:roots/2",
+      "admit:root-member/0",
+      "admit:nested-template/root-member/0",
+      "admit:root-member/1",
+      "admit:nested-template/root-member/1",
+      "effect:root/0",
+      "capture:nested/root-member/0",
+      "effect:root/1",
+      "capture:nested/root-member/1",
+      "effect:deleteMany/root-member/1",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"kind\" AS \"kind\", \"q0\".\"lookup\" AS \"lookup\", \"q0\".\"label\" AS \"label\", \"q0\".\"rootToken\" AS \"rootToken\", \"q0\".\"nestedToken\" AS \"nestedToken\", \"q0\".\"deleteGroup\" AS \"deleteGroup\", \"q0\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q0\" WHERE \"q0\".\"kind\" COLLATE BINARY = ? ORDER BY \"q0\".\"id\" ASC",
+        "rows": 2
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ?, \"rootToken\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"id\" AS \"id\" FROM \"cs03_a_nodes\" AS \"q1\" WHERE \"q1\".\"id\" = ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q3\".\"id\" AS \"id\", \"q3\".\"kind\" AS \"kind\", \"q3\".\"lookup\" AS \"lookup\", \"q3\".\"label\" AS \"label\", \"q3\".\"rootToken\" AS \"rootToken\", \"q3\".\"nestedToken\" AS \"nestedToken\", \"q3\".\"deleteGroup\" AS \"deleteGroup\", \"q3\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q3\" WHERE (\"q3\".\"parentId\" = ? AND \"q3\".\"deleteGroup\" COLLATE BINARY = ?) ORDER BY \"q3\".\"id\" ASC",
+        "rows": 0
+      },
+      {
+        "sql": "UPDATE \"cs03_a_nodes\" SET \"label\" = ?, \"rootToken\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q4\".\"id\" AS \"id\" FROM \"cs03_a_nodes\" AS \"q4\" WHERE \"q4\".\"id\" = ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q6\".\"id\" AS \"id\", \"q6\".\"kind\" AS \"kind\", \"q6\".\"lookup\" AS \"lookup\", \"q6\".\"label\" AS \"label\", \"q6\".\"rootToken\" AS \"rootToken\", \"q6\".\"nestedToken\" AS \"nestedToken\", \"q6\".\"deleteGroup\" AS \"deleteGroup\", \"q6\".\"parentId\" AS \"parentId\" FROM \"cs03_a_nodes\" AS \"q6\" WHERE (\"q6\".\"parentId\" = ? AND \"q6\".\"deleteGroup\" COLLATE BINARY = ?) ORDER BY \"q6\".\"id\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "DELETE FROM \"cs03_a_nodes\" WHERE \"id\" = ?",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q7\".\"id\" AS \"id\", \"q7\".\"label\" AS \"label\" FROM \"cs03_a_nodes\" AS \"q7\" WHERE (\"q7\".\"id\" = ? OR \"q7\".\"id\" = ?) ORDER BY CASE WHEN \"q7\".\"id\" = ? THEN ? WHEN \"q7\".\"id\" = ? THEN ? ELSE ? END",
+        "rows": 1
+      }
+    ]
+  },
+  {
+    "seed": 7305,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "composition",
+      "seed": 7305,
+      "rootCount": 2,
+      "limit": 1,
+      "choice": "missing",
+      "seriesWidth": 1,
+      "keyShape": "compound-omitted",
+      "outcome": "success",
+      "schedule": [
+        "before:admit:bin-template/operation<capture:roots/1",
+        "before:admit:holder-template/operation<capture:roots/1",
+        "before:admit:choice-template/operation/0<capture:roots/1",
+        "before:admit:choice-template/operation/1<capture:roots/1",
+        "before:capture:roots/1<admit:bin-template/root-member/0",
+        "before:admit:bin-template/root-member/0<effect:bin-member/0/0",
+        "before:capture:roots/1<admit:holder-template/root-member/0",
+        "before:admit:holder-template/root-member/0<effect:bin-member/0/0",
+        "before:capture:roots/1<admit:choice-template/root-member/0/0",
+        "before:admit:choice-template/root-member/0/0<effect:bin-member/0/0",
+        "before:capture:roots/1<admit:choice-template/root-member/0/1",
+        "before:admit:choice-template/root-member/0/1<effect:bin-member/0/0",
+        "before:capture:bins/root-member/0/1<admit:bin-member/0/0",
+        "before:admit:bin-member/0/0<effect:bin-member/0/0",
+        "before:effect:bin-member/0/0<effect:choice-missing/root-member/0",
+        "before:choice:missing/root-member/0<effect:choice-missing/root-member/0",
+        "before:effect:choice-missing/root-member/0<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:choice-template/operation/1",
+      "admit:holder-template/operation",
+      "capture:roots/1",
+      "admit:bin-template/root-member/0",
+      "admit:holder-template/root-member/0",
+      "admit:choice-template/root-member/0/0",
+      "admit:choice-template/root-member/0/1",
+      "capture:bins/root-member/0/1",
+      "admit:bin-member/0/0",
+      "effect:bin-member/0/0",
+      "choice:missing/root-member/0",
+      "effect:choice-missing/root-member/0",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:holder-template/operation",
+      "admit:choice-template/operation/1",
+      "capture:roots/1",
+      "admit:bin-template/root-member/0",
+      "admit:choice-template/root-member/0/0",
+      "admit:holder-template/root-member/0",
+      "admit:choice-template/root-member/0/1",
+      "capture:bins/root-member/0/1",
+      "admit:bin-member/0/0",
+      "effect:bin-member/0/0",
+      "effect:choice-missing/root-member/0",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"tenant\" AS \"tenant\", \"q0\".\"serial\" AS \"serial\", \"q0\".\"label\" AS \"label\" FROM \"cs03_composition_compound_shelves\" AS \"q0\" WHERE 1 ORDER BY \"q0\".\"tenant\" ASC, \"q0\".\"serial\" ASC LIMIT ?",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q1\".\"tenant\" AS \"tenant\", \"q1\".\"serial\" AS \"serial\" FROM \"cs03_composition_compound_shelves\" AS \"q1\" WHERE (\"q1\".\"tenant\" COLLATE BINARY = ? AND \"q1\".\"serial\" = ?)",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q3\".\"id\" AS \"id\", \"q3\".\"label\" AS \"label\", \"q3\".\"shelfTenant\" AS \"shelfTenant\", \"q3\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_bins\" AS \"q3\" WHERE ((\"q3\".\"shelfTenant\" = ? AND \"q3\".\"shelfSerial\" = ?) AND 1) ORDER BY \"q3\".\"id\" ASC",
+        "rows": 1
+      },
+      {
+        "sql": "UPDATE \"cs03_composition_compound_bins\" SET \"label\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_tickets\" (\"id\", \"note\", \"binId\") VALUES (?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q4\".\"id\" AS \"id\", \"q4\".\"lookup\" AS \"lookup\", \"q4\".\"label\" AS \"label\", \"q4\".\"shelfTenant\" AS \"shelfTenant\", \"q4\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_holders\" AS \"q4\" WHERE \"q4\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q4\".\"id\" ASC LIMIT ?",
+        "rows": 0
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_holders\" (\"id\", \"lookup\", \"label\", \"shelfTenant\", \"shelfSerial\") VALUES (?, ?, ?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q5\".\"label\" AS \"label\" FROM \"cs03_composition_compound_shelves\" AS \"q5\" WHERE (\"q5\".\"tenant\" = ? AND \"q5\".\"serial\" = ?) ORDER BY CASE WHEN (\"q5\".\"tenant\" = ? AND \"q5\".\"serial\" = ?) THEN ? ELSE ? END",
+        "rows": 1
+      }
+    ]
+  },
+  {
+    "seed": 7313,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "composition",
+      "seed": 7313,
+      "rootCount": 2,
+      "limit": 2,
+      "choice": "missing",
+      "seriesWidth": 2,
+      "keyShape": "compound-omitted",
+      "outcome": "success",
+      "schedule": [
+        "before:admit:bin-template/operation<capture:roots/2",
+        "before:admit:holder-template/operation<capture:roots/2",
+        "before:admit:choice-template/operation/0<capture:roots/2",
+        "before:admit:choice-template/operation/1<capture:roots/2",
+        "before:capture:roots/2<admit:bin-template/root-member/0",
+        "before:admit:bin-template/root-member/0<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:holder-template/root-member/0",
+        "before:admit:holder-template/root-member/0<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:choice-template/root-member/0/0",
+        "before:admit:choice-template/root-member/0/0<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:choice-template/root-member/0/1",
+        "before:admit:choice-template/root-member/0/1<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:bin-template/root-member/1",
+        "before:admit:bin-template/root-member/1<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:holder-template/root-member/1",
+        "before:admit:holder-template/root-member/1<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:choice-template/root-member/1/0",
+        "before:admit:choice-template/root-member/1/0<effect:bin-member/0/0",
+        "before:capture:roots/2<admit:choice-template/root-member/1/1",
+        "before:admit:choice-template/root-member/1/1<effect:bin-member/0/0",
+        "before:capture:bins/root-member/0/2<admit:bin-member/0/0",
+        "before:admit:bin-member/0/0<effect:bin-member/0/0",
+        "before:effect:bin-member/0/0<effect:bin-member/0/1",
+        "before:capture:bins/root-member/0/2<admit:bin-member/0/1",
+        "before:admit:bin-member/0/1<effect:bin-member/0/0",
+        "before:effect:bin-member/0/1<effect:choice-missing/root-member/0",
+        "before:choice:missing/root-member/0<effect:choice-missing/root-member/0",
+        "before:effect:choice-missing/root-member/0<effect:bin-member/1/0",
+        "before:capture:bins/root-member/1/2<admit:bin-member/1/0",
+        "before:admit:bin-member/1/0<effect:bin-member/1/0",
+        "before:effect:bin-member/1/0<effect:bin-member/1/1",
+        "before:capture:bins/root-member/1/2<admit:bin-member/1/1",
+        "before:admit:bin-member/1/1<effect:bin-member/1/0",
+        "before:effect:bin-member/1/1<effect:choice-missing/root-member/1",
+        "before:choice:missing/root-member/1<effect:choice-missing/root-member/1",
+        "before:effect:choice-missing/root-member/1<result:terminal-roots"
+      ]
+    },
+    "requiredCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:choice-template/operation/1",
+      "admit:holder-template/operation",
+      "capture:roots/2",
+      "admit:bin-template/root-member/0",
+      "admit:bin-template/root-member/1",
+      "admit:holder-template/root-member/0",
+      "admit:holder-template/root-member/1",
+      "admit:choice-template/root-member/0/0",
+      "admit:choice-template/root-member/1/0",
+      "admit:choice-template/root-member/0/1",
+      "admit:choice-template/root-member/1/1",
+      "capture:bins/root-member/0/2",
+      "capture:bins/root-member/1/2",
+      "admit:bin-member/0/0",
+      "admit:bin-member/0/1",
+      "admit:bin-member/1/0",
+      "admit:bin-member/1/1",
+      "effect:bin-member/0/0",
+      "effect:bin-member/0/1",
+      "effect:bin-member/1/0",
+      "effect:bin-member/1/1",
+      "choice:missing/root-member/0",
+      "choice:missing/root-member/1",
+      "effect:choice-missing/root-member/0",
+      "effect:choice-missing/root-member/1",
+      "result:terminal-roots"
+    ],
+    "reachedCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:holder-template/operation",
+      "admit:choice-template/operation/1",
+      "capture:roots/2",
+      "admit:bin-template/root-member/0",
+      "admit:choice-template/root-member/0/0",
+      "admit:holder-template/root-member/0",
+      "admit:choice-template/root-member/0/1",
+      "admit:bin-template/root-member/1",
+      "admit:choice-template/root-member/1/0",
+      "admit:holder-template/root-member/1",
+      "admit:choice-template/root-member/1/1",
+      "capture:bins/root-member/0/2",
+      "admit:bin-member/0/0",
+      "admit:bin-member/0/1",
+      "effect:bin-member/0/0",
+      "effect:bin-member/0/1",
+      "effect:choice-missing/root-member/0",
+      "capture:bins/root-member/1/2",
+      "admit:bin-member/1/0",
+      "admit:bin-member/1/1",
+      "effect:bin-member/1/0",
+      "effect:bin-member/1/1",
+      "effect:choice-missing/root-member/1",
+      "result:terminal-roots"
+    ],
+    "statements": [
+      {
+        "sql": "SELECT \"q0\".\"tenant\" AS \"tenant\", \"q0\".\"serial\" AS \"serial\", \"q0\".\"label\" AS \"label\" FROM \"cs03_composition_compound_shelves\" AS \"q0\" WHERE 1 ORDER BY \"q0\".\"tenant\" ASC, \"q0\".\"serial\" ASC LIMIT ?",
+        "rows": 2
+      },
+      {
+        "sql": "SELECT \"q1\".\"tenant\" AS \"tenant\", \"q1\".\"serial\" AS \"serial\" FROM \"cs03_composition_compound_shelves\" AS \"q1\" WHERE (\"q1\".\"tenant\" COLLATE BINARY = ? AND \"q1\".\"serial\" = ?)",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q3\".\"id\" AS \"id\", \"q3\".\"label\" AS \"label\", \"q3\".\"shelfTenant\" AS \"shelfTenant\", \"q3\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_bins\" AS \"q3\" WHERE ((\"q3\".\"shelfTenant\" = ? AND \"q3\".\"shelfSerial\" = ?) AND 1) ORDER BY \"q3\".\"id\" ASC",
+        "rows": 2
+      },
+      {
+        "sql": "UPDATE \"cs03_composition_compound_bins\" SET \"label\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_tickets\" (\"id\", \"note\", \"binId\") VALUES (?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "UPDATE \"cs03_composition_compound_bins\" SET \"label\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_tickets\" (\"id\", \"note\", \"binId\") VALUES (?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q4\".\"id\" AS \"id\", \"q4\".\"lookup\" AS \"lookup\", \"q4\".\"label\" AS \"label\", \"q4\".\"shelfTenant\" AS \"shelfTenant\", \"q4\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_holders\" AS \"q4\" WHERE \"q4\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q4\".\"id\" ASC LIMIT ?",
+        "rows": 0
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_holders\" (\"id\", \"lookup\", \"label\", \"shelfTenant\", \"shelfSerial\") VALUES (?, ?, ?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q5\".\"tenant\" AS \"tenant\", \"q5\".\"serial\" AS \"serial\" FROM \"cs03_composition_compound_shelves\" AS \"q5\" WHERE (\"q5\".\"tenant\" COLLATE BINARY = ? AND \"q5\".\"serial\" = ?)",
+        "rows": 1
+      },
+      {
+        "sql": "SELECT \"q7\".\"id\" AS \"id\", \"q7\".\"label\" AS \"label\", \"q7\".\"shelfTenant\" AS \"shelfTenant\", \"q7\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_bins\" AS \"q7\" WHERE ((\"q7\".\"shelfTenant\" = ? AND \"q7\".\"shelfSerial\" = ?) AND 1) ORDER BY \"q7\".\"id\" ASC",
+        "rows": 2
+      },
+      {
+        "sql": "UPDATE \"cs03_composition_compound_bins\" SET \"label\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_tickets\" (\"id\", \"note\", \"binId\") VALUES (?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "UPDATE \"cs03_composition_compound_bins\" SET \"label\" = ? WHERE \"id\" = ? RETURNING \"id\" AS \"id\"",
+        "rows": 1
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_tickets\" (\"id\", \"note\", \"binId\") VALUES (?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q8\".\"id\" AS \"id\", \"q8\".\"lookup\" AS \"lookup\", \"q8\".\"label\" AS \"label\", \"q8\".\"shelfTenant\" AS \"shelfTenant\", \"q8\".\"shelfSerial\" AS \"shelfSerial\" FROM \"cs03_composition_compound_holders\" AS \"q8\" WHERE \"q8\".\"lookup\" COLLATE BINARY = ? ORDER BY \"q8\".\"id\" ASC LIMIT ?",
+        "rows": 0
+      },
+      {
+        "sql": "INSERT INTO \"cs03_composition_compound_holders\" (\"id\", \"lookup\", \"label\", \"shelfTenant\", \"shelfSerial\") VALUES (?, ?, ?, ?, ?)",
+        "rows": 0
+      },
+      {
+        "sql": "SELECT \"q9\".\"label\" AS \"label\" FROM \"cs03_composition_compound_shelves\" AS \"q9\" WHERE ((\"q9\".\"tenant\" = ? AND \"q9\".\"serial\" = ?) OR (\"q9\".\"tenant\" = ? AND \"q9\".\"serial\" = ?)) ORDER BY CASE WHEN (\"q9\".\"tenant\" = ? AND \"q9\".\"serial\" = ?) THEN ? WHEN (\"q9\".\"tenant\" = ? AND \"q9\".\"serial\" = ?) THEN ? ELSE ? END",
+        "rows": 2
+      }
+    ]
+  },
+  {
+    "seed": 7300,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "composition",
+      "seed": 7300,
+      "rootCount": 1,
+      "limit": 0,
+      "choice": "found",
+      "seriesWidth": 1,
+      "keyShape": "single-omitted",
+      "outcome": "success",
+      "schedule": [
+        "before:admit:bin-template/operation<stop:limit-zero",
+        "before:admit:holder-template/operation<stop:limit-zero",
+        "before:admit:choice-template/operation/0<stop:limit-zero",
+        "before:admit:choice-template/operation/1<stop:limit-zero"
+      ]
+    },
+    "requiredCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:choice-template/operation/1",
+      "admit:holder-template/operation",
+      "stop:limit-zero"
+    ],
+    "reachedCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:holder-template/operation",
+      "admit:choice-template/operation/1",
+      "stop:limit-zero"
+    ],
+    "statements": []
+  },
+  {
+    "seed": 7310,
+    "recipe": {
+      "formatVersion": 1,
+      "slice": "composition",
+      "seed": 7310,
+      "rootCount": 3,
+      "limit": 0,
+      "choice": "found",
+      "seriesWidth": 2,
+      "keyShape": "single-omitted",
+      "outcome": "success",
+      "schedule": [
+        "before:admit:bin-template/operation<stop:limit-zero",
+        "before:admit:holder-template/operation<stop:limit-zero",
+        "before:admit:choice-template/operation/0<stop:limit-zero",
+        "before:admit:choice-template/operation/1<stop:limit-zero"
+      ]
+    },
+    "requiredCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:choice-template/operation/1",
+      "admit:holder-template/operation",
+      "stop:limit-zero"
+    ],
+    "reachedCuts": [
+      "admit:bin-template/operation",
+      "admit:choice-template/operation/0",
+      "admit:holder-template/operation",
+      "admit:choice-template/operation/1",
+      "stop:limit-zero"
+    ],
+    "statements": []
+  }
+]

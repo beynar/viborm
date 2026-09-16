@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/generation/write-transport-campaign.test.ts (1 test) 2206ms
+   ✓ executes one complete G4 write-envelope transport seed batch  2206ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  04:56:38
+   Duration  4.17s (transform 1.19s, setup 9ms, collect 1.79s, tests 2.21s, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0vH7xQ/vitest.json
+Vitest resources: 6.21s wall, 896.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-write-transport-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0vH7xQ

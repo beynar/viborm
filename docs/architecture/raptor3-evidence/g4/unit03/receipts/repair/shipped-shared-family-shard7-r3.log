@@ -1,0 +1,30 @@
+
+[test:all] extended-local shared-family shard 7/12 (15 suites)
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/record-series-contract.test.ts (38 tests) 890ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-on-conflict-fold.test.ts (35 tests) 817ms
+ ✓ |extended-local| tests/contracts/engine/write/batch-round-trip-baseline.test.ts (13 tests) 549ms
+ ✓ |extended-local| tests/contracts/engine/write/to-one-create-family.test.ts (14 tests) 1819ms
+   ✓ write boundary to-one create family: T1 pin falsifications > connectOrCreate FOUND-arm presence guard: target deleted before batch fails closed  476ms
+   ✓ write boundary to-one create family: T1 pin falsifications > connectOrCreate MISSING-arm racePin: a concurrent create converges by retry-and-adopt  488ms
+ ✓ |extended-local| tests/contracts/engine/write/junction-create-many-routing.test.ts (9 tests) 613ms
+ ✓ |extended-local| tests/contracts/engine/query/m4-flat-atomic-scope.test.ts (6 tests) 536ms
+ ✓ |extended-local| tests/contracts/engine/write/located-parent-ref-statement-shape.test.ts (4 tests) 577ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-mutation.test.ts (24 tests) 988ms
+ ✓ |extended-local| tests/contracts/public-client/lateral-joins.pglite.test.ts (4 tests) 498ms
+ ✓ |extended-local| tests/contracts/engine/query/orderby-relation-depth.test.ts (4 tests) 473ms
+ ✓ |extended-local| tests/contracts/engine/write/pending-operation-contract.test.ts (5 tests) 480ms
+ ✓ |extended-local| tests/unit/cache/brand-token-keys.test.ts (4 tests) 462ms
+ ✓ |extended-local| tests/unit/migrations/superseded-index-ordering.test.ts (2 tests) 502ms
+   ✓ live push — an index name that moves to another table > is freed before it is taken on pglite  498ms
+ ✓ |extended-local| tests/contracts/engine/write/depth-seam-transaction-matrix.test.ts (25 tests) 775ms
+ ✓ |extended-local| tests/contracts/engine/write/create-junction-upsert.test.ts (26 tests) 874ms
+
+ Test Files  15 passed (15)
+      Tests  213 passed (213)
+   Start at  00:09:31
+   Duration  14.37s (transform 1.37s, setup 19ms, collect 3.25s, tests 10.85s, environment 0ms, prepare 26ms)
+
+[test:all] extended-local shared-family shard 7/12 (15 suites): 16.46s wall, 2125.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

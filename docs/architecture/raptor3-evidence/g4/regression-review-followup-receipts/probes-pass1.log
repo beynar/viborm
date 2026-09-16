@@ -1,0 +1,72 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests) 106ms
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (6 tests | 1 failed) 38ms
+   ✓ G4 seam round review — the cache rail's neighbours > S1 a rolled-back root create invalidates on neither engine 12ms
+   ✓ G4 seam round review — the cache rail's neighbours > S2 a successful root create on a transaction-capable driver invalidates exactly once 5ms
+   ✓ G4 seam round review — the cache rail's neighbours > S3 a failed root create on a transaction-capable driver invalidates on neither engine 4ms
+   ✓ G4 seam round review — the cache rail's neighbours > S4 a multi-segment write notifies the same number of times on both engines 4ms
+   ✓ G4 seam round review — the cache rail's neighbours > S5 a write inside $transaction(callback) invalidates the same on both engines 4ms
+   × G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines 8ms
+     → S6 outcome {
+  "candidate": {
+    "attempts": 1,
+    "outcome": "CacheConfigurationError"
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'CacheConfigurationError'
+- 'raw:Query execution and write-outcome publication both failed.'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts > G4 seam round review — the cache rail's neighbours > S6 a throwing cache invalidation on the uncertain root create answers the same on both engines
+AssertionError: S6 outcome {
+  "candidate": {
+    "attempts": 1,
+    "outcome": "CacheConfigurationError"
+  },
+  "shipped": {
+    "attempts": 1,
+    "outcome": "raw:Query execution and write-outcome publication both failed."
+  }
+}
++ actual - expected
+
++ 'CacheConfigurationError'
+- 'raw:Query execution and write-outcome publication both failed.'
+
+
+Expected: [32m"raw:Query execution and write-outcome publication both failed."[39m
+Received: [31m"CacheConfigurationError"[39m
+
+ ❯ tests/raptor3/g4/review/regression/seam-followup.review.test.ts:365:12
+    363|       report("S6 candidate", { candidate, shipped })
+    364|     );
+    365|     assert.equal(
+       |            ^
+    366|       candidate.outcome,
+    367|       shipped.outcome,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 16 passed (17)
+   Start at  22:38:34
+   Duration  3.39s (transform 1.93s, setup 0ms, collect 2.97s, tests 144ms, environment 0ms, prepare 62ms)
+
+Vitest resources: 4.01s wall, 520.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

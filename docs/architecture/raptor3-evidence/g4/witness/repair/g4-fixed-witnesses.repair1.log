@@ -1,0 +1,1219 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests | 8 failed) 84ms
+   ✓ G4 C12 scalar and list codec read crossings > pins the physical spelling the codec witnesses read back 30ms
+   × G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique 10ms
+     → Raptor 3 G1 scalar codec is not implemented: boolean
+   × G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values 5ms
+     → Raptor 3 G1 scalar codec is not implemented: decimal[]
+   × G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct 7ms
+     → Raptor 3 G1 filter is not implemented: kind
+   × G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read 7ms
+     → Raptor 3 G1 scalar codec is not implemented: blob
+   × G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates 4ms
+     → Raptor 3 G1 filter is not implemented: has
+   ✓ G4 C12 scalar and list codec read crossings > SL-06 refuses decimal-list ordering and value aggregation (RF-05) 5ms
+   ✓ G4 C12 scalar and list codec read crossings > Q-R01 refuses a malformed provider row at the decode boundary 5ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > pins the physical spelling of a point column 2ms
+   × G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within 2ms
+     → Raptor 3 G1 scalar codec is not implemented: point
+   × G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support 3ms
+     → The candidate raised Error (Raptor 3 G1 filter is not implemented: distance) instead of FeatureNotSupportedError for place.findMany
++ actual - expected
+
++ 'Error'
+- 'FeatureNotSupportedError'
+
+   × G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier 3ms
+     → the candidate raised Error (Raptor 3 G1 scalar codec is not implemented: vector) where the shipped engine raises QueryError
++ actual - expected
+
++ 'Error'
+- 'QueryError'
+
+ ❯ |raptor3| tests/raptor3/g4/read-filters.test.ts (10 tests | 6 failed) 63ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W01 composes AND, OR and NOT recursively 13ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W01 rebinds the field-reference scope inside a nested relation predicate 7ms
+   × G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W02 keeps a cursor strictly unique while extended where stays filtered 7ms
+     → The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
+-     id: 2
+    },
+    {
++     id: 2
+-     id: 3
+    }
+  ]
+
+   × G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W03 answers equals, in, notIn, ranges, nested not and field references 9ms
+     → Raptor 3 G1 filter is not implemented: notIn
+   × G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W04 escapes LIKE literals and honours the insensitive mode 4ms
+     → Raptor 3 G1 filter is not implemented: contains
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W08 answers to-one shorthand, is and isNot including real nullability 5ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W09 answers independent some, every and none quantifiers 4ms
+   × G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W10 answers tagged variant collection quantifiers 5ms
+     → Cannot read properties of undefined (reading 'variant')
+   × G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W05 keeps scalar membership and list containment distinct 5ms
+     → Raptor 3 G1 filter is not implemented: has
+   × G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W06 answers JSON path, comparison and nested not predicates 5ms
+     → Raptor 3 G1 filter is not implemented: path
+ ❯ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests | 3 failed) 13ms
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth 7ms
+     → Raptor 3 G1 scalar codec is not implemented: datetime
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 applies descendant where, select and orderBy at every level 4ms
+     → Raptor 3 G1 scalar codec is not implemented: datetime
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 orders roots by seed and keeps one statement per traversal 2ms
+     → Raptor 3 G1 scalar codec is not implemented: datetime
+ ❯ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests | 7 failed) 50ms
+   ✓ G4 C01 root read envelopes (OP-R01…OP-R09) > pins the physical layout every witness in this family assumes 7ms
+   ✓ G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R01 findUnique answers one row or null on a mapped compound key 6ms
+   ✓ G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R01 extended unique where still requires a discriminator 5ms
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R02 findUniqueOrThrow turns absence into the established not-found error 6ms
+     → Raptor 3 G1 operation is not implemented: findUniqueOrThrow
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R03 findFirst returns the first ordered row or null 4ms
+     → Raptor 3 G1 operation is not implemented: findFirst
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R04 findFirstOrThrow refuses absence with the same identity 4ms
+     → Raptor 3 G1 operation is not implemented: findFirstOrThrow
+   ✓ G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R05 findMany filters, orders and windows before projection 4ms
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R06 count returns a number and the selected scalar-count object 3ms
+     → Raptor 3 G1 operation is not implemented: count
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R07 exist returns a boolean without publishing a row shape 3ms
+     → Raptor 3 G1 operation is not implemented: exist
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R08 aggregate shapes _count, _avg, _sum, _min and _max 4ms
+     → Raptor 3 G1 operation is not implemented: aggregate
+   × G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R09 groupBy publishes grouped values with having and group order 5ms
+     → The candidate disagrees with the hand-computed value for post.groupBy
++ actual - expected
+
+  [
+    {
++     _count: 3,
+-     _count: {
+-       _all: 3
+-     },
+      _sum: {
+        views: 35
+      },
+      authorTenant: 'acme'
+    },
+    {
++     _count: 1,
+-     _count: {
+-       _all: 1
+-     },
+      _sum: {
+        views: 30
+      },
+      authorTenant: 'beta'
+    }
+
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts (3 tests | 1 failed) 10ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-admission: one awaited operation admits its request exactly once 4ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-transform: the extension chain transforms one request once 1ms
+   × G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache 4ms
+     → The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the candidate boundary publishes no prepared read shape (g4/unit03/note.md B-1).
+ ❯ |raptor3| tests/raptor3/g4/read-projection.test.ts (6 tests | 1 failed) 32ms
+   ✓ G4 C01 projection shapes (Q-S01…Q-S03) > Q-S01 keeps select and include shapes distinct and mutually exclusive 10ms
+   ✓ G4 C01 projection shapes (Q-S01…Q-S03) > Q-S01 projects both to-one orientations, a junction and a self-relation 5ms
+   × G4 C01 projection shapes (Q-S01…Q-S03) > Q-S02 answers _count: true and per-collection filtered counts 3ms
+     → Raptor 3 G1 physical field is not implemented: _count
+   ✓ G4 C01 projection shapes (Q-S01…Q-S03) > Q-S03 gives each variant arm its own node, order and cardinality 8ms
+   ✓ G4 C01 projection shapes (Q-S01…Q-S03) > Q-S03 refuses an unknown variant arm 4ms
+   ✓ G4 C01 schema default omit (Q-S01) > Q-S01 hides a schema-omitted field from every public projection 2ms
+ ❯ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests | 4 failed) 24ms
+   × G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A01 restricts _avg and _sum to numeric values 8ms
+     → Driver "sqlite3" returned a malformed int scalar for operation "groupBy": the value is not a canonical integer.
+   × G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A02 requires a valid by and answers scalar plus aggregate having 4ms
+     → Raptor 3 G1 physical field is not implemented: AND
+   × G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A02 orders groups by a grouped field and by an aggregate 4ms
+     → The candidate disagrees with the hand-computed value for post.groupBy
++ actual - expected
+
+  [
+    {
++     _count: 1,
+-     _count: {
+-       _all: 1
+-     },
+      authorTenant: 'beta'
+    },
+    {
++     _count: 3,
+-     _count: {
+-       _all: 3
+-     },
+      authorTenant: 'acme'
+    }
+  ]
+
+   × G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-R01 publishes fresh relation and aggregate carriers 3ms
+     → Raptor 3 G1 physical field is not implemented: _count
+   ✓ G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-R01 refuses a structurally invalid provider row 5ms
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-events.test.ts (3 tests | 2 failed) 8ms
+   × G4 C13 lifecycle observation falsifiers > C13 missing-event: one model read publishes every required lifecycle unit 4ms
+     → the candidate route lost a required lifecycle unit
++ actual - expected
+
++ [
++   'statement'
++ ]
+- []
+
+   ✓ G4 C13 lifecycle observation falsifiers > C13 observer-failure-isolation: a throwing observer never changes the outcome 2ms
+   × G4 C13 lifecycle observation falsifiers > C13 statement observation covers the physical statements of one operation 1ms
+     → the candidate route published no statement unit
+ ❯ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests | 4 failed) 23ms
+   ✓ G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O01 orders a scalar domain ascending and descending 7ms
+   × G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O01 places nulls exactly where { sort, nulls } asks 4ms
+     → Raptor 3 G1 scalar codec is not implemented: number
+   × G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O03 descends to-one relations and stops after eight hops (RF-07) 4ms
+     → Raptor 3 G1 physical field is not implemented: author
+   × G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O04 orders collections only by _count 4ms
+     → Raptor 3 G1 physical field is not implemented: posts
+   × G4 C01 distance ordering (Q-O02) > Q-O02 refuses distance ordering identically on a provider without the tier 3ms
+     → The candidate raised Error (Raptor 3 G1 scalar codec is not implemented: point) instead of FeatureNotSupportedError for place.findMany
++ actual - expected
+
++ 'Error'
+- 'FeatureNotSupportedError'
+
+ ❯ |raptor3| tests/raptor3/g4/read-pagination.test.ts (5 tests | 4 failed) 24ms
+   × G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P01 shares cursor, take and skip semantics at the root 8ms
+     → The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
+      id: 2
+    },
+    {
+      id: 3
+    },
+-   {
+-     id: 4
+-   }
+  ]
+
+   × G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P01 restores the logical order of a negative take 4ms
+     → The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
++     id: 2
++   },
++   {
++     id: 3
++   },
++   {
+      id: 4
+    },
+    {
+      id: 5
+    }
+
+   × G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P02 removes duplicates before take and skip 3ms
+     → The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
+      id: 1
+    },
+    {
++     id: 2
++   },
++   {
++     id: 3
++   },
++   {
+      id: 4
+    },
+    {
+      id: 5
+    }
+
+   ✓ G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P03 scopes a nested window to each parent 4ms
+   × G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P03 gives each parent its own where, skip, cursor and omit 4ms
+     → The candidate disagrees with the hand-computed value for author.findMany
++ actual - expected
+
+  [
+    {
+      handle: 'ada',
+      posts: [
+        {
++         id: 1,
++         slug: 'p-one',
++         title: 'One',
++         views: 10
+-         id: 2,
+-         slug: 'p-two',
+-         title: 'Two',
+-         views: 20
+        }
+      ]
+    }
+  ]
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 40 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts > G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache
+UnsupportedOperationError: The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the candidate boundary publishes no prepared read shape (g4/unit03/note.md B-1).
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-events.test.ts > G4 C13 lifecycle observation falsifiers > C13 missing-event: one model read publishes every required lifecycle unit
+AssertionError: the candidate route lost a required lifecycle unit
++ actual - expected
+
++ [
++   'statement'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "statement",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/lifecycle-events.test.ts:94:12
+     92|     await routedObserved.record?.findMany({ where: { score: { gte: 10 …
+     93|     await routedRecorder.settle();
+     94|     assert.deepEqual(
+       |            ^
+     95|       missingUnits(routedRecorder.units),
+     96|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-events.test.ts > G4 C13 lifecycle observation falsifiers > C13 statement observation covers the physical statements of one operation
+AssertionError: the candidate route published no statement unit
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/lifecycle-events.test.ts:158:12
+    156|       .record?.findMany({ orderBy: { id: "asc" } });
+    157|     await routedRecorder.settle();
+    158|     assert.ok(
+       |            ^
+    159|       routedRecorder.units.some((unit) => unit.kind === "statement"),
+    160|       "the candidate route published no statement unit"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-aggregates.test.ts > G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A01 restricts _avg and _sum to numeric values
+QueryEngineError: Driver "sqlite3" returned a malformed int scalar for operation "groupBy": the value is not a canonical integer.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-aggregates.test.ts > G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A02 requires a valid by and answers scalar plus aggregate having
+Error: Raptor 3 G1 physical field is not implemented: AND
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:187:9
+    185|     if (field === idColumn.name) return idColumn;
+    186|   }
+    187|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    188| }
+    189| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:275:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:166:17
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:194:22
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ src/query-engine/raptor3/shared/query.ts:1454:48
+ ❯ src/query-engine/raptor3/shared/query.ts:1452:48
+ ❯ Queries.grouped src/query-engine/raptor3/shared/query.ts:1451:42
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-aggregates.test.ts > G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-A02 orders groups by a grouped field and by an aggregate
+AssertionError: The candidate disagrees with the hand-computed value for post.groupBy
++ actual - expected
+
+  [
+    {
++     _count: 1,
+-     _count: {
+-       _all: 1
+-     },
+      authorTenant: 'beta'
+    },
+    {
++     _count: 3,
+-     _count: {
+-       _all: 3
+-     },
+      authorTenant: 'acme'
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "_count": {[39m
+[32m-       "_all": 1,[39m
+[32m-     },[39m
+[31m+     "_count": 1,[39m
+[2m      "authorTenant": "beta",[22m
+[2m    },[22m
+[2m    {[22m
+[32m-     "_count": {[39m
+[32m-       "_all": 3,[39m
+[32m-     },[39m
+[31m+     "_count": 3,[39m
+[2m      "authorTenant": "acme",[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-aggregates.test.ts:144:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-aggregates.test.ts > G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01) > Q-R01 publishes fresh relation and aggregate carriers
+Error: Raptor 3 G1 physical field is not implemented: _count
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:187:9
+    185|     if (field === idColumn.name) return idColumn;
+    186|   }
+    187|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    188| }
+    189| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:275:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:166:17
+ ❯ Queries.scalarShape src/query-engine/raptor3/shared/query.ts:226:22
+ ❯ Queries.prepareProjection src/query-engine/raptor3/shared/query.ts:1235:29
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:919:50
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique
+Error: Raptor 3 G1 scalar codec is not implemented: boolean
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ Queries.projectedColumn src/query-engine/raptor3/shared/query.ts:219:25
+ ❯ Queries.lowerProjection src/query-engine/raptor3/shared/query.ts:1335:27
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:920:29
+ ❯ src/query-engine/raptor3/commands/index.ts:41:27
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+ ❯ tests/raptor3/g4/read-codecs.test.ts:157:47
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values
+Error: Raptor 3 G1 scalar codec is not implemented: decimal[]
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ Queries.projectedColumn src/query-engine/raptor3/shared/query.ts:219:25
+ ❯ Queries.lowerProjection src/query-engine/raptor3/shared/query.ts:1335:27
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:920:29
+ ❯ src/query-engine/raptor3/commands/index.ts:41:27
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+ ❯ tests/raptor3/g4/read-codecs.test.ts:165:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct
+Error: Raptor 3 G1 filter is not implemented: kind
+ ❯ src/query-engine/raptor3/shared/query.ts:598:21
+    596|               });
+    597|             default:
+    598|               throw new Error(
+       |                     ^
+    599|                 `Raptor 3 G1 filter is not implemented: ${name}`,
+    600|               );
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ src/query-engine/raptor3/shared/query.ts:571:27
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:547:17
+ ❯ src/query-engine/raptor3/shared/query.ts:509:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read
+Error: Raptor 3 G1 scalar codec is not implemented: blob
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ Queries.projectedColumn src/query-engine/raptor3/shared/query.ts:219:25
+ ❯ Queries.lowerProjection src/query-engine/raptor3/shared/query.ts:1335:27
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:920:29
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+ ❯ tests/raptor3/g4/read-codecs.test.ts:235:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W05 keeps scalar membership and list containment distinct
+Error: Raptor 3 G1 filter is not implemented: has
+ ❯ src/query-engine/raptor3/shared/query.ts:598:21
+    596|               });
+    597|             default:
+    598|               throw new Error(
+       |                     ^
+    599|                 `Raptor 3 G1 filter is not implemented: ${name}`,
+    600|               );
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:547:17
+ ❯ src/query-engine/raptor3/shared/query.ts:509:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:341:16
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:925:16
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within
+Error: Raptor 3 G1 scalar codec is not implemented: point
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ Queries.projectedColumn src/query-engine/raptor3/shared/query.ts:219:25
+ ❯ Queries.lowerProjection src/query-engine/raptor3/shared/query.ts:1335:27
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:920:29
+ ❯ src/query-engine/raptor3/commands/index.ts:41:27
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support
+AssertionError: The candidate raised Error (Raptor 3 G1 filter is not implemented: distance) instead of FeatureNotSupportedError for place.findMany
++ actual - expected
+
++ 'Error'
+- 'FeatureNotSupportedError'
+
+
+Expected: [32m"[7mFeatureNotSupported[27mError"[39m
+Received: [31m"Error"[39m
+
+ ❯ expectRefusal tests/raptor3/g4/witness-world.ts:175:10
+    173|     world.candidate.execute(model, operation as Operations, args)
+    174|   );
+    175|   assert.equal(
+       |          ^
+    176|     candidate.name,
+    177|     expected.name,
+ ❯ tests/raptor3/g4/read-codecs.test.ts:406:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier
+AssertionError: the candidate raised Error (Raptor 3 G1 scalar codec is not implemented: vector) where the shipped engine raises QueryError
++ actual - expected
+
++ 'Error'
+- 'QueryError'
+
+
+Expected: [32m"[7mQuery[27mError"[39m
+Received: [31m"Error"[39m
+
+ ❯ tests/raptor3/g4/read-codecs.test.ts:452:12
+    450|       })
+    451|     );
+    452|     assert.equal(
+       |            ^
+    453|       candidateWrite.constructorName,
+    454|       shippedWrite.constructorName,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W02 keeps a cursor strictly unique while extended where stays filtered
+AssertionError: The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
+-     id: 2
+    },
+    {
++     id: 2
+-     id: 3
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "id": 2,[39m
+[31m+     "id": 1,[39m
+[2m    },[22m
+[2m    {[22m
+[32m-     "id": 3,[39m
+[31m+     "id": 2,[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-filters.test.ts:119:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W03 answers equals, in, notIn, ranges, nested not and field references
+Error: Raptor 3 G1 filter is not implemented: notIn
+ ❯ src/query-engine/raptor3/shared/query.ts:598:21
+    596|               });
+    597|             default:
+    598|               throw new Error(
+       |                     ^
+    599|                 `Raptor 3 G1 filter is not implemented: ${name}`,
+    600|               );
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:547:17
+ ❯ src/query-engine/raptor3/shared/query.ts:509:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:341:16
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:925:16
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W04 escapes LIKE literals and honours the insensitive mode
+Error: Raptor 3 G1 filter is not implemented: contains
+ ❯ src/query-engine/raptor3/shared/query.ts:598:21
+    596|               });
+    597|             default:
+    598|               throw new Error(
+       |                     ^
+    599|                 `Raptor 3 G1 filter is not implemented: ${name}`,
+    600|               );
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:547:17
+ ❯ src/query-engine/raptor3/shared/query.ts:509:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:341:16
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:925:16
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W10 answers tagged variant collection quantifiers
+TypeError: Cannot read properties of undefined (reading 'variant')
+ ❯ buildMembershipView src/query-engine/raptor3/shared/storage.ts:97:40
+     95|       scope: Object.freeze({ edge, member }),
+     96|       clearability,
+     97|       name: direct ? `${name}.${member.variant}` : name,
+       |                                        ^
+     98|       source,
+     99|       many,
+ ❯ EngineSchema.membership src/query-engine/raptor3/shared/schema.ts:251:9
+ ❯ bindMembership src/query-engine/raptor3/shared/storage.ts:48:17
+ ❯ src/query-engine/raptor3/shared/query.ts:488:26
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:341:16
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:925:16
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W06 answers JSON path, comparison and nested not predicates
+Error: Raptor 3 G1 filter is not implemented: path
+ ❯ src/query-engine/raptor3/shared/query.ts:598:21
+    596|               });
+    597|             default:
+    598|               throw new Error(
+       |                     ^
+    599|                 `Raptor 3 G1 filter is not implemented: ${name}`,
+    600|               );
+ ❯ Queries.prepareScalarOperations src/query-engine/raptor3/shared/query.ts:568:39
+ ❯ Queries.prepareScalarPredicate src/query-engine/raptor3/shared/query.ts:547:17
+ ❯ src/query-engine/raptor3/shared/query.ts:509:23
+ ❯ Queries.prepareWhere src/query-engine/raptor3/shared/query.ts:463:31
+ ❯ Queries.prepareSelector src/query-engine/raptor3/shared/query.ts:341:16
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:925:16
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R02 findUniqueOrThrow turns absence into the established not-found error
+Error: Raptor 3 G1 operation is not implemented: findUniqueOrThrow
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:145:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R03 findFirst returns the first ordered row or null
+Error: Raptor 3 G1 operation is not implemented: findFirst
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:172:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R04 findFirstOrThrow refuses absence with the same identity
+Error: Raptor 3 G1 operation is not implemented: findFirstOrThrow
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:205:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R06 count returns a number and the selected scalar-count object
+Error: Raptor 3 G1 operation is not implemented: count
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:263:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R07 exist returns a boolean without publishing a row shape
+Error: Raptor 3 G1 operation is not implemented: exist
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:287:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R08 aggregate shapes _count, _avg, _sum, _min and _max
+Error: Raptor 3 G1 operation is not implemented: aggregate
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:62:15
+     60|     ): Promise<unknown> {
+     61|       if (!supportsOperation(operation)) {
+     62|         throw new Error(
+       |               ^
+     63|           `Raptor 3 G1 operation is not implemented: ${operation}`
+     64|         );
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:120:43
+ ❯ tests/raptor3/g4/read-operations.test.ts:298:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-operations.test.ts > G4 C01 root read envelopes (OP-R01…OP-R09) > OP-R09 groupBy publishes grouped values with having and group order
+AssertionError: The candidate disagrees with the hand-computed value for post.groupBy
++ actual - expected
+
+  [
+    {
++     _count: 3,
+-     _count: {
+-       _all: 3
+-     },
+      _sum: {
+        views: 35
+      },
+      authorTenant: 'acme'
+    },
+    {
++     _count: 1,
+-     _count: {
+-       _all: 1
+-     },
+      _sum: {
+        views: 30
+      },
+      authorTenant: 'beta'
+    }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,19 +1,15 @@[39m
+[2m  [[22m
+[2m    {[22m
+[32m-     "_count": {[39m
+[32m-       "_all": 3,[39m
+[32m-     },[39m
+[31m+     "_count": 3,[39m
+[2m      "_sum": {[22m
+[2m        "views": 35,[22m
+[2m      },[22m
+[2m      "authorTenant": "acme",[22m
+[2m    },[22m
+[2m    {[22m
+[32m-     "_count": {[39m
+[32m-       "_all": 1,[39m
+[32m-     },[39m
+[31m+     "_count": 1,[39m
+[2m      "_sum": {[22m
+[2m        "views": 30,[22m
+[2m      },[22m
+[2m      "authorTenant": "beta",[22m
+[2m    },[22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-operations.test.ts:321:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-ordering.test.ts > G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O01 places nulls exactly where { sort, nulls } asks
+Error: Raptor 3 G1 scalar codec is not implemented: number
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ src/query-engine/raptor3/shared/query.ts:901:26
+ ❯ src/query-engine/raptor3/shared/query.ts:900:29
+ ❯ Queries.orderTerms src/query-engine/raptor3/shared/query.ts:899:27
+ ❯ Queries.order src/query-engine/raptor3/shared/query.ts:885:12
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:943:23
+ ❯ src/query-engine/raptor3/commands/index.ts:49:31
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-ordering.test.ts > G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O03 descends to-one relations and stops after eight hops (RF-07)
+Error: Raptor 3 G1 physical field is not implemented: author
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:187:9
+    185|     if (field === idColumn.name) return idColumn;
+    186|   }
+    187|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    188| }
+    189| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:275:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:166:17
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:194:22
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ src/query-engine/raptor3/shared/query.ts:901:26
+ ❯ src/query-engine/raptor3/shared/query.ts:900:29
+ ❯ Queries.orderTerms src/query-engine/raptor3/shared/query.ts:899:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-ordering.test.ts > G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O04 orders collections only by _count
+Error: Raptor 3 G1 physical field is not implemented: posts
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:187:9
+    185|     if (field === idColumn.name) return idColumn;
+    186|   }
+    187|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    188| }
+    189| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:275:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:166:17
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:194:22
+ ❯ Queries.column src/query-engine/raptor3/shared/query.ts:188:23
+ ❯ src/query-engine/raptor3/shared/query.ts:901:26
+ ❯ src/query-engine/raptor3/shared/query.ts:900:29
+ ❯ Queries.orderTerms src/query-engine/raptor3/shared/query.ts:899:27
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-ordering.test.ts > G4 C01 distance ordering (Q-O02) > Q-O02 refuses distance ordering identically on a provider without the tier
+AssertionError: The candidate raised Error (Raptor 3 G1 scalar codec is not implemented: point) instead of FeatureNotSupportedError for place.findMany
++ actual - expected
+
++ 'Error'
+- 'FeatureNotSupportedError'
+
+
+Expected: [32m"[7mFeatureNotSupported[27mError"[39m
+Received: [31m"Error"[39m
+
+ ❯ expectRefusal tests/raptor3/g4/witness-world.ts:175:10
+    173|     world.candidate.execute(model, operation as Operations, args)
+    174|   );
+    175|   assert.equal(
+       |          ^
+    176|     candidate.name,
+    177|     expected.name,
+ ❯ tests/raptor3/g4/read-ordering.test.ts:186:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-pagination.test.ts > G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P01 shares cursor, take and skip semantics at the root
+AssertionError: The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
+      id: 2
+    },
+    {
+      id: 3
+    },
+-   {
+-     id: 4
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[32m-     "id": 2,[39m
+[31m+     "id": 1,[39m
+[2m    },[22m
+[2m    {[22m
+[32m-     "id": 3,[39m
+[31m+     "id": 2,[39m
+[2m    },[22m
+[2m    {[22m
+[32m-     "id": 4,[39m
+[31m+     "id": 3,[39m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-pagination.test.ts:35:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-pagination.test.ts > G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P01 restores the logical order of a negative take
+AssertionError: The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
++     id: 2
++   },
++   {
++     id: 3
++   },
++   {
+      id: 4
+    },
+    {
+      id: 5
+    }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,16 @@[39m
+[2m  [[22m
+[2m    {[22m
+[31m+     "id": 1,[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "id": 2,[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "id": 3,[39m
+[31m+   },[39m
+[31m+   {[39m
+[2m      "id": 4,[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "id": 5,[22m
+[2m    },[22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-pagination.test.ts:65:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-pagination.test.ts > G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P02 removes duplicates before take and skip
+AssertionError: The candidate disagrees with the hand-computed value for post.findMany
++ actual - expected
+
+  [
+    {
+      id: 1
+    },
+    {
++     id: 2
++   },
++   {
++     id: 3
++   },
++   {
+      id: 4
+    },
+    {
+      id: 5
+    }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,10 +1,16 @@[39m
+[2m  [[22m
+[2m    {[22m
+[2m      "id": 1,[22m
+[2m    },[22m
+[2m    {[22m
+[31m+     "id": 2,[39m
+[31m+   },[39m
+[31m+   {[39m
+[31m+     "id": 3,[39m
+[31m+   },[39m
+[31m+   {[39m
+[2m      "id": 4,[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "id": 5,[22m
+[2m    },[22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-pagination.test.ts:87:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-pagination.test.ts > G4 C01 paging vocabulary (Q-P01…Q-P03) > Q-P03 gives each parent its own where, skip, cursor and omit
+AssertionError: The candidate disagrees with the hand-computed value for author.findMany
++ actual - expected
+
+  [
+    {
+      handle: 'ada',
+      posts: [
+        {
++         id: 1,
++         slug: 'p-one',
++         title: 'One',
++         views: 10
+-         id: 2,
+-         slug: 'p-two',
+-         title: 'Two',
+-         views: 20
+        }
+      ]
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "handle": "ada",[22m
+[2m      "posts": [[22m
+[2m        {[22m
+[32m-         "id": 2,[39m
+[32m-         "slug": "p-two",[39m
+[32m-         "title": "Two",[39m
+[32m-         "views": 20,[39m
+[31m+         "id": 1,[39m
+[31m+         "slug": "p-one",[39m
+[31m+         "title": "One",[39m
+[31m+         "views": 10,[39m
+[2m        },[22m
+[2m      ],[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-pagination.test.ts:170:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-projection.test.ts > G4 C01 projection shapes (Q-S01…Q-S03) > Q-S02 answers _count: true and per-collection filtered counts
+Error: Raptor 3 G1 physical field is not implemented: _count
+ ❯ buildPhysicalFieldView src/query-engine/raptor3/shared/storage.ts:187:9
+    185|     if (field === idColumn.name) return idColumn;
+    186|   }
+    187|   throw new Error(`Raptor 3 G1 physical field is not implemented: ${fi…
+       |         ^
+    188| }
+    189| 
+ ❯ EngineSchema.physicalField src/query-engine/raptor3/shared/schema.ts:275:34
+ ❯ physicalField src/query-engine/raptor3/shared/storage.ts:166:17
+ ❯ Queries.scalarShape src/query-engine/raptor3/shared/query.ts:226:22
+ ❯ Queries.prepareProjection src/query-engine/raptor3/shared/query.ts:1235:29
+ ❯ Queries.select src/query-engine/raptor3/shared/query.ts:919:50
+ ❯ src/query-engine/raptor3/commands/index.ts:41:27
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:286:22
+ ❯ run src/query-engine/raptor3/commands/index.ts:38:20
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:73:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth
+Error: Raptor 3 G1 scalar codec is not implemented: datetime
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ src/query-engine/raptor3/shared/query.ts:1016:14
+ ❯ Queries.recursive src/query-engine/raptor3/shared/query.ts:1015:40
+ ❯ traverse tests/raptor3/g4/read-recursive-fit.test.ts:190:35
+ ❯ tests/raptor3/g4/read-recursive-fit.test.ts:202:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 applies descendant where, select and orderBy at every level
+Error: Raptor 3 G1 scalar codec is not implemented: datetime
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ src/query-engine/raptor3/shared/query.ts:1016:14
+ ❯ Queries.recursive src/query-engine/raptor3/shared/query.ts:1015:40
+ ❯ traverse tests/raptor3/g4/read-recursive-fit.test.ts:190:35
+ ❯ tests/raptor3/g4/read-recursive-fit.test.ts:278:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/40]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 orders roots by seed and keeps one statement per traversal
+Error: Raptor 3 G1 scalar codec is not implemented: datetime
+ ❯ Queries.columnName src/query-engine/raptor3/shared/query.ts:202:13
+    200|         state.type !== "decimal")
+    201|     ) {
+    202|       throw new Error(
+       |             ^
+    203|         `Raptor 3 G1 scalar codec is not implemented: ${state.type}${s…
+    204|       );
+ ❯ src/query-engine/raptor3/shared/query.ts:1016:14
+ ❯ Queries.recursive src/query-engine/raptor3/shared/query.ts:1015:40
+ ❯ traverse tests/raptor3/g4/read-recursive-fit.test.ts:190:35
+ ❯ tests/raptor3/g4/read-recursive-fit.test.ts:317:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/40]⎯
+
+
+ Test Files  10 failed (10)
+      Tests  40 failed | 23 passed (63)
+   Start at  01:12:25
+   Duration  3.21s (transform 1.33s, setup 15ms, collect 2.59s, tests 329ms, environment 0ms, prepare 36ms)
+
+JSON report written to /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/witness/repair/g4-fixed-witnesses.repair1.json
+Vitest resources: 5.55s wall, 764.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,28 @@
+container viborm-raptor3-g3-pg-20260914 -> 127.0.0.1:65504
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts > freeze review round 2 — nested key refusal on live PostgreSQL > refuses a nested upsert whose target is PRESENT, writing nothing
+AGREE  refuses a nested upsert whose target is PRESENT, writing nothing
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
+
+stdout | tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts > freeze review round 2 — nested key refusal on live PostgreSQL > creates the row for a nested upsert whose target is ABSENT
+AGREE  creates the row for a nested upsert whose target is ABSENT
+    shipped   {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[10,999]}
+    candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[10,999]}
+
+stdout | tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts > freeze review round 2 — nested key refusal on live PostgreSQL > refuses a nested update whose key names set beside an operator
+AGREE  refuses a nested update whose key names set beside an operator
+    shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
+    candidate {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
+
+ ✓ |g4-review-freeze| tests/raptor3/g4/review/freeze/native-nested-refusal-pg.review.test.ts (3 tests) 258ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:55:23
+   Duration  4.42s (transform 2.61s, setup 17ms, collect 3.83s, tests 258ms, environment 0ms, prepare 58ms)
+
+Vitest resources: 5.31s wall, 445.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

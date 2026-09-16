@@ -1,0 +1,19 @@
+=== 20:45:45 replay cs03-extension-a ===
+replay cs03-extension-a exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-l1GogF
+=== 20:46:05 replay cs03-extension-b ===
+replay cs03-extension-b exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-7TBg6n
+=== 20:46:26 replay cs03-extension-composition ===
+replay cs03-extension-composition exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-R215c2
+=== 20:46:49 replay g2-conditional-upsert ===
+replay g2-conditional-upsert exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Dl4kZq
+=== 20:47:12 replay g25-polish ===
+replay g25-polish exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-QJge3d
+=== 20:47:39 replay g3-sqlite-8000 ===
+replay g3-sqlite-8000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-GMdA1a
+=== 20:48:07 replay g3-transport-8000 ===
+replay g3-transport-8000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-TR1L6Y
+=== 20:48:29 stale replay historical-g2-conditional-upsert-stale (refusal expected) ===
+stale historical-g2-conditional-upsert-stale exit=1 refused-as-expected
+=== 20:48:49 stale replay historical-g25-polish-stale (refusal expected) ===
+stale historical-g25-polish-stale exit=1 refused-as-expected
+=== 20:49:06 group replays finished ===

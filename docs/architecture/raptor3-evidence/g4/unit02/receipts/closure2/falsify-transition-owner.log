@@ -1,0 +1,299 @@
+# FALSIFIER F2 — query.ts + schema.ts + commands.ts swapped back to the round-5 transition owner
+# 2026-09-15T13:53:25Z
+## identities BEFORE the swap
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+## identities IN the swap (expect 694cdb8a…, cfbcffd2…, 820f6204…)
+694cdb8a06e8a00d098c8759acb35b6c59b182327df54a07b7f06e3804184c9f  src/query-engine/raptor3/shared/query.ts
+cfbcffd26ad4c3b5aa6eb2a767ce96366a1bf4970d64338932c3530cc1432469  src/query-engine/raptor3/shared/schema.ts
+820f6204765936568bd23d3381006dd24a82b9eced769fc53ae1a8f2e48cffa5  src/query-engine/raptor3/commands/commands.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (17 tests | 4 failed) 187ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a NUMBER key on the found arm, as the shipped engine does 41ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a DECIMAL key on the found arm, as the shipped engine does 12ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > carries an int key divide-by-zero to the provider, as the shipped engine does 9ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > CREATES the missing row whose update names key arithmetic, as shipped does 12ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses a number key multiply beside a relation write, as shipped does 18ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > still CREATES the missing row, because the shipped assertion is found-arm 10ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses ahead of a conditional that would skip, as shipped does 8ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > refuses a divide-by-zero beside a relation write with the analysis sentence 7ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > refuses the SAME way on a missing row, and writes nothing 6ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers a PARENT-held relation beside the same divide 8ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers a scalar-only divide-by-zero unchanged 8ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > pins R-D2 (c)'s OWN sentence for an upsert with relations 7ms
+   ✓ G4-02 — the THIRD shipped owner: the key transition at analysis > answers the same divide addressed by a NON-key unique 7ms
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > pins the pre-value from the DISCRIMINATOR, not from an AND arm 12ms
+     → candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row whose key is pinned only in an AND arm 10ms
+     → candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"fresh\",\"code\":\"nope\"}","rows":[{"id":6,"label":"o","code":"c6"},{"id":99,"label":"fresh","code":"nope"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: 'ok:{"id":99,"label":"fresh","code":"nope"}',
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+      },
+-     {
+-       code: 'nope',
+-       id: 99,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > does not raise the transition sentence for a COMPOUND reference key 5ms
+     → candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'a' by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: "QueryEngineError: Cannot divide primary key field 'a' by zero.",
+    rows: [
+      {
+        a: 2,
+        b: 3,
+        label: 'p'
+
+   × G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row of a COMPOUND reference key 7ms
+     → candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
+shipped   {"answer":"ok:{\"a\":7,\"b\":8,\"label\":\"fresh\"}","rows":[{"a":2,"b":3,"label":"p"},{"a":7,"b":8,"label":"fresh"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: 'ok:{"a":7,"b":8,"label":"fresh"}',
+    rows: [
+      {
+        a: 2,
+        b: 3,
+        label: 'p'
+      },
+-     {
+-       a: 7,
+-       b: 8,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > pins the pre-value from the DISCRIMINATOR, not from an AND arm
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "code": "c6",[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:371:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row whose key is pinned only in an AND arm
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":6,"label":"o","code":"c6"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"fresh\",\"code\":\"nope\"}","rows":[{"id":6,"label":"o","code":"c6"},{"id":99,"label":"fresh","code":"nope"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: 'ok:{"id":99,"label":"fresh","code":"nope"}',
+    rows: [
+      {
+        code: 'c6',
+        id: 6,
+        label: 'o'
+      },
+-     {
+-       code: 'nope',
+-       id: 99,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":99,\"label\":\"fresh\",\"code\":\"nope\"}",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "code": "c6",[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "code": "nope",[39m
+[32m-       "id": 99,[39m
+[32m-       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:387:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > does not raise the transition sentence for a COMPOUND reference key
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'a' by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: "QueryEngineError: Cannot divide primary key field 'a' by zero.",
+    rows: [
+      {
+        a: 2,
+        b: 3,
+        label: 'p'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide primary key field 'a' by zero.",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "a": 2,[22m
+[2m        "b": 3,[22m
+[2m        "label": "p",[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:400:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — the THIRD shipped owner: the key transition at analysis > CREATES the absent row of a COMPOUND reference key
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"a":2,"b":3,"label":"p"}]}
+shipped   {"answer":"ok:{\"a\":7,\"b\":8,\"label\":\"fresh\"}","rows":[{"a":2,"b":3,"label":"p"},{"a":7,"b":8,"label":"fresh"}]}
++ actual - expected
+
+  {
++   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+-   answer: 'ok:{"a":7,"b":8,"label":"fresh"}',
+    rows: [
+      {
+        a: 2,
+        b: 3,
+        label: 'p'
+      },
+-     {
+-       a: 7,
+-       b: 8,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"a\":7,\"b\":8,\"label\":\"fresh\"}",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "a": 2,[22m
+[2m        "b": 3,[22m
+[2m        "label": "p",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "a": 7,[39m
+[32m-       "b": 8,[39m
+[32m-       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:168:10
+    166|   const candidate = await upsert(model, table, args, "candidate");
+    167|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    168|   assert.deepEqual(
+       |          ^
+    169|     candidate,
+    170|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:415:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 13 passed (17)
+   Start at  15:53:26
+   Duration  3.51s (transform 2.07s, setup 14ms, collect 3.08s, tests 187ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 4.13s wall, 468.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+## identities AFTER restore (expect 7ffbea60…, 48fc18c1…, 7843d0dc…)
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts

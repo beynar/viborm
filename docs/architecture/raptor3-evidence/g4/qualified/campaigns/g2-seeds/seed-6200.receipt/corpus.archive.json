@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "source": "corpus.json",
+  "file": "corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 8715339,
+  "originalSha256": "e381648694ac0f3af819ccd5af5b89ce83797b0cdab92975740309d10168b72d",
+  "archiveBytes": 289454,
+  "archiveSha256": "bf2781870f5271d138c4f3a7a130ed5eda16c24bb7690a57b848d7cc3894bb96",
+  "identity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+  },
+  "campaign": "g2-seeds",
+  "firstSeed": 6200,
+  "targetManifest": "../../../../Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/campaigns/g2-seeds.receipt/verified.json",
+  "childReceipt": "verified.json",
+  "restoreWorkingDirectory": "the directory containing corpus.archive.json",
+  "restoreCommand": "g4_corpus_restore_dir=$(mktemp -d); gzip -dc \"corpus.json.gz\" > \"$g4_corpus_restore_dir/corpus.json\"",
+  "replayCommand": "cd \"/Users/arnaud/code/viborm\"; node scripts/run-raptor3.mjs replay \"$g4_corpus_restore_dir/corpus.json\""
+}

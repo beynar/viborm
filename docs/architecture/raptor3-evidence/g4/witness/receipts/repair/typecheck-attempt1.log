@@ -1,0 +1,31 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/transitions/live-world.ts(435,11): error TS2345: Argument of type 'Pool' is not assignable to parameter of type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }'.
+  Types of property 'on' are incompatible.
+    Type '{ (event: "connection", listener: (connection: PoolConnection) => any): Pool; (event: "acquire", listener: (connection: PoolConnection) => any): Pool; (event: "release", listener: (connection: PoolConnection) => any): Pool; (event: "enqueue", listener: () => any): Pool; }' is not assignable to type '(event: "error", listener: (failure: unknown) => void) => unknown'.
+      Types of parameters 'event' and 'event' are incompatible.
+        Type '"error"' is not assignable to type '"connection"'.
+tests/raptor3/transitions/live-world.ts(454,46): error TS2741: Property 'end' is missing in type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' but required in type '{ end(): Promise<void>; }'.
+tests/raptor3/transitions/live-world.ts(458,23): error TS2339: Property 'query' does not exist on type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }'.
+tests/raptor3/transitions/live-world.ts(461,50): error TS2345: Argument of type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is not assignable to parameter of type 'Pool | PoolConnection'.
+  Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'PoolConnection': release, connection, addListener, once, and 31 more.
+tests/raptor3/transitions/live-world.ts(499,13): error TS2345: Argument of type 'Pool' is not assignable to parameter of type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }'.
+  Types of property 'on' are incompatible.
+    Type '{ (event: "connection", listener: (connection: PoolConnection) => any): Pool; (event: "acquire", listener: (connection: PoolConnection) => any): Pool; (event: "release", listener: (connection: PoolConnection) => any): Pool; (event: "enqueue", listener: () => any): Pool; }' is not assignable to type '(event: "error", listener: (failure: unknown) => void) => unknown'.
+      Types of parameters 'event' and 'event' are incompatible.
+        Type '"error"' is not assignable to type '"connection"'.
+tests/raptor3/transitions/live-world.ts(502,18): error TS2741: Property 'end' is missing in type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' but required in type '{ end(): Promise<void>; }'.
+tests/raptor3/transitions/live-world.ts(506,23): error TS2345: Argument of type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is not assignable to parameter of type 'Pool | PoolConnection'.
+  Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'PoolConnection': release, connection, addListener, once, and 31 more.
+tests/raptor3/transitions/live-world.ts(531,33): error TS2339: Property 'query' does not exist on type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }'.
+tests/raptor3/transitions/live-world.ts(541,37): error TS2740: Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'Pool': getConnection, releaseConnection, end, pool, and 32 more.
+tests/raptor3/transitions/live-world.ts(542,39): error TS2740: Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'Pool': getConnection, releaseConnection, end, pool, and 32 more.
+tests/raptor3/transitions/live-world.ts(564,13): error TS2740: Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'Pool': getConnection, releaseConnection, end, pool, and 32 more.
+tests/raptor3/transitions/live-world.ts(569,13): error TS2740: Type '{ on(event: "error", listener: (failure: unknown) => void): unknown; }' is missing the following properties from type 'Pool': getConnection, releaseConnection, end, pool, and 32 more.
+TypeScript (whole estate, native): 6.93s wall, 6004.0 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

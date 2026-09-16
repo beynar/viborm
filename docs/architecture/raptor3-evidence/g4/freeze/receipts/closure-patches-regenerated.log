@@ -1,0 +1,15 @@
+== regenerated g4/unit02 closure patches (decisions round 2) ==
+base reproduced by reverse-applying the PREVIOUS pair to the pre-round file copies:
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/shared/query.ts
+07b3df1af03638667abfbb236d739fe947993f9a4f2fd96793ef3bcc46956613  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/shared/schema.ts
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/commands/commands.ts
+874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/commands/selection.ts
+79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/commands/relation-body.ts
+82ba9c9e8848c09ee4d29e7ac824a305c9fb3a052424005f446e2e167490b111  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/route/client-route.ts
+8b25f6fea73cfe2a1a50ac2558aeb01c3b2bd7563217e5266a89c22ee10451b6  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/freeze/regen/src/query-engine/raptor3/shared/operation-context.ts
+
+forward-apply of the NEW pair reproduces all 14 files byte-identically (cmp, verified).
+
+new patch hashes:
+2b3c6845c1ac1a3d07b4c043ac2ddbdedc45a82cdfeaa88966c70c49fd812279  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+ad81019fb4c4f6bedf802f7700609d30a323d709770b7cf2fcc2eac509253919  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch

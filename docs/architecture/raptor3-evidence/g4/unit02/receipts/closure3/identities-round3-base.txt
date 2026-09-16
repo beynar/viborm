@@ -1,0 +1,8 @@
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+31528299cbf52124def84145d0eb51eba417c80eddb4e3942a5513a4b6f0a7cd  src/query-engine/raptor3/commands/selection.ts
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+d6eebde7e5620994a92aea183bdc06ee83448f72dd61fb6acd338abd078d9689  tests/raptor3/g4/unit02/unique-discriminator.test.ts
+97d5c91d60a85d7306c71e3bed75a3d72ee589125608f9def0a20d733ee2ef4d  tests/raptor3/g4/unit02/upsert-key-portability.test.ts

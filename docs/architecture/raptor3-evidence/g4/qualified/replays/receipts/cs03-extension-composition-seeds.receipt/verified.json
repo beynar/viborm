@@ -1,0 +1,23 @@
+{
+  "mode": "replay",
+  "identity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "replayInput": {
+    "path": "/Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/replays/inputs/cs03-extension-composition-seeds.json",
+    "sha256": "ff34ea5f54bc7788660d5a2a0a47de20a69b18c284abccae78512b88180e403a"
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

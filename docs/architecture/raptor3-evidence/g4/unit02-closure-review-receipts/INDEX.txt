@@ -1,0 +1,52 @@
+# G4-02 closure review — receipts index (independent reviewer)
+# captured 2026-09-15T13:32:24Z
+
+## source identities at review end (must equal the closure identities)
+694cdb8a06e8a00d098c8759acb35b6c59b182327df54a07b7f06e3804184c9f  src/query-engine/raptor3/shared/query.ts
+cfbcffd26ad4c3b5aa6eb2a767ce96366a1bf4970d64338932c3530cc1432469  src/query-engine/raptor3/shared/schema.ts
+820f6204765936568bd23d3381006dd24a82b9eced769fc53ae1a8f2e48cffa5  src/query-engine/raptor3/commands/commands.ts
+ac5213bfd166d0faa8c33d6953352953129c6f4ee662ffbb6987e4207db9cbcf  src/query-engine/raptor3/commands/selection.ts
+fa7aac3aca1d699912e85e5281fbdbede927760454b8f3dd5a94c07e71c11cc8  src/query-engine/raptor3/commands/relation-body.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+
+## containers
+d6da412eec3c viborm-raptor3-g3-mysql-20260914 127.0.0.1:65515->3306/tcp Up 16 hours
+7dfda37e8eea viborm-raptor3-g3-pg-20260914 127.0.0.1:65504->5432/tcp Up 16 hours
+
+## tracked-modified files (must equal the session-start set)
+      38
+
+## logs
+INDEX.txt
+author-estate-mysql.log
+author-estate-sqlite.log
+cost-spotcheck.txt
+falsify-discriminator-scope-2.log
+falsify-discriminator-scope.log
+falsify-transition-owner.log
+g1-contracts.log
+g2-contracts.log
+g2-mysql-baseline.log
+g2-mysql-contracts.log
+g2-pg-baseline.log
+g2-pg-contracts.log
+g29-result-progress.log
+g3-bulk-series.log
+g3-execution-review.log
+g3-generated-transport-smoke.log
+g3-suppression-retry.log
+g3-transaction-array.log
+g4-lifecycle-admission.log
+g4-lifecycle-events.log
+g4-read-contracts.log
+g4-route-admission.log
+g4-route-cache.log
+g4-route-lifecycle.log
+g4-route-transactions.log
+identities-review-start.txt
+probe-mysql-discriminator-scope.log
+probe-route-cache-codec.log
+probe-upsert-transition-scope.log
+structure.log
+typecheck-2.log
+typecheck.log

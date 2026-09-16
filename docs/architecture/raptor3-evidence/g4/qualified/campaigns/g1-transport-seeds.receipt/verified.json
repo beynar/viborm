@@ -1,0 +1,66 @@
+{
+  "mode": "g1-transport-seeds",
+  "identity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "campaign": {
+    "firstSeed": 1000,
+    "seedCount": 1000,
+    "batchSize": 100,
+    "replayCount": 3,
+    "profiles": [
+      "scripted-returning-weak",
+      "scripted-returning-ack"
+    ]
+  },
+  "batches": [
+    {
+      "firstSeed": 1000,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-E19nnP"
+    },
+    {
+      "firstSeed": 1100,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ODE8Uo"
+    },
+    {
+      "firstSeed": 1200,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-P6AWTS"
+    },
+    {
+      "firstSeed": 1300,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jpdVUn"
+    },
+    {
+      "firstSeed": 1400,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-QWx2jA"
+    },
+    {
+      "firstSeed": 1500,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-xuMAJF"
+    },
+    {
+      "firstSeed": 1600,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-TSao50"
+    },
+    {
+      "firstSeed": 1700,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Fk0EMN"
+    },
+    {
+      "firstSeed": 1800,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-SDPkyH"
+    },
+    {
+      "firstSeed": 1900,
+      "directory": "/private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jncxmw"
+    }
+  ]
+}

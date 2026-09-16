@@ -1,0 +1,24 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/route-cache.test.ts(234,28): error TS2345: Argument of type '{ cacheDriver: RecordingCache; client: VibORMClient<{ driver: SQLite3Driver; schema: typeof schema; }, EnableExtensionCache<EmptyClientExtensionState>>; database: BetterSqlite3.Database; settle(): Promise<void>; }' is not assignable to parameter of type '{ client: { entry: { findMany: (args: unknown) => unknown; }; }; }'.
+  The types of 'client.entry.findMany' are incompatible between these types.
+    Type '<Arg extends Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: IntegerSchema<...>; }...' is not assignable to type '(args: unknown) => unknown'.
+      Types of parameters 'args' and 'args' are incompatible.
+        Type 'unknown' is not assignable to type 'NoExtraOperationKeys<"findMany", Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: I...'.
+tests/raptor3/g4/route-cache.test.ts(234,44): error TS2345: Argument of type '{ cacheDriver: RecordingCache; client: VibORMClient<{ driver: SQLite3Driver; schema: typeof schema; }, EnableExtensionCache<EmptyClientExtensionState>>; database: BetterSqlite3.Database; settle(): Promise<void>; }' is not assignable to parameter of type '{ client: { entry: { findMany: (args: unknown) => unknown; }; }; }'.
+  The types of 'client.entry.findMany' are incompatible between these types.
+    Type '<Arg extends Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: IntegerSchema<...>; }...' is not assignable to type '(args: unknown) => unknown'.
+      Types of parameters 'args' and 'args' are incompatible.
+        Type 'unknown' is not assignable to type 'NoExtraOperationKeys<"findMany", Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: I...'.
+tests/raptor3/g4/route-cache.test.ts(235,28): error TS2345: Argument of type '{ cacheDriver: RecordingCache; client: VibORMClient<{ driver: SQLite3Driver; schema: typeof schema; }, EnableExtensionCache<EmptyClientExtensionState>>; database: BetterSqlite3.Database; settle(): Promise<void>; }' is not assignable to parameter of type '{ client: { entry: { findMany: (args: unknown) => unknown; }; }; }'.
+  The types of 'client.entry.findMany' are incompatible between these types.
+    Type '<Arg extends Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: IntegerSchema<...>; }...' is not assignable to type '(args: unknown) => unknown'.
+      Types of parameters 'args' and 'args' are incompatible.
+        Type 'unknown' is not assignable to type 'NoExtraOperationKeys<"findMany", Partial<InferInputShape<{ where: WhereSchema<Model<UpdateState<UpdateState<ModelState, { shape: { id: IntScalar<UpdateState<UpdateState<{ type: "int"; nullable: boolean; array: boolean; hasDefault: boolean; isId: boolean; isUnique: boolean; default: undefined; ... 6 more ...; base: I...'.
+TypeScript (whole estate, native): 13.68s wall, 4404.3 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

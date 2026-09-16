@@ -1,0 +1,169 @@
+{
+ "workload": "relation-series-2",
+ "operation": "generatedParent.updateMany({ where: { id: { in: [5000,6000] } }, data: { children: { create: { label: \"series-child\" } } } })",
+ "sides": {
+  "baseline-shipped": {
+   "result": {
+    "count": 2
+   },
+   "statementCount": 7,
+   "defaults": [
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_1"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_2"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_3"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_4"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_5"
+    }
+   ],
+   "persistedChildren": [
+    {
+     "id": "series_child_3",
+     "parentId": 5000
+    },
+    {
+     "id": "series_child_5",
+     "parentId": 6000
+    }
+   ],
+   "statements": [
+    {
+     "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?, ?)",
+     "params": [
+      5000,
+      6000
+     ],
+     "rows": 2,
+     "defaultsGeneratedSoFar": 1
+    },
+    {
+     "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1",
+     "params": [
+      5000
+     ],
+     "rows": 1,
+     "defaultsGeneratedSoFar": 5
+    },
+    {
+     "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"parentId\", \"label\") VALUES (?, CAST(? AS INTEGER), ?)",
+     "params": [
+      "series_child_3",
+      5000,
+      "series-child"
+     ],
+     "rows": 0,
+     "defaultsGeneratedSoFar": 5
+    },
+    {
+     "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1",
+     "params": [
+      5000
+     ],
+     "rows": 1,
+     "defaultsGeneratedSoFar": 5
+    },
+    {
+     "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1",
+     "params": [
+      6000
+     ],
+     "rows": 1,
+     "defaultsGeneratedSoFar": 5
+    },
+    {
+     "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"parentId\", \"label\") VALUES (?, CAST(? AS INTEGER), ?)",
+     "params": [
+      "series_child_5",
+      6000,
+      "series-child"
+     ],
+     "rows": 0,
+     "defaultsGeneratedSoFar": 5
+    },
+    {
+     "sql": "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1",
+     "params": [
+      6000
+     ],
+     "rows": 1,
+     "defaultsGeneratedSoFar": 5
+    }
+   ]
+  },
+  "candidate-cutover": {
+   "result": {
+    "count": 2
+   },
+   "statementCount": 3,
+   "defaults": [
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_1"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_2"
+    },
+    {
+     "name": "generatedChild.id",
+     "value": "series_child_3"
+    }
+   ],
+   "persistedChildren": [
+    {
+     "id": "series_child_2",
+     "parentId": 5000
+    },
+    {
+     "id": "series_child_3",
+     "parentId": 6000
+    }
+   ],
+   "statements": [
+    {
+     "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"label\" AS \"label\" FROM \"bench_generated_parents\" AS \"q0\" WHERE \"q0\".\"id\" IN (?, ?) ORDER BY \"q0\".\"id\" ASC",
+     "params": [
+      5000,
+      6000
+     ],
+     "rows": 2,
+     "defaultsGeneratedSoFar": 1
+    },
+    {
+     "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, ?)",
+     "params": [
+      "series_child_2",
+      "series-child",
+      5000
+     ],
+     "rows": 0,
+     "defaultsGeneratedSoFar": 3
+    },
+    {
+     "sql": "INSERT INTO \"bench_generated_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, ?)",
+     "params": [
+      "series_child_3",
+      "series-child",
+      6000
+     ],
+     "rows": 0,
+     "defaultsGeneratedSoFar": 3
+    }
+   ]
+  }
+ },
+ "divergence": "The frozen contract observation asserts five generated generatedChild.id defaults and persisted ids series_child_3/series_child_5 (the shipped engine). The candidate generates three and persists series_child_2/series_child_3, and reaches the first causal cut with a different number of defaults evaluated. The assertion throws inside the observed driver call and the engine re-wraps it, so the harness reports QueryError: Query execution failed."
+}

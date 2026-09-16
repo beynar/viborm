@@ -1,0 +1,73 @@
+{
+  "capturedAt": "2026-09-14T21:40:00.581Z",
+  "observedBy": "root (G4 integrator)",
+  "note": "Task providers restarted after Docker Desktop was force-relaunched; host ports are ephemeral and must be passed through VIBORM_RAPTOR3_PROVIDER_PORT per native mode run.",
+  "containers": [
+    {
+      "name": "viborm-raptor3-g3-pg-20260914",
+      "image": "postgres:16",
+      "imageId": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+      "state": "running",
+      "startedAt": "2026-09-14T21:24:43.234349917Z",
+      "restartCount": 0,
+      "oomKilled": false,
+      "ports": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "65504"
+          }
+        ]
+      },
+      "memoryBytes": 1073741824,
+      "nanoCpus": 2000000000,
+      "tmpfs": {
+        "/var/lib/postgresql/data": "rw,size=512m"
+      },
+      "binds": null,
+      "envNames": [
+        "POSTGRES_HOST_AUTH_METHOD",
+        "POSTGRES_DB",
+        "PATH",
+        "GOSU_VERSION",
+        "LANG",
+        "PG_MAJOR",
+        "PG_VERSION",
+        "PGDATA"
+      ]
+    },
+    {
+      "name": "viborm-raptor3-g3-mysql-20260914",
+      "image": "mysql:8",
+      "imageId": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+      "state": "running",
+      "startedAt": "2026-09-14T21:24:43.475976709Z",
+      "restartCount": 0,
+      "oomKilled": false,
+      "ports": {
+        "3306/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "65515"
+          }
+        ]
+      },
+      "memoryBytes": 1073741824,
+      "nanoCpus": 2000000000,
+      "tmpfs": {
+        "/var/lib/mysql": "rw,size=512m"
+      },
+      "binds": null,
+      "envNames": [
+        "MYSQL_ROOT_HOST",
+        "MYSQL_DATABASE",
+        "MYSQL_ALLOW_EMPTY_PASSWORD",
+        "PATH",
+        "GOSU_VERSION",
+        "MYSQL_MAJOR",
+        "MYSQL_VERSION",
+        "MYSQL_SHELL_VERSION"
+      ]
+    }
+  ]
+}

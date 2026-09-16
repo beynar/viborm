@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/protected-driver-lifecycle-observers.core.test.ts (13 tests) 32ms
+ ✓ |layer-client| tests/contracts/public-client/schema-introspection.core.test.ts (9 tests) 15ms
+ ✓ |layer-client| tests/contracts/public-client/client-construction-boundaries.core.test.ts (12 tests) 4ms
+
+ Test Files  3 passed (3)
+      Tests  34 passed (34)
+   Start at  23:25:25
+   Duration  2.64s (transform 1.50s, setup 15ms, collect 2.41s, tests 50ms, environment 0ms, prepare 49ms)
+
+Vitest resources: 6.99s wall, 568.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

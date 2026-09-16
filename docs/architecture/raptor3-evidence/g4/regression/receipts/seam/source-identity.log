@@ -1,0 +1,5 @@
+46060d8cb2838d3ce6c83d76ae0be91f37e811718c42be417a7fc9946c6736e0  src/query-engine/raptor3/shared/operation-context.ts
+976bbf85f9bf8248813a56d9b101b9c5ffb03d772877b6efcbb2dd1b09527af1  src/query-engine/raptor3/route/client-route.ts
+ce991d0bfdb0ed2d993ca181be5a66b1227a3fe1ccd645a1c1533c2c2888cc4c  src/query-engine/raptor3/AGENTS.md
+9aa470f751cc9ef1ae8ffd83b995c58dd6ef164491fa025d596e85b5316ee68c  tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+b002634f8b7f1135127320e9e979c754b6f44c5f6a7ad66c4cdbc86751948533  tests/raptor3/g4/unit02/statement-index-blocker.red.test.ts

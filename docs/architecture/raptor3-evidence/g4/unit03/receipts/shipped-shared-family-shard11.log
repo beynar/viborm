@@ -1,0 +1,27 @@
+
+[test:all] extended-local shared-family shard 11/12 (14 suites)
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/write/polymorphic-write-family.test.ts (110 tests) 3560ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-mutation-routing.test.ts (72 tests) 2775ms
+ ✓ |extended-local| tests/contracts/engine/write/mutation-dependency-fold.test.ts (32 tests) 1217ms
+ ✓ |extended-local| tests/unit/migrations/decimal-descriptor-carriers.test.ts (19 tests) 1372ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-reads.test.ts (11 tests) 1182ms
+ ✓ |extended-local| tests/contracts/engine/write/child-held-to-one-multi-kind.test.ts (7 tests) 1109ms
+ ✓ |extended-local| tests/contracts/engine/write/create-many.test.ts (13 tests) 1908ms
+   ✓ write boundary createMany routing > createMany operations to Observed and empty data is a count-0 no-op  653ms
+ ✓ |extended-local| tests/contracts/engine/query/relation-key-update-legality-referenced-column.test.ts (4 tests) 918ms
+ ✓ |extended-local| tests/contracts/engine/write/unsupported-operation-error.test.ts (4 tests) 691ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-located.test.ts (4 tests) 685ms
+ ✓ |extended-local| tests/contracts/engine/write/vacate-then-supply-parent-held-refused.test.ts (2 tests) 594ms
+ ✓ |extended-local| tests/contracts/engine/write/forward-declared-many-to-one-nested-update.test.ts (1 test) 561ms
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-update-root.test.ts (71 tests) 2209ms
+ ✓ |extended-local| tests/contracts/engine/write/junction-skip-adoption.test.ts (17 tests) 1582ms
+
+ Test Files  14 passed (14)
+      Tests  367 passed (367)
+   Start at  23:23:28
+   Duration  26.21s (transform 2.25s, setup 29ms, collect 5.46s, tests 20.36s, environment 0ms, prepare 53ms)
+
+[test:all] extended-local shared-family shard 11/12 (14 suites): 29.29s wall, 1632.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

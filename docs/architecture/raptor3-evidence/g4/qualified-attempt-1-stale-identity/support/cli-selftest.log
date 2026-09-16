@@ -1,0 +1,502 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-c75n5i
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.315666ms)
+✖ the command refuses filtering, missing required cases and profiles (0.032041ms)
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.025709ms)
+✖ the outer watchdog terminates an operation that actually reached its wait (0.021667ms)
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.031458ms)
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.024291ms)
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.021ms)
+✖ the G4 write lanes own their own range and take no subject (0.023959ms)
+✖ a G4 campaign subject comes from the command, never from the shell (0.042625ms)
+✖ test:all cannot replace the required lane through inherited specimen variables (0.043583ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 0
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11694.000083
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:95:1
+✖ the same replay command accepts saved fixed, cut/fault and clock corpora (0.315666ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:114:1
+✖ the command refuses filtering, missing required cases and profiles (0.032041ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:124:1
+✖ saved evidence with a stale identity, empty corpus or malformed wire fails (0.025709ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:155:1
+✖ the outer watchdog terminates an operation that actually reached its wait (0.021667ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:167:1
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (0.031458ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:179:1
+✖ completed G2 progress survives watchdog termination without becoming qualifying evidence (0.024291ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:215:1
+✖ the command refuses a filtered G4 mode and an off-boundary G4 child (0.021ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:235:1
+✖ the G4 write lanes own their own range and take no subject (0.023959ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:255:1
+✖ a G4 campaign subject comes from the command, never from the shell (0.042625ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/raptor3-cli.test.mjs:305:1
+✖ test:all cannot replace the required lane through inherited specimen variables (0.043583ms)
+  AssertionError [ERR_ASSERTION]: 
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.config.ts
+  failed to load config from /Users/arnaud/code/viborm/vitest.d1.config.ts
+  Vitest resources: 6.69s wall, 240.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+  Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-quHFaA
+  
+  
+  1 !== 0
+  
+      at pass (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:56:10)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:67:3)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1402:25)
+      at TestHook.run (node:internal/test_runner/test:1757:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Test.createHook (node:internal/test_runner/test:1117:33)
+      at node:internal/test_runner/harness:426:12
+      at file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:65:1
+      at ModuleJob.run (node:internal/modules/esm/module_job:561:25) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+Node resources: 12.66s wall, 195.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -11,7 +11,20 @@ import type {
 import type { ExtensionARecipe } from "./extension-recipes";
 
 const whitespace = /\s+/;
-const lookupWhere = /WHERE[\s\S]*"lookup"\s*=/;
+// The nested upsert's locate binds `lookup` through a PUBLIC text filter, which
+// the candidate spells with the adapter's exact-text operator. That operator
+// may name a byte-exact collation between the column and the comparison —
+// `"lookup" COLLATE BINARY = ?` on SQLite (`sqlite-adapter.ts` `exactTextEq`),
+// `COLLATE "C"` where Postgres names one — or none at all (Postgres
+// `exactTextEq` is the plain `=`; MySQL prefixes `BINARY`). The cut is the
+// locate statement, not one provider's punctuation, so the recognizer reads
+// the key binding with or without one of those two collations. It deliberately
+// does NOT accept an insensitive collation: that would be a different
+// comparison, and a locate that stopped being exact-text must fail here rather
+// than be recognized as the same cut. `parentId` / `parentTenant` are the
+// relation scope's own key equality, not a public text filter, and carry no
+// collation.
+const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:BINARY|"C"))?\s*=/;
 const parentIdWhere = /WHERE[\s\S]*"parentId"\s*=/;
 const parentTenantWhere = /WHERE[\s\S]*"parentTenant"\s*=/;
 const terminalRowFailure = /could not read back one of the updated rows/;
@@ -534,6 +547,12 @@ export function extensionAScenario(
             sql.includes(nestedTable) &&
             lookupWhere.test(sql)
           ) {
+            // The locate is the observation point because it is what decides
+            // found from missing: the composition slice pins the same property.
+            assert.equal(
+              completion.rows.length,
+              recipe.nestedShape === "upsert-found" ? 1 : 0
+            );
             cuts.push(
               `choice:${recipe.nestedShape.slice("upsert-".length)}/root-member/${choiceObservation}`
             );

@@ -1,0 +1,1118 @@
+src/query-engine/raptor3/shared/query.ts:1912:11 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+
+  i This variable a is unused.
+  
+    1910 │     alias: string,
+    1911 │   ): OrderTerm {
+  > 1912 │     const a = this.adapter;
+         │           ^
+    1913 │     if (model["~"].state.relations[field])
+    1914 │       return this.relationOrderTerm(model, field, record(direction), alias);
+  
+  i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+  
+  i Unsafe fix: If this is intentional, prepend a with an underscore.
+  
+    1910 1910 │       alias: string,
+    1911 1911 │     ): OrderTerm {
+    1912      │ - ····const·a·=·this.adapter;
+         1912 │ + ····const·_a·=·this.adapter;
+    1913 1913 │       if (model["~"].state.relations[field])
+    1914 1914 │         return this.relationOrderTerm(model, field, record(direction), alias);
+  
+
+src/query-engine/raptor3/commands/commands.ts:229:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    227 │   private nextMutation = 0;
+    228 │   readonly execution: CommandExecution;
+  > 229 │   constructor(readonly context: OperationContext) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    230 │     this.execution = new CommandExecution(this);
+    231 │   }
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/commands/commands.ts:935:7 lint/style/noParameterAssign ━━━━━━━━━━━━━━━━━━━
+
+  × Assigning a function parameter is confusing.
+  
+    933 │       }
+    934 │       current = parent;
+  > 935 │       branch = parentBranch;
+        │       ^^^^^^
+    936 │     }
+    937 │     return false;
+  
+  i The parameter is declared here:
+  
+    908 │     target: CommandOccurrence,
+    909 │     visit: (read: ReadVisit) => "stop" | void,
+  > 910 │     branch: BranchPath | undefined
+        │     ^^^^^^
+    911 │   ): boolean {
+    912 │     let current = target;
+  
+  i Developers usually expect function parameters to be readonly. To align with this expectation, use a local variable instead.
+  
+
+src/query-engine/raptor3/commands/commands.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │   import type { AnyModel } from "@schema/model";
+       8    8 │   import type { OperationContext } from "../shared/operation-context";
+       9      │ - import·{
+      10      │ - ··returningSafeProjection,
+      11      │ - ··type·SelectorFacts,
+      12      │ - }·from·"../shared/query";
+            9 │ + import·{·returningSafeProjection,·type·SelectorFacts·}·from·"../shared/query";
+      13   10 │   import { type Arguments, entries, type Input, record } from "../shared/schema";
+      14   11 │   import { type Membership, physicalField } from "../shared/storage";
+    ········· │ 
+    1042 1039 │       const selector = ctx.queries.prepareSelector(model, args.where);
+    1043 1040 │       return () =>
+    1044      │ - ······ctx.updateMany(model,·selector,·values,·undefined,·projection,·()·=>
+    1045      │ - ········new·NotFoundError(model["~"].names.ts!,·"update")
+         1041 │ + ······ctx.updateMany(
+         1042 │ + ········model,
+         1043 │ + ········selector,
+         1044 │ + ········values,
+         1045 │ + ········undefined,
+         1046 │ + ········projection,
+         1047 │ + ········()·=>·new·NotFoundError(model["~"].names.ts!,·"update")
+    1046 1048 │         );
+    1047 1049 │     }
+    ········· │ 
+    1128 1130 │         // construction's own answer, enforced at `OperationContext.dispatch`.
+    1129 1131 │         return {
+    1130      │ - ········single:·values.length·===·0·||·(!recoverableSkip·&&·(!projection·||·returning)),
+         1132 │ + ········single:
+         1133 │ + ··········values.length·===·0·||
+         1134 │ + ··········(!recoverableSkip·&&·(!projection·||·returning)),
+    1131 1135 │           run: () =>
+    1132 1136 │             ctx.createMany(model, values, projection, args.skipDuplicates),
+    ········· │ 
+    1136 1140 │         const projection = bulkProjection(ctx, model, args);
+    1137 1141 │         if (args.limit === 0)
+    1138      │ - ········return·{·single:·true,·run:·async·()·=>·ctx.emptyBulkResult(projection)·};
+         1142 │ + ········return·{
+         1143 │ + ··········single:·true,
+         1144 │ + ··········run:·async·()·=>·ctx.emptyBulkResult(projection),
+         1145 │ + ········};
+    1139 1146 │         const selector = ctx.queries.prepareSelector(model, args.where);
+    1140 1147 │         return {
+    1141      │ - ········single:·!projection·||·(returning·&&·returningSafeProjection(projection)),
+         1148 │ + ········single:
+         1149 │ + ··········!projection·||·(returning·&&·returningSafeProjection(projection)),
+    1142 1150 │           run: () => ctx.deleteMany(model, selector, args.limit, projection),
+    1143 1151 │         };
+    ········· │ 
+    1153 1161 │           single: returning && returningSafeProjection(projection),
+    1154 1162 │           run: () =>
+    1155      │ - ··········ctx.deleteMany(model,·selector,·undefined,·projection,·()·=>
+    1156      │ - ············new·NotFoundError(model["~"].names.ts!,·"delete")
+         1163 │ + ··········ctx.deleteMany(
+         1164 │ + ············model,
+         1165 │ + ············selector,
+         1166 │ + ············undefined,
+         1167 │ + ············projection,
+         1168 │ + ············()·=>·new·NotFoundError(model["~"].names.ts!,·"delete")
+    1157 1169 │             ),
+    1158 1170 │         };
+  
+
+src/query-engine/raptor3/commands/index.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    129 129 │       const admitted = admittedOperation(operation);
+    130 130 │       if (!admitted)
+    131     │ - ······throw·new·Error(
+    132     │ - ········`Raptor·3·G1·operation·is·not·implemented:·${operation}`
+    133     │ - ······);
+        131 │ + ······throw·new·Error(`Raptor·3·G1·operation·is·not·implemented:·${operation}`);
+    134 132 │       return admitted;
+    135 133 │     };
+    ······· │ 
+    153 151 │         requested === operation
+    154 152 │           ? undefined
+    155     │ - ········:·()·=>
+    156     │ - ············new·NotFoundError(model["~"].names.ts·??·"unknown",·requested);
+        153 │ + ········:·()·=>·new·NotFoundError(model["~"].names.ts·??·"unknown",·requested);
+    157 154 │       const body = (context: OperationContext) => {
+    158 155 │         const value = read();
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import {
+      │ ^^^^^^^^
+  > 2 │   assembleAdapterSelect,
+  > 3 │   getAdapterInternals
+  > 4 │ } from "@adapters/adapter-internals";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    5 │ import type { AnyDriver } from "@drivers";
+    6 │ import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      33   33 │   import {
+      34   34 │     InvalidScalarResult,
+      35      │ - ··Queries,
+      36      │ - ··type·PreparedProjection,
+           35 │ + ··type·PreparedProjection,
+      37   36 │     type PreparedSelector,
+      38      │ - ··type·Query,
+           37 │ + ··Queries,
+           38 │ + ··type·Query,
+      39   39 │     type Read,
+      40   40 │     returningSafeProjection
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:124:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    122 │   );
+    123 │   constructor(
+  > 124 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    125 │     factoryDriver: AnyDriver,
+    126 │     readonly modelName: string,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:126:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    124 │     readonly schema: EngineSchema,
+    125 │     factoryDriver: AnyDriver,
+  > 126 │     readonly modelName: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    127 │     readonly operation: Operation,
+    128 │     binding?: ExecutionBinding,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:127:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    125 │     factoryDriver: AnyDriver,
+    126 │     readonly modelName: string,
+  > 127 │     readonly operation: Operation,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    128 │     binding?: ExecutionBinding,
+    129 │     prepareBatch = false,
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts:137:5 lint/style/noParameterProperties ━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    135 │      * attribution (g4/unit03/note.md B-4).
+    136 │      */
+  > 137 │     private readonly callerAttribution?: QueryExecutionContext
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    138 │   ) {
+    139 │     if (binding?.kind === "atomic-array") {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/operation-context.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       1    1 │   import {
+       2    2 │     assembleAdapterSelect,
+       3      │ - ··getAdapterInternals
+            3 │ + ··getAdapterInternals,
+       4    4 │   } from "@adapters/adapter-internals";
+       5    5 │   import type { AnyDriver } from "@drivers";
+    ········· │ 
+       9    9 │     BatchQuery,
+      10   10 │     QueryExecutionContext,
+      11      │ - ··QueryResult
+           11 │ + ··QueryResult,
+      12   12 │   } from "@drivers/types";
+      13   13 │   import {
+    ········· │ 
+      19   19 │     TransactionError,
+      20   20 │     UniqueConstraintError,
+      21      │ - ··UnsupportedOperationError
+           21 │ + ··UnsupportedOperationError,
+      22   22 │   } from "@errors";
+      23   23 │   import type { AnyModel } from "@schema/model";
+    ········· │ 
+      25   25 │   import {
+      26   26 │     compileBindBudgetChunks,
+      27      │ - ··normalizedBindParameterLimit
+           27 │ + ··normalizedBindParameterLimit,
+      28   28 │   } from "../../bind-budget";
+      29      │ - import·type·{
+      30      │ - ··PreparedBatchGuard,
+      31      │ - ··PreparedBatchOperation
+      32      │ - }·from·"../../types";
+           29 │ + import·type·{·PreparedBatchGuard,·PreparedBatchOperation·}·from·"../../types";
+      33   30 │   import {
+      34   31 │     InvalidScalarResult,
+    ········· │ 
+      38   35 │     type Query,
+      39   36 │     type Read,
+      40      │ - ··returningSafeProjection
+           37 │ + ··returningSafeProjection,
+      41   38 │   } from "./query";
+      42   39 │   import {
+    ········· │ 
+      45   42 │     isReadOperation,
+      46   43 │     type Operation,
+      47      │ - ··record
+           44 │ + ··record,
+      48   45 │   } from "./schema";
+      49   46 │   import { type Membership, physicalField } from "./storage";
+    ········· │ 
+     145  142 │               model: modelName,
+     146  143 │               operation,
+     147      │ - ············method:·"$transaction([...])"
+     148      │ - ··········}
+          144 │ + ············method:·"$transaction([...])",
+          145 │ + ··········},
+     149  146 │           }
+     150  147 │         );
+    ········· │ 
+     173  170 │           model: this.modelName,
+     174  171 │           operation: this.operation,
+     175      │ - ········correlationId:·this.correlationId
+          172 │ + ········correlationId:·this.correlationId,
+     176  173 │         }
+     177  174 │       );
+    ········· │ 
+     186  183 │         model: this.modelName,
+     187  184 │         operation: this.operation,
+     188      │ - ······correlationId:·this.correlationId
+          185 │ + ······correlationId:·this.correlationId,
+     189  186 │       };
+     190  187 │     }
+    ········· │ 
+     219  216 │       const query = {
+     220  217 │         ...this.transport._prepare(statement, context),
+     221      │ - ······context
+          218 │ + ······context,
+     222  219 │       };
+     223  220 │       this.attempt.pending.push(query);
+    ········· │ 
+     300  297 │     }
+     301  298 │     suppressionRefusal(): TransactionError | undefined {
+     302      │ - ····return·(this.ownership·===·"borrowed-transaction"·&&·!this.memberRollback)·||
+          299 │ + ····return·(this.ownership·===·"borrowed-transaction"·&&
+          300 │ + ······!this.memberRollback)·||
+     303  301 │         this.ownership === "batch-preparation" ||
+     304  302 │         this.usesBatch
+    ········· │ 
+     309  307 │                 driver: this.driver.driverName,
+     310  308 │                 model: this.modelName,
+     311      │ - ··············operation:·this.operation
+     312      │ - ············}
+          309 │ + ··············operation:·this.operation,
+          310 │ + ············},
+     313  311 │             }
+     314  312 │           )
+    ········· │ 
+     324  322 │       member?: Member
+     325  323 │     ): unknown {
+     326      │ - ····if·(typeof·error·===·"object"·&&·error·!==·null·&&·this.premiseFailures.has(error))
+          324 │ + ····if·(
+          325 │ + ······typeof·error·===·"object"·&&
+          326 │ + ······error·!==·null·&&
+          327 │ + ······this.premiseFailures.has(error)
+          328 │ + ····)
+     327  329 │         return error;
+     328  330 │       let failure = error;
+    ········· │ 
+     351  353 │             ...(this.mayHaveCommittedSegment
+     352  354 │               ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+     353      │ - ············:·{})
+          355 │ + ············:·{}),
+     354  356 │           })
+     355  357 │         : failure;
+    ········· │ 
+     389  391 │     /** Run the operation inside the one region it owns. */
+     390  392 │     private async withinRegion<T>(
+     391      │ - ····region:·(execute:·(driver:·AnyDriver)·=>·Promise<unknown>)·=>·Promise<unknown>,
+          393 │ + ····region:·(
+          394 │ + ······execute:·(driver:·AnyDriver)·=>·Promise<unknown>
+          395 │ + ····)·=>·Promise<unknown>,
+     392  396 │       body: () => Promise<T>
+     393  397 │     ): Promise<T> {
+    ········· │ 
+     546  550 │         sql: adapter.clauses.select(
+     547  551 │           sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+     548      │ - ······)
+          552 │ + ······),
+     549  553 │       };
+     550  554 │     }
+    ········· │ 
+     610  614 │             context
+     611  615 │           ),
+     612      │ - ········context
+          616 │ + ········context,
+     613  617 │         };
+     614  618 │       });
+    ········· │ 
+     625  629 │             `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+     626  630 │             { meta: { model: this.modelName, operation: this.operation } }
+     627      │ - ········)
+          631 │ + ········),
+     628  632 │         });
+     629  633 │       const members = [...attempt.pendingMembers];
+    ········· │ 
+     640  644 │             undefined,
+     641  645 │             this.attribution,
+     642      │ - ··········this.driver.supportsOrderedCommittedSegments·?·acknowledged·:·undefined
+          646 │ + ··········this.driver.supportsOrderedCommittedSegments
+          647 │ + ············?·acknowledged
+          648 │ + ············:·undefined
+     643  649 │           )
+     644  650 │         );
+    ········· │ 
+     794  800 │           select: Object.fromEntries(
+     795  801 │             this.schema.keys(model).map((field) => [field, true])
+     796      │ - ········)
+          802 │ + ········),
+     797  803 │         },
+     798  804 │         undefined,
+    ········· │ 
+     811  817 │           // verb is what makes two guards of the same shape agree.
+     812  818 │           message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+     813      │ - ········raceable:·false
+          819 │ + ········raceable:·false,
+     814  820 │         },
+     815  821 │         model: model["~"].names.ts!,
+     816      │ - ······operation:·this.operation
+          822 │ + ······operation:·this.operation,
+     817  823 │       });
+     818  824 │       this.queue(
+    ········· │ 
+     930  936 │           sql: query.sql,
+  181 more lines truncated
+  
+
+src/query-engine/raptor3/shared/query.ts:3812:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    3810 │ /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    3811 │ function providerArrayMembers(text: string): unknown[] {
+  > 3812 │   if (!text.startsWith("{") || !text.endsWith("}"))
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3813 │     throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    3814 │   const body = text.slice(1, -1);
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    3810 3810 │   /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
+    3811 3811 │   function providerArrayMembers(text: string): unknown[] {
+    3812      │ - ··if·(!text.startsWith("{")·||·!text.endsWith("}"))
+         3812 │ + ··if·(!(text.startsWith("{")·&&·text.endsWith("}")))
+    3813 3813 │       throw new InvalidScalarResult("enum", "a list scalar did not return an array");
+    3814 3814 │     const body = text.slice(1, -1);
+  
+
+src/query-engine/raptor3/shared/query.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import type { DatabaseAdapter, GeoPointSql } from "@adapters/database-adapter";
+    3 │ import { assembleAdapterSelect } from "@adapters/adapter-internals";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+       1    1 │   import type { ArithmeticTarget } from "@adapters/adapter-core-types";
+       2      │ - import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+       3      │ - import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            2 │ + import·{·assembleAdapterSelect·}·from·"@adapters/adapter-internals";
+            3 │ + import·type·{·DatabaseAdapter,·GeoPointSql·}·from·"@adapters/database-adapter";
+       4    4 │   import {
+       5    5 │     FeatureNotSupportedError,
+    ········· │ 
+      14   14 │   import { jsonNullKindOf } from "@schema/json-null";
+      15   15 │   import {
+      16      │ - ··findAddressableKey,
+      17      │ - ··getModelKeyCatalog,
+      18      │ - ··type·AnyModel,
+           16 │ + ··type·AnyModel,
+           17 │ + ··findAddressableKey,
+           18 │ + ··getModelKeyCatalog,
+      19   19 │     type OrderedModelKey,
+      20   20 │   } from "@schema/model";
+    ········· │ 
+      24   24 │   import { Sql, sql } from "@sql";
+      25   25 │   import {
+      26      │ - ··decodePhysicalDateTime,
+      27      │ - ··type·DateTimePhysicalForm,
+           26 │ + ··type·DateTimePhysicalForm,
+           27 │ + ··decodePhysicalDateTime,
+      28   28 │   } from "@validation/primitives/datetime-physical-codec";
+      29   29 │   import {
+    ········· │ 
+      34   34 │   import {
+      35   35 │     canonicalizeDecimal,
+      36      │ - ··decodePhysicalDecimal,
+           36 │ + ··type·DecimalDescriptor,
+           37 │ + ··decodePhysicalDecimal,
+      37   38 │     decodePhysicalDecimalList,
+      38   39 │     decodePhysicalWidenedSum,
+    ········· │ 
+      42   43 │     materializePhysicalWidenedSum,
+      43   44 │     sameDecimalDescriptor,
+      44      │ - ··toDecimal,
+      45      │ - ··type·DecimalDescriptor,
+           45 │ + ··toDecimal,
+      46   46 │   } from "@validation/primitives/decimal-codec";
+      47   47 │   import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
+    ········· │ 
+      50   50 │     type Arguments,
+      51   51 │     type EngineSchema,
+      52      │ - ··type·Input,
+           52 │ + ··entries,
+           53 │ + ··type·Input,
+      53   54 │     type ReadOperation,
+      54      │ - ··record,
+      55      │ - ··entries,
+           55 │ + ··record,
+      56   56 │   } from "./schema";
+      57   57 │   import {
+      58   58 │     bindMembership,
+      59   59 │     type Membership,
+      60      │ - ··physicalField,
+      61      │ - ··type·PhysicalField,
+           60 │ + ··type·PhysicalField,
+           61 │ + ··physicalField,
+      62   62 │     storedFields,
+      63   63 │   } from "./storage";
+  
+
+src/query-engine/raptor3/shared/query.ts:324:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    322 │ export class InvalidScalarResult extends TypeError {
+    323 │   constructor(
+  > 324 │     readonly scalarType: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    325 │     readonly reason: string,
+    326 │   ) {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:325:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    323 │   constructor(
+    324 │     readonly scalarType: string,
+  > 325 │     readonly reason: string,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^
+    326 │   ) {
+    327 │     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:425:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    423 │   private nextAlias = 0;
+    424 │   constructor(
+  > 425 │     readonly schema: EngineSchema,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    426 │     readonly adapter: DatabaseAdapter,
+    427 │   ) {}
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:426:5 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    424 │   constructor(
+    425 │     readonly schema: EngineSchema,
+  > 426 │     readonly adapter: DatabaseAdapter,
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    427 │   ) {}
+    428 │   alias(): string {
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/query.ts:1379:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    1377 │   ): Sql {
+    1378 │     const a = this.adapter;
+  > 1379 │     switch (predicate.kind) {
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 1380 │       case "and":
+          ...
+  > 1399 │         return this.lowerRelationPredicate(predicate, alias);
+  > 1400 │     }
+         │     ^
+    1401 │   }
+    1402 │   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:2315:5 lint/style/useDefaultSwitchClause ━━━━━━━━━━━━━━━━━━
+
+  × Expected a default switch clause.
+  
+    2313 │       row: query.shape,
+    2314 │     });
+  > 2315 │     switch (operation) {
+         │     ^^^^^^^^^^^^^^^^^^^^
+  > 2316 │       case "findUnique": {
+          ...
+  > 2437 │       }
+  > 2438 │     }
+         │     ^
+    2439 │   }
+    2440 │   /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
+  
+  i The lack of a default clause can be a possible omission.
+  
+  i Consider adding a default clause.
+  
+
+src/query-engine/raptor3/shared/query.ts:3608:11 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    3606 │           typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    3607 │         if (
+  > 3608 │           !match ||
+         │           ^^^^^^^^^
+  > 3609 │           !isGregorianCalendarDate(
+  > 3610 │             Number(match[1]),
+  > 3611 │             Number(match[2]),
+  > 3612 │             Number(match[3]),
+  > 3613 │           )
+         │           ^
+    3614 │         )
+    3615 │           throw new InvalidScalarResult(
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    3606 3606 │             typeof value === "string" ? DATE_TEXT.exec(value) : null;
+    3607 3607 │           if (
+    3608      │ - ··········!match·||
+    3609      │ - ··········!isGregorianCalendarDate(
+         3608 │ + ··········!(match·&&isGregorianCalendarDate(
+    3610 3609 │               Number(match[1]),
+    3611 3610 │               Number(match[2]),
+    3612 3611 │               Number(match[3]),
+    3613      │ - ··········)
+         3612 │ + ··········))
+    3614 3613 │           )
+    3615 3614 │             throw new InvalidScalarResult(
+  
+
+src/query-engine/raptor3/shared/query.ts:3731:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    3729 │   if (!match) return undefined;
+    3730 │   if (
+  > 3731 │     !isGregorianCalendarDate(
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 3732 │       Number(match[1]),
+  > 3733 │       Number(match[2]),
+  > 3734 │       Number(match[3]),
+  > 3735 │     ) ||
+  > 3736 │     !isDateTimeClock(Number(match[4]), Number(match[5]), Number(match[6]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3737 │   )
+    3738 │     return undefined;
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    3729 3729 │     if (!match) return undefined;
+    3730 3730 │     if (
+    3731      │ - ····!isGregorianCalendarDate(
+         3731 │ + ····!(isGregorianCalendarDate(
+    3732 3732 │         Number(match[1]),
+    3733 3733 │         Number(match[2]),
+    3734 3734 │         Number(match[3]),
+    3735      │ - ····)·||
+    3736      │ - ····!isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6]))
+         3735 │ + ····)·&&isDateTimeClock(Number(match[4]),·Number(match[5]),·Number(match[6])))
+    3737 3736 │     )
+    3738 3737 │       return undefined;
+  
+
+src/query-engine/raptor3/shared/query.ts:3754:5 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    3752 │   const match = TIME_TEXT.exec(value);
+    3753 │   if (
+  > 3754 │     !match ||
+         │     ^^^^^^^^^
+  > 3755 │     !isDateTimeClock(Number(match[1]), Number(match[2]), Number(match[3]))
+         │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3756 │   )
+    3757 │     throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+    3752 3752 │     const match = TIME_TEXT.exec(value);
+    3753 3753 │     if (
+    3754      │ - ····!match·||
+    3755      │ - ····!isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3]))
+         3754 │ + ····!(match·&&isDateTimeClock(Number(match[1]),·Number(match[2]),·Number(match[3])))
+    3756 3755 │     )
+    3757 3756 │       throw new InvalidScalarResult("time", "the value is not a valid provider time");
+  
+
+src/query-engine/raptor3/shared/query.ts:1640:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    1638 │     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    1639 │     column: Sql,
+  > 1640 │     alias?: string,
+         │     ^^^^^
+    1641 │   ): Sql {
+    1642 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    1638 1638 │       predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    1639 1639 │       column: Sql,
+    1640      │ - ····alias?:·string,
+         1640 │ + ····_alias?:·string,
+    1641 1641 │     ): Sql {
+    1642 1642 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:2148:5 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2146 │     order: readonly OrderTerm[],
+    2147 │     cursor: Input,
+  > 2148 │     alias: string,
+         │     ^^^^^
+    2149 │   ): Sql {
+    2150 │     const a = this.adapter;
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2146 2146 │       order: readonly OrderTerm[],
+    2147 2147 │       cursor: Input,
+    2148      │ - ····alias:·string,
+         2148 │ + ····_alias:·string,
+    2149 2149 │     ): Sql {
+    2150 2150 │       const a = this.adapter;
+  
+
+src/query-engine/raptor3/shared/query.ts:2379:12 lint/correctness/noUnusedFunctionParameters  FIXABLE  ━━━━━━━━━━
+
+  × This parameter is unused.
+  
+    2377 │                 ]
+    2378 │               : [["_count", this.adapter.aggregates.count()]],
+  > 2379 │           (alias) =>
+         │            ^^^^^
+    2380 │             selected
+    2381 │               ? {
+  
+  i Unused parameters might be the result of an incomplete refactoring.
+  
+  i Unsafe fix: If this is intentional, prepend alias with an underscore.
+  
+    2377 2377 │                   ]
+    2378 2378 │                 : [["_count", this.adapter.aggregates.count()]],
+    2379      │ - ··········(alias)·=>
+         2379 │ + ··········(_alias)·=>
+    2380 2380 │               selected
+    2381 2381 │                 ? {
+  
+
+src/query-engine/raptor3/shared/query.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+       7    7 │     TransactionError,
+       8    8 │   } from "@errors";
+       9      │ - import·{
+      10      │ - ··fieldRefPayload,
+      11      │ - ··formatFieldRef,
+      12      │ - ··isFieldRef,
+      13      │ - }·from·"@schema/field-ref";
+            9 │ + import·{·fieldRefPayload,·formatFieldRef,·isFieldRef·}·from·"@schema/field-ref";
+      14   10 │   import { jsonNullKindOf } from "@schema/json-null";
+      15   11 │   import {
+    ········· │ 
+     168  164 │    */
+     169  165 │   export function returningSafeProjection(
+     170      │ - ··projection:·PreparedProjection,
+          166 │ + ··projection:·PreparedProjection
+     171  167 │   ): boolean {
+     172  168 │     return projection.fields.every((field) => field.kind === "scalar");
+    ········· │ 
+     274  270 │    * the scalar comparison this domain governs is not one a list has.
+     275  271 │    */
+     276      │ - function·exactDecimalDomain(
+     277      │ - ··state:·ScalarState,
+     278      │ - ):·DecimalDescriptor·|·undefined·{
+          272 │ + function·exactDecimalDomain(state:·ScalarState):·DecimalDescriptor·|·undefined·{
+     279  273 │     return state.type === "decimal" && state.array !== true
+     280  274 │       ? state.decimal
+    ········· │ 
+     323  317 │     constructor(
+     324  318 │       readonly scalarType: string,
+     325      │ - ····readonly·reason:·string,
+          319 │ + ····readonly·reason:·string
+     326  320 │     ) {
+     327  321 │       super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
+    ········· │ 
+     384  378 │   function addressesOperators(
+     385  379 │     state: ScalarState | undefined,
+     386      │ - ··value:·Input,
+          380 │ + ··value:·Input
+     387  381 │   ): boolean {
+     388  382 │     if (!isOperatorRecord(value)) return false;
+    ········· │ 
+     424  418 │     constructor(
+     425  419 │       readonly schema: EngineSchema,
+     426      │ - ····readonly·adapter:·DatabaseAdapter,
+          420 │ + ····readonly·adapter:·DatabaseAdapter
+     427  421 │     ) {}
+     428  422 │     alias(): string {
+    ········· │ 
+     453  447 │         physicalField(this.schema, model, field).scalar,
+     454  448 │         value,
+     455      │ - ······field,
+          449 │ + ······field
+     456  450 │       );
+     457  451 │     }
+    ········· │ 
+     464  458 │           : value;
+     465  459 │       const sentinel = jsonNullKindOf(value);
+     466      │ - ····if·(sentinel)·return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+          460 │ + ····if·(sentinel)
+          461 │ + ······return·sentinel·===·"DbNull"·?·a.literals.null()·:·a.json.value(null);
+     467  462 │       if (value === null || value === undefined) return a.literals.null();
+     468  463 │       if (state.array === true && Array.isArray(value))
+    ········· │ 
+     471  466 │         case "decimal":
+     472  467 │           return state.array === true
+     473      │ - ··········?·a.literals.value(
+     474      │ - ··············this.decimalMembers(state,·[value],·field)[0]!,
+     475      │ - ············)
+          468 │ + ··········?·a.literals.value(this.decimalMembers(state,·[value],·field)[0]!)
+     476  469 │             : a.literals.decimal(
+     477  470 │                 this.canonicalDecimal(value, field),
+     478      │ - ··············this.requireDecimal(state,·field),
+          471 │ + ··············this.requireDecimal(state,·field)
+     479  472 │               );
+     480  473 │         case "json":
+    ········· │ 
+     483  476 │           return this.geoPoint("value").value(
+     484  477 │             this.value((value as GeoPoint).longitude),
+     485      │ - ··········this.value((value·as·GeoPoint).latitude),
+          478 │ + ··········this.value((value·as·GeoPoint).latitude)
+     486  479 │           );
+     487  480 │         case "vector":
+    ········· │ 
+     508  501 │       state: ScalarState,
+     509  502 │       values: readonly unknown[],
+     510      │ - ····field:·string,
+          503 │ + ····field:·string
+     511  504 │     ): Sql {
+     512  505 │       if (state.type === "decimal")
+     513  506 │         return this.adapter.arrays.value(
+     514      │ - ········this.decimalMembers(state,·values,·field),
+          507 │ + ········this.decimalMembers(state,·values,·field)
+     515  508 │         );
+     516  509 │       return state.type === "enum"
+    ········· │ 
+     521  514 │       state: ScalarState,
+     522  515 │       values: readonly unknown[],
+     523      │ - ····field:·string,
+          516 │ + ····field:·string
+     524  517 │     ): string[] {
+     525  518 │       const members = encodePhysicalDecimalListMembers(
+     526  519 │         values,
+     527  520 │         this.requireDecimal(state, field),
+     528      │ - ······this.adapter.result.decimalListRepresentation·??·"text",
+          521 │ + ······this.adapter.result.decimalListRepresentation·??·"text"
+     529  522 │       );
+     530  523 │       if (members === undefined)
+     531  524 │         throw new QueryEngineError(
+     532      │ - ········`Decimal·list·'${field}'·received·a·member·that·is·not·an·exact·decimal.`,
+          525 │ + ········`Decimal·list·'${field}'·received·a·member·that·is·not·an·exact·decimal.`
+     533  526 │         );
+     534  527 │       return members;
+    ········· │ 
+     538  531 │       if (canonical === undefined)
+     539  532 │         throw new QueryEngineError(
+     540      │ - ········`Decimal·field·'${field}'·received·a·value·that·is·not·an·exact·decimal.`,
+          533 │ + ········`Decimal·field·'${field}'·received·a·value·that·is·not·an·exact·decimal.`
+     541  534 │         );
+     542  535 │       return canonical;
+    ········· │ 
+     545  538 │       if (!state.decimal)
+     546  539 │         throw new QueryEngineError(
+     547      │ - ········`Decimal·field·'${field}'·has·no·declared·precision·and·scale,·so·it·has·no·exact·value·to·bind.`,
+          540 │ + ········`Decimal·field·'${field}'·has·no·declared·precision·and·scale,·so·it·has·no·exact·value·to·bind.`
+     548  541 │         );
+     549  542 │       return state.decimal;
+    ········· │ 
+     562  555 │           "point",
+     563  556 │           usage,
+     564      │ - ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled.",
+          557 │ + ········"GeoPoint·requires·a·provider·with·its·physical·point·tier·enabled."
+     565  558 │         );
+     566  559 │       return geoPoint;
+    ········· │ 
+     587  580 │                 },
+     588  581 │               ],
+     589      │ - ············projected,
+          582 │ + ············projected
+     590  583 │             )
+     591  584 │           : projected;
+    ········· │ 
+     599  592 │     private carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
+     600  593 │       if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
+     601      │ - ····if·(leaf.list·||·leaf.type·===·"json"·||·leaf.type·===·"point"·||·leaf.type·===·"vector")
+          594 │ + ····if·(
+          595 │ + ······leaf.list·||
+          596 │ + ······leaf.type·===·"json"·||
+          597 │ + ······leaf.type·===·"point"·||
+          598 │ + ······leaf.type·===·"vector"
+          599 │ + ····)
+     602  600 │         return this.adapter.json.document(expression);
+     603  601 │       if (leaf.type === "bigint")
+    ········· │ 
+     622  620 │           state.type === "datetime"
+     623  621 │             ? (this.adapter.result.dateTimeRepresentation?.(
+     624      │ - ··············this.nativeType(scalar),
+          622 │ + ··············this.nativeType(scalar)
+     625  623 │               ) ?? "text")
+     626  624 │             : undefined,
+    ········· │ 
+     635  633 │       edge: Extract<Membership, { kind: "junction" }>,
+     636  634 │       values: Input,
+     637      │ - ····alias?:·string,
+          635 │ + ····alias?:·string
+     638  636 │     ): Sql {
+     639  637 │       return this.adapter.operators.and(
+    ········· │ 
+     649  647 │                   side.model,
+     650  648 │                   pair.referencedField,
+  1682 more lines truncated
+  
+
+src/query-engine/raptor3/shared/schema.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    132 132 │       ClearableMembership
+    133 133 │     >();
+    134     │ - ··constructor(readonly·schema:·Schema,·resolved?:·ResolvedSchemaViews)·{
+        134 │ + ··constructor(
+        135 │ + ····readonly·schema:·Schema,
+        136 │ + ····resolved?:·ResolvedSchemaViews
+        137 │ + ··)·{
+    135 138 │       if (resolved) {
+    136 139 │         this.index = resolved.index;
+  
+
+src/query-engine/raptor3/shared/schema.ts:134:15 lint/style/noParameterProperties ━━━━━━━━━━━━━━━━━━
+
+  × Use a more explicit class property instead of a parameter property.
+  
+    132 │     ClearableMembership
+    133 │   >();
+  > 134 │   constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+        │               ^^^^^^^^^^^^^^^^^^^^^^^
+    135 │     if (resolved) {
+    136 │       this.index = resolved.index;
+  
+  i Parameter properties are less explicit than other ways of declaring and initializing class properties.
+  
+
+src/query-engine/raptor3/shared/schema.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import type { AnyDriver } from "@drivers";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { QueryEngineError } from "@errors";
+    3 │ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      7   7 │     type ClearableMembership,
+      8   8 │   } from "@schema/relation/clearability";
+      9     │ - import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     10     │ - import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+          9 │ + import·{·validateClientSchemaOrThrow·}·from·"@schema/validation";
+         10 │ + import·type·{·ResolvedSlot·}·from·"@schema/validation/relation-resolution";
+     11  11 │   import { createResolvedSchemaRegistry } from "@validation/builder";
+     12  12 │   import { isRecord } from "@validation/value-guards";
+  
+
+tests/raptor3/g4/unit02/key-arithmetic.test.ts:136:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    134 │     returning
+    135 │   );
+  > 136 │   assert.deepEqual(
+        │   ^^^^^^
+    137 │     candidate,
+    138 │     shipped,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/key-arithmetic.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    357 357 │   describe("G4-02 — the one shape with no expression form stays refused", () => {
+    358 358 │     it("refuses to name an exact decimal under multiply, with its registered identity", () => {
+    359     │ - ····const·queries·=·new·Queries(new·EngineSchema(keySchema),·new·SQLiteAdapter());
+        359 │ + ····const·queries·=·new·Queries(
+        360 │ + ······new·EngineSchema(keySchema),
+        361 │ + ······new·SQLiteAdapter()
+        362 │ + ····);
+    360 363 │       for (const operator of ["multiply", "divide"] as const) {
+    361 364 │         assert.throws(
+    ······· │ 
+    377 380 │   
+    378 381 │     it("names an exact decimal under increment and decrement, which are exact", () => {
+    379     │ - ····const·queries·=·new·Queries(new·EngineSchema(keySchema),·new·SQLiteAdapter());
+        382 │ + ····const·queries·=·new·Queries(
+        383 │ + ······new·EngineSchema(keySchema),
+        384 │ + ······new·SQLiteAdapter()
+        385 │ + ····);
+    380 386 │       for (const operator of ["increment", "decrement"] as const) {
+    381 387 │         const named = queries.updateValue(
+  
+
+tests/raptor3/g4/unit02/key-arithmetic.test.ts:96:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    94 │     : new NonReturningDriver({ client: database });
+    95 │   const client = createClient({ schema: keySchema, driver });
+  > 96 │   assert.equal((await syncLiveSchema(client)).applied, true);
+       │   ^^^^^^
+    97 │   database.exec(SEED);
+    98 │   const candidate = createCommandEngine({ schema: keySchema, driver });
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/native-key-arithmetic.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    38 38 │         it(`names an int key under ${name} exactly as the shipped engine does`, async () => {
+    39 39 │           const table = `g4u2_keys_${randomUUID().replaceAll("-", "")}`;
+    40    │ - ········const·row·=·s
+    41    │ - ··········.model({·id:·s.int().id(),·label:·s.string()·})
+    42    │ - ··········.map(table);
+       40 │ + ········const·row·=·s.model({·id:·s.int().id(),·label:·s.string()·}).map(table);
+    43 41 │           const schema = { row };
+    44 42 │           const driver = new MySQL2Driver({
+  
+
+tests/raptor3/g4/unit02/returning-safety-gate.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    32  32 │       body: s.string(),
+    33  33 │       spotId: s.int(),
+    34     │ - ····spot:·s.toOne(()·=>·spot).fields("spotId").references("id"),
+        34 │ + ····spot:·s
+        35 │ + ······.toOne(()·=>·spot)
+        36 │ + ······.fields("spotId")
+        37 │ + ······.references("id"),
+    35  38 │     })
+    36  39 │     .map("g4u2g_notes");
+    ······ │ 
+    47  50 │   const gateSchema = { spot, note };
+    48  51 │   
+    49     │ - function·gate(
+    50     │ - ··select:·Record<string,·unknown>,
+    51     │ - ··postgis·=·false
+    52     │ - ):·boolean·{
+    53     │ - ··const·adapter·=·postgis·?·new·PostgresAdapter("public",·true)·:·new·SQLiteAdapter();
+        52 │ + function·gate(select:·Record<string,·unknown>,·postgis·=·false):·boolean·{
+        53 │ + ··const·adapter·=·postgis
+        54 │ + ····?·new·PostgresAdapter("public",·true)
+        55 │ + ····:·new·SQLiteAdapter();
+    54  56 │     const queries = new Queries(new EngineSchema(gateSchema), adapter);
+    55  57 │     return returningSafeProjection(queries.prepareProjection(spot, { select }));
+    ······ │ 
+    62  64 │   
+    63  65 │     it("admits the default whole-row projection", () => {
+    64     │ - ····const·queries·=·new·Queries(new·EngineSchema(gateSchema),·new·SQLiteAdapter());
+        66 │ + ····const·queries·=·new·Queries(
+        67 │ + ······new·EngineSchema(gateSchema),
+        68 │ + ······new·SQLiteAdapter()
+        69 │ + ····);
+    65  70 │       assert.equal(
+    66  71 │         returningSafeProjection(queries.prepareProjection(spot, {})),
+    ······ │ 
+    74  79 │   
+    75  80 │     it("refuses a _count slot", () => {
+    76     │ - ····assert.equal(gate({·id:·true,·_count:·{·select:·{·notes:·true·}·}·}),·false);
+        81 │ + ····assert.equal(
+        82 │ + ······gate({·id:·true,·_count:·{·select:·{·notes:·true·}·}·}),
+        83 │ + ······false
+        84 │ + ····);
+    77  85 │     });
+    78  86 │   
+  
+
+Checked 13 files in 76ms. No fixes applied.
+Found 33 errors.
+Found 1 info.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "source": "generated-corpus.json",
+  "file": "generated-corpus.json.gz",
+  "encoding": "gzip",
+  "originalBytes": 331051,
+  "originalSha256": "16397ecfad61afaff10bde52ea7e15646ff1bc0b076344b9549ae014269d8ee2",
+  "archiveBytes": 11517,
+  "receipt": "generated-corpus.archive.json",
+  "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",
+  "restoreCommand": "g3_corpus_restore_dir=$(mktemp -d); gzip -dc \"generated-corpus.json.gz\" > \"$g3_corpus_restore_dir/generated-corpus.json\"",
+  "replayCommand": "cd \"/private/tmp/viborm-g4-lane-2/\"; node scripts/run-raptor3.mjs g4-transport-seed-batch 64600 --subject=candidate"
+}

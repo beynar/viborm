@@ -1,0 +1,101 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts (13 tests | 1 failed) 128ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a multiplied parent key (non-returning) 41ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a divided parent key (non-returning) 9ms
+   ✓ G4-02 repair round 3 — the named key, attacked > truncates a NEGATIVE bigint quotient the way the shipped engine does 9ms
+   ✓ G4-02 repair round 3 — the named key, attacked > multiplies a NEGATIVE bigint key the way the shipped engine does 5ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > does not fire for arithmetic on a NON-key decimal column 9ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses a number key multiply through upsert as the shipped engine does 7ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through updateMany as shipped does 9ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through upsert as the shipped engine does 5ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers an INT key multiply through upsert the way the shipped engine does 8ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers a DECIMAL key multiply through upsert the way the shipped engine does 7ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > upserts a MISSING row whose update names key arithmetic, as shipped does 6ms
+   × G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does 9ms
+     → candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers a non-finite int key operand the way the shipped engine does 4ms
+stdout | tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts > G4-02 review follow-up — decision R-D1, measured > records both engines' answers for a decimal FK column under multiply
+R-D1c shipped   {"answer":"ok:{\"id\":9,\"holderCode\":\"12\"}","rows":[{"id":9,"holderCode":1200}]}
+R-D1c candidate {"answer":"ok:{\"id\":9,\"holderCode\":\"12\"}","rows":[{"id":9,"holderCode":1200}]}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts > G4-02 review follow-up — decision R-D1, measured > records both engines' answers for a decimal RELATION key under multiply
+R-D1 shipped   {"answer":"ForeignKeyError: Foreign key constraint violation","rows":{"holders":[{"id":1,"code":600}],"dependents":[{"id":9,"holderCode":600}]}}
+R-D1 candidate {"answer":"ForeignKeyError: Foreign key constraint violation","rows":{"holders":[{"id":1,"code":600}],"dependents":[{"id":9,"holderCode":600}]}}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts > G4-02 review follow-up — decision R-D1, measured > records both answers when NO dependent row blocks the transition
+R-D1b shipped   {"answer":"ok:{\"id\":1,\"code\":\"12\",\"label\":\"h\"}","rows":{"holders":[{"id":1,"code":1200}],"dependents":[]}}
+R-D1b candidate {"answer":"ok:{\"id\":1,\"code\":\"12\",\"label\":\"h\"}","rows":{"holders":[{"id":1,"code":1200}],"dependents":[]}}
+
+ ✓ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/decimal-relation-key.review.test.ts (3 tests) 24ms
+ ↓ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/native-pg-key-arithmetic.review.test.ts (3 tests | 3 skipped)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does
+AssertionError: candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":7,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 7,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:271:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed | 1 skipped (3)
+      Tests  1 failed | 15 passed | 3 skipped (19)
+   Start at  13:30:35
+   Duration  3.47s (transform 1.89s, setup 28ms, collect 3.03s, tests 153ms, environment 0ms, prepare 44ms)
+
+Vitest resources: 4.11s wall, 557.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

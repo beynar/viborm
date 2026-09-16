@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 89ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  20:12:19
+   Duration  6.86s (transform 1.84s, setup 23ms, collect 2.69s, tests 89ms, environment 0ms, prepare 49ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-uARIga/vitest.json
+Vitest resources: 14.15s wall, 506.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p04-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-uARIga

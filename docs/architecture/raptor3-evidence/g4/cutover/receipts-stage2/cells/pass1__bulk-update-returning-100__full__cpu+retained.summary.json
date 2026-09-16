@@ -1,0 +1,154 @@
+[
+ {
+  "workload": "bulk-update-returning-100",
+  "stage": "full",
+  "mode": "cpu",
+  "iterations": 1000,
+  "warmupIterations": 200,
+  "replicates": 5,
+  "comparisonMode": "semantic",
+  "baselineCommit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "baselineSourceCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "candidateCommit": "981368f6a4aad7628fe37bb5b5b38bac86b885d4",
+  "preparation": {
+   "baseline": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   },
+   "candidate": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   }
+  },
+  "observedWitness": {
+   "baseline": {
+    "statementCount": 1
+   },
+   "candidate": {
+    "statementCount": 1
+   }
+  },
+  "metrics": {
+   "cpuMicrosecondsPerOperation": {
+    "B": 370.798,
+    "N": 300.837,
+    "madBaseline": 28.964,
+    "madCandidate": 5.139999999999986,
+    "E": 57.928,
+    "signedDelta": -69.96100000000001,
+    "budgetFraction": 0.05,
+    "budget": 18.5399,
+    "deltaPlusE": -12.033000000000015,
+    "withinBudget": true,
+    "straddles": false,
+    "improvementBeyondE": true,
+    "samplesBaseline": [
+     370.798,
+     318.651,
+     399.762,
+     207.153,
+     374.85
+    ],
+    "samplesCandidate": [
+     300.837,
+     305.977,
+     444.128,
+     248.313,
+     300.629
+    ]
+   },
+   "wallMicrosecondsPerOperation": {
+    "B": 318.10220799999934,
+    "N": 251.94079199999987,
+    "madBaseline": 68.1906670000003,
+    "madCandidate": 15.971332999999959,
+    "E": 136.3813340000006,
+    "signedDelta": -66.16141599999946,
+    "budgetFraction": 0.05,
+    "budget": 15.905110399999968,
+    "deltaPlusE": 70.21991800000114,
+    "withinBudget": false,
+    "straddles": true,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     386.29287499999964,
+     243.4045000000001,
+     349.02354099999957,
+     152.4183750000002,
+     318.10220799999934
+    ],
+    "samplesCandidate": [
+     249.27974999999972,
+     267.91212499999983,
+     508.86691699999983,
+     198.065791,
+     251.94079199999987
+    ]
+   }
+  }
+ },
+ {
+  "workload": "bulk-update-returning-100",
+  "stage": "full",
+  "mode": "retained",
+  "iterations": 100,
+  "warmupIterations": 20,
+  "replicates": 5,
+  "comparisonMode": "semantic",
+  "baselineCommit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "baselineSourceCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "candidateCommit": "981368f6a4aad7628fe37bb5b5b38bac86b885d4",
+  "preparation": {
+   "baseline": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   },
+   "candidate": {
+    "seam": "package",
+    "statementCount": 1,
+    "packageRefusal": null
+   }
+  },
+  "observedWitness": {
+   "baseline": {
+    "statementCount": 1
+   },
+   "candidate": {
+    "statementCount": 1
+   }
+  },
+  "metrics": {
+   "peakRssBytes": {
+    "B": 99450880,
+    "N": 96419840,
+    "madBaseline": 327680,
+    "madCandidate": 2326528,
+    "E": 4653056,
+    "signedDelta": -3031040,
+    "budgetFraction": 0.1,
+    "budget": 9945088,
+    "deltaPlusE": 1622016,
+    "withinBudget": true,
+    "straddles": false,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     98615296,
+     99778560,
+     98664448,
+     99696640,
+     99450880
+    ],
+    "samplesCandidate": [
+     94093312,
+     92209152,
+     100106240,
+     96419840,
+     96976896
+    ]
+   }
+  }
+ }
+]

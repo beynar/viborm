@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transport.test.ts (44 tests) 581ms
+ ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 18ms
+ ✓ |raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 33ms
+ ✓ |raptor3| tests/raptor3/candidate.test.ts (48 tests) 273ms
+ ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 9ms
+ ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests) 21ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 34ms
+
+ Test Files  7 passed (7)
+      Tests  136 passed (136)
+   Start at  08:10:13
+   Duration  3.25s (transform 1.15s, setup 12ms, collect 2.11s, tests 970ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 5.28s wall, 856.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

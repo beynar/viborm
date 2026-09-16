@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-5
+
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2976ms
+   ✓ completes the exact admitted SQLite transition seed batch  2975ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:48:37
+   Duration  6.01s (transform 1.35s, setup 8ms, collect 2.01s, tests 2.98s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-CoVDku/vitest.json
+Vitest resources: 11.64s wall, 778.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p06-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-CoVDku
+Raptor 3 g3p06-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g3p06-seeds-Rxw99b

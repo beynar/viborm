@@ -1,0 +1,435 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/recursive-carrier.review.test.ts (4 tests) 28ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts (2 tests) 21ms
+ ❯ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts (7 tests | 7 failed) 30ms
+   × G4-02 review EVIDENCE — the symbolic updated-key expression > multiplies a key on a NON-RETURNING provider the way the shipped engine does 12ms
+     → candidate {"answer":"QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.",
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review EVIDENCE — the symbolic updated-key expression > divides a key on a NON-RETURNING provider the way the shipped engine does 4ms
+     → candidate {"answer":"QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'divide': the provider owns that operator's rounding inside its own assignment.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":2,\"label\":\"a\"}","rows":[{"id":2,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'divide': the provider owns that operator's rounding inside its own assignment.",
+-   answer: 'ok:{"id":2,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 2,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key increment: the candidate answers what the shipped engine answers 3ms
+     → candidate {"answer":"ok:{\"id\":\"7\",\"label\":\"a\"}","rows":[{"id":700,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"7","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 700,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key multiply: the candidate answers what the shipped engine answers 3ms
+     → candidate {"answer":"ok:{\"id\":\"12\",\"label\":\"a\"}","rows":[{"id":1200,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"12","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 1200,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > number key multiply: the candidate answers what the shipped engine answers 3ms
+     → candidate {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":12,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 12,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > int key divide by zero: the candidate answers what the shipped engine answers 2ms
+     → candidate {"answer":"QueryError: Query execution failed","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'QueryError: Query execution failed',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      }
+
+   × G4-02 review EVIDENCE — primary-key arithmetic portability > a primary key carrying two update operations is refused as the shipped engine refuses it 2ms
+     → candidate {"answer":"ok:{\"id\":9,\"label\":\"a\"}","rows":[{"id":9,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/statement-atomic-parity.review.test.ts (5 tests) 15ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts (4 tests) 15ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts (4 tests) 29ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/operation-region.review.test.ts (2 tests) 10ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/tagged-quantifier.review.test.ts (18 tests) 76ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/witness-defect-checks.review.test.ts (3 tests) 6ms
+ ✓ |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/json-operator-keys.review.test.ts (7 tests) 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — the symbolic updated-key expression > multiplies a key on a NON-RETURNING provider the way the shipped engine does
+AssertionError: candidate {"answer":"QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.",
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":12,\"label\":\"a\"}",[39m
+[31m+   "answer": "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'multiply': the provider owns that operator's rounding inside its own assignment.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 12,[39m
+[31m+       "id": 6,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:117:12
+    115|       false
+    116|     );
+    117|     assert.deepEqual(
+       |            ^
+    118|       candidate,
+    119|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — the symbolic updated-key expression > divides a key on a NON-RETURNING provider the way the shipped engine does
+AssertionError: candidate {"answer":"QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'divide': the provider owns that operator's rounding inside its own assignment.","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":2,\"label\":\"a\"}","rows":[{"id":2,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'divide': the provider owns that operator's rounding inside its own assignment.",
+-   answer: 'ok:{"id":2,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 2,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":2,\"label\":\"a\"}",[39m
+[31m+   "answer": "QueryEngineError: Raptor 3 cannot name the updated value of 'intKey.id' under 'divide': the provider owns that operator's rounding inside its own assignment.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 2,[39m
+[31m+       "id": 6,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:141:12
+    139|       false
+    140|     );
+    141|     assert.deepEqual(
+       |            ^
+    142|       candidate,
+    143|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key increment: the candidate answers what the shipped engine answers
+AssertionError: candidate {"answer":"ok:{\"id\":\"7\",\"label\":\"a\"}","rows":[{"id":700,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"7","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 700,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":\"7\",\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 600,[39m
+[31m+       "id": 700,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:159:14
+    157|       const shipped = await update(model, table, where, data, "shipped…
+    158|       const candidate = await update(model, table, where, data, "candi…
+    159|       assert.deepEqual(
+       |              ^
+    160|         candidate,
+    161|         shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > decimal key multiply: the candidate answers what the shipped engine answers
+AssertionError: candidate {"answer":"ok:{\"id\":\"12\",\"label\":\"a\"}","rows":[{"id":1200,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.","rows":[{"id":600,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":"12","label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 1200,
+-       id: 600,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":\"12\",\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 600,[39m
+[31m+       "id": 1200,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:159:14
+    157|       const shipped = await update(model, table, where, data, "shipped…
+    158|       const candidate = await update(model, table, where, data, "candi…
+    159|       assert.deepEqual(
+       |              ^
+    160|         candidate,
+    161|         shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > number key multiply: the candidate answers what the shipped engine answers
+AssertionError: candidate {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":12,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 12,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":12,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 12,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:159:14
+    157|       const shipped = await update(model, table, where, data, "shipped…
+    158|       const candidate = await update(model, table, where, data, "candi…
+    159|       assert.deepEqual(
+       |              ^
+    160|         candidate,
+    161|         shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > int key divide by zero: the candidate answers what the shipped engine answers
+AssertionError: candidate {"answer":"QueryError: Query execution failed","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'QueryError: Query execution failed',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 6,
+        label: 'a'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[31m+   "answer": "QueryError: Query execution failed",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "a",[22m
+[2m      },[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:159:14
+    157|       const shipped = await update(model, table, where, data, "shipped…
+    158|       const candidate = await update(model, table, where, data, "candi…
+    159|       assert.deepEqual(
+       |              ^
+    160|         candidate,
+    161|         shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |g4-review-unit02-phase2| tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts > G4-02 review EVIDENCE — primary-key arithmetic portability > a primary key carrying two update operations is refused as the shipped engine refuses it
+AssertionError: candidate {"answer":"ok:{\"id\":9,\"label\":\"a\"}","rows":[{"id":9,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":9,"label":"a"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    rows: [
+      {
++       id: 9,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":9,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 9,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/unit02-phase2/key-arithmetic-parity.review.test.ts:182:12
+    180|       "candidate"
+    181|     );
+    182|     assert.deepEqual(
+       |            ^
+    183|       candidate,
+    184|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  7 failed | 49 passed (56)
+   Start at  09:07:12
+   Duration  3.68s (transform 1.61s, setup 20ms, collect 3.24s, tests 247ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 4.32s wall, 661.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

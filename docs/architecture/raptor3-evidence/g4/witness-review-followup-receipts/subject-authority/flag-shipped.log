@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1150ms
+   ✓ executes one complete G4 SQLite read seed batch  1149ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:38:56
+   Duration  3.02s (transform 1.17s, setup 8ms, collect 1.73s, tests 1.15s, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-o20Fb7/vitest.json
+Vitest resources: 5.01s wall, 704.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-seed-batch (subject shipped, NOT qualifying — oracle validation) contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-o20Fb7

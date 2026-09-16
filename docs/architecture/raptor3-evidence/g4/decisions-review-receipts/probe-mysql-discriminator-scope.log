@@ -1,0 +1,128 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[root delete by a collation-equal key]
+  shipped   ForeignKeyError: Foreign key constraint violation
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ForeignKeyError: Foreign key constraint violation
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[root upsert whose lookup is collation-equal]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"updated"}
+            owners [{"id":"wanted","email":"claim@x","name":"updated"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested connect on a collation-equal key]
+  shipped   ok:{"id":"n2","title":"T","ownerId":"WANTED"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"},{"id":"n2","ownerId":"WANTED"}]
+  candidate ok:{"id":"n2","title":"T","ownerId":"wanted"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"},{"id":"n2","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested set on a collation-equal key]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested disconnect on a collation-equal key]
+  shipped   NestedWriteError: Cannot disconnect relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate NestedWriteError: Cannot disconnect relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested delete on a collation-equal key]
+  shipped   NestedWriteError: Cannot delete relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate NestedWriteError: Cannot delete relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested update on a collation-equal key]
+  shipped   NestedWriteError: Cannot update relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate NestedWriteError: Cannot update relation 'notes': target record was not found for this parent.
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[nested upsert on a collation-equal key]
+  shipped   ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:{"id":"wanted","email":"claim@x","name":"winner"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[compound unique selector, collation-equal members]
+  shipped   ok:{"region":"eu","slug":"alpha","label":"p"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:{"region":"eu","slug":"alpha","label":"p"}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[extended unique where: the filter half stays case-sensitive]
+  shipped   ok:null
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:null
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+[deleteMany by a collation-equal filter]
+  shipped   ok:{"count":0}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+  candidate ok:{"count":0}
+            owners [{"id":"wanted","email":"claim@x","name":"winner"}] notes [{"id":"n1","ownerId":"wanted"}]
+
+ ❯ |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts (1 test | 1 failed) 451ms
+   × G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does 450ms
+     → diverging call sites
++ actual - expected
+
++ [
++   'nested connect on a collation-equal key'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts > G4-02 closure review — the discriminator repair's other call sites > answers every admitted-unique call site the way the shipped engine does
+AssertionError: diverging call sites
++ actual - expected
+
++ [
++   'nested connect on a collation-equal key'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "nested connect on a collation-equal key",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02-closure/mysql-discriminator-scope.review.test.ts:298:14
+    296|         await setup.disconnect();
+    297|       }
+    298|       assert.deepEqual(divergences, [], "diverging call sites");
+       |              ^
+    299|     }, 180_000);
+    300|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  17:56:24
+   Duration  2.80s (transform 1.43s, setup 19ms, collect 2.10s, tests 451ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.46s wall, 482.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

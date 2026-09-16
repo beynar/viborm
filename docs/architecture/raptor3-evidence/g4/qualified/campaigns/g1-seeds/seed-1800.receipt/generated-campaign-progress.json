@@ -1,0 +1,1226 @@
+{
+  "formatVersion": 1,
+  "qualifying": false,
+  "status": "incomplete",
+  "identity": {
+    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 1800,
+  "seedCount": 100,
+  "profiles": [
+    "sqlite-interactive",
+    "sqlite-atomic-batch"
+  ],
+  "completed": [
+    {
+      "seed": 1800,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1800,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1801,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1801,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1802,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1802,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1803,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1803,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1804,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1804,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1805,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1805,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1806,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1806,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1807,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1807,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1808,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1808,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1809,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1809,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1810,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1810,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1811,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1811,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1812,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1812,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1813,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1813,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1814,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1814,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1815,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1815,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1816,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1816,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1817,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1817,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1818,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1818,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1819,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1819,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1820,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1820,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1821,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1821,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1822,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1822,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1823,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1823,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1824,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1824,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1825,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1825,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1826,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1826,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1827,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1827,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1828,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1828,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1829,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1829,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1830,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1830,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1831,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1831,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1832,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1832,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1833,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1833,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1834,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1834,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1835,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1835,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1836,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1836,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1837,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1837,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1838,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1838,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1839,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1839,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1840,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1840,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1841,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1841,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1842,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1842,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1843,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1843,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1844,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1844,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1845,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1845,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1846,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1846,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1847,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1847,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1848,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1848,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1849,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1849,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1850,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1850,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1851,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1851,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1852,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1852,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1853,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1853,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1854,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1854,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1855,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1855,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1856,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1856,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1857,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1857,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1858,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1858,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1859,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1859,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1860,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1860,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1861,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1861,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1862,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1862,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1863,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1863,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1864,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1864,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1865,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1865,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1866,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1866,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1867,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1867,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1868,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1868,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1869,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1869,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1870,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1870,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1871,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1871,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1872,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1872,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1873,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1873,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1874,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1874,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1875,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1875,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1876,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1876,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1877,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1877,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1878,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1878,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1879,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1879,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1880,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1880,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1881,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1881,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1882,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1882,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1883,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1883,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1884,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1884,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1885,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1885,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1886,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1886,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1887,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1887,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1888,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1888,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1889,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1889,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1890,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1890,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1891,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1891,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1892,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1892,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1893,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1893,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1894,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1894,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1895,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1895,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1896,
+      "profile": "sqlite-interactive",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1896,
+      "profile": "sqlite-atomic-batch",
+      "actors": 2,
+      "faults": 0
+    },
+    {
+      "seed": 1897,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1897,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 1
+    },
+    {
+      "seed": 1898,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1898,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1899,
+      "profile": "sqlite-interactive",
+      "actors": 1,
+      "faults": 0
+    },
+    {
+      "seed": 1899,
+      "profile": "sqlite-atomic-batch",
+      "actors": 1,
+      "faults": 0
+    }
+  ],
+  "replays": 600,
+  "skipped": 0
+}

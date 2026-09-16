@@ -1,0 +1,81 @@
+
+[test:all] extended-local shared-family shard 6/12 (15 suites)
+
+ RUN  v3.1.4 /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/head-check
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests) 4023ms
+ ✓ |extended-local| tests/contracts/engine/write/upsert-family.test.ts (50 tests) 2147ms
+ ✓ |extended-local| tests/contracts/engine/write/create-family.test.ts (22 tests) 2902ms
+ ❯ |extended-local| tests/contracts/engine/write/junction-adopt-create-relations.test.ts (19 tests | 2 failed) 1143ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > the update root creates the target, joins it, and writes its children 19ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > the create root does the same under a fresh parent 16ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > a fresh inline junction target globally adopts through a polymorphic inverse 20ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > the same shape one level deeper, under a located nested target 18ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > a deeper CONNECT proves the arm's children plan their reads 13ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > the FOUND arm adopts the existing row and writes none of its children 13ms
+   ✓ E2-U2 connectOrCreate create-arm relations (transaction) > first-create-wins: a duplicate item adopts and writes no second child set 16ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > the update root creates the target, joins it, and writes its children 15ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > the create root does the same under a fresh parent 14ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > a fresh inline junction target globally adopts through a polymorphic inverse 16ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > the same shape one level deeper, under a located nested target 15ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > a deeper CONNECT proves the arm's children plan their reads 15ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > the FOUND arm adopts the existing row and writes none of its children 17ms
+   ✓ E2-U2 connectOrCreate create-arm relations (atomic batch) > first-create-wins: a duplicate item adopts and writes no second child set 16ms
+   × E2-U2 the missing-premise race pin survives the absorption > the arm's INSERT still carries the pin, and nothing deeper does (transaction) 13ms
+     → expected { fields: [ 'id' ], …(3) } to deeply equal { fields: [ 'id' ], …(3) }
+   × E2-U2 the missing-premise race pin survives the absorption > the arm's INSERT still carries the pin, and nothing deeper does (atomic batch) 9ms
+     → expected { fields: [ 'id' ], …(3) } to deeply equal { fields: [ 'id' ], …(3) }
+   ✓ E2-U2 the carve-outs — both DISCHARGED by E4-U3 > a relation-carrying arm with a DB-generated target primary key 17ms
+   ✓ E2-U2 the carve-outs — both DISCHARGED by E4-U3 > a create arm whose relations need the whole-create delegation 14ms
+   ✓ E2-U2 the carve-outs — both DISCHARGED by E4-U3 > junction updateMany runs one selected-record subtree per connected target 21ms
+ ✓ |extended-local| tests/contracts/engine/write/parent-held-lookup.test.ts (56 tests) 2528ms
+ ✓ |extended-local| tests/contracts/engine/write/depth-seam-split-witness.test.ts (7 tests) 1121ms
+ ✓ |extended-local| tests/contracts/public-client/default-omit-extension.test.ts (9 tests) 892ms
+ ✓ |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts (21 tests) 1194ms
+ ✓ |extended-local| tests/contracts/engine/query/legality-gate.test.ts (7 tests) 736ms
+ ✓ |extended-local| tests/unit/migrations/resolution-result-boundary.test.ts (9 tests) 958ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-junction-target-recursion.test.ts (3 tests) 944ms
+ ✓ |extended-local| tests/contracts/engine/write/located-parent-ref-staleness.test.ts (4 tests) 851ms
+ ✓ |extended-local| tests/unit/cache/batch-transaction-invalidation.test.ts (10 tests) 1103ms
+ ✓ |extended-local| tests/contracts/engine/write/batch-mode-fold.test.ts (4 tests) 859ms
+ ✓ |extended-local| tests/contracts/engine/write/reads.test.ts (54 tests) 1646ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/contracts/engine/write/junction-adopt-create-relations.test.ts > E2-U2 the missing-premise race pin survives the absorption > the arm's INSERT still carries the pin, and nothing deeper does (transaction)
+ FAIL  |extended-local| tests/contracts/engine/write/junction-adopt-create-relations.test.ts > E2-U2 the missing-premise race pin survives the absorption > the arm's INSERT still carries the pin, and nothing deeper does (atomic batch)
+AssertionError: expected { fields: [ 'id' ], …(3) } to deeply equal { fields: [ 'id' ], …(3) }
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -2,11 +2,10 @@[39m
+[2m    "columns": [[22m
+[2m      "id",[22m
+[2m    ],[22m
+[2m    "constraints": [[22m
+[2m      "e2u2_tags_pkey",[22m
+[32m-     "PRIMARY",[39m
+[2m    ],[22m
+[2m    "fields": [[22m
+[2m      "id",[22m
+[2m    ],[22m
+[2m    "table": "e2u2_tags",[22m
+
+ ❯ tests/contracts/engine/write/junction-adopt-create-relations.test.ts:543:72
+    541|         writes.filter((step) => step.racePin !== undefined).map((s) =>…
+    542|       ).toEqual(["tag.create"]);
+    543|       expect(writes.find((step) => step.id === "tag.create")?.racePin)…
+       |                                                                        ^
+    544|         TAG_PIN
+    545|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 14 passed (15)
+      Tests  2 failed | 304 passed (306)
+   Start at  23:24:37
+   Duration  29.82s (transform 2.45s, setup 28ms, collect 6.42s, tests 23.05s, environment 0ms, prepare 45ms)
+
+[test:all] extended-local shared-family shard 6/12 (15 suites): 33.18s wall, 1474.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

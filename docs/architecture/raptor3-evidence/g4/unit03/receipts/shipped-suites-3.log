@@ -1,0 +1,6 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/public-client/batch-transaction.test.ts (70 tests) 1488ms
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 6.20s wall, 1571.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

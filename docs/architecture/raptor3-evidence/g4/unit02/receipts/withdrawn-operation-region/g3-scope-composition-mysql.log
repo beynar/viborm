@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/g3/scope-composition-native.test.ts (2 tests | 1 failed) 122ms
+   ✓ G3 native mysql bulk and scope composition > executes grouped bulk results, scalar suppression and limited returns 92ms
+   × G3 native mysql bulk and scope composition > composes exact-root suppression into one caller transaction and keeps descendants fatal 30ms
+     → Transaction scope for driver "mysql2" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/g3/scope-composition-native.test.ts > G3 native mysql bulk and scope composition > composes exact-root suppression into one caller transaction and keeps descendants fatal
+TransactionError: Transaction scope for driver "mysql2" cannot be used while its nested transaction is active. At every nesting level, use the transaction client supplied to that callback.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  03:47:44
+   Duration  1.79s (transform 1.01s, setup 9ms, collect 1.54s, tests 122ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-VLEWLm/vitest.json
+Vitest resources: 3.85s wall, 523.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-VLEWLm
+exit=1 (port 65515, container viborm-raptor3-g3-mysql-20260914)

@@ -1,0 +1,135 @@
+{
+ "note": "relation-series-2 re-observed on the identity-2 build, through the public client, with the frozen contract assertion bypassed. The shipped side is also re-observed through the harness (witnessStatementCount 7, reachedCuts selected-roots-captured/first-member-visible/second-member-visible). The candidate side cannot be observed through the harness because the assertion throws first; only its public outcome, its evaluated defaults and the persisted rows are re-measured here. Its physical statement count (3) is carried forward from receipts-stage2/relation-series-2-divergence.json and was NOT re-measured at identity 2.",
+ "sides": {
+  "baseline-shipped":
+{
+ "root": "/private/tmp/viborm-g4-perf-baseline",
+ "outcome": {
+  "kind": "success",
+  "value": {
+   "count": 2
+  }
+ },
+ "defaultsEvaluated": 5,
+ "defaults": [
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_1"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_2"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_3"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_4"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_5"
+  }
+ ],
+ "statementCount": 0,
+ "statements": [],
+ "childrenBefore": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ],
+ "childrenAfter": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "series_child_3",
+   "parentId": 5000,
+   "label": "series-child"
+  },
+  {
+   "id": "series_child_5",
+   "parentId": 6000,
+   "label": "series-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ]
+}
+  ,"candidate-cutover":
+{
+ "root": "/private/tmp/viborm-g4-perf-candidate",
+ "outcome": {
+  "kind": "success",
+  "value": {
+   "count": 2
+  }
+ },
+ "defaultsEvaluated": 3,
+ "defaults": [
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_1"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_2"
+  },
+  {
+   "name": "generatedChild.id",
+   "value": "series_child_3"
+  }
+ ],
+ "statementCount": 0,
+ "statements": [],
+ "childrenBefore": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ],
+ "childrenAfter": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "series_child_2",
+   "parentId": 5000,
+   "label": "series-child"
+  },
+  {
+   "id": "series_child_3",
+   "parentId": 6000,
+   "label": "series-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ]
+}
+ }
+}

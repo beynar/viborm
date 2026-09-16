@@ -1,0 +1,45 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/unit02/zz-ddl-probe.test.ts > dumps the DDL
+[
+  {
+    "name": "ddl_owners",
+    "sql": "CREATE TABLE \"ddl_owners\" (\n  \"id\" TEXT NOT NULL,\n  \"name\" TEXT NOT NULL,\n  PRIMARY KEY (\"id\")\n)"
+  },
+  {
+    "name": "sqlite_autoindex_ddl_owners_1",
+    "sql": null
+  },
+  {
+    "name": "ddl_tags",
+    "sql": "CREATE TABLE \"ddl_tags\" (\n  \"id\" TEXT NOT NULL,\n  \"label\" TEXT NOT NULL,\n  PRIMARY KEY (\"id\")\n)"
+  },
+  {
+    "name": "sqlite_autoindex_ddl_tags_1",
+    "sql": null
+  },
+  {
+    "name": "ddl_links",
+    "sql": "CREATE TABLE \"ddl_links\" (\n  \"ownerId\" TEXT NOT NULL,\n  \"tagId\" TEXT NOT NULL,\n  PRIMARY KEY (\"ownerId\", \"tagId\"),\n  CONSTRAINT \"ddl_links_ownerId_fkey\" FOREIGN KEY (\"ownerId\") REFERENCES \"ddl_owners\" (\"id\") ON DELETE CASCADE ON UPDATE CASCADE,\n  CONSTRAINT \"ddl_links_tagId_fkey\" FOREIGN KEY (\"tagId\") REFERENCES \"ddl_tags\" (\"id\") ON DELETE CASCADE ON UPDATE CASCADE\n)"
+  },
+  {
+    "name": "sqlite_autoindex_ddl_links_1",
+    "sql": null
+  },
+  {
+    "name": "ddl_links_tagId_idx",
+    "sql": "CREATE INDEX \"ddl_links_tagId_idx\" ON \"ddl_links\" (\"tagId\")"
+  }
+]
+foreign_keys pragma: [{"foreign_keys":1}]
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/zz-ddl-probe.test.ts (1 test) 16ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:23:20
+   Duration  2.18s (transform 1.36s, setup 11ms, collect 2.03s, tests 16ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 2.80s wall, 445.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

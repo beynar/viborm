@@ -1,0 +1,2 @@
+Test command refused: the workspace lock is stale or unreadable. Confirm that no verification process remains, then remove /private/tmp/viborm-g4-lane-tmp-2/viborm-test-c33ebb4c906dfea8.lock before retrying.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-2/viborm-raptor3-g0-cEPxXW

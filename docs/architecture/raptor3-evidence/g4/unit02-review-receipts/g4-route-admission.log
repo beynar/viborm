@@ -1,0 +1,25 @@
+[32m- Expected:[39m 
+/Raptor 3 G1 operation is not implemented/
+
+[31m+ Received:[39m 
+"no refusal"
+
+ ❯ tests/raptor3/g4/route-admission.test.ts:159:14
+    157|     }
+    158|     for (const refusal of refusals) {
+    159|       assert.match(refusal, UNIMPLEMENTED_VERB);
+       |              ^
+    160|     }
+    161|     // No statement ran: the refusal precedes provider work and no shi…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  03:20:05
+   Duration  1.88s (transform 1.15s, setup 9ms, collect 1.71s, tests 34ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pgyMoI/vitest.json
+Vitest resources: 3.91s wall, 544.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pgyMoI

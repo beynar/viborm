@@ -279,6 +279,19 @@ export interface DatabaseAdapter {
     subtract: (left: Sql, right: Sql) => Sql;
     multiply: (left: Sql, right: Sql) => Sql;
     divide: (left: Sql, right: Sql) => Sql;
+    /**
+     * The integer quotient of two integer operands, truncated toward zero.
+     *
+     * The same fact {@link DatabaseAdapter.set.divide}'s `target.integer` flag
+     * already carries, as an EXPRESSION rather than an assignment: naming the
+     * value an integer column will hold after `{ divide }` needs the dialect's
+     * own truncation, and `/` does not agree across dialects. SQLite and
+     * PostgreSQL truncate natively once both operands are integers, while MySQL
+     * `/` yields a DECIMAL quotient and needs `TRUNCATE(…, 0)`. Casting the
+     * quotient afterwards is not a substitute: MySQL and PostgreSQL ROUND on
+     * cast, only SQLite truncates.
+     */
+    integerDivide: (left: Sql, right: Sql) => Sql;
 
     // String operations
     concat: (...parts: Sql[]) => Sql;

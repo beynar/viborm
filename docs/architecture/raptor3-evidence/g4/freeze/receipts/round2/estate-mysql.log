@@ -1,0 +1,38 @@
+container viborm-raptor3-g3-mysql-20260914 -> 127.0.0.1:65515
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 2333ms
+   ✓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does  370ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  1404ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests) 175ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 530ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 46ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 401ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 280ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 100ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 121ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 250ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 83ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 246ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 2257ms
+   ✓ G4-02 native MySQL nested key refusal > refuses a nested upsert whose target is PRESENT, writing nothing  308ms
+   ✓ G4-02 native MySQL nested key refusal > creates the row for a nested upsert whose target is ABSENT  680ms
+   ✓ G4-02 native MySQL nested key refusal > refuses a nested update whose key names set beside an operator  1261ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 388ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 16ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 10ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 75ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 307ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 2ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 15ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 10ms
+
+ Test Files  20 passed | 1 skipped (21)
+      Tests  127 passed | 1 skipped (128)
+   Start at  19:25:53
+   Duration  42.92s (transform 4.00s, setup 223ms, collect 34.58s, tests 7.65s, environment 0ms, prepare 81ms)
+
+Vitest resources: 44.04s wall, 642.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

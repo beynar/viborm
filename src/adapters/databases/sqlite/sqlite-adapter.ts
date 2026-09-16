@@ -397,6 +397,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`MAX(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`MIN(${sql.join(exprs, ", ")})`,
 
+    // The expression form of `set.divide`'s integer arm, and for the same
+    // reason: SQLite drivers bind JS numbers as REAL, so `x / ?` would run real
+    // division. Casting the divisor to INTEGER makes it native INT/INT
+    // division, truncating toward zero.
+    integerDivide: (left: Sql, right: Sql): Sql =>
+      sql`(${left} / CAST(${right} AS INTEGER))`,
+
     // A deferred SQLite decimal is already a captured coefficient. The
     // descriptor still travels through the common contract so no caller can
     // select this physical cast without naming the destination domain.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 151ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  01:06:13
+   Duration  6.76s (transform 2.19s, setup 16ms, collect 3.24s, tests 151ms, environment 0ms, prepare 54ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-btOiDN/vitest.json
+Vitest resources: 15.77s wall, 510.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-operations contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-btOiDN

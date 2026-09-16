@@ -1,0 +1,18 @@
+{
+  "identity": {
+    "production": "8704dcea6d6b65580da825aa701dd9fe5e55a600d5bbb6e2afefa3f7da8b9caf",
+    "harness": "64ad146c99cd94e6b096c83078d09e3cd6190454a6ec2e2d44b00f3737fc081d",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "subject": "candidate",
+  "firstSeed": 20000,
+  "completed": [],
+  "failure": "Error: Raptor 3 G1 scalar codec is not implemented: enum\n    at Queries.columnName (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts:202:13)\n    at Queries.column (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts:188:23)\n    at Queries.projectedColumn (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts:219:25)\n    at Queries.lowerProjection (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts:1335:27)\n    at Queries.select (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/query.ts:920:29)\n    at /Users/arnaud/code/viborm/src/query-engine/raptor3/commands/index.ts:49:31\n    at OperationContext.run (/Users/arnaud/code/viborm/src/query-engine/raptor3/shared/operation-context.ts:286:22)\n    at run (/Users/arnaud/code/viborm/src/query-engine/raptor3/commands/index.ts:38:20)\n    at Object.execute (/Users/arnaud/code/viborm/src/query-engine/raptor3/commands/index.ts:73:14)\n    at run (/Users/arnaud/code/viborm/tests/raptor3/g4/generation/campaign.ts:89:21)",
+  "records": []
+}

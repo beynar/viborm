@@ -1,0 +1,241 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests | 3 failed) 306ms
+   × G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery 163ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+      {
++       email: 'claim@x',
+-       email: 'winner@x',
+        id: 'wanted',
++       name: 'loser'
+-       name: 'winner'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+
+   × G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused 56ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+        email: 'claim@x',
++       id: 'wanted',
++       name: 'loser'
+-       id: 'other',
+-       name: 'unrelated'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+...
+      },
++     {
++       authorId: 'wanted',
++       id: 'p-request',
++       title: 'Request'
++     }
+    ]
+  }
+
+   × G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint 58ms
+     → wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
++ []
+- [
+-   'unrelated-missing-choice-observed'
+- ]
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 386ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (2 tests) 228ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 91ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+      {
++       email: 'claim@x',
+-       email: 'winner@x',
+        id: 'wanted',
++       name: 'loser'
+-       name: 'winner'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -4,13 +4,13 @@[39m
+[2m        "email": "decoy@x",[22m
+[2m        "id": "decoy",[22m
+[2m        "name": "untouched",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "email": "winner@x",[39m
+[31m+       "email": "claim@x",[39m
+[2m        "id": "wanted",[22m
+[32m-       "name": "winner",[39m
+[31m+       "name": "loser",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m    "posts": [[22m
+[2m      {[22m
+[2m        "authorId": "decoy",[22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:483:14
+    481|     assert(observation: RunObservation) {
+    482|       assert.deepEqual(observation.initial, initial);
+    483|       assert.deepEqual(observation.final, final);
+       |              ^
+    484|       assert.deepEqual(observation.defaults, []);
+    485|       assert.deepEqual(
+ ❯ runUniqueRaceScenario tests/raptor3/transitions/unique-races-live.ts:573:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    authors: [
+      {
+        email: 'decoy@x',
+        id: 'decoy',
+...
+        email: 'claim@x',
++       id: 'wanted',
++       name: 'loser'
+-       id: 'other',
+-       name: 'unrelated'
+      }
+    ],
+    posts: [
+      {
+        authorId: 'decoy',
+...
+      },
++     {
++       authorId: 'wanted',
++       id: 'p-request',
++       title: 'Request'
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -5,17 +5,22 @@[39m
+[2m        "id": "decoy",[22m
+[2m        "name": "untouched",[22m
+[2m      },[22m
+[2m      {[22m
+[2m        "email": "claim@x",[22m
+[32m-       "id": "other",[39m
+[32m-       "name": "unrelated",[39m
+[31m+       "id": "wanted",[39m
+[31m+       "name": "loser",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m    "posts": [[22m
+[2m      {[22m
+[2m        "authorId": "decoy",[22m
+[2m        "id": "p-decoy",[22m
+[2m        "title": "Untouched",[22m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "authorId": "wanted",[39m
+[31m+       "id": "p-request",[39m
+[31m+       "title": "Request",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:483:14
+    481|     assert(observation: RunObservation) {
+    482|       assert.deepEqual(observation.initial, initial);
+    483|       assert.deepEqual(observation.final, final);
+       |              ^
+    484|       assert.deepEqual(observation.defaults, []);
+    485|       assert.deepEqual(
+ ❯ runUniqueRaceScenario tests/raptor3/transitions/unique-races-live.ts:573:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint
+AssertionError: wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
++ []
+- [
+-   'unrelated-missing-choice-observed'
+- ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [[39m
+[32m-   "unrelated-missing-choice-observed",[39m
+[32m- ][39m
+[31m+ [][39m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:198:14
+    196|         "Unique constraint violation"
+    197|       );
+    198|       assert.deepEqual(
+       |              ^
+    199|         observation.reachedCuts,
+    200|         Array.from({ length: expectedAttempts }, () => cut),
+ ❯ runWrongInsertScenario tests/raptor3/transitions/unique-races-live.ts:292:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:16:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  3 failed | 10 passed (13)
+   Start at  09:28:45
+   Duration  3.31s (transform 1.17s, setup 12ms, collect 2.05s, tests 1.01s, environment 0ms, prepare 42ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Kv2VSE/vitest.json
+Vitest resources: 5.43s wall, 704.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Kv2VSE

@@ -1,0 +1,34 @@
+=== clean baseline worktree /private/tmp/viborm-g4-perf-baseline, 2026-09-15T14:30:46Z ===
+=== container viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+--- git status (before the probe copy) must be clean apart from the probe ---
+?? tests/raptor3/g4/
+--- tree identities ---
+874dc5ec49d4357f5b9177a8fa79365bc74fdb5a3aababc6764d8dc79524d7f8  src/query-engine/raptor3/commands/selection.ts
+79066ea8b384681da153e996f3e659b44e41d6269491443d44e26b44b47b07a2  src/query-engine/raptor3/commands/relation-body.ts
+e0c4d420548f288a3323f1fbdb58c740c0d21f9e9d39dbd50d7f5ce9e8b6a27a  src/query-engine/raptor3/shared/query.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-perf-baseline
+
+stdout | tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts > G4-02 round 3 classification — junction delete by exact bytes > prints both engines' answer and rows for a junction delete
+[junction delete, exact bytes] shipped
+  answer ok:{"id":"wanted","name":"winner"}
+  links [] tags []
+
+stdout | tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts > G4-02 round 3 classification — junction delete by exact bytes > prints both engines' answer and rows for a junction delete
+[junction delete, exact bytes] candidate
+  answer ForeignKeyError: Foreign key constraint violation
+  links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+ ✓ |g4-review-unit02-closure3| tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts (1 test) 127ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:30:52
+   Duration  2.01s (transform 1.13s, setup 10ms, collect 1.68s, tests 127ms, environment 0ms, prepare 40ms)
+
+Vitest resources: 2.62s wall, 455.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+=== the probe copy was removed after the run; the baseline worktree is clean again ===
+(empty above = clean)
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership

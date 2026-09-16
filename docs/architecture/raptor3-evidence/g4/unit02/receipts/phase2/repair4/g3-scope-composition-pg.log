@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/g3/scope-composition-native.test.ts (2 tests) 120ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  12:36:12
+   Duration  1.86s (transform 1.06s, setup 9ms, collect 1.59s, tests 120ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UHT4OU/vitest.json
+Vitest resources: 3.87s wall, 517.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-scope-composition-pg contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UHT4OU
+port 65504 container viborm-raptor3-g3-pg-20260914 7dfda37e8eea exit=0 attempts=1

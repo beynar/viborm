@@ -15,16 +15,13 @@ import { runG3TransportWorld } from "./transport-scenario";
 export async function verifyG3TransportCell(
   recipe: G3GeneratedRecipe,
   profile: TransportProfileId,
-  captureRecord?: (record: TransportReplayRecord) => void
+  captureRecord?: (record: TransportReplayRecord) => void,
+  campaign: typeof G3_GENERATED_TRANSPORT_CAMPAIGN = G3_GENERATED_TRANSPORT_CAMPAIGN
 ) {
   const world = await runG3TransportWorld(recipe, profile);
   captureRecord?.(world.record);
   world.fixture.assert(world.observation);
-  for (
-    let replay = 0;
-    replay < G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount;
-    replay++
-  )
+  for (let replay = 0; replay < campaign.replayCount; replay++)
     await replayG0Run(world.record);
   const actorOverlap = world.record.tape.events.some(
     (event) => event.kind === "cut" && event.name.endsWith("actors-overlapped")
@@ -56,18 +53,30 @@ async function replaceJson(path: string, value: unknown) {
   await rename(`${path}.tmp`, path);
 }
 
-/** One child owns one bounded contiguous ID slice on both transport profiles. */
-export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
+/**
+ * One child owns one bounded contiguous ID slice on both transport profiles.
+ *
+ * `campaign` names which frozen campaign that slice belongs to.
+ *
+ * Defaults to G3's own, so every existing G3 receipt and self-test is
+ * unchanged. A later milestone that runs THIS generator and THIS runner on its
+ * own frozen disjoint range passes its campaign constant instead; the range
+ * guard, the profile list, the replay count and the receipt then all come from
+ * one place rather than from four.
+ */
+export async function runG3TransportBatch(
+  firstSeed: number,
+  seedCount = 100,
+  campaign: typeof G3_GENERATED_TRANSPORT_CAMPAIGN = G3_GENERATED_TRANSPORT_CAMPAIGN
+) {
   assert(
     Number.isInteger(firstSeed) &&
       Number.isInteger(seedCount) &&
       seedCount >= 1 &&
-      seedCount <= G3_GENERATED_TRANSPORT_CAMPAIGN.batchSize &&
-      firstSeed >= G3_GENERATED_TRANSPORT_CAMPAIGN.firstSeed &&
-      firstSeed + seedCount <=
-        G3_GENERATED_TRANSPORT_CAMPAIGN.firstSeed +
-          G3_GENERATED_TRANSPORT_CAMPAIGN.seedCount,
-    "G3 transport child must contain 1–100 contiguous IDs within 8000–17999"
+      seedCount <= campaign.batchSize &&
+      firstSeed >= campaign.firstSeed &&
+      firstSeed + seedCount <= campaign.firstSeed + campaign.seedCount,
+    `Transport child must contain 1–${campaign.batchSize} contiguous IDs within ${campaign.firstSeed}–${campaign.firstSeed + campaign.seedCount - 1}`
   );
   const identity = captureRaptor3Identity();
   const records: TransportReplayRecord[] = [];
@@ -94,9 +103,9 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
       identity,
       firstSeed,
       seedCount,
-      profiles: G3_GENERATED_TRANSPORT_CAMPAIGN.profiles,
+      profiles: campaign.profiles,
       completed,
-      replays: completed.length * G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount,
+      replays: completed.length * campaign.replayCount,
       skipped: 0,
     });
   };
@@ -104,11 +113,16 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
   try {
     for (let seed = firstSeed; seed < firstSeed + seedCount; seed++) {
       const recipe = generateG3Recipe(seed);
-      for (const profile of G3_GENERATED_TRANSPORT_CAMPAIGN.profiles) {
+      for (const profile of campaign.profiles) {
         activeCell = { recipe, profile };
-        const cell = await verifyG3TransportCell(recipe, profile, (record) => {
-          activeCell = { recipe, profile, record };
-        });
+        const cell = await verifyG3TransportCell(
+          recipe,
+          profile,
+          (record) => {
+            activeCell = { recipe, profile, record };
+          },
+          campaign
+        );
         records.push(cell.record);
         completed.push(cell.completion);
         activeCell = undefined;
@@ -164,11 +178,12 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
             await verifyG3TransportCell(
               recipe,
               failingCell.profile,
-              captureRecord
+              captureRecord,
+              campaign
             );
           },
           replayG0Run,
-          G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount
+          campaign.replayCount
         );
         if ("record" in minimized && minimized.record !== undefined) {
           const { record, ...details } = minimized;
@@ -213,9 +228,9 @@ export async function runG3TransportBatch(firstSeed: number, seedCount = 100) {
     identity,
     firstSeed,
     seedCount,
-    profiles: G3_GENERATED_TRANSPORT_CAMPAIGN.profiles,
+    profiles: campaign.profiles,
     completed,
-    replays: completed.length * G3_GENERATED_TRANSPORT_CAMPAIGN.replayCount,
+    replays: completed.length * campaign.replayCount,
     skipped: 0,
   };
   if (directory) {

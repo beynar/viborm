@@ -1,0 +1,16 @@
+▲ [WARNING] Cannot find base config file "astro/tsconfigs/strict" [tsconfig.json]
+
+    docs/tsconfig.json:2:13:
+      2 │   "extends": "astro/tsconfigs/strict",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+No test files found, exiting with code 1
+
+filter: tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
+include: tests/raptor3/g4/review/regression/**/*.test.ts
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+
+Vitest resources: 0.46s wall, 76.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

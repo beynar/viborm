@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 254ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:22:58
+   Duration  4.32s (transform 2.40s, setup 40ms, collect 3.60s, tests 254ms, environment 0ms, prepare 132ms)
+
+Vitest resources: 5.34s wall, 453.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

@@ -1,0 +1,11 @@
+src/query-engine/pattern/pack.ts(1443,36): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/raptor3/g4/review/unit02/envelope-rule-owner.review.test.ts(224,41): error TS2345: Argument of type 'string' is not assignable to parameter of type 'Operations'.
+TypeScript (whole estate, native): 6.54s wall, 5823.6 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+exit=1

@@ -1,0 +1,158 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips every scalar crossing the codec world declares
+[all scalars, findMany]
+  shipped   miss [{"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]},{"amount":"Decimal:-0.001","amounts":["Decimal:9.999"],"big":"bigint:-9007199254740993","bigs":["bigint:2"],"clock":"00:00:01","clocks":["12:00:00"],"count":11,"counts":[4,5],"day":"date:1999-12-31T00:00:00.000Z","days":["date:2020-02-29T00:00:00.000Z"],"document":{"level":9,"theme":"light"},"flag":false,"flags":[false],"id":2,"label":"beta specimen","labels":["gamma"],"moment":"date:2024-06-01T22:45:10.500Z","moments":["date:2024-03-04T05:06:07.000Z"],"payload":"bytes:255,0,42","ratio":-2.25,"ratios":[2.5],"status":"PAUSED","statuses":["PAUSED"]},{"amount":"Decimal:0","amounts":[],"big":"bigint:0","bigs":[],"clock":"06:30:00","clocks":[],"count":0,"counts":[],"day":"date:2030-12-31T00:00:00.000Z","days":[],"document":null,"flag":false,"flags":[],"id":3,"label":"gamma specimen","labels":[],"moment":"date:2030-12-31T23:59:59.999Z","moments":[],"payload":"bytes:","ratio":0,"ratios":[],"status":"DONE","statuses":[]}]
+            hit  [{"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]},{"amount":"Decimal:-0.001","amounts":["Decimal:9.999"],"big":"bigint:-9007199254740993","bigs":["bigint:2"],"clock":"00:00:01","clocks":["12:00:00"],"count":11,"counts":[4,5],"day":"date:1999-12-31T00:00:00.000Z","days":["date:2020-02-29T00:00:00.000Z"],"document":{"level":9,"theme":"light"},"flag":false,"flags":[false],"id":2,"label":"beta specimen","labels":["gamma"],"moment":"date:2024-06-01T22:45:10.500Z","moments":["date:2024-03-04T05:06:07.000Z"],"payload":"bytes:255,0,42","ratio":-2.25,"ratios":[2.5],"status":"PAUSED","statuses":["PAUSED"]},{"amount":"Decimal:0","amounts":[],"big":"bigint:0","bigs":[],"clock":"06:30:00","clocks":[],"count":0,"counts":[],"day":"date:2030-12-31T00:00:00.000Z","days":[],"document":null,"flag":false,"flags":[],"id":3,"label":"gamma specimen","labels":[],"moment":"date:2030-12-31T23:59:59.999Z","moments":[],"payload":"bytes:","ratio":0,"ratios":[],"status":"DONE","statuses":[]}]
+  candidate miss [{"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]},{"amount":"Decimal:-0.001","amounts":["Decimal:9.999"],"big":"bigint:-9007199254740993","bigs":["bigint:2"],"clock":"00:00:01","clocks":["12:00:00"],"count":11,"counts":[4,5],"day":"date:1999-12-31T00:00:00.000Z","days":["date:2020-02-29T00:00:00.000Z"],"document":{"level":9,"theme":"light"},"flag":false,"flags":[false],"id":2,"label":"beta specimen","labels":["gamma"],"moment":"date:2024-06-01T22:45:10.500Z","moments":["date:2024-03-04T05:06:07.000Z"],"payload":"bytes:255,0,42","ratio":-2.25,"ratios":[2.5],"status":"PAUSED","statuses":["PAUSED"]},{"amount":"Decimal:0","amounts":[],"big":"bigint:0","bigs":[],"clock":"06:30:00","clocks":[],"count":0,"counts":[],"day":"date:2030-12-31T00:00:00.000Z","days":[],"document":null,"flag":false,"flags":[],"id":3,"label":"gamma specimen","labels":[],"moment":"date:2030-12-31T23:59:59.999Z","moments":[],"payload":"bytes:","ratio":0,"ratios":[],"status":"DONE","statuses":[]}]
+            hit  [{"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]},{"amount":"Decimal:-0.001","amounts":["Decimal:9.999"],"big":"bigint:-9007199254740993","bigs":["bigint:2"],"clock":"00:00:01","clocks":["12:00:00"],"count":11,"counts":[4,5],"day":"date:1999-12-31T00:00:00.000Z","days":["date:2020-02-29T00:00:00.000Z"],"document":{"level":9,"theme":"light"},"flag":false,"flags":[false],"id":2,"label":"beta specimen","labels":["gamma"],"moment":"date:2024-06-01T22:45:10.500Z","moments":["date:2024-03-04T05:06:07.000Z"],"payload":"bytes:255,0,42","ratio":-2.25,"ratios":[2.5],"status":"PAUSED","statuses":["PAUSED"]},{"amount":"Decimal:0","amounts":[],"big":"bigint:0","bigs":[],"clock":"06:30:00","clocks":[],"count":0,"counts":[],"day":"date:2030-12-31T00:00:00.000Z","days":[],"document":null,"flag":false,"flags":[],"id":3,"label":"gamma specimen","labels":[],"moment":"date:2030-12-31T23:59:59.999Z","moments":[],"payload":"bytes:","ratio":0,"ratios":[],"status":"DONE","statuses":[]}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a single located row
+[findUnique row]
+  shipped   miss {"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]}
+            hit  {"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]}
+  candidate miss {"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]}
+            hit  {"amount":"Decimal:123456.001","amounts":["Decimal:1.2","Decimal:-0.003"],"big":"bigint:9007199254740993","bigs":["bigint:9007199254740993","bigint:1"],"clock":"13:45:30","clocks":["00:00:00","23:59:59"],"count":7,"counts":[1,2,3],"day":"date:2024-03-07T00:00:00.000Z","days":["date:2024-01-02T00:00:00.000Z"],"document":{"level":2,"nested":{"flag":null},"theme":"dark"},"flag":true,"flags":[true,false],"id":1,"label":"alpha specimen","labels":["alpha","beta"],"moment":"date:1970-01-01T00:00:00.000Z","moments":["date:2024-01-02T03:04:05.000Z","date:2024-02-03T04:05:06.000Z"],"payload":"bytes:0,1,2,128,253,255","ratio":1.5,"ratios":[0.5,-0.25],"status":"ACTIVE","statuses":["ACTIVE","DONE"]}
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips an ABSENT row
+[findUnique absent]
+  shipped   miss null
+            hit  null
+  candidate miss null
+            hit  null
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a projection of a nullable JSON column
+[nullable json projection]
+  shipped   miss [{"amount":"Decimal:123456.001","document":{"level":2,"nested":{"flag":null},"theme":"dark"},"id":1,"moment":"date:1970-01-01T00:00:00.000Z"},{"amount":"Decimal:-0.001","document":{"level":9,"theme":"light"},"id":2,"moment":"date:2024-06-01T22:45:10.500Z"},{"amount":"Decimal:0","document":null,"id":3,"moment":"date:2030-12-31T23:59:59.999Z"}]
+            hit  [{"amount":"Decimal:123456.001","document":{"level":2,"nested":{"flag":null},"theme":"dark"},"id":1,"moment":"date:1970-01-01T00:00:00.000Z"},{"amount":"Decimal:-0.001","document":{"level":9,"theme":"light"},"id":2,"moment":"date:2024-06-01T22:45:10.500Z"},{"amount":"Decimal:0","document":null,"id":3,"moment":"date:2030-12-31T23:59:59.999Z"}]
+  candidate miss [{"amount":"Decimal:123456.001","document":{"level":2,"nested":{"flag":null},"theme":"dark"},"id":1,"moment":"date:1970-01-01T00:00:00.000Z"},{"amount":"Decimal:-0.001","document":{"level":9,"theme":"light"},"id":2,"moment":"date:2024-06-01T22:45:10.500Z"},{"amount":"Decimal:0","document":null,"id":3,"moment":"date:2030-12-31T23:59:59.999Z"}]
+            hit  [{"amount":"Decimal:123456.001","document":{"level":2,"nested":{"flag":null},"theme":"dark"},"id":1,"moment":"date:1970-01-01T00:00:00.000Z"},{"amount":"Decimal:-0.001","document":{"level":9,"theme":"light"},"id":2,"moment":"date:2024-06-01T22:45:10.500Z"},{"amount":"Decimal:0","document":null,"id":3,"moment":"date:2030-12-31T23:59:59.999Z"}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a relation include and a nullable to-one
+[relation include]
+  shipped   miss [{"id":1,"label":"h","parts":[{"holderId":1,"id":1,"name":"p"}],"tag":null}]
+            hit  [{"id":1,"label":"h","parts":[{"holderId":1,"id":1,"name":"p"}],"tag":null}]
+  candidate miss [{"id":1,"label":"h","parts":[{"holderId":1,"id":1,"name":"p"}],"tag":null}]
+            hit  [{"id":1,"label":"h","parts":[{"holderId":1,"id":1,"name":"p"}],"tag":null}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a nested to-one that is NULL
+[nullable to-one]
+  shipped   miss [{"holder":{"id":1,"tag":null},"id":1}]
+            hit  [{"holder":{"id":1,"tag":null},"id":1}]
+  candidate miss [{"holder":{"id":1,"tag":null},"id":1}]
+            hit  [{"holder":{"id":1,"tag":null},"id":1}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a relation _count
+[relation count]
+  shipped   miss [{"_count":{"parts":1},"id":1}]
+            hit  [{"_count":{"parts":1},"id":1}]
+  candidate miss [{"_count":{"parts":1},"id":1}]
+            hit  [{"_count":{"parts":1},"id":1}]
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a count operation
+[count]
+  shipped   miss 3
+            hit  3
+  candidate miss 3
+            hit  3
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips an integer-only aggregate
+[aggregate, integers only]
+  shipped   miss {"_avg":{"count":6},"_count":3,"_sum":{"count":18}}
+            hit  {"_avg":{"count":6},"_count":3,"_sum":{"count":18}}
+  candidate miss {"_avg":{"count":6},"_count":3,"_sum":{"count":18}}
+            hit  {"_avg":{"count":6},"_count":3,"_sum":{"count":18}}
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a single-row decimal _sum (the widened-sum codec branch)
+[aggregate, decimal sum of one row]
+  shipped   miss {"_sum":{"amount":"Decimal:123456.001"}}
+            hit  {"_sum":{"amount":"Decimal:123456.001"}}
+  candidate miss QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.
+            hit  QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.
+
+stdout | tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips an aggregate over a decimal and a number
+[aggregate]
+  shipped   miss {"_avg":{"ratio":-0.25},"_count":3,"_min":{"moment":"date:1970-01-01T00:00:00.000Z"},"_sum":{"amount":"Decimal:123456","count":18}}
+            hit  {"_avg":{"ratio":-0.25},"_count":3,"_min":{"moment":"date:1970-01-01T00:00:00.000Z"},"_sum":{"amount":"Decimal:123456","count":18}}
+  candidate miss QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.
+            hit  QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.
+
+ ❯ |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts (11 tests | 2 failed) 290ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips every scalar crossing the codec world declares 95ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a single located row 26ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips an ABSENT row 15ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a projection of a nullable JSON column 25ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a relation include and a nullable to-one 18ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a nested to-one that is NULL 14ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a relation _count 13ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips a count operation 15ms
+   ✓ G4-02 closure review — the composed cache result codec > round-trips an integer-only aggregate 17ms
+   × G4-02 closure review — the composed cache result codec > round-trips a single-row decimal _sum (the widened-sum codec branch) 25ms
+     → aggregate, decimal sum of one row: NS-04 — the cached value the candidate serves is not the shipped one
++ actual - expected
+
++ `QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.`
+- '{"_sum":{"amount":"Decimal:123456.001"}}'
+
+   × G4-02 closure review — the composed cache result codec > round-trips an aggregate over a decimal and a number 24ms
+     → aggregate: NS-04 — the cached value the candidate serves is not the shipped one
++ actual - expected
+
++ `QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.`
+- '{"_avg":{"ratio":-0.25},"_count":3,"_min":{"moment":"date:1970-01-01T00:00:00.000Z"},"_sum":{"amount":"Decimal:123456","count":18}}'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips a single-row decimal _sum (the widened-sum codec branch)
+AssertionError: aggregate, decimal sum of one row: NS-04 — the cached value the candidate serves is not the shipped one
++ actual - expected
+
++ `QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.`
+- '{"_sum":{"amount":"Decimal:123456.001"}}'
+
+
+Expected: [32m"{"_sum":{"amount":"Decimal:123456.001"}}"[39m
+Received: [31m"QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale."[39m
+
+ ❯ compare tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts:192:10
+    190|     `${name}: the candidate materialized the same graph object twice`
+    191|   );
+    192|   assert.equal(
+       |          ^
+    193|     candidate.hit,
+    194|     shipped.hit,
+ ❯ tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts:256:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit02-closure| tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts > G4-02 closure review — the composed cache result codec > round-trips an aggregate over a decimal and a number
+AssertionError: aggregate: NS-04 — the cached value the candidate serves is not the shipped one
++ actual - expected
+
++ `QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale.`
+- '{"_avg":{"ratio":-0.25},"_count":3,"_min":{"moment":"date:1970-01-01T00:00:00.000Z"},"_sum":{"amount":"Decimal:123456","count":18}}'
+
+
+Expected: [32m"{"_avg":{"ratio":-0.25},"_count":3,"_min":{"moment":"date:1970-01-01T00:00:00.000Z"},"_sum":{"amount":"Decimal:123456","count":18}}"[39m
+Received: [31m"QueryEngineError: Driver "sqlite3" returned a malformed decimal scalar for operation "aggregate": the sum is not an exact decimal at this column's scale."[39m
+
+ ❯ compare tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts:192:10
+    190|     `${name}: the candidate materialized the same graph object twice`
+    191|   );
+    192|   assert.equal(
+       |          ^
+    193|     candidate.hit,
+    194|     shipped.hit,
+ ❯ tests/raptor3/g4/review/unit02-closure/route-cache-codec.review.test.ts:263:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 passed (11)
+   Start at  15:49:37
+   Duration  4.54s (transform 2.71s, setup 12ms, collect 4.06s, tests 290ms, environment 0ms, prepare 44ms)
+
+Vitest resources: 5.25s wall, 532.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

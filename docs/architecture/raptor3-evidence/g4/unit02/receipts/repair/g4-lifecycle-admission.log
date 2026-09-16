@@ -1,0 +1,26 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts (4 tests | 1 failed) 32ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-admission: one awaited operation admits its request exactly once 18ms
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 double-transform: the extension chain transforms one request once 3ms
+   × G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache 9ms
+     → The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the candidate boundary publishes no prepared read shape (g4/unit03/note.md B-1).
+   ✓ G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: the same oracle rejects a route that always serves the cache 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/lifecycle-admission.test.ts > G4 C13 admission, transform and cache falsifiers > C13 cache-bypass: a cached read inside a transaction never serves the cache
+UnsupportedOperationError: The Raptor 3 route cannot encode a cached result for 'findMany' on model 'record': the candidate boundary publishes no prepared read shape (g4/unit03/note.md B-1).
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  03:57:54
+   Duration  1.94s (transform 1.18s, setup 8ms, collect 1.73s, tests 32ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-99hbY5/vitest.json
+Vitest resources: 3.96s wall, 538.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-99hbY5
+exit=1

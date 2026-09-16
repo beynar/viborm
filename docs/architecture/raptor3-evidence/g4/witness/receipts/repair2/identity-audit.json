@@ -1,0 +1,185 @@
+{
+  "capturedAt": "2026-09-15T06:50:43.095Z",
+  "runReceipts": 13,
+  "opening": {
+    "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+    "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc"
+  },
+  "closing": {
+    "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+    "harness": "0892edc1b5dbb0a54e4a1d79a70d4513282baf4d7579ca0e3f7930dd7199583f"
+  },
+  "priorRoundClosing": {
+    "production": "7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317",
+    "harness": "ebe1f7e656935d50ceec43785dfab447730987861dd516a187eec7297a6aa620"
+  },
+  "everyReceiptCarriesAnIdentity": true,
+  "everyReceiptAtTheClosingProduction": true,
+  "productionsSeen": [
+    "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760"
+  ],
+  "harnessesSeen": [
+    "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+    "eabbb53157aaddc943d59929ed5c7f40273fb78982ba7a80a863a8a94062af4d",
+    "00ddf9382b453d2fda230a5526001045dd21059a5cb2e895768ff1f003d6f01c"
+  ],
+  "measuredAtADifferentProductionThanThePriorRound": true,
+  "rows": [
+    {
+      "receipt": "mode-g4-unit01-author-attempt1/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "mode-g4-unit01-author-attempt1/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "mode-g4-unit01-review-attempt1/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "mode-g4-unit01-review-attempt1/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "native/mysql-attempt1/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "native/mysql-attempt1/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "native/pg-attempt1/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "native/pg-attempt1/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "write-campaign/sqlite-75000/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "write-campaign/sqlite-75000/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "write-campaign/sqlite-75100/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "eabbb53157aaddc943d59929ed5c7f40273fb78982ba7a80a863a8a94062af4d",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "write-campaign/sqlite-75100/verified.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "eabbb53157aaddc943d59929ed5c7f40273fb78982ba7a80a863a8a94062af4d",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    },
+    {
+      "receipt": "write-transport-100000-red/attempt.json",
+      "production": "a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760",
+      "harness": "00ddf9382b453d2fda230a5526001045dd21059a5cb2e895768ff1f003d6f01c",
+      "runtime": {
+        "node": "v24.21.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "sqliteDriver": "12.6.0",
+        "vitest": "3.1.4"
+      }
+    }
+  ]
+}

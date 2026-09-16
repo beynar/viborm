@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/generation/failure-minimization.test.ts (1 test) 51ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  02:06:01
+   Duration  5.23s (transform 1.72s, setup 10ms, collect 2.65s, tests 51ms, environment 0ms, prepare 45ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tpUNLj/vitest.json
+Vitest resources: 12.03s wall, 505.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-generated-minimization contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tpUNLj

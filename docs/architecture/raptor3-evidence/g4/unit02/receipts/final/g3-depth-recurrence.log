@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 48ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  02:56:00
+   Duration  1.88s (transform 1.15s, setup 10ms, collect 1.68s, tests 48ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4wkLYS/vitest.json
+Vitest resources: 4.24s wall, 517.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-depth-recurrence contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-4wkLYS
+exit=0

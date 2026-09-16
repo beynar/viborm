@@ -1,0 +1,45 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests | 1 failed) 6ms
+   ✓ G4-02 — a projection rides RETURNING when every field is the row's own column > admits a scalar-only projection 2ms
+   ✓ G4-02 — a projection rides RETURNING when every field is the row's own column > admits the default whole-row projection 0ms
+   ✓ G4-02 — a projection rides RETURNING when every field is the row's own column > refuses a relation carrier 0ms
+   ✓ G4-02 — a projection rides RETURNING when every field is the row's own column > refuses a _count slot 0ms
+   × G4-02 — a projection rides RETURNING when every field is the row's own column > refuses a _distance field, the one kind no qualified provider can witness 3ms
+     → Expected values to be strictly equal:
+
+true !== false
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts > G4-02 — a projection rides RETURNING when every field is the row's own column > refuses a _distance field, the one kind no qualified provider can witness
+AssertionError: Expected values to be strictly equal:
+
+true !== false
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/raptor3/g4/unit02/returning-safety-gate.test.ts:93:12
+     91|     // The gate therefore stays where `namesRelation` had it, and this…
+     92|     // what goes red the day the arm is widened again.
+     93|     assert.equal(
+       |            ^
+     94|       gate(
+     95|         {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  10:11:25
+   Duration  752ms (transform 422ms, setup 9ms, collect 622ms, tests 6ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 1.31s wall, 305.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

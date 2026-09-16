@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (13 tests) 128ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  01:11:05
+   Duration  6.57s (transform 1.88s, setup 11ms, collect 2.77s, tests 128ms, environment 0ms, prepare 46ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xnRT8F/vitest.json
+Vitest resources: 13.67s wall, 526.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-route-transactions contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xnRT8F

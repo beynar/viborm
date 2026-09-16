@@ -6,6 +6,15 @@ import type { ScenarioDefinition } from "../../harness/protocol";
 import type { ExtensionCompositionRecipe } from "./extension-recipes";
 
 const whitespace = /\s+/;
+// The holder upsert's locate binds `lookup` through a PUBLIC text filter, which
+// the candidate spells with the adapter's exact-text operator. That operator
+// may name a byte-exact collation between the column and the comparison —
+// `"lookup" COLLATE BINARY = ?` on SQLite (`sqlite-adapter.ts` `exactTextEq`),
+// `COLLATE "C"` where Postgres names one — or none at all. The cut is the
+// locate statement, not one provider's punctuation, so the recognizer reads
+// the key binding with or without one of those two collations, and never with
+// an insensitive one: that would be a different comparison, not this cut.
+const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:BINARY|"C"))?\s*=/;
 
 function assertScheduledCut(
   schedule: readonly string[],
@@ -501,7 +510,7 @@ export function extensionCompositionScenario(
             isSelect &&
             choiceObservation < selectedCount &&
             completion.sql.includes(holderTable) &&
-            /WHERE[\s\S]*"lookup"\s*=/.test(completion.sql)
+            lookupWhere.test(completion.sql)
           ) {
             assert.equal(
               completion.rows.length,

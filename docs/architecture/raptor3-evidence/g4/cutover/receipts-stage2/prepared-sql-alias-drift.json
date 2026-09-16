@@ -1,0 +1,94 @@
+{
+ "finding": "candidate prepared SQL carries a per-client monotonically increasing table alias",
+ "sides": {
+  "baseline-shipped": {
+   "distinctSqlLengths": [
+    {
+     "length": 148,
+     "count": 600
+    }
+   ],
+   "samples": [
+    {
+     "iteration": 0,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 1,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 9,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 10,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 99,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 100,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    },
+    {
+     "iteration": 599,
+     "sql": "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    }
+   ]
+  },
+  "candidate-cutover": {
+   "distinctSqlLengths": [
+    {
+     "length": 140,
+     "count": 10
+    },
+    {
+     "length": 146,
+     "count": 90
+    },
+    {
+     "length": 152,
+     "count": 500
+    }
+   ],
+   "samples": [
+    {
+     "iteration": 0,
+     "sql": "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    },
+    {
+     "iteration": 1,
+     "sql": "SELECT \"q1\".\"id\" AS \"id\", \"q1\".\"name\" AS \"name\", \"q1\".\"email\" AS \"email\", \"q1\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q1\" WHERE \"q1\".\"id\" = ?"
+    },
+    {
+     "iteration": 9,
+     "sql": "SELECT \"q9\".\"id\" AS \"id\", \"q9\".\"name\" AS \"name\", \"q9\".\"email\" AS \"email\", \"q9\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q9\" WHERE \"q9\".\"id\" = ?"
+    },
+    {
+     "iteration": 10,
+     "sql": "SELECT \"q10\".\"id\" AS \"id\", \"q10\".\"name\" AS \"name\", \"q10\".\"email\" AS \"email\", \"q10\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q10\" WHERE \"q10\".\"id\" = ?"
+    },
+    {
+     "iteration": 99,
+     "sql": "SELECT \"q99\".\"id\" AS \"id\", \"q99\".\"name\" AS \"name\", \"q99\".\"email\" AS \"email\", \"q99\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q99\" WHERE \"q99\".\"id\" = ?"
+    },
+    {
+     "iteration": 100,
+     "sql": "SELECT \"q100\".\"id\" AS \"id\", \"q100\".\"name\" AS \"name\", \"q100\".\"email\" AS \"email\", \"q100\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q100\" WHERE \"q100\".\"id\" = ?"
+    },
+    {
+     "iteration": 599,
+     "sql": "SELECT \"q599\".\"id\" AS \"id\", \"q599\".\"name\" AS \"name\", \"q599\".\"email\" AS \"email\", \"q599\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q599\" WHERE \"q599\".\"id\" = ?"
+    }
+   ]
+  }
+ },
+ "consequences": [
+  "The frozen cross-mode semantic-checksum check (verifyCrossStageSemantics, operation-pipeline-report.mjs:826-835) refuses a candidate prepare cell measured in cpu and retained mode in ONE command, because checksum/iterations differs between a 5,000-iteration and a 500-iteration run. Within one mode every replicate is a fresh process and agrees, so the check passes there.",
+  "A driver or provider prepared-statement cache keys on SQL text. A monotonically increasing alias makes every repeated preparation of the same operation a distinct statement text.",
+  "The cutover does not touch the alias: cutover.patch changes client.ts, query-engine.ts, pending-operation.ts and route/client-route.ts and deletes legacy owners; the alias is emitted by src/query-engine/raptor3/shared/query.ts, which the patch does not modify. This is the routes own behaviour, first put in front of the benchmark here."
+ ]
+}

@@ -1,0 +1,2 @@
+mysql: dropped 393 stale worlds; 241M/512M used
+pg: dropped 315 schemas; 93M/512M used

@@ -231,7 +231,12 @@ export class CommandExecution {
       attempt.bind(selection.fields, row);
       return;
     }
-    const rows = await this.context.read(selection.query(), true);
+    const rows = await this.context.read(
+      selection.query(),
+      true,
+      false,
+      selection.model
+    );
     const found = rows[0];
     if (!found) {
       if (selection.required) throw selection.required;
@@ -415,7 +420,9 @@ export class CommandExecution {
             const requirement = command.foundRequirement;
             const rows = await ctx.read(
               requirement.selection.inspectMembership(requirement.membership),
-              true
+              true,
+              false,
+              requirement.selection.model
             );
             if (!rows[0]) throw requirement.failure;
           }
@@ -670,7 +677,9 @@ export class CommandExecution {
         },
         { forUpdate: !ctx.usesBatch, selector: selection.selector }
       ),
-      true
+      true,
+      false,
+      selection.model
     );
     const members: SelectedSeriesMember[] = ctx.prepareMembers(
       () =>

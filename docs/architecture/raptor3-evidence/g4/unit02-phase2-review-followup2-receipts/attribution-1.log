@@ -1,0 +1,39 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > reaches the same internal Error through `increment`, which HEAD already implemented
+[batch number-key increment] shipped=ok:{"id":7,"label":"a"} candidate=Error: Raptor 3 update expression publication requires an integer field
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs the same multiply on an INT key under batch
+[batch int-key multiply] shipped=ok:{"id":6,"label":"a"} candidate=ok:{"id":6,"label":"a"}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — the atomic-batch internal Error, attributed > performs a NON-key decimal multiply under batch on both engines
+[batch non-key decimal multiply] shipped=ok:{"id":1,"amount":"21","rate":2.5} candidate=ok:{"id":1,"amount":"21","rate":2.5}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints the shipped stack for a relation-bearing upsert on a MISSING row
+[shipped missing-row divide] QueryEngineError: Cannot divide a primary key by zero.
+[shipped stack]
+QueryEngineError: Cannot divide a primary key by zero.
+    at calculateNumericPrimaryKey (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:357:11)
+    at getSafeUpdatedScalarValue (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:319:10)
+    at getUpdatedPrimaryKeyValue (/Users/arnaud/code/viborm/src/query-engine/operations/mutation-identity.ts:180:24)
+    at RecordUpdateCompilerState.interpretReferencedKeyTransition (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:3319:21)
+    at RecordUpdateCompilerState.resolveOrdinaryChildHeld (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2229:32)
+    at RecordUpdateCompilerState.interpretChildHeldRelation (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2181:14)
+    at RecordUpdateCompilerState.interpretRelation (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:2164:10)
+    at new RecordUpdateCompilerState (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:1101:12)
+    at buildRecordUpdateCompiler (/Users/arnaud/code/viborm/src/query-engine/write-engine/RecordUpdateCompiler.ts:264:10)
+    at new UpsertOperation (/Users/arnaud/code/viborm/src/query-engine/write-engine/UpsertOperation.ts:480:9)
+[candidate missing-row divide] ok:{"id":99,"label":"fresh"}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts > G4-02 review follow-up 2 — where the shipped engine refuses the missing-row divide > prints both answers for a relation-bearing upsert MULTIPLY on a MISSING row
+[missing-row int multiply] shipped=ok:{"id":99,"label":"fresh"} candidate=ok:{"id":99,"label":"fresh"}
+
+ ✓ |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/batch-and-attribution.review.test.ts (5 tests) 109ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  13:26:34
+   Duration  3.11s (transform 1.83s, setup 17ms, collect 2.74s, tests 109ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 3.76s wall, 439.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

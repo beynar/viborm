@@ -1,0 +1,72 @@
+{
+  "measure": "countTokenLines (scripts/query-engine-structure.mjs), JSDoc and EOF excluded; bytes = on-disk size; physical = newline count",
+  "files": {
+    "src/query-engine/raptor3/shared/operation-context.ts": {
+      "bytes": 79053,
+      "physical": 2127,
+      "tokenLines": 1849
+    },
+    "src/query-engine/raptor3/route/client-route.ts": {
+      "bytes": 16173,
+      "physical": 400,
+      "tokenLines": 256
+    }
+  },
+  "before": {
+    "src/query-engine/raptor3/shared/operation-context.ts": {
+      "bytes": 73982,
+      "physical": 2022,
+      "tokenLines": 1796
+    }
+  },
+  "core": {
+    "fileList": [
+      "src/query-engine/raptor3/commands/assignments.ts",
+      "src/query-engine/raptor3/commands/command-attempt.ts",
+      "src/query-engine/raptor3/commands/commands.ts",
+      "src/query-engine/raptor3/commands/execution.ts",
+      "src/query-engine/raptor3/commands/index.ts",
+      "src/query-engine/raptor3/commands/relation-body.ts",
+      "src/query-engine/raptor3/commands/selection.ts",
+      "src/query-engine/raptor3/shared/operation-context.ts",
+      "src/query-engine/raptor3/shared/query.ts",
+      "src/query-engine/raptor3/shared/schema.ts",
+      "src/query-engine/raptor3/shared/storage.ts",
+      "src/query-engine/raptor3/shared/transport-attempt.ts"
+    ],
+    "bytes": 372703,
+    "physical": 10508,
+    "tokenLines": 9475,
+    "files": 12
+  },
+  "tree": {
+    "fileList": [
+      "src/query-engine/raptor3/commands/assignments.ts",
+      "src/query-engine/raptor3/commands/command-attempt.ts",
+      "src/query-engine/raptor3/commands/commands.ts",
+      "src/query-engine/raptor3/commands/execution.ts",
+      "src/query-engine/raptor3/commands/index.ts",
+      "src/query-engine/raptor3/commands/relation-body.ts",
+      "src/query-engine/raptor3/commands/selection.ts",
+      "src/query-engine/raptor3/program/index.ts",
+      "src/query-engine/raptor3/program/program.ts",
+      "src/query-engine/raptor3/route/client-route.ts",
+      "src/query-engine/raptor3/shared/operation-context.ts",
+      "src/query-engine/raptor3/shared/query.ts",
+      "src/query-engine/raptor3/shared/schema.ts",
+      "src/query-engine/raptor3/shared/storage.ts",
+      "src/query-engine/raptor3/shared/transport-attempt.ts"
+    ],
+    "bytes": 409608,
+    "physical": 11544,
+    "tokenLines": 10357,
+    "files": 15
+  },
+  "increment": {
+    "src/query-engine/raptor3/shared/operation-context.ts": {
+      "bytes": 5071,
+      "physical": 105,
+      "tokenLines": 53
+    }
+  }
+}

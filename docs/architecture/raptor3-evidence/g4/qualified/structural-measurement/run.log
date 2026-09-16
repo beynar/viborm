@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-5
+
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test) 664ms
+   ✓ collects the frozen CS-02 structural work matrix  663ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  03:08:37
+   Duration  2.74s (transform 1.24s, setup 8ms, collect 1.84s, tests 664ms, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-3HnJcu/vitest.json
+Vitest resources: 4.97s wall, 751.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs02-structure-measure measurement verified. Evidence: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-3HnJcu
+identity restored
+cs02-structure-measure exit=0 Raptor 3 cs02-structure-measure measurement verified. Evidence: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-3HnJcu
+=== 03:08:40 group structure finished ===

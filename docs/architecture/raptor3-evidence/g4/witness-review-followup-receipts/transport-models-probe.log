@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness| tests/raptor3/g4/review/witness/campaign-transport-models.review.test.ts (5 tests) 70ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  01:48:41
+   Duration  1.90s (transform 1.15s, setup 11ms, collect 1.70s, tests 70ms, environment 0ms, prepare 30ms)
+
+Vitest resources: 2.42s wall, 467.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

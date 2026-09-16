@@ -431,6 +431,216 @@ export const G3_BULK_RESULT_BOUNDARY_COUNTS = Object.freeze({
 export const G3_BULK_RESULT_BOUNDARY_TESTS = Object.freeze(
   Object.keys(G3_BULK_RESULT_BOUNDARY_COUNTS)
 );
+export const G4_READ_OPERATIONS_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-operations.test.ts": 11,
+});
+export const G4_READ_OPERATIONS_TESTS = Object.freeze(
+  Object.keys(G4_READ_OPERATIONS_COUNTS)
+);
+export const G4_READ_FILTERS_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-filters.test.ts": 13,
+});
+export const G4_READ_FILTERS_TESTS = Object.freeze(
+  Object.keys(G4_READ_FILTERS_COUNTS)
+);
+export const G4_READ_ORDERING_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-ordering.test.ts": 5,
+});
+export const G4_READ_ORDERING_TESTS = Object.freeze(
+  Object.keys(G4_READ_ORDERING_COUNTS)
+);
+export const G4_READ_PAGINATION_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-pagination.test.ts": 6,
+});
+export const G4_READ_PAGINATION_TESTS = Object.freeze(
+  Object.keys(G4_READ_PAGINATION_COUNTS)
+);
+export const G4_READ_PROJECTION_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-projection.test.ts": 7,
+});
+export const G4_READ_PROJECTION_TESTS = Object.freeze(
+  Object.keys(G4_READ_PROJECTION_COUNTS)
+);
+export const G4_READ_AGGREGATE_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-aggregates.test.ts": 5,
+});
+export const G4_READ_AGGREGATE_TESTS = Object.freeze(
+  Object.keys(G4_READ_AGGREGATE_COUNTS)
+);
+export const G4_READ_CODEC_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-codecs.test.ts": 12,
+});
+export const G4_READ_CODEC_TESTS = Object.freeze(
+  Object.keys(G4_READ_CODEC_COUNTS)
+);
+export const G4_READ_RECURSIVE_FIT_COUNTS = Object.freeze({
+  "tests/raptor3/g4/read-recursive-fit.test.ts": 3,
+});
+export const G4_READ_RECURSIVE_FIT_TESTS = Object.freeze(
+  Object.keys(G4_READ_RECURSIVE_FIT_COUNTS)
+);
+/** Every fixed C01/C12 read witness, for one whole-family run. */
+export const G4_READ_COUNTS = Object.freeze({
+  ...G4_READ_OPERATIONS_COUNTS,
+  ...G4_READ_FILTERS_COUNTS,
+  ...G4_READ_ORDERING_COUNTS,
+  ...G4_READ_PAGINATION_COUNTS,
+  ...G4_READ_PROJECTION_COUNTS,
+  ...G4_READ_AGGREGATE_COUNTS,
+  ...G4_READ_CODEC_COUNTS,
+  ...G4_READ_RECURSIVE_FIT_COUNTS,
+});
+export const G4_READ_TESTS = Object.freeze(Object.keys(G4_READ_COUNTS));
+export const G4_LIFECYCLE_EVENTS_COUNTS = Object.freeze({
+  "tests/raptor3/g4/lifecycle-events.test.ts": 3,
+});
+export const G4_LIFECYCLE_EVENTS_TESTS = Object.freeze(
+  Object.keys(G4_LIFECYCLE_EVENTS_COUNTS)
+);
+export const G4_LIFECYCLE_ADMISSION_COUNTS = Object.freeze({
+  "tests/raptor3/g4/lifecycle-admission.test.ts": 4,
+});
+export const G4_LIFECYCLE_ADMISSION_TESTS = Object.freeze(
+  Object.keys(G4_LIFECYCLE_ADMISSION_COUNTS)
+);
+// Owned by the G4-03 author; registered here because registration has one
+// writer this milestone. Counts are derived from the current files and are
+// reconciled against `g4/unit03/note.md` section "Registration requests".
+export const G4_ROUTE_LIFECYCLE_COUNTS = Object.freeze({
+  "tests/raptor3/g4/route-lifecycle.test.ts": 8,
+});
+export const G4_ROUTE_LIFECYCLE_TESTS = Object.freeze(
+  Object.keys(G4_ROUTE_LIFECYCLE_COUNTS)
+);
+export const G4_ROUTE_ADMISSION_COUNTS = Object.freeze({
+  "tests/raptor3/g4/route-admission.test.ts": 7,
+});
+export const G4_ROUTE_ADMISSION_TESTS = Object.freeze(
+  Object.keys(G4_ROUTE_ADMISSION_COUNTS)
+);
+export const G4_ROUTE_CACHE_COUNTS = Object.freeze({
+  "tests/raptor3/g4/route-cache.test.ts": 7,
+});
+export const G4_ROUTE_CACHE_TESTS = Object.freeze(
+  Object.keys(G4_ROUTE_CACHE_COUNTS)
+);
+export const G4_ROUTE_TRANSACTION_COUNTS = Object.freeze({
+  "tests/raptor3/g4/route-transactions.test.ts": 13,
+});
+export const G4_ROUTE_TRANSACTION_TESTS = Object.freeze(
+  Object.keys(G4_ROUTE_TRANSACTION_COUNTS)
+);
+// Landed from the G4-01 author's worktree `/private/tmp/viborm-g4-unit01`
+// after that unit was accepted, so its executable claims live where every
+// other stream can run them. Counts are derived from the landed files.
+export const G4_UNIT01_AUTHOR_COUNTS = Object.freeze({
+  "tests/raptor3/g4/unit01/codec-roundtrip.test.ts": 5,
+  "tests/raptor3/g4/unit01/filters.test.ts": 8,
+  "tests/raptor3/g4/unit01/geo-capability.test.ts": 2,
+  "tests/raptor3/g4/unit01/order-projection.test.ts": 6,
+  "tests/raptor3/g4/unit01/read-verbs.test.ts": 9,
+  "tests/raptor3/g4/unit01/recursive-vocabulary.test.ts": 1,
+  "tests/raptor3/g4/unit01/repair2.test.ts": 22,
+  "tests/raptor3/g4/unit01/repair3.test.ts": 14,
+  "tests/raptor3/g4/unit01/repairs.test.ts": 13,
+  "tests/raptor3/g4/unit01/variants.test.ts": 3,
+});
+export const G4_UNIT01_AUTHOR_TESTS = Object.freeze(
+  Object.keys(G4_UNIT01_AUTHOR_COUNTS)
+);
+export const G4_UNIT01_REVIEW_COUNTS = Object.freeze({
+  "tests/raptor3/g4/review/unit01/decode-strictness.test.ts": 7,
+  "tests/raptor3/g4/review/unit01/distance-projection.test.ts": 1,
+  "tests/raptor3/g4/review/unit01/having-projection.test.ts": 5,
+  "tests/raptor3/g4/review/unit01/logical-forms.test.ts": 3,
+  "tests/raptor3/g4/review/unit01/nested-window.test.ts": 3,
+  "tests/raptor3/g4/review/unit01/null-placement-parity.test.ts": 2,
+  "tests/raptor3/g4/review/unit01/order-cursor.test.ts": 6,
+  "tests/raptor3/g4/review/unit01/shipped-parity.test.ts": 8,
+  "tests/raptor3/g4/review/unit01/variant-arms.test.ts": 2,
+  "tests/raptor3/g4/review/unit01/whole-value-operands.test.ts": 7,
+  "tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts": 9,
+  "tests/raptor3/g4/review/unit01-followup/empty-arm.test.ts": 12,
+  "tests/raptor3/g4/review/unit01-followup/nested-reversal.test.ts": 5,
+  "tests/raptor3/g4/review/unit01-followup/operand-and-logic.test.ts": 9,
+  "tests/raptor3/g4/review/unit01-followup/order-oracle.test.ts": 9,
+  "tests/raptor3/g4/review/unit01-followup2/characterize.test.ts": 10,
+  "tests/raptor3/g4/review/unit01-followup2/combinator-depth.test.ts": 24,
+  "tests/raptor3/g4/review/unit01-followup2/cursor-refusal.test.ts": 2,
+  "tests/raptor3/g4/review/unit01-followup2/decimal-fieldref.test.ts": 2,
+  "tests/raptor3/g4/review/unit01-followup2/distance-depth.test.ts": 13,
+  "tests/raptor3/g4/review/unit01-followup2/distance-pins.test.ts": 4,
+  "tests/raptor3/g4/review/unit01-followup2/json-sentinel.test.ts": 3,
+  "tests/raptor3/g4/review/unit01-followup2/selector-facts.test.ts": 5,
+  "tests/raptor3/g4/review/unit01-followup3/competing-refusals.test.ts": 4,
+  "tests/raptor3/g4/review/unit01-followup3/cursor-refusal-sweep.test.ts": 11,
+  "tests/raptor3/g4/review/unit01-followup3/decimal-domains.test.ts": 17,
+  "tests/raptor3/g4/review/unit01-followup3/decimal-reach.test.ts": 5,
+  "tests/raptor3/g4/review/unit01-followup3/json-sentinel-sweep.test.ts": 9,
+  "tests/raptor3/g4/review/unit01-followup3/refusal-order-history.test.ts": 3,
+});
+export const G4_UNIT01_REVIEW_TESTS = Object.freeze(
+  Object.keys(G4_UNIT01_REVIEW_COUNTS)
+);
+// The G4-02 author's own checks (registered at the freeze from the unit's
+// standing request, g4/unit02/note.md §R4.8). The runner refuses skipped
+// cells, so the provider-gated files are registered as their own native arms
+// below rather than skipped inside the credential-free mode.
+export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
+  "tests/raptor3/g4/unit02/borrowed-envelope.test.ts": 5,
+  "tests/raptor3/g4/unit02/decimal-having-operand.test.ts": 3,
+  "tests/raptor3/g4/unit02/k-competing-refusals.test.ts": 4,
+  "tests/raptor3/g4/unit02/k-refusal-order-history.test.ts": 3,
+  "tests/raptor3/g4/unit02/key-arithmetic.test.ts": 20,
+  "tests/raptor3/g4/unit02/lone-statement-transport.test.ts": 7,
+  "tests/raptor3/g4/unit02/malformed-result-cuts.test.ts": 4,
+  "tests/raptor3/g4/unit02/nested-key-refusal.test.ts": 6,
+  "tests/raptor3/g4/unit02/packaged-array.test.ts": 5,
+  "tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts": 7,
+  "tests/raptor3/g4/unit02/physical-envelope.test.ts": 10,
+  "tests/raptor3/g4/unit02/prepared-operation.test.ts": 5,
+  "tests/raptor3/g4/unit02/recursive-codec-fit.test.ts": 3,
+  "tests/raptor3/g4/unit02/returning-safety-gate.test.ts": 5,
+  "tests/raptor3/g4/unit02/root-delete.test.ts": 6,
+  "tests/raptor3/g4/unit02/root-member-cut-trace.test.ts": 4,
+  "tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts": 10,
+  "tests/raptor3/g4/unit02/upsert-key-portability.test.ts": 19,
+  "tests/raptor3/g4/unit02/vector-capability.test.ts": 1,
+});
+export const G4_UNIT02_AUTHOR_TESTS = Object.freeze(
+  Object.keys(G4_UNIT02_AUTHOR_COUNTS)
+);
+export const G4_UNIT02_MYSQL_COUNTS = Object.freeze({
+  "tests/raptor3/g4/unit02/native-key-arithmetic.test.ts": 5,
+  "tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts": 3,
+  "tests/raptor3/g4/unit02/unique-discriminator.test.ts": 9,
+});
+export const G4_UNIT02_MYSQL_TESTS = Object.freeze(
+  Object.keys(G4_UNIT02_MYSQL_COUNTS)
+);
+export const G4_UNIT02_PG_COUNTS = Object.freeze({
+  "tests/raptor3/g4/unit02/native-date-codec.test.ts": 1,
+});
+export const G4_UNIT02_PG_TESTS = Object.freeze(
+  Object.keys(G4_UNIT02_PG_COUNTS)
+);
+export const G4_GENERATION_SELFTEST_COUNTS = Object.freeze({
+  "tests/raptor3/g4/generation/harness.selftest.test.ts": 6,
+});
+export const G4_GENERATION_SELFTEST_TESTS = Object.freeze(
+  Object.keys(G4_GENERATION_SELFTEST_COUNTS)
+);
+export const G4_NATIVE_PROVIDER_COUNTS = Object.freeze({
+  "tests/raptor3/g4/native/read-envelope-native.test.ts": 5,
+});
+export const G4_NATIVE_PG_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
+export const G4_NATIVE_PG_TESTS = Object.freeze(
+  Object.keys(G4_NATIVE_PG_COUNTS)
+);
+export const G4_NATIVE_MYSQL_COUNTS = G4_NATIVE_PROVIDER_COUNTS;
+export const G4_NATIVE_MYSQL_TESTS = Object.freeze(
+  Object.keys(G4_NATIVE_MYSQL_COUNTS)
+);
 export const G2_BASELINE_TESTS = Object.freeze(Object.keys(G2_BASELINE_COUNTS));
 export const G2_CONTRACT_TESTS = Object.freeze(Object.keys(G2_CONTRACT_COUNTS));
 export const G2_PROVIDER_BASELINE_COUNTS = Object.freeze({
@@ -569,6 +779,93 @@ export const G3_GENERATED_TRANSPORT_CAMPAIGN = Object.freeze({
 export const G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
   "tests/raptor3/g3/generation/transport-campaign.test.ts",
 ]);
+/**
+ * G4 generated read campaign. Frozen in `g4.md`: 25,000 new seed IDs per
+ * admitted lane profile, disjoint ranges, at most 100 seeds per child.
+ */
+export const G4_GENERATED_CAMPAIGN = Object.freeze({
+  firstSeed: 20_000,
+  seedCount: 25_000,
+  batchSize: 100,
+  replayCount: 3,
+  profiles: ["sqlite-interactive", "sqlite-atomic-batch"],
+});
+export const G4_GENERATED_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g4/generation/sqlite-campaign.test.ts",
+]);
+export const G4_GENERATED_TRANSPORT_CAMPAIGN = Object.freeze({
+  ...G4_GENERATED_CAMPAIGN,
+  firstSeed: 50_000,
+  profiles: ["scripted-returning-weak", "scripted-returning-ack"],
+});
+export const G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g4/generation/transport-campaign.test.ts",
+]);
+/**
+ * G4 write-envelope campaign — the same G3 write generator on fresh seeds.
+ *
+ * G3 qualified the write envelope over seeds 8000-17999 against the G3
+ * candidate. G4 changed what a write costs physically (the envelope rule, root
+ * `delete`, packaged reads, the prepared-operation boundary), so the same
+ * generator, the same `runG3SQLiteBatch`/`runG3TransportBatch` and the same
+ * `assertG3GeneratedBatchReceipt` are pointed at ranges no child has ever run:
+ * SQLite 75000-99999, transport 100000-124999, both disjoint from every G1/G2/
+ * G3 range and from the G4 READ campaign's 20000-74999.
+ *
+ * These constants are DATA. Batch size, replay count, completion limit,
+ * profiles, the actor/fault quotas and the contract rotation are G3's,
+ * inherited by spread, because the point is new inputs rather than a new
+ * campaign: `(seed - firstSeed) % 4` picks the same C08/C09/C10/C11 rotation
+ * here as there, both first seeds being multiples of four.
+ */
+export const G4_WRITE_CAMPAIGN = Object.freeze({
+  ...G3_GENERATED_CAMPAIGN,
+  firstSeed: 75_000,
+  seedCount: 25_000,
+});
+export const G4_WRITE_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g4/generation/write-campaign.test.ts",
+]);
+export const G4_WRITE_TRANSPORT_CAMPAIGN = Object.freeze({
+  ...G3_GENERATED_TRANSPORT_CAMPAIGN,
+  firstSeed: 100_000,
+  seedCount: 25_000,
+});
+export const G4_WRITE_TRANSPORT_CAMPAIGN_TESTS = Object.freeze([
+  "tests/raptor3/g4/generation/write-transport-campaign.test.ts",
+]);
+/**
+ * The read-transport model each campaign profile must actually exhibit.
+ *
+ * The profile names are frozen in `g4.md`; this table is what stops them from
+ * becoming four names for one behaviour. `tests/raptor3/g4/generation/world.ts`
+ * reports what its transport DID for each cell without consulting this table,
+ * and `assertG4BatchShape` compares the two. A profile that quietly collapses
+ * into another fails every child receipt.
+ *
+ * `supportsBatch`, `supportsTransactions` and `supportsOrderedCommittedSegments`
+ * — the declarations that separate these names on the write side — are not the
+ * distinction here: no read path consults one.
+ */
+export const G4_TRANSPORT_MODELS = Object.freeze({
+  "sqlite-interactive": "interactive-session",
+  "sqlite-atomic-batch": "atomic-submission",
+  "scripted-returning-weak": "detached-returning",
+  "scripted-returning-ack": "acknowledged-returning",
+});
+export const G4_READ_CONTRACT_FAMILIES = Object.freeze([
+  "Q-W",
+  "Q-O",
+  "Q-P",
+  "Q-S",
+  "Q-A",
+]);
+export const G4_READ_SCHEMA_FAMILIES = Object.freeze([
+  "codec",
+  "relation",
+  "compound",
+]);
+
 export const G1_PROVIDER_TESTS = Object.freeze([
   "tests/raptor3/expanded/produced-commands.test.ts",
   "tests/raptor3/expanded/batch-produced-commands.test.ts",
@@ -916,4 +1213,131 @@ export function assertEquivalentExtensionCampaignReceipts(
     canonicalCells(reference),
     "CS-03 alternatives diverged in recipes, schedules, or semantic outcomes"
   );
+}
+
+function assertG4BatchShape(receipt, firstSeed, campaign, identity) {
+  assertRaptor3Identity(receipt.identity, identity);
+  assert.equal(receipt.formatVersion, 1);
+  assert.equal(receipt.firstSeed, firstSeed);
+  assert(
+    Number.isInteger(receipt.seedCount) &&
+      receipt.seedCount >= 1 &&
+      receipt.seedCount <= campaign.batchSize,
+    "G4 child exceeds the frozen 1-100 seed bound"
+  );
+  assert(
+    firstSeed >= campaign.firstSeed &&
+      firstSeed + receipt.seedCount <= campaign.firstSeed + campaign.seedCount,
+    "G4 child seed range is outside the frozen campaign"
+  );
+  assert.deepEqual(receipt.profiles, campaign.profiles);
+  // Every profile in a lane must denote a DIFFERENT read transport, or the
+  // lane pays for cells it cannot distinguish.
+  assert.equal(
+    new Set(campaign.profiles.map((profile) => G4_TRANSPORT_MODELS[profile]))
+      .size,
+    campaign.profiles.length,
+    "Two G4 campaign profiles denote the same read transport model"
+  );
+  assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
+  assert.equal(
+    receipt.replays,
+    receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  );
+  assert.equal(
+    receipt.completed.length,
+    receipt.seedCount * campaign.profiles.length
+  );
+  const expected = campaign.profiles
+    .flatMap((profile) =>
+      Array.from(
+        { length: receipt.seedCount },
+        (_, offset) => `${profile}:${firstSeed + offset}`
+      )
+    )
+    .sort();
+  assert.deepEqual(
+    receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    expected,
+    "Incomplete or duplicated G4 generated batch"
+  );
+  for (const cell of receipt.completed) {
+    const expectedContract =
+      G4_READ_CONTRACT_FAMILIES[
+        (cell.seed - campaign.firstSeed) % G4_READ_CONTRACT_FAMILIES.length
+      ];
+    assert.equal(cell.contract, expectedContract, "Changed G4 contract family");
+    assert(
+      G4_READ_SCHEMA_FAMILIES.includes(cell.family),
+      "Unknown G4 schema family"
+    );
+    if (cell.contract === "Q-S")
+      assert.equal(cell.family, "relation", "Q-S must use the relation family");
+    if (cell.contract === "Q-A")
+      assert.equal(cell.family, "codec", "Q-A must use the codec family");
+    // This campaign injects no peer actor and no fault: reads publish no
+    // effect for a peer to observe. The quota is therefore an exact zero,
+    // which a recipe that silently started injecting would break.
+    assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
+    assert.equal(cell.faults, 0, "G4 read cells inject no fault");
+    assert(
+      Number.isInteger(cell.rows) && cell.rows >= 0 && cell.rows <= 64,
+      "G4 cell row count is outside the frozen campaign bound"
+    );
+    assert(
+      Number.isInteger(cell.statements) && cell.statements >= 1,
+      "A G4 read cell must reach the provider at least once"
+    );
+    assert.equal(
+      cell.transport,
+      G4_TRANSPORT_MODELS[cell.profile],
+      `G4 profile ${cell.profile} did not exhibit its transport model`
+    );
+    // An atomic submission is BEGIN + statement + COMMIT, so the physical
+    // stream of that profile is exactly three entries per submitted read.
+    if (cell.transport === "atomic-submission")
+      assert.equal(
+        cell.statements % 3,
+        0,
+        "An atomic-submission cell did not wrap every statement"
+      );
+  }
+}
+
+/** The qualifying G4 child receipt: the CANDIDATE answered every cell. */
+export function assertG4GeneratedBatchReceipt(
+  receipt,
+  firstSeed,
+  campaign,
+  identity
+) {
+  assert.equal(
+    receipt.subject,
+    "candidate",
+    "Only a candidate-subject G4 child can qualify"
+  );
+  assert.equal(receipt.qualifying, true);
+  assert.equal(receipt.status, "complete");
+  assertG4BatchShape(receipt, firstSeed, campaign, identity);
+}
+
+/**
+ * The non-qualifying companion: the same worlds, requests, oracle and replays
+ * run against the SHIPPED engine. It validates the oracle and measures a
+ * complete child's cost; it is never evidence for the candidate.
+ */
+export function assertG4OracleValidationReceipt(
+  receipt,
+  firstSeed,
+  campaign,
+  identity
+) {
+  assert.equal(
+    receipt.subject,
+    "shipped",
+    "An oracle-validation G4 child runs the shipped subject"
+  );
+  assert.equal(receipt.qualifying, false);
+  assert.equal(receipt.status, "oracle-validation");
+  assertG4BatchShape(receipt, firstSeed, campaign, identity);
 }

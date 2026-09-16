@@ -1,8 +1,7 @@
 import { NestedWriteError, UnsupportedOperationError } from "@errors";
 import type { AnyModel } from "@schema/model";
-import { Sql } from "@sql";
-import type { SelectorFacts } from "../shared/query";
-import { type Input, record } from "../shared/schema";
+import { type SelectorFacts, wholeValue } from "../shared/query";
+import type { Input } from "../shared/schema";
 import type { Membership } from "../shared/storage";
 
 export type Origin = {
@@ -25,13 +24,16 @@ function literal(value: unknown): FieldValue {
   return { kind: "literal", value };
 }
 
+/**
+ * The final field a scalar payload requests, read from the ONE owner of "does
+ * this payload name a whole value?" (`Queries`' {@link wholeValue}). A payload
+ * that names an operator instead is held unchanged: this owner keeps the value
+ * only for key reconciliation, and an operator record is deliberately not a
+ * literal here.
+ */
 function scalarAssignment(value: unknown): unknown {
-  return value !== null &&
-    typeof value === "object" &&
-    !(value instanceof Sql) &&
-    "set" in value
-    ? record(value).set
-    : value;
+  const whole = wholeValue(value);
+  return whole ? whole.value : value;
 }
 
 /** One row's requested final fields and exact symbolic consumers. */

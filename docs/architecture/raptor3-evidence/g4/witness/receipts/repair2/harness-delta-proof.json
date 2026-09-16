@@ -1,0 +1,12 @@
+{
+  "files": 424,
+  "excluded": [
+    "tests/raptor3/g4/review/unit02-phase2/arithmetic-parity.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/counted-slot.review.test.ts",
+    "tests/raptor3/g4/review/unit02-phase2/review.workspace.ts",
+    "tests/raptor3/g4/review/unit02-phase2/root-create-fold.review.test.ts"
+  ],
+  "keptFiles": 420,
+  "harnessWithAll": "0892edc1b5dbb0a54e4a1d79a70d4513282baf4d7579ca0e3f7930dd7199583f",
+  "harnessWithoutExcluded": "32af4729d18119fd133f817ca416c1deee6afb99ff94361965bd3d446c18e0dc"
+}

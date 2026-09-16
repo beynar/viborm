@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/physical-envelope.test.ts (8 tests) 49ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  02:46:14
+   Duration  2.13s (transform 1.22s, setup 8ms, collect 1.84s, tests 49ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.47s wall, 583.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

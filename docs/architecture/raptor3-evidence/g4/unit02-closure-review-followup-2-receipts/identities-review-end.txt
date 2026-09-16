@@ -1,0 +1,7 @@
+7ffbea606cbd6e62636f9dcc89b93991a50fb9f7d48c02f84a416dfcc99f96aa  src/query-engine/raptor3/shared/query.ts
+48fc18c13d558c6fad237d7ffab7588437c72ed354d43799a506f52dedc465c9  src/query-engine/raptor3/shared/schema.ts
+7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1  src/query-engine/raptor3/commands/commands.ts
+57ec20aa9c819de8f45fae9fe17be1eafc41b40938a71c722b79ed0b46e72aac  src/query-engine/raptor3/commands/selection.ts
+a3bf3e7beb9da956a1321c1ccf36cc168d225c6220585400bcc6f6b54b6db9f4  src/query-engine/raptor3/commands/relation-body.ts
+7766098c4b8c73e18cf1e2d735c44e4509a6a9b83351bd856df7d205ab130103  src/query-engine/raptor3/route/client-route.ts
+9760a56a52bffbe1c894ff66cc340c354a2929577aac8a52e830219b365b98c8  tests/raptor3/g4/unit02/unique-discriminator.test.ts

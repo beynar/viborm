@@ -1,0 +1,6 @@
+# patch integrity, verified in a scratchpad copy (git apply -R then git apply)
+reverse-apply of production-closure.patch + tests-closure.patch reproduces the six round-4 base identities:
+  5143b7b3 query.ts / 07b3df1a schema.ts / f4ecd7ad commands.ts / 874dc5ec selection.ts / 79066ea8 relation-body.ts / 82ba9c9e client-route.ts
+  and unique-discriminator.test.ts is absent (created from /dev/null)
+forward-apply onto that base reproduces all ten current identities to the byte.
+NOTE: 874dc5ec (selection.ts) and 79066ea8 (relation-body.ts) are ALSO the COMMITTED identities at 0cc61e61.

@@ -12,17 +12,41 @@ import { describe, it } from "vitest";
 
 type Profile = "sqlite-interactive" | "sqlite-atomic-batch";
 
+const INSERT_STATEMENT = /^INSERT\b/;
+
 interface StatementObservation {
   readonly sql: string;
   readonly parameters: readonly unknown[];
   readonly context?: QueryExecutionContext;
 }
 
+/**
+ * The fault cut: the provider answers a row whose `id` is not an integer.
+ *
+ * Stated over ANY row-bearing response on ANY transport, not over `^SELECT`
+ * only and not over the batch entry only, because both the statement that
+ * carries the stored row and the transport that carries that statement are
+ * physical choices, not properties of this specimen. A scalar-only root
+ * `create` folds to one `INSERT … RETURNING` — which is what the shipped engine
+ * emits for this exact request — and since Arnaud's D-7 decision that lone
+ * statement leaves the batch and runs on the plain execute path, so a
+ * `^SELECT`-only or `executeBatch`-only cut would be ELIMINATED by the fold and
+ * this specimen would silently stop witnessing (raptor3 plan §5.4: an
+ * eliminated cut cannot waive the property's acceptance). The property is
+ * unchanged: a malformed provider result is translated into the established
+ * identity, with truthful progress, and nothing is published. The SPLIT forms
+ * of the same specimen — a provider without RETURNING, on a transaction and on
+ * a segment-atomic transport, and a relation-bearing create — are checked at
+ * `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts`, and the PROGRESS
+ * half that a one-statement write no longer has (a set mutation of two
+ * statements whose committed window then answers a malformed row) at
+ * `tests/raptor3/g4/unit02/lone-statement-transport.test.ts`.
+ */
 function corruptSelectedId<T>(
-  sqlText: string,
+  _sqlText: string,
   response: QueryResult<T>
 ): boolean {
-  if (!/^SELECT\b/.test(sqlText) || response.rows.length === 0) return false;
+  if (response.rows.length === 0) return false;
   let corrupted = false;
   for (const row of response.rows) {
     if (!isRecord(row)) continue;
@@ -32,6 +56,11 @@ function corruptSelectedId<T>(
   return corrupted;
 }
 
+/**
+ * Observes every statement and applies the cut where the statement runs. The
+ * driver's own batch entry dispatches each query through this same method, so
+ * one override covers both transports.
+ */
 class ObservingSQLiteDriver extends SQLite3Driver {
   readonly statements: StatementObservation[] = [];
   insertDispatches = 0;
@@ -53,24 +82,7 @@ class ObservingSQLiteDriver extends SQLite3Driver {
   ): Promise<QueryResult<T>> {
     this.statements.push({ sql: statement, parameters, context });
     const response = await super.execute<T>(client, statement, parameters);
-    if (/^INSERT\b/.test(statement)) this.insertDispatches++;
-    return response;
-  }
-}
-
-class CorruptingInteractiveSQLiteDriver extends ObservingSQLiteDriver {
-  protected override async execute<T>(
-    client: Database.Database,
-    statement: string,
-    parameters: unknown[],
-    context?: QueryExecutionContext
-  ): Promise<QueryResult<T>> {
-    const response = await super.execute<T>(
-      client,
-      statement,
-      parameters,
-      context
-    );
+    if (INSERT_STATEMENT.test(statement)) this.insertDispatches++;
     if (this.corruptionArmed && corruptSelectedId(statement, response)) {
       this.corrupted = true;
     }
@@ -95,15 +107,8 @@ class CorruptingBatchSQLiteDriver extends ObservingSQLiteDriver {
     const responses = await this.transaction(client, (transaction) =>
       super.executeBatch<T>(transaction, queries)
     );
-    if (queries.some(({ sql }) => /^INSERT\b/.test(sql))) {
+    if (queries.some(({ sql }) => INSERT_STATEMENT.test(sql))) {
       this.acknowledgedInsertBatches++;
-    }
-    if (this.corruptionArmed) {
-      for (const [index, query] of queries.entries()) {
-        const response = responses[index];
-        assert(response);
-        if (corruptSelectedId(query.sql, response)) this.corrupted = true;
-      }
     }
     return responses;
   }
@@ -114,7 +119,7 @@ function createDriver(
   database: Database.Database
 ): ObservingSQLiteDriver {
   return profile === "sqlite-interactive"
-    ? new CorruptingInteractiveSQLiteDriver({ client: database })
+    ? new ObservingSQLiteDriver({ client: database })
     : new CorruptingBatchSQLiteDriver({ client: database });
 }
 
@@ -135,51 +140,62 @@ function failureObservation(failure: unknown): object {
 
 function assertMalformedResultFailure(
   failure: unknown,
-  profile: Profile,
+  operation: "create" | "createMany",
+  progress: object | undefined,
   diagnostic: string
 ): void {
   assert(failure instanceof QueryEngineError, diagnostic);
   assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
   assert.equal(
     failure.message,
-    'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
+    `Driver "sqlite3" returned a malformed int scalar for operation "${operation}": the value is not a canonical integer.`,
     diagnostic
   );
   assert.deepEqual(
     { ...failure.meta },
     {
       driver: "sqlite3",
-      operation: "create",
+      operation,
       scalarType: "int",
-      ...(profile === "sqlite-atomic-batch"
-        ? {
-            recordSeriesProgress: {
-              atomicity: "segment",
-              phase: "result",
-              committedSegments: 1,
-              committedWriteMembers: 1,
-              completedMembers: 0,
-            },
-          }
-        : {}),
+      ...(progress ? { recordSeriesProgress: progress } : {}),
     },
     diagnostic
   );
 }
 
-async function runMalformedResult(profile: Profile): Promise<void> {
-  const database = new Database(":memory:");
-  const driver = createDriver(profile, database);
-  const entity = s
-    .model({ id: s.int().id(), label: s.string() })
-    .map("g29_invalid_result");
-  const schema = { entity };
+const entity = s
+  .model({ id: s.int().id(), label: s.string() })
+  .map("g29_invalid_result");
+const schema = { entity };
+
+async function withWorld<T>(
+  driver: ObservingSQLiteDriver,
+  database: Database.Database,
+  drive: () => Promise<T>
+): Promise<T> {
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
   assert.equal(migration.applied, true);
-
   try {
     driver.resetAndArm();
+    return await drive();
+  } finally {
+    await client.$disconnect();
+    database.close();
+  }
+}
+
+/**
+ * A root single-record write is ONE statement on both profiles, so it carries
+ * no record series at all: the truthful answer is the shipped one — the
+ * malformed-scalar refusal with nothing but `{driver, operation, scalarType}`
+ * (`write-engine/OperationExecutor.ts` `runBorrowedStatementAtomic`, which
+ * rethrows the decoding failure raw).
+ */
+async function runMalformedResult(profile: Profile): Promise<void> {
+  const database = new Database(":memory:");
+  const driver = createDriver(profile, database);
+  await withWorld(driver, database, async () => {
     let value: unknown;
     let failure: unknown;
     try {
@@ -216,19 +232,22 @@ async function runMalformedResult(profile: Profile): Promise<void> {
     assert.equal(value, undefined, diagnostic);
     assert.equal(driver.corrupted, true, diagnostic);
     assert.equal(driver.insertDispatches, 1, diagnostic);
-    assertMalformedResultFailure(failure, profile, diagnostic);
+    assertMalformedResultFailure(failure, "create", undefined, diagnostic);
     if (driver instanceof CorruptingBatchSQLiteDriver) {
-      assert.equal(driver.acknowledgedInsertBatches, 1, diagnostic);
+      // D-7 (Arnaud, 2026-09-15): a set statement that is the operation's ONLY
+      // statement needs no batch envelope, so the folded root `create` never
+      // reaches `_executeBatch` — the shipped transport rule, and the reason
+      // this operation now answers the shipped meta exactly.
+      assert.equal(driver.acknowledgedInsertBatches, 0, diagnostic);
     }
-    assert.deepEqual(
-      finalDatabase,
-      profile === "sqlite-atomic-batch" ? [{ id: 1, label: "written" }] : [],
-      diagnostic
-    );
-  } finally {
-    await client.$disconnect();
-    database.close();
-  }
+    // The row is durable on BOTH profiles now: a statement-atomic write commits
+    // with its own statement and the failure happens afterwards, while decoding
+    // what the provider already returned. The shipped engine leaves the same
+    // state for the same request (`runStatementAtomic`, no transaction) —
+    // measured in `g4/unit02/receipts/phase2/shipped-malformed-result.log`. The
+    // rolled-back form of this cut is cell 1 of the split specimen named above.
+    assert.deepEqual(finalDatabase, [{ id: 1, label: "written" }], diagnostic);
+  });
 }
 
 const profiles: readonly Profile[] = [

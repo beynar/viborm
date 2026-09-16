@@ -1,0 +1,16 @@
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (11 tests) 72ms
+ ✓ |raptor3-review-regression| tests/raptor3/g4/review/regression/seam-followup.review.test.ts (8 tests) 37ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D1 root update matching no row, batch-only: same failure, same cache answer 7ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D2 root update matching no row, transaction-capable: same failure, same cache answer 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D3 a lone statement that fails AFTER the provider ran it 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D4 a lone statement rejected by a unique violation invalidates on neither engine 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D5 the G2.9 cut on a transaction-capable driver leaves the same state on both engines 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D6 the G2.9 cut on a batch-only driver leaves the same state on both engines 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D7 a one-statement createMany with skipDuplicates answers what shipped answers 1ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D8 a throwing cache listener never replaces the operation's own failure (uncertain arm) 1ms
+   × G4-02 D-7 review — the lone statement once it reaches the provider > D9 a throwing cache listener beside a malformed committed result (committed arm) 5ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D10 a lone deleteMany that matches nothing still ran, on both engines 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: D9 failure {
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 28 passed (29)

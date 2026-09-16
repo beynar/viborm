@@ -575,6 +575,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
 
+    // The expression form of `set.divide`'s integer arm: MySQL `/` yields a
+    // DECIMAL quotient even for two integers, so the truncation is explicit.
+    integerDivide: (left: Sql, right: Sql): Sql =>
+      sql`TRUNCATE(${left} / ${right}, 0)`,
+
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       decimalCast(expr, descriptor.precision, descriptor.scale),
 

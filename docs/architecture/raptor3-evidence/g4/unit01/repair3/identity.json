@@ -1,0 +1,11 @@
+{
+  "production": "db3c07dac7cea4a4c7a0da3b94a684c20d993a5b6ec4ed1e02d9ff7f4665528c",
+  "harness": "544218965a35a0564ef1541f345679e052b32cfb4a0f738db0977f17bb962131",
+  "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+  }
+}

@@ -1,0 +1,105 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (11 tests | 3 failed) 78ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 23ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 15ms
+     → Unique constraint violation
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 4ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 7ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 5ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 DIVERGENCE PIN blocker B-1: an array transaction containing a read is refused on a batch-only driver 4ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
+-   'savepoint:create',
+    'statement:create',
+    'statement:create'
+  ]
+
+   × G4-03 C13 candidate transactions, arrays and raw > LX-02 DIVERGENCE PIN blocker B-1: a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on the shipped route and only its own member on the candidate route 5ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'ok'
+
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 2ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'SQLITE_CONSTRAINT_UNIQUE' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-14 DIVERGENCE PIN blocker B-1: a statement-atomic write inside a callback transaction opens one extra observed region
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
+-   'savepoint:create',
+    'statement:create',
+    'statement:create'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "transaction:$transaction(callback)",[22m
+[2m    "operation:create",[22m
+[32m-   "savepoint:create",[39m
+[2m    "statement:create",[22m
+[2m    "statement:create",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:468:12
+    466|       "statement:create",
+    467|     ]);
+    468|     assert.deepEqual(observations.candidate.units, [
+       |            ^
+    469|       "transaction:$transaction(callback)",
+    470|       "operation:create",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-02 DIVERGENCE PIN blocker B-1: a FAILING statement-atomic write inside a callback transaction poisons the caller's transaction on the shipped route and only its own member on the candidate route
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'UniqueConstraintError'
+- 'ok'
+
+
+Expected: [32m"ok"[39m
+Received: [31m"UniqueConstraintError"[39m
+
+ ❯ tests/raptor3/g4/route-transactions.test.ts:554:12
+    552|     // CANDIDATE, today: only the member rolls back. The next operation
+    553|     // succeeds, `$transaction` resolves, and both members commit.
+    554|     assert.equal(observations.candidate.afterWrite, "ok");
+       |            ^
+    555|     assert.equal(observations.candidate.outer, undefined);
+    556|     assert.deepEqual(observations.candidate.stored, [
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 8 passed (11)
+   Start at  01:40:16
+   Duration  1.96s (transform 1.13s, setup 9ms, collect 1.66s, tests 78ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 4.10s wall, 542.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

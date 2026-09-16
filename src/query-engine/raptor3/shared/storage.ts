@@ -48,6 +48,25 @@ export function bindMembership(
   return schema.membership(source, name, variant);
 }
 
+/**
+ * One variant-carrier member, or the candidate's registered unimplemented
+ * identity. A carrier addressed with no variant names every arm at once, which
+ * this one-membership view cannot represent; the caller must address an arm or
+ * compose the arms itself (g4/unit02/note.md §10.3).
+ */
+function variantMember<T>(
+  resolved: T | undefined,
+  tagged: T | undefined,
+  name: string
+): T {
+  const member = resolved ?? tagged;
+  if (member === undefined)
+    throw new Error(
+      `Raptor 3 G1 variant carrier membership is not implemented: ${name}`
+    );
+  return member;
+}
+
 export function buildMembershipView(
   schema: EngineSchema,
   source: AnyModel,
@@ -60,9 +79,11 @@ export function buildMembershipView(
   const many =
     source["~"].state.relations[name]!["~"].state.cardinality === "many";
   if (edge.kind === "variantRowCarrier") {
-    const member =
-      resolved.member ??
-      edge.members.find((member) => member.variant === variant)!;
+    const member = variantMember(
+      resolved.member,
+      edge.members.find((member) => member.variant === variant),
+      name
+    );
     const direct = resolved.member === undefined;
     return {
       scope: Object.freeze({ edge, member }),
@@ -87,9 +108,11 @@ export function buildMembershipView(
     };
   }
   if (edge.kind === "variantJunctionCarrier") {
-    const member =
-      resolved.member ??
-      edge.members.find((member) => member.variant === variant)!;
+    const member = variantMember(
+      resolved.member,
+      edge.members.find((member) => member.variant === variant),
+      name
+    );
     const direct = resolved.member === undefined;
     return {
       scope: Object.freeze({ edge, member }),

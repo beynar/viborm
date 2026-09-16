@@ -1,0 +1,1650 @@
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -66,6 +66,18 @@
+   kind: "scalar";
+   type: string;
+   nullable: boolean;
++  /**
++   * The DECLARING scalar, for consumers that compile a value codec from it.
++   *
++   * The fields beside it are a projection of this object's state, which SQL
++   * lowering and row decoding read; a codec owner such as
++   * `result/cache-value-codecs.ts` is addressed by the object itself and must
++   * never re-dispatch on `type`, which would be a second scalar-meaning
++   * authority (g4/unit03/note.md FU.6 B-1c). Absent on the leaves no declared
++   * scalar produces — `_count`, `exist`, a non-decimal `_avg`, `_distance` —
++   * whose meaning is the aggregate's, not a column's.
++   */
++  scalar?: Scalar;
+   /** A list column: the container decodes once, then each member as `type`. */
+   list?: boolean;
+   decimal?: DecimalDescriptor;
+@@ -198,6 +210,15 @@
+ export interface SelectorFacts {
+   fields: Set<string>;
+   equals: Map<string, unknown>;
++  /**
++   * The admitted unique selector's DISCRIMINATOR pins: the literal equality of
++   * every `key: true` prepared column, which is exactly what the shipped
++   * `partitionWhereUnique` files under `entries`
++   * (`write-engine/shared.ts:154-166`). An extended `where`'s filter half, an
++   * `AND`/`OR`/`NOT` arm and every entry of a selector admitted as a filter are
++   * absent by construction — they are `equals` and not a pin.
++   */
++  keys: Map<string, unknown>;
+   exact: boolean;
+   reads: SelectorRead[];
+ }
+@@ -226,6 +247,20 @@
+       readonly kind: "column";
+       readonly scalar: PreparedScalar;
+       readonly path?: readonly string[];
++      /**
++       * The column is addressed as a member of a unique `where`'s DISCRIMINATOR
++       * rather than as a filter, so the comparison is the CONSTRAINT's, not the
++       * engine's text contract: it names the row the provider's own unique
++       * index holds under this value.
++       *
++       * A byte-exact conjunct here would ask a stricter question than the index
++       * that answers it — on a case-insensitive collation a probe could report
++       * a key free and the very next INSERT be rejected for duplicating it —
++       * so the shipped engine spells exactly this half with the dialect's plain
++       * equality (`buildUniqueEquality`, `builders/where-unique-builder.ts:213`)
++       * and leaves the extended `where`'s filter half to `buildWhere`.
++       */
++      readonly key?: true;
+     }
+   | {
+       readonly kind: "aggregate";
+@@ -418,6 +453,27 @@
+   return prototype === Object.prototype || prototype === null;
+ }
+ 
++/**
++ * The ONE answer to "does this admitted scalar payload name a whole value?",
++ * boxed so `undefined` can mean "it names an operator instead".
++ *
++ * An admitted operator record owns its keys; a `Uint8Array`, `Decimal` or
++ * `Date` inherits methods with the same names and is one whole value in EVERY
++ * domain, as is a `Sql` fragment. Both consumers read this one answer —
++ * {@link Queries.updateValue}'s payload interpreter, which needs to know when
++ * the payload is NOT whole, and `commands/assignments.ts`'s symbolic final
++ * field, which only needs the value — so the two can never disagree about what
++ * `set` names.
++ */
++export function wholeValue(
++  value: unknown,
++): { readonly value: unknown } | undefined {
++  if (value instanceof Sql || value === null || typeof value !== "object")
++    return { value };
++  if (!isOperatorRecord(value)) return { value };
++  return Object.hasOwn(value, "set") ? { value: record(value).set } : undefined;
++}
++
+ /** Query scopes and output shapes share no record-identity requirement. */
+ export class Queries {
+   private nextAlias = 0;
+@@ -616,6 +672,7 @@
+       kind: "scalar",
+       type: state.type,
+       nullable,
++      scalar,
+       list: state.array === true ? true : undefined,
+       decimal: state.type === "decimal" ? state.decimal : undefined,
+       dateTime:
+@@ -698,14 +755,9 @@
+     field: string,
+     value: unknown,
+   ): PreparedUpdate {
+-    if (value instanceof Sql || value === null || typeof value !== "object")
+-      return { kind: "value", value };
++    const whole = wholeValue(value);
++    if (whole) return { kind: "value", value: whole.value };
+     const operation = record(value);
+-    // An admitted operator record owns its keys; a Uint8Array, Decimal or
+-    // Date inherits methods with the same names and is one whole value.
+-    if (!isOperatorRecord(value)) return { kind: "value", value };
+-    if (Object.hasOwn(operation, "set"))
+-      return { kind: "value", value: operation.set };
+     for (const operator of ARITHMETIC_UPDATES)
+       if (Object.hasOwn(operation, operator)) {
+         const by = operation[operator];
+@@ -734,8 +786,12 @@
+           members: Array.isArray(members) ? members : [members],
+         };
+       }
+-    throw new Error(
+-      `Raptor 3 G1 update operator is not implemented: ${Object.keys(operation).join(", ")}`,
++    // The shipped engine's own last word on an admitted payload that names no
++    // operator (`builders/set-builder.ts:217-219`), identity included: the one
++    // reachable shape is an empty record, and it is refused here, before any
++    // statement of the update is built.
++    throw new QueryEngineError(
++      `Unknown update operation: ${Object.keys(operation).join(", ")}`,
+     );
+   }
+   /**
+@@ -825,10 +881,25 @@
+       ? a.expressions.integerDivide(base, operand)
+       : a.expressions.divide(base, operand);
+   }
+-  prepareSelector(model: AnyModel, where?: Input): PreparedSelector {
++  /**
++   * One prepared selector. `unique` states that the caller admitted this
++   * `where` as a UNIQUE selector (a `whereUnique` input): its top-level
++   * addressable-key entries are the row's discriminator and compare through the
++   * constraint, while every other entry — an extended `where`'s filters, its
++   * `AND`/`OR`/`NOT` arms and its relation predicates — stays a filter. The
++   * same `{ id: … }` object is a discriminator under `findUnique` and a filter
++   * under `findFirst`, so the fact belongs to the admitted operation and cannot
++   * be recovered from the object's shape.
++   */
++  prepareSelector(
++    model: AnyModel,
++    where?: Input,
++    unique = false,
++  ): PreparedSelector {
+     const facts: SelectorFacts = {
+       fields: new Set(),
+       equals: new Map(),
++      keys: new Map(),
+       exact: true,
+       reads: [],
+     };
+@@ -850,7 +921,7 @@
+           )
+         : undefined,
+       predicate: where
+-        ? this.prepareWhere(model, where, facts, [])
++        ? this.prepareWhere(model, where, facts, [], unique)
+         : undefined,
+     });
+   }
+@@ -861,6 +932,7 @@
+     const facts: SelectorFacts = {
+       fields: new Set(),
+       equals: new Map(),
++      keys: new Map(),
+       exact: true,
+       reads: [],
+     };
+@@ -884,6 +956,7 @@
+     const facts: SelectorFacts = {
+       fields: new Set(),
+       equals: new Map(),
++      keys: new Map(),
+       exact: true,
+       reads: [],
+     };
+@@ -892,6 +965,8 @@
+       for (const field of selector.facts.fields) facts.fields.add(field);
+       for (const [field, value] of selector.facts.equals)
+         facts.equals.set(field, value);
++      for (const [field, value] of selector.facts.keys)
++        facts.keys.set(field, value);
+       facts.exact &&= selector.facts.exact;
+       facts.reads.push(...selector.facts.reads);
+       if (selector.predicate) predicates.push(selector.predicate);
+@@ -991,6 +1066,7 @@
+     where: Input,
+     facts: SelectorFacts,
+     path: readonly Membership[],
++    unique = false,
+   ): PreparedPredicate {
+     return Object.freeze({
+       kind: "and",
+@@ -1018,11 +1094,18 @@
+                     member,
+                     record(operand)[member],
+                     facts,
++                    unique,
+                   ),
+                 ),
+               ),
+             });
+-          return this.prepareScalarPredicate(model, field, operand, facts);
++          return this.prepareScalarPredicate(
++            model,
++            field,
++            operand,
++            facts,
++            unique && key !== undefined,
++          );
+         }),
+       ),
+     });
+@@ -1032,6 +1115,7 @@
+     field: string,
+     value: unknown,
+     facts: SelectorFacts,
++    key = false,
+   ): PreparedPredicate {
+     const scalar = Object.freeze({
+       model,
+@@ -1057,11 +1141,14 @@
+       hasEquality &&
+       (equality === null ||
+         (typeof equality !== "object" && !(equality instanceof Sql)))
+-    )
++    ) {
+       facts.equals.set(field, equality);
+-    else facts.exact = false;
++      if (key) facts.keys.set(field, equality);
++    } else facts.exact = false;
+     return this.prepareOperations(
+-      Object.freeze({ kind: "column", scalar }),
++      key
++        ? Object.freeze({ kind: "column", scalar, key: true })
++        : Object.freeze({ kind: "column", scalar }),
+       value,
+     );
+   }
+@@ -1355,6 +1442,7 @@
+     const nestedFacts: SelectorFacts = {
+       fields: new Set(),
+       equals: new Map(),
++      keys: new Map(),
+       exact: !inexact,
+       reads: [],
+     };
+@@ -1425,7 +1513,12 @@
+     if (state?.type === "json" && state.array !== true)
+       return this.lowerJsonOperation(predicate, column, alias);
+     const insensitive = predicate.insensitive === true;
++    // A discriminator member is compared by the constraint that answers it; the
++    // engine's case-sensitivity contract governs every other comparison. An
++    // `insensitive` mode is a filter spelling and never reaches a discriminator,
++    // so it keeps the folded pair rather than silently folding one side.
+     const text =
++      !(target.kind === "column" && target.key === true && !insensitive) &&
+       state !== undefined &&
+       state.array !== true &&
+       (state.type === "string" || state.type === "enum");
+@@ -2314,7 +2407,16 @@
+     });
+     switch (operation) {
+       case "findUnique": {
+-        const query = this.select(model, args);
++        // The one read verb whose `where` is a unique selector: its addressable
++        // entries name the row through the constraint, exactly as the shipped
++        // `buildWhereUnique` compiles them, while `findFirst`/`findMany` read
++        // the same object as a filter.
++        const query = this.select(model, args, undefined, {
++          selector:
++            args.where === undefined
++              ? undefined
++              : this.prepareSelector(model, args.where, true),
++        });
+         return {
+           query,
+           single: true,
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -99,11 +99,24 @@
+ }
+ 
+ /**
+- * The two update operators whose result a provider ROUNDS — the ones a row key
+- * cannot carry portably, and the ones phase 2 made reachable.
++ * The two update operators whose result a provider ROUNDS — the ones an exact
++ * decimal row key cannot carry portably, and the ones phase 2 made reachable.
+  */
+-const ROUNDING_KEY_UPDATES = ["multiply", "divide"] as const;
++const ROUNDING_KEY_UPDATES: readonly string[] = ["multiply", "divide"];
+ 
++/**
++ * Every operation a key update may name, in the shipped engine's own order
++ * (`operations/mutation-identity.ts` `assertPortablePrimaryKeyUpdateInput`),
++ * because the refusal sentence lists them in it.
++ */
++const KEY_UPDATE_OPERATIONS = [
++  "set",
++  "increment",
++  "decrement",
++  "multiply",
++  "divide",
++] as const;
++
+ /** These casts attach the existing admission schema's dynamic model correlation. */
+ export function record(value: unknown): Input {
+   return value as Input;
+@@ -201,16 +214,19 @@
+    * payloads; implementing them is what brought the shapes within reach, so the
+    * refusals arrive with them, in the shipped engine's own sentences.
+    *
+-   * WHAT it says is deliberately NARROWER than the shipped assertion, because
+-   * the rest of it is not this unit's to change: the candidate SUPPORTS a
+-   * decimal key `increment`, which is exact in coefficient space and which the
+-   * registered G3 witness
+-   * `tests/raptor3/g3/review-execution-boundaries.test.ts` pins, and it lets
+-   * `set` win over an accompanying operator, which the shipped engine refuses
+-   * as "exactly one update operation". Both predate this unit and are recorded
+-   * as decisions for Arnaud (note §R2.2) rather than decided here. A payload
+-   * naming `set` therefore never reaches these refusals: `set` is the value
+-   * `prepareUpdate` takes, so no unnameable expression is ever built.
++   * WHAT it says is the shipped assertion with exactly ONE adopted divergence,
++   * R-D2 (a) (Arnaud, 2026-09-15): an EXACT-DOMAIN arithmetic update of a
++   * `decimal` key — `increment` / `decrement` — is supported, because it is
++   * exact in coefficient space, and the registered G3 witness
++   * `tests/raptor3/g3/review-execution-boundaries.test.ts` pins that capability.
++   * `multiply` / `divide` on the same key still carry the provider's rounding,
++   * so they stay refused. Everything else is parity: R-D2 (b), a `number` key
++   * under any arithmetic, and R-D2 (c), `set` beside another operation, answer
++   * the shipped sentences (they used to be divergences, pinned on both engines;
++   * the decision reverted them). The shipped non-finite-operand arm is
++   * deliberately NOT mirrored — after the rules below it is reachable only for
++   * an `int`/`bigint` key, whose validation refuses a non-finite operand, so it
++   * would be a guard whose unique coverage cannot be named.
+    *
+    * WHERE it is raised belongs to each caller, because the shipped engine does
+    * not raise it in one place: `admit` raises it for `update`/`updateMany`, and
+@@ -223,20 +239,104 @@
+     if (!isRecord(data)) return undefined;
+     for (const keyField of this.keys(model)) {
+       const update = data[keyField];
+-      if (!isRecord(update) || Object.hasOwn(update, "set")) continue;
+-      const rounded = ROUNDING_KEY_UPDATES.some(
+-        (operator) => update[operator] !== undefined
++      if (!isRecord(update)) continue;
++      const named = KEY_UPDATE_OPERATIONS.filter(
++        (operation) => update[operation] !== undefined
+       );
+-      if (!rounded) continue;
++      if (named.length !== 1)
++        return new QueryEngineError(
++          `Primary key field '${keyField}' accepts exactly one update operation; received ${named.join(", ") || "none"}.`
++        );
++      const operation = named[0]!;
++      if (operation === "set") continue;
+       const scalarType = model["~"].state.scalars[keyField]?.["~"].state.type;
+-      if (scalarType === "number" || scalarType === "decimal")
++      if (
++        scalarType === "number" ||
++        (scalarType === "decimal" && ROUNDING_KEY_UPDATES.includes(operation))
++      )
+         return new QueryEngineError(
+           `Arithmetic updates are not portable for ${scalarType} primary key field '${keyField}'. Use an explicit set value.`
+         );
+       if (update.divide === 0 || update.divide === 0n)
+         return new QueryEngineError(
+           `Cannot divide primary key field '${keyField}' by zero.`
++        );
++    }
++    return undefined;
++  }
++  /**
++   * The key TRANSITION's own refusal — the shipped engine's THIRD key owner,
++   * and a different question from {@link keyPortabilityRefusal}.
++   *
++   * A child-held relation written beside a key update forces the parent's
++   * POST-transition key value to be named at ANALYSIS: the child rows this
++   * payload writes reference it, and the compiler builds their FK before any
++   * row is located. The shipped engine names it in
++   * `RecordUpdateCompilerState.interpretReferencedKeyTransition`
++   * (`write-engine/RecordUpdateCompiler.ts:3319` ->
++   * `operations/mutation-identity.ts:357`), reached from the `UpsertOperation`
++   * CONSTRUCTOR (`:480`) — so for an upsert it runs before either arm is
++   * selected, and a payload whose post-value cannot be computed is refused
++   * with the transition's own sentence rather than the validator's, before
++   * either arm writes anything. Two payloads cannot be computed, and they are
++   * the two `getSafeUpdatedScalarValue` refuses (`mutation-identity.ts:298`,
++   * `:336`): a key naming anything other than exactly one operation, which is
++   * R-D2 (c)'s `set`-beside-an-operator shape and answers `:187`'s sentence,
++   * and a `divide` by zero, which has no value at all.
++   *
++   * Its three structural conditions are the shipped ones, measured
++   * (`upsert-key-portability.test.ts`, the third describe):
++   *
++   * - the relation is CHILD-held and references the key being rewritten. That
++   *   fact is NOT re-derived here: the command tree already records it while it
++   *   expands the payload (`RelationBody.relation` ->
++   *   `RecordCommand.transitions`), and this method reads that list. A
++   *   parent-held relation beside the same `divide` builds no transition, and
++   *   both engines answer the validator's sentence;
++   * - the reference key has exactly ONE member (`RecordUpdateCompiler.ts:3310`
++   *   `referencedFields.length === 1`, whose comment is explicit that "a
++   *   compound one falls through to the per-member compile-time source rather
++   *   than borrowing member zero's answer") — a compound reference key reaches
++   *   the validator's sentence on both engines;
++   * - the locator's DISCRIMINATOR pins the pre-value as a literal, which is
++   *   what makes the transition nameable at analysis. `pinned` is the prepared
++   *   selector's `facts.keys` — the `key: true` columns, which are the shipped
++   *   `pinnedTargetValues` entries (`write-engine/shared.ts:154-166`) — never
++   *   its `facts.equals`, which also collects an extended `where`'s filter half
++   *   and its `AND`/`OR`/`NOT` arms.
++   *
++   * A payload naming exactly one computable operation — `set`, or an
++   * arithmetic one the provider can carry — builds its transition and is not
++   * this owner's business; the found arm's {@link keyPortabilityRefusal} is
++   * what still judges the operator's portability, exactly as shipped.
++   */
++  keyTransitionRefusal(
++    model: AnyModel,
++    data: unknown,
++    pinned: ReadonlyMap<string, unknown>,
++    transitions: readonly Extract<Membership, { kind: "reference" }>[]
++  ): Error | undefined {
++    if (!isRecord(data)) return undefined;
++    for (const keyField of this.keys(model)) {
++      if (!pinned.has(keyField)) continue;
++      const update = data[keyField];
++      if (!isRecord(update)) continue;
++      if (
++        !transitions.some(
++          (edge) =>
++            edge.pairs.length === 1 && edge.pairs[0]!.source === keyField
++        )
++      )
++        continue;
++      const named = KEY_UPDATE_OPERATIONS.filter(
++        (operation) => update[operation] !== undefined
++      );
++      if (named.length !== 1)
++        return new QueryEngineError(
++          `Cannot determine the updated primary key for model '${model["~"].names.ts!}' because field '${keyField}' uses an unsupported operation.`
+         );
++      if (update.divide === 0 || update.divide === 0n)
++        return new QueryEngineError("Cannot divide a primary key by zero.");
+     }
+     return undefined;
+   }
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -1033,13 +1033,12 @@
+     args: Arguments
+   ): (() => Promise<unknown>) | undefined {
+     const ctx = this.context;
+-    if (model["~"].relationNames.some((name) => args.data[name] !== undefined))
+-      return undefined;
++    if (ctx.schema.namesRelation(model, args.data)) return undefined;
+     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
+     const projection = ctx.queries.prepareProjection(model, args);
+     if (!returningSafeProjection(projection)) return undefined;
+     const values = ctx.schema.scalars(model, args.data);
+-    const selector = ctx.queries.prepareSelector(model, args.where);
++    const selector = ctx.queries.prepareSelector(model, args.where, true);
+     return () =>
+       ctx.updateMany(model, selector, values, undefined, projection, () =>
+         new NotFoundError(model["~"].names.ts!, "update")
+@@ -1062,8 +1061,7 @@
+     args: Arguments
+   ): (() => Promise<unknown>) | undefined {
+     const ctx = this.context;
+-    if (model["~"].relationNames.some((name) => args.data[name] !== undefined))
+-      return undefined;
++    if (ctx.schema.namesRelation(model, args.data)) return undefined;
+     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
+     const projection = ctx.queries.prepareProjection(model, args);
+     if (!returningSafeProjection(projection)) return undefined;
+@@ -1148,7 +1146,7 @@
+     // where it does not), and own the missing-row identity.
+     if (ctx.operation === "delete") {
+       const projection = ctx.queries.prepareProjection(model, args);
+-      const selector = ctx.queries.prepareSelector(model, args.where);
++      const selector = ctx.queries.prepareSelector(model, args.where, true);
+       return {
+         single: returning && returningSafeProjection(projection),
+         run: () =>
+@@ -1160,7 +1158,11 @@
+     if (ctx.operation === "upsert") {
+       const missing = this.create(model, args.create!, raw.create!);
+       missing.operation = "upsert";
+-      const lookup = this.lookup(model, { kind: "query", where: args.where });
++      const lookup = this.lookup(model, {
++        kind: "query",
++        where: args.where,
++        unique: true,
++      });
+       const queries = this.context.queries;
+       const probes: Condition[] = [];
+       for (const field of ["targetWhere", "setWhere"] as const) {
+@@ -1189,6 +1191,19 @@
+       const found = this.occurrence(
+         this.update(lookup, args.update!, raw.update!, true)
+       );
++      // The shipped engine's THIRD key owner, raised where it raises it: at
++      // analysis, before either arm exists, so a missing row is refused too and
++      // nothing is written (`EngineSchema.keyTransitionRefusal`). Both facts it
++      // needs are read off structures that already exist — the update arm's own
++      // recorded key transitions, and the locator's DISCRIMINATOR pins — so the
++      // refusal restates neither the relation walk nor the selector.
++      const transition = ctx.schema.keyTransitionRefusal(
++        model,
++        args.update!,
++        lookup.selector.facts.keys,
++        found.command.transitions
++      );
++      if (transition) throw transition;
+       const choice: Choose = {
+         kind: "choose",
+         model,
+@@ -1239,7 +1254,7 @@
+           : this.update(
+               this.lookup(
+                 model,
+-                { kind: "query", where: args.where! },
++                { kind: "query", where: args.where!, unique: true },
+                 new NotFoundError(model["~"].names.ts!, "update")
+               ),
+               args.data,
+@@ -1253,9 +1268,7 @@
+       };
+     }
+     const updateData = args.data;
+-    const relationBearing = model["~"].relationNames.some(
+-      (name) => updateData[name] !== undefined
+-    );
++    const relationBearing = ctx.schema.namesRelation(model, updateData);
+     const projection = bulkProjection(ctx, model, args);
+     if (args.limit === 0)
+       return { single: true, run: async () => ctx.emptyBulkResult(projection) };
+--- a/src/query-engine/raptor3/commands/selection.ts
++++ b/src/query-engine/raptor3/commands/selection.ts
+@@ -18,16 +18,69 @@
+   | {
+       readonly kind: "query";
+       readonly where?: Input;
++      /**
++       * `where` was admitted as a UNIQUE selector whose shipped counterpart is
++       * `buildWhereUnique`, so its addressable entries name the row through the
++       * constraint (`Queries.prepareSelector`). The root verbs' lookups state
++       * it themselves; for a nested write's target the one owner of the answer
++       * is {@link nestedTargetAddressesConstraint}. A bulk member's `where`
++       * (`updateMany` / `deleteMany`) is a filter by contract and never asks.
++       * Ignored when the caller prepares `selector` itself.
++       */
++      readonly unique?: boolean;
+       readonly selector?: PreparedSelector;
+       readonly membership?: BoundMembership;
+     }
+   | {
+       readonly kind: "producer";
+       readonly where?: Input;
++      readonly unique?: boolean;
+       readonly selector?: PreparedSelector;
+       readonly producer: Assignments;
+     };
+ 
++/**
++ * The nested verbs that address a single target row, spelled as the case labels
++ * of `RelationBody.relation`'s own switch. The type is the wiring: a nested verb
++ * added to the filter family that forgets to consult the predicate below is a
++ * typecheck error at its call site, not a silent "discriminator" default.
++ */
++export type NestedTargetVerb =
++  | "connect"
++  | "connectOrCreate"
++  | "delete"
++  | "disconnect"
++  | "set"
++  | "update"
++  | "upsert";
++
++/**
++ * Whether a nested write's unique target selector names its row through the
++ * constraint. The shipped engine answers this from the EDGE's own compiler,
++ * not from the verb alone:
++ *
++ * - a JUNCTION target is a discriminator in both phases. Its planning probe is
++ *   `buildFindUnique` (`write-engine/RelationJunctionPart.ts:1509`, `:1629`,
++ *   `:1663`) and its batch statement passes the selector as `whereUnique`
++ *   (`:1698`, `:2146`, `:2259`), which `JunctionStatements.ts:322-323`
++ *   compiles with `buildWhereUnique` — whichever verb addressed it.
++ * - a REFERENCE-held target of `disconnect` / `delete` / `update` is the one
++ *   family the shipped engine recombines as `{ field: { equals: value } }`
++ *   through `uniqueSelectorConjuncts` (`write-engine/shared.ts:671`, reached
++ *   from `RelationWritePart.ts:987`, `UpdateOperation.ts:469` and
++ *   `RecordUpdateCompiler.ts:3722`) and hands to `buildWhere`, so it is a
++ *   FILTER and keeps the engine's case-sensitivity contract.
++ */
++export function nestedTargetAddressesConstraint(
++  edge: Membership,
++  verb: NestedTargetVerb
++): boolean {
++  return (
++    edge.kind === "junction" ||
++    (verb !== "disconnect" && verb !== "delete" && verb !== "update")
++  );
++}
++
+ export function membershipFields(edge: Membership): string[] {
+   return edge.kind === "reference"
+     ? [
+@@ -61,7 +114,8 @@
+     const queries = execution.context.queries;
+     this.fields = new Assignments(model, "select");
+     this.selector =
+-      source.selector ?? queries.prepareSelector(model, source.where);
++      source.selector ??
++      queries.prepareSelector(model, source.where, source.unique === true);
+     this.facts = facts ?? queries.selectorFacts(this.selector);
+     this.rowProjection = queries.prepareProjection(model, {
+       select: Object.fromEntries(
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -25,6 +25,7 @@
+ import {
+   type BoundMembership,
+   membershipFields,
++  nestedTargetAddressesConstraint,
+   type Selection,
+   type SelectionSource,
+ } from "./selection";
+@@ -211,6 +212,7 @@
+             {
+               kind: "query",
+               where: selector,
++              unique: nestedTargetAddressesConstraint(edge, verb),
+               membership: { edge, parent: parent.located!.fields },
+             },
+             new NestedWriteError(
+@@ -249,17 +251,29 @@
+                 origin
+               );
+           } else {
++            const removal: Removal = {
++              kind: "remove",
++              edge,
++              source: parent.fields,
++              target: outgoing.fields,
++              keep: [],
++            };
++            // A JUNCTION `delete` removes the LINK row before the target, in
++            // this one region: the link references the target, so deleting the
++            // target first is a foreign-key violation wherever the constraint
++            // is enforced. The order is the shipped engine's own — "locate the
++            // connected child, DELETE its join rows, then the child"
++            // (`write-engine/RelationJunctionPart.ts:911-937` `compileDelete`:
++            // `junctionDeleteTargets` then `childDelete`). A `disconnect`
++            // places the removal alone, and a reference-held target carries its
++            // own foreign key, so it places the deletion alone.
++            if (verb === "delete" && edge.kind === "junction")
++              this.commands.place(parent, removal, "after", origin);
+             this.commands.place(
+               parent,
+               verb === "delete"
+                 ? { kind: "delete", located: outgoing, origin }
+-                : {
+-                    kind: "remove",
+-                    edge,
+-                    source: parent.fields,
+-                    target: outgoing.fields,
+-                    keep: [],
+-                  },
++                : removal,
+               "after",
+               origin
+             );
+@@ -320,6 +334,39 @@
+           const source = entries(rawPayload)[index]!;
+           const conditional: Input =
+             verb === "connect" ? { where: supplied } : supplied;
++          // The child's OWN key update is judged by the same owner that judges
++          // the root's, at the position this body already admits it, and R-D2
++          // (c) is about the SHAPE, not the site. `connect` and
++          // `connectOrCreate` carry no update payload, so they ask nothing.
++          //
++          // WHEN the answer is stated is the shipped engine's placement, not
++          // this body's. A nested `update` is asserted at COMPILE time
++          // (`RelationWritePart.ts:856`), so its refusal is raised here, before
++          // anything is located. A nested `upsert` is not: the shipped engine
++          // builds the same assertion as a closure (`RelationUpsertPart.ts:1006`)
++          // and invokes it only inside the FOUND arm (`:468`), so an absent
++          // target takes the create arm and the update payload is never judged
++          // — the shape `EngineSchema.keyPortabilityRefusal`'s own docblock
++          // warns a wider placement breaks, "an upsert that CREATES a row the
++          // arithmetic never touches". The upsert's refusal is therefore handed
++          // to its found arm below, the way the ROOT upsert hands it to its own
++          // (`commands.ts:1236-1239`). The carrier differs because the position
++          // does: the root assigns `CommandOccurrence.refusal` on an already
++          // MATERIALIZED arm, while this body writes a recipe, and a recipe
++          // never carries occurrence refusal into materialization (guide,
++          // "Reusing a command or `Selection` never reuses occurrence ancestry,
++          // children, refusal, or attempt state"). The found arm's own deferred
++          // `Assignments` is the recipe-borne half of the same channel: it holds
++          // the refusal until `activate()` observes the choice
++          // (`execution.ts:259`, `:389`), which is the arm-conditional rule the
++          // guide already states for every `Choose` arm.
++          const childUpdate =
++            verb === "upsert" ? conditional.update : conditional.data;
++          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
++            edge.target,
++            childUpdate
++          );
++          if (keyRefusal && verb !== "upsert") throw keyRefusal;
+           const missing =
+             conditional.create === undefined
+               ? undefined
+@@ -344,7 +391,8 @@
+           const queries = this.commands.context.queries;
+           const ownSelector = queries.prepareSelector(
+             edge.target,
+-            conditional.where as Input | undefined
++            conditional.where as Input | undefined,
++            nestedTargetAddressesConstraint(edge, verb)
+           );
+           let selectionSource: SelectionSource = {
+             kind: "query",
+@@ -454,11 +502,7 @@
+                 ? this.commands.occurrence(
+                     this.commands.update(
+                       lookup,
+-                      record(
+-                        verb === "upsert"
+-                          ? conditional.update
+-                          : conditional.data
+-                      ),
++                      record(childUpdate),
+                       record(
+                         verb === "upsert"
+                           ? source.update
+@@ -473,6 +517,11 @@
+           if (target.found) {
+             target.found.command.origin = origin;
+             target.found.command.requirement = foundRequirement;
++            // The upsert's key refusal, on the arm that owns it: the update the
++            // found arm would run is the payload being judged, its `Assignments`
++            // is deferred, and an untaken arm never activates. `undefined` for a
++            // nested `update`, which already refused above.
++            if (keyRefusal) target.found.command.fields.reject(keyRefusal);
+           }
+           this.association(edge, target, correlated);
+           this.supply(target);
+@@ -489,6 +538,13 @@
+         this.membershipSource(edge, parent.fields);
+         for (const [index, member] of entries(payload).entries()) {
+           const input = record(member);
++          // The same owner, at the third nested position that admits an update
++          // payload. A `deleteMany` member has no `data`, so it asks nothing.
++          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
++            edge.target,
++            input.data
++          );
++          if (keyRefusal) throw keyRefusal;
+           const where =
+             verb === "updateMany"
+               ? input.where === undefined
+@@ -575,7 +631,11 @@
+     return selectors.map((where): Choose => {
+       const lookup = this.commands.lookup(
+         edge.target,
+-        { kind: "query", where },
++        {
++          kind: "query",
++          where,
++          unique: nestedTargetAddressesConstraint(edge, "set"),
++        },
+         new NestedWriteError(
+           `Cannot set relation '${edge.name}': target record was not found.`,
+           edge.name
+--- a/src/query-engine/raptor3/route/client-route.ts
++++ b/src/query-engine/raptor3/route/client-route.ts
+@@ -17,15 +17,29 @@
+ import { VibORM, type VibORMClient, type VibORMConfig } from "@client/client";
+ import type { Operations } from "@client/types";
+ import type { AnyDriver, QueryExecutionContext } from "@drivers";
+-import {
+-  getTrustedRecordSeriesProgress,
+-  isVibORMError,
+-  UnsupportedOperationError,
+-} from "@errors";
++import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
+ import type { Schema } from "@schema/hydration";
+ import type { AnyModel } from "@schema/model";
++import {
++  arrayCodec,
++  booleanCodec,
++  compileScalarCodec,
++  compileWidenedSumCodec,
++  countCodec,
++  nullableCodec,
++  numberCodec,
++  recordCodec,
++  taggedRelationCodec,
++  type ValueCodec,
++} from "../../result/cache-value-codecs";
+ import type { PreparedBatchOperation } from "../../types";
+-import { createCommandEngine, type PreparedOperation } from "../commands";
++import {
++  createCommandEngine,
++  type PreparedOperation,
++  type PreparedRead,
++} from "../commands";
++import type { WriteOutcomeSeam } from "../shared/operation-context";
++import type { Leaf, ProjectionShape } from "../shared/query";
+ import type { ResolvedSchemaViews } from "../shared/schema";
+ 
+ /**
+@@ -83,24 +97,40 @@
+   resolved: ResolvedSchemaViews
+ ) => ClientOperationRoute;
+ 
++/** This operation's write-outcome seam, and whether it has already spoken. */
++interface RouteWriteOutcome {
++  published: boolean;
++  readonly seam: WriteOutcomeSeam;
++}
++
+ /**
+- * Publish the exact durable phase of a failed write, from the trusted progress
+- * the candidate already attached at the `@errors` boundary. A rolled-back
+- * attempt publishes nothing.
++ * Hand the candidate the client's own cache-invalidation rail.
++ *
++ * The durable phase of a write is a TRANSPORT fact — a segment acknowledged, or
++ * a dispatch whose rollback the driver cannot prove — so the transport states
++ * it, at the point it learns it, through this seam. The route reads no such
++ * fact back out of a published error: `recordSeriesProgress` reports a record
++ * series and nothing else (`g4/regression/note.md` "Seam round").
+  */
+-async function publishFailedWriteOutcome(
+-  error: unknown,
++function routeWriteOutcome(
+   execution: RoutedOperationExecution
+-): Promise<void> {
+-  const progress = isVibORMError(error)
+-    ? getTrustedRecordSeriesProgress(error)
+-    : undefined;
+-  if (!progress) return;
+-  if (progress.committedSegments > 0) {
+-    await execution.committedWriteSegment?.();
+-    return;
+-  }
+-  if (progress.mayHaveCommittedSegment) await execution.writeMayBeVisible?.();
++): RouteWriteOutcome | undefined {
++  const { committedWriteSegment, writeMayBeVisible } = execution;
++  if (!(committedWriteSegment || writeMayBeVisible)) return undefined;
++  const outcome: RouteWriteOutcome = {
++    published: false,
++    seam: {
++      committedSegment: async () => {
++        outcome.published = true;
++        await committedWriteSegment?.();
++      },
++      mayBeVisible: async () => {
++        outcome.published = true;
++        await writeMayBeVisible?.();
++      },
++    },
++  };
++  return outcome;
+ }
+ 
+ /**
+@@ -135,15 +165,19 @@
+       // read stay lazy inside it (LX-01); every consumer below reads the same
+       // construction, so nothing is admitted or projected twice.
+       const prepared = engine.prepare(modelName, operation, args);
++      let codec: RouteCacheResultCodec | undefined;
+       return {
+         get preparedArgs(): Record<string, unknown> {
+           return prepared.args;
+         },
+         cacheResultCodec(): RouteCacheResultCodec {
+-          throw new UnsupportedOperationError(
+-            `The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the prepared read's leaves publish no scalar to compile a value codec from (g4/unit03/note.md FU.6 B-1c).`,
+-            { meta: { model: modelName, operation: requestedOperation } }
+-          );
++          const read = prepared.read;
++          if (!read)
++            throw new UnsupportedOperationError(
++              `The Raptor 3 route cannot encode a cached result for '${requestedOperation}' on model '${modelName}': the verb publishes no prepared read.`,
++              { meta: { model: modelName, operation: requestedOperation } }
++            );
++          return (codec ??= cacheCodec(read, requestedOperation));
+         },
+         prepareBatch(
+           context: QueryExecutionContext
+@@ -151,27 +185,152 @@
+           return prepared.prepareBatch(context);
+         },
+         async execute<T>(execution: RoutedOperationExecution): Promise<T> {
+-          try {
+-            const value = await runCandidate(
+-              prepared,
+-              execution,
+-              factoryDriver
+-            );
+-            if (execution.isWrite) await execution.committedWriteSegment?.();
+-            return value as T;
+-          } catch (error) {
+-            if (execution.isWrite) {
+-              await publishFailedWriteOutcome(error, execution);
+-            }
+-            throw error;
+-          }
++          const outcome = execution.isWrite
++            ? routeWriteOutcome(execution)
++            : undefined;
++          const value = await runCandidate(
++            prepared,
++            execution,
++            factoryDriver,
++            outcome?.seam
++          );
++          // A transport that never separated commit from success — every
++          // direct statement and every borrowed scope — leaves the operation's
++          // own success as the only durable fact there is. That is the arm the
++          // shipped write-outcome rail keeps for itself, on the same condition
++          // (`extensions/query.ts:286-293`, `publishedDirectUnits === 0`).
++          if (execution.isWrite && !outcome?.published)
++            await execution.committedWriteSegment?.();
++          return value as T;
+         },
+       };
+     },
+   };
++}
++
++/**
++ * The detached cache representation of one prepared read.
++ *
++ * Every value codec here comes from the OFFICIAL owner
++ * (`src/query-engine/result/cache-value-codecs.ts`), addressed the way that
++ * owner is addressed — by the declaring `Scalar` object, never by a leaf's type
++ * name — so the candidate adds no scalar-meaning authority and a cached value
++ * materializes exactly as a freshly parsed one does. The STRUCTURE comes from
++ * the prepared read's own published facts (`shape`, `value`, `single`,
++ * `empty`), which the read owner states beside the statement it decodes, so the
++ * codec and the decoder cannot disagree about cardinality.
++ */
++function cacheCodec(
++  read: PreparedRead,
++  requestedOperation: string
++): RouteCacheResultCodec {
++  // The read owner's own publication for zero rows says whether the public
++  // value may be absent: `null` for a located row, `[]`/`{}`/`0`/`false` for
++  // the shapes that always publish a value.
++  const value = shapeCodec(read.value, requestedOperation);
++  const compiled = read.empty === null ? nullableCodec(value) : value;
++  return Object.freeze({
++    snapshot(input: unknown): unknown {
++      try {
++        return compiled.snapshot(input, new WeakSet<object>());
++      } catch (cause) {
++        throw new CacheConfigurationError(
++          "The operation result cannot be represented by the cache result codec.",
++          {
++            cause: cause instanceof Error ? cause : undefined,
++            meta: { method: "snapshot", operation: requestedOperation },
++          }
++        );
++      }
++    },
++    materialize(snapshot: unknown): unknown {
++      try {
++        return compiled.materialize(snapshot, new WeakSet<object>());
++      } catch (cause) {
++        throw new CacheConfigurationError(
++          "The cached result snapshot is malformed.",
++          {
++            cause: cause instanceof Error ? cause : undefined,
++            meta: { method: "materialize", operation: requestedOperation },
++          }
++        );
++      }
++    },
++  });
+ }
+ 
++/** One published shape, composed from the official structural codecs. */
++function shapeCodec(
++  shape: ProjectionShape | Leaf,
++  requestedOperation: string
++): ValueCodec {
++  // biome-ignore lint/style/useDefaultSwitchClause: the published shape union is exhaustive; a default would be dead code.
++  switch (shape.kind) {
++    case "scalar":
++      return leafCodec(shape, requestedOperation);
++    case "object": {
++      const fields = new Map<string, ValueCodec>();
++      for (const [name, field] of Object.entries(shape.fields))
++        fields.set(name, shapeCodec(field, requestedOperation));
++      return recordCodec(fields);
++    }
++    case "collection":
++      return arrayCodec(shapeCodec(shape.row, requestedOperation));
++    case "variants": {
++      const arms = new Map<string, ValueCodec>();
++      for (const [type, arm] of Object.entries(shape.arms))
++        arms.set(type, shapeCodec(arm, requestedOperation));
++      const tagged = taggedRelationCodec(arms);
++      return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
++    }
++    case "recursive":
++      // A recursive read publishes a depth the prepared shape does not bound,
++      // so no fixed codec describes it. The shipped compiler refuses the same
++      // shape (`compileRowCodec`'s `unknown` column), and refusing is what
++      // keeps a half-encoded entry out of the store.
++      throw new UnsupportedOperationError(
++        `The Raptor 3 route cannot encode a cached result for '${requestedOperation}': a recursive read's published depth is not a fixed shape.`,
++        { meta: { operation: requestedOperation } }
++      );
++  }
++}
++
+ /**
++ * One leaf's value codec.
++ *
++ * A leaf that a column declares carries that `Scalar`, and the official owner
++ * compiles it: `compileWidenedSumCodec` for a decimal `_sum` (which keeps the
++ * field's scale and drops its precision), `compileScalarCodec` otherwise, with
++ * the DECLARED nullability switched off because the projection's own
++ * `nullable` is the fact — an aggregate over a non-null column still publishes
++ * `null` for an empty window.
++ *
++ * The leaves with no declaring scalar are the read owner's OWN values, not a
++ * column's meaning: `_count` (including a relation count), `exist`, and the
++ * number a non-decimal `_avg` or a `_distance` publishes. Naming those three is
++ * not a second scalar authority — it is the same classification the shipped
++ * compiler makes in `compileAggregateLeafCodec` and in `compileRootCodec`'s
++ * `existence`/`count` carriers.
++ */
++function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
++  const declared = leaf.scalar;
++  let value: ValueCodec;
++  if (declared) {
++    value = leaf.widened
++      ? compileWidenedSumCodec(declared)
++      : compileScalarCodec(declared, false);
++  } else if (leaf.type === "boolean") value = booleanCodec();
++  else if (leaf.type === "int") value = countCodec();
++  else if (leaf.type === "number") value = numberCodec();
++  else
++    throw new UnsupportedOperationError(
++      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`,
++      { meta: { operation: requestedOperation } }
++    );
++  return leaf.nullable ? nullableCodec(value) : value;
++}
++
++/**
+  * Run one operation on the driver its owner selected.
+  *
+  * - root: no binding; the candidate owns its standalone envelope.
+@@ -190,22 +349,28 @@
+  *   current.
+  *
+  * The route decides WHICH SITUATION it is in and states it; it never decides
+- * whether an envelope is needed.
++ * whether an envelope is needed. `writeOutcome` is not a fourth situation: it
++ * is the client's cache-invalidation rail, carried to the transport that is
++ * the only thing able to say when a write became durable.
+  */
+ function runCandidate(
+   prepared: PreparedOperation,
+   execution: RoutedOperationExecution,
+-  factoryDriver: AnyDriver
++  factoryDriver: AnyDriver,
++  writeOutcome: WriteOutcomeSeam | undefined
+ ): Promise<unknown> {
+   const { context, driverOverride, engineDriver } = execution;
+   if (driverOverride) {
+     return prepared.execute(
+-      { driver: driverOverride, kind: "borrowed-transaction" },
++      { driver: driverOverride, kind: "borrowed-transaction", writeOutcome },
+       context
+     );
+   }
+   if (engineDriver === factoryDriver)
+-    return prepared.execute(undefined, context);
++    return prepared.execute(
++      writeOutcome ? { kind: "standalone", writeOutcome } : undefined,
++      context
++    );
+   return prepared.execute(
+     {
+       driver: engineDriver,
+@@ -214,6 +379,7 @@
+         engineDriver.withTransaction(execute, undefined, scoped),
+       operationRegion: (execute, scoped) =>
+         engineDriver.withTransaction(execute, undefined, scoped),
++      writeOutcome,
+     },
+     context
+   );
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -56,6 +56,28 @@
+   context: QueryExecutionContext
+ ) => Promise<T>;
+ 
++/**
++ * Where this operation publishes the DURABLE PHASE of its own writes.
++ *
++ * The transport is the only thing that knows it, so the transport says it — at
++ * the moment it learns it, not afterwards from an error's published meta. That
++ * is where the shipped executor says it too: `committedWriteSegment` from the
++ * segment's own acknowledgement (`write-engine/OperationExecutor.ts:974-990`)
++ * and `writeMayBeVisible` from the branch that records a dispatch it cannot
++ * prove rolled back (`:1050-1058`), both before the driver's error is
++ * rethrown. The candidate's two corresponding sites are in {@link submit}.
++ *
++ * `recordSeriesProgress` is therefore the PUBLIC report of a record series and
++ * nothing else; no consumer reads a cache signal back out of it
++ * (`g4/regression/note.md` "Seam round").
++ */
++export interface WriteOutcomeSeam {
++  /** A write segment of this operation is durable. */
++  readonly committedSegment?: () => Promise<void>;
++  /** A dispatched write segment cannot be proven rolled back. */
++  readonly mayBeVisible?: () => Promise<void>;
++}
++
+ export type ExecutionBinding =
+   | {
+       readonly kind: "borrowed-transaction";
+@@ -70,8 +92,15 @@
+        * no operation envelope at all (note §8.4, brief item 11 revision 4).
+        */
+       readonly operationRegion?: MemberRollback;
++      readonly writeOutcome?: WriteOutcomeSeam;
+     }
+-  | { readonly kind: "atomic-array" };
++  | { readonly kind: "atomic-array" }
++  /**
++   * The root situation, stated by name: no borrowed driver and no grant, the
++   * operation owns its own standalone envelope. It carries nothing but the
++   * write-outcome seam, and an absent binding still means exactly this.
++   */
++  | { readonly kind: "standalone"; readonly writeOutcome?: WriteOutcomeSeam };
+ 
+ type ExecutionOwnership =
+   | "standalone"
+@@ -86,6 +115,8 @@
+   private readonly ownership: ExecutionOwnership;
+   private readonly memberRollback?: MemberRollback;
+   private readonly operationRegion?: MemberRollback;
++  /** Where this operation states its own durable write phase ({@link WriteOutcomeSeam}). */
++  private readonly writeOutcome?: WriteOutcomeSeam;
+   /** True only while the operation's OWN region is the current transport. */
+   private ownRegionOpen = false;
+   private transport: AnyDriver;
+@@ -100,14 +131,46 @@
+   private mayHaveCommittedSegment: true | undefined;
+   private completedMembers = 0;
+   private memberAdmissionStarted = false;
++  /**
++   * The transport window of the operation's OWN set-oriented statement, while
++   * one is submitting ({@link setMutations}).
++   *
++   * A set mutation admits no member: it is the one atomic unit a folded root
++   * write — or a relation-free bulk verb — issues on its own behalf, so its
++   * window is a transport artifact and not a record-series member. That is the
++   * one fact {@link failure} asks to decide whether an uncertain outcome is
++   * PUBLIC progress or stays internal.
++   */
++  private setWindow?: Member;
++  /**
++   * A write-outcome listener that failed while {@link submit} acknowledged its
++   * committed segment, HELD until the operation's own answer to that batch is
++   * known ({@link settleSubmitted}).
++   *
++   * The batch transport acknowledges BEFORE its responses are decoded, so it is
++   * the one site where the listener fails first. The shipped `runAtomicBatch`
++   * holds it in exactly the same place (`write-engine/OperationExecutor.ts`
++   * `committed()` at `:1277-1289` captures `outcomeFailure` instead of throwing
++   * it) and composes only once `operation.parse` has answered (`:1332-1343`).
++   */
++  private heldOutcomeFailure?: { readonly failure: unknown };
+   private atomicAssertionRejection?: unknown;
+   private readonly incompletePreparation = new Error(
+     "Raptor 3 operation requires dynamic execution"
+   );
+   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
+   private readonly preparedGuards: PreparedBatchGuard[] = [];
+-  /** Failures this operation raised about its OWN premise (see `published`). */
+-  private readonly premiseFailures = new WeakSet<object>();
++  /**
++   * Failures this operation has ALREADY ANSWERED with, which {@link failure}
++   * returns unchanged: the premise it raised about the world (see `published`),
++   * and the write-outcome answers the batch transport states once its hold is
++   * released ({@link settleSubmitted}, {@link submit}'s catch) — the shipped
++   * `runAtomicBatch` throws those exactly as built
++   * (`write-engine/OperationExecutor.ts:1306-1309`, `:1336-1343`), while the
++   * progress-bearing aggregate of its PROGRESSIVE path is a different failure
++   * that is attributed (`:1037-1046`) and is not marked here.
++   */
++  private readonly answeredFailures = new WeakSet<object>();
+   private readonly correlationId = crypto.randomUUID();
+   /**
+    * The operation's physical envelope. `deferred` is the only state in which the
+@@ -152,7 +215,9 @@
+     this.ownership = prepareBatch
+       ? "batch-preparation"
+       : (binding?.kind ?? "standalone");
+-    this.driver = binding?.driver ?? factoryDriver;
++    this.driver =
++      binding?.kind === "borrowed-transaction" ? binding.driver : factoryDriver;
++    this.writeOutcome = binding?.writeOutcome;
+     this.memberRollback =
+       binding?.kind === "borrowed-transaction"
+         ? binding.memberRollback
+@@ -323,7 +388,7 @@
+     phase: RecordSeriesProgress["phase"],
+     member?: Member
+   ): unknown {
+-    if (typeof error === "object" && error !== null && this.premiseFailures.has(error))
++    if (typeof error === "object" && error !== null && this.answeredFailures.has(error))
+       return error;
+     let failure = error;
+     if (error instanceof InvalidScalarResult) {
+@@ -336,10 +401,26 @@
+       );
+     }
+     const attribution = member ? this.memberAttribution.get(member) : undefined;
++    // A failure carries record-series progress only when it BELONGS to a record
++    // series. A committed segment and a prefix phase are the series the
++    // operation already has; an UNCERTAIN outcome is not one on its own, so a
++    // set-oriented statement's window ({@link setWindow}) reports nothing while
++    // its outcome is merely unknown. That unknown outcome stays internal — the
++    // fact itself is unchanged, still gates recovery, and still reaches the
++    // cache through the seam `submit` states it on ({@link WriteOutcomeSeam}) —
++    // exactly as the shipped executor keeps `progress.mayHaveCommittedSegment`
++    // internal for a single operation and rethrows the driver's own error
++    // (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308
++    // reaches only record-series member and invalidation failures).
++    // The narrowing is only that arm: a set window whose segment DID commit is
++    // a committed segment like any other and keeps publishing its progress,
++    // which is the G2.9 atomic-batch pin
++    // (`tests/raptor3/post-prep/g29-result-progress.test.ts`).
++    const setStatement = member !== undefined && member === this.setWindow;
+     return this.usesBatch &&
+       (phase === "prefix" ||
+         this.committedSegments > 0 ||
+-        this.mayHaveCommittedSegment)
++        (this.mayHaveCommittedSegment && !setStatement))
+       ? attachRecordSeriesProgress(failure, {
+           atomicity: "segment",
+           phase,
+@@ -565,18 +646,20 @@
+     for (const projection of projections) this.queue(projection.sql);
+     if (this.attempt.pending.length === 0) return [];
+     const responses = await this.submit(false, member);
+-    try {
+-      const rows = projections.map((projection, index) =>
+-        this.queries.decodeQuery(
+-          projection,
+-          responses[resultIndex + index]!.rows,
+-          true
+-        )
+-      );
+-      return Array.isArray(query) ? rows : (rows[0] ?? []);
+-    } catch (error) {
+-      throw this.failure(error, "result", member);
+-    }
++    return this.settleSubmitted(() => {
++      try {
++        const rows = projections.map((projection, index) =>
++          this.queries.decodeQuery(
++            projection,
++            responses[resultIndex + index]!.rows,
++            true
++          )
++        );
++        return Array.isArray(query) ? rows : (rows[0] ?? []);
++      } catch (error) {
++        throw this.failure(error, "result", member);
++      }
++    });
+   }
+   async requireAbsent(query: Query, failure: Error): Promise<void> {
+     if (this.usesBatch) {
+@@ -632,6 +715,15 @@
+       if (members.length === 0) return;
+       this.committedSegments++;
+       for (const member of members) this.committedMembers.add(member);
++      // This transport acknowledges before it has decoded anything, so the
++      // listener's failure is HELD rather than thrown: the operation's own
++      // answer is still to come, and it stays primary if it fails too
++      // ({@link heldOutcomeFailure}, released by {@link settleSubmitted}).
++      try {
++        await this.writeOutcome?.committedSegment?.();
++      } catch (failure) {
++        this.heldOutcomeFailure = { failure };
++      }
+     };
+     try {
+       const responses = await this.dispatch(statements.length, false, () =>
+@@ -645,6 +737,17 @@
+       if (!this.driver.supportsOrderedCommittedSegments) await acknowledged();
+       return responses.slice(guards.length);
+     } catch (error) {
++      // A listener that failed while this batch acknowledged is composed with
++      // the batch's own failure, which stays primary, and the uncertain-outcome
++      // arm below is not reached: a segment that acknowledged is known to have
++      // committed. Shipped states both at the same point of its own catch
++      // (`write-engine/OperationExecutor.ts:1306-1309`).
++      const acknowledgedOutcomeFailure = this.heldOutcomeFailure;
++      this.heldOutcomeFailure = undefined;
++      if (acknowledgedOutcomeFailure)
++        throw this.answered(
++          this.retainOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
++        );
+       // Atomic rejection is retryable only with exact effect attribution and a
+       // direct provider cause. Cleanup aggregation retains an extra cause link.
+       if (
+@@ -669,8 +772,16 @@
+         !this.driver.supportsOrderedCommittedSegments &&
+         this.committedSegments === precedingSegments &&
+         !(error instanceof UniqueConstraintError)
+-      )
++      ) {
+         this.mayHaveCommittedSegment = true;
++        // Said where it is learned and BEFORE the failure is attributed or
++        // published, which is the shipped order (`OperationExecutor.ts:1050-1058`
++        // sets the same internal flag, notifies, and only then rethrows).
++        // Whether the meta reports it is a separate question, answered once in
++        // `failure()`; whether the listener's own failure may replace this
++        // operation's is answered once in {@link stateWriteOutcome}.
++        await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
++      }
+       let attributedError = error;
+       if (error instanceof NestedWriteAssertionError) {
+         const statementIndex = error.meta.statementIndex;
+@@ -717,7 +828,37 @@
+             member
+           )
+         : attributedError;
++    }
++  }
++  /**
++   * The operation's own answer to a batch {@link submit} returned, composed
++   * with a listener failure that batch HELD while it acknowledged
++   * ({@link heldOutcomeFailure}).
++   *
++   * The shipped `runAtomicBatch` order exactly
++   * (`write-engine/OperationExecutor.ts:1332-1343`): the answer is decoded
++   * first, a decode failure stays primary with the listener's retained beside
++   * it, and a listener that failed beside an answer that SUCCEEDED is published
++   * alone. Every caller of {@link submit} decodes here, so the hold is released
++   * exactly once per submission — and on the plain transport there is nothing
++   * to hold, because {@link dispatchSetMutations} decodes and acknowledges in
++   * one frame and states its primary directly.
++   */
++  private async settleSubmitted<T>(
++    answer: () => T | PromiseLike<T>
++  ): Promise<T> {
++    const held = this.heldOutcomeFailure;
++    this.heldOutcomeFailure = undefined;
++    let value: T;
++    try {
++      value = await answer();
++    } catch (failure) {
++      throw held
++        ? this.answered(this.retainOutcomeFailure(failure, held.failure))
++        : failure;
+     }
++    if (held) throw this.answered(held.failure);
++    return value;
+   }
+   rejectedProducer(error: unknown): object | undefined {
+     return this.attempt.rejectedInsert &&
+@@ -761,9 +902,7 @@
+       // the same place (an INSERT that answered no row) throws from inside
+       // `single()` instead of returning, is never marked, and keeps the
+       // progress record its transport owes it.
+-      const premise = single();
+-      this.premiseFailures.add(premise);
+-      throw premise;
++      throw this.answered(single());
+     }
+     return row;
+   }
+@@ -911,13 +1050,15 @@
+     }
+     if (this.attempt.pending.length === 0) return result([]);
+     const responses = await this.submit();
+-    try {
+-      return result(
+-        this.decodeTerminalResults(queries, responses, resultIndex)
+-      );
+-    } catch (error) {
+-      throw queries.length ? this.failure(error, "result") : error;
+-    }
++    return this.settleSubmitted(() => {
++      try {
++        return result(
++          this.decodeTerminalResults(queries, responses, resultIndex)
++        );
++      } catch (error) {
++        throw queries.length ? this.failure(error, "result") : error;
++      }
++    });
+   }
+   isIncompletePreparation(error: unknown): boolean {
+     return error === this.incompletePreparation;
+@@ -979,26 +1120,158 @@
+       };
+       return undefined;
+     }
+-    if (this.usesBatch) {
++    // ONE rule for the physical envelope, asked here of this owner's two
++    // transports: a set statement that is the operation's ONLY statement needs
++    // no envelope, so it takes the plain execute path on a batch-only driver
++    // exactly as on every other. That is the shipped transport rule — the same
++    // `runStatementAtomic` condition {@link run} already restates for the
++    // envelope (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at
++    // `:241` and its `:346-357` call site), which sends this shape through
++    // `_execute` and never through `_executeBatch`. Arnaud's D-7 decision
++    // (2026-09-15) is to take it exactly: a ONE-STATEMENT BATCH is what makes
++    // the driver seam attribute `statementIndex: 0` to a rejection the shipped
++    // engine attributes no index to (`drivers/driver-diagnostics.ts:35-36`),
++    // for the folded root write and for every relation-free bulk verb alike.
++    //
++    // Each conjunct is a different way of not being the only statement: a plan
++    // of several statements; something already queued on this attempt that
++    // would ride the same batch (`requireAbsent`/`requirePresent`); a
++    // generated-output continuation whose guard must precede the mutation
++    // inside one atomic unit ({@link submit}).
++    const lone =
++      statements.length === 1 &&
++      this.attempt.pending.length === 0 &&
++      this.continuations.length === 0;
++    if (this.usesBatch && !lone) {
+       const windowMember: Member = {};
++      this.setWindow = windowMember;
+       for (const statement of statements)
+         this.queue(statement.sql, statement.context, windowMember);
+       const results = await this.submit(true, windowMember);
+-      try {
+-        return parse(results);
+-      } catch (error) {
+-        throw this.failure(error, "result", windowMember);
+-      }
++      return this.settleSubmitted(() => {
++        try {
++          return parse(results);
++        } catch (error) {
++          throw this.failure(error, "result", windowMember);
++        }
++      });
+     }
++    return this.dispatchSetMutations(statements, parse);
++  }
++  /**
++   * The operation's own set-oriented statements on the plain execute path, and
++   * the durable phase of the write it just made.
++   *
++   * This is the shipped `runBorrowedStatementAtomic` situation
++   * (`write-engine/OperationExecutor.ts:1558-1645`): no envelope, so this
++   * transport is the only one that learns whether the write became durable, and
++   * it says so on the same rail {@link submit} uses ({@link WriteOutcomeSeam}) —
++   * `mayBeVisible` when its statement fails without proving rollback, and
++   * `committedSegment` once its statement has returned, whether or not the
++   * result then decodes. Only a STANDALONE operation running outside any region
++   * owns that answer: a borrowed operation's caller owns the scope (the shipped
++   * `runLinearOn` notifies nothing), and this operation's own region answers
++   * with its rollback.
++   */
++  private dispatchSetMutations(
++    statements: readonly {
++      readonly sql: Sql;
++      readonly context: QueryExecutionContext;
++    }[],
++    parse: (results: readonly QueryResult<unknown>[]) => unknown
++  ): Promise<unknown> {
+     return this.dispatch(statements.length, true, async () => {
++      const owned = this.ownership === "standalone" && !this.ownRegionOpen;
+       const results: QueryResult<unknown>[] = [];
+-      for (const statement of statements)
+-        results.push(
+-          await this.transport._execute(statement.sql, statement.context)
++      try {
++        for (const statement of statements)
++          results.push(
++            await this.transport._execute(statement.sql, statement.context)
++          );
++      } catch (error) {
++        // The same sentence {@link submit}'s catch states about its batch: a
++        // dispatched write whose rollback the transport cannot prove may be
++        // visible, and a unique rejection is the one class that proves it.
++        if (owned && !(error instanceof UniqueConstraintError))
++          await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
++        throw error;
++      }
++      let decoded: { readonly failure: unknown } | { readonly value: unknown };
++      try {
++        decoded = { value: parse(results) };
++      } catch (error) {
++        // Translated HERE, once, so the one value this arm holds is the one the
++        // caller would have received: {@link run}'s catch is the only other
++        // translator of a decoding failure, and it no longer recognises this
++        // one once {@link stateWriteOutcome} has composed it with a listener's.
++        // The registered malformed-scalar refusal must stay primary, so the
++        // public failure — not the internal `InvalidScalarResult` — is what is
++        // both published to the cache seam and thrown.
++        decoded = { failure: this.failure(error, "result") };
++      }
++      if (owned)
++        await this.stateWriteOutcome(
++          this.writeOutcome?.committedSegment,
++          "failure" in decoded ? decoded.failure : undefined
+         );
+-      return parse(results);
++      if ("failure" in decoded) throw decoded.failure;
++      return decoded.value;
+     });
++  }
++  /**
++   * Say ONE durable write phase on the client's cache rail, keeping the
++   * OPERATION's own failure primary when the client's listener throws.
++   *
++   * The shipped engine composes the two exactly this way —
++   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859-871`) at every
++   * executor site that notifies while holding a failure
++   * (`write-engine/OperationExecutor.ts:1310`, `:1341`, `:1609`, `:1640`). The
++   * composition is restated here rather than imported because
++   * `@extensions/query` imports `write-engine/routing` and with it every
++   * shipped operation class — the one import this engine may not have. `primary`
++   * absent means the operation has not failed, which is the shipped
++   * `throw outcomeFailure` arm.
++   */
++  private async stateWriteOutcome(
++    say: (() => Promise<void>) | undefined,
++    primary?: unknown
++  ): Promise<void> {
++    if (!say) return;
++    try {
++      await say();
++    } catch (outcomeFailure) {
++      if (primary === undefined) throw outcomeFailure;
++      throw this.retainOutcomeFailure(primary, outcomeFailure);
++    }
+   }
++  /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
++  private answered<T>(failure: T): T {
++    if (typeof failure === "object" && failure !== null)
++      this.answeredFailures.add(failure);
++    return failure;
++  }
++  /**
++   * ONE composition of the two failures, wherever the operation's own failure
++   * becomes known: it stays primary and every listener failure is retained
++   * beside it. {@link stateWriteOutcome} composes when the primary is already
++   * in hand; {@link settleSubmitted} composes when the batch transport learned
++   * the listener's failure FIRST and held it.
++   */
++  private retainOutcomeFailure(
++    primary: unknown,
++    outcomeFailure: unknown
++  ): AggregateError {
++    return new AggregateError(
++      [
++        primary,
++        ...(outcomeFailure instanceof AggregateError
++          ? outcomeFailure.errors
++          : [outcomeFailure])
++      ],
++      "Query execution and write-outcome publication both failed.",
++      { cause: primary }
++    );
++  }
+   async createMany(
+     model: AnyModel,
+     rows: Input[],
+@@ -1489,21 +1762,22 @@
+         );
+         if (producer) this.attempt.insertProducers.set(inserted, producer);
+         const responses = await this.submit(true, member);
+-        let stored: Input;
+-        try {
+-          const rows = q.decodeProjection(
+-            projection.shape,
+-            responses[resultIndex]!.rows,
+-            true
+-          );
+-          if (!rows[0])
+-            throw new TypeError(
+-              "INSERT RETURNING did not produce the required record"
++        const stored = await this.settleSubmitted(() => {
++          try {
++            const rows = q.decodeProjection(
++              projection.shape,
++              responses[resultIndex]!.rows,
++              true
+             );
+-          stored = rows[0];
+-        } catch (error) {
+-          throw this.failure(error, "result", member);
+-        }
++            if (!rows[0])
++              throw new TypeError(
++                "INSERT RETURNING did not produce the required record"
++              );
++            return rows[0];
++          } catch (error) {
++            throw this.failure(error, "result", member);
++          }
++        });
+         this.continuations.push({
+           model,
+           query: q.select(model, {}, undefined, {
+@@ -1548,9 +1822,25 @@
+           continue;
+         const state = physicalField(this.schema, model, field).scalar["~"]
+           .state;
++        // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
++        // publication gap, raised where it always was — before any statement of
++        // this update is dispatched, so nothing is written. On a driver with no
++        // interactive transaction the evaluated value has to travel through the
++        // adapter's batch scratch, which is read back with an integer cast
++        // (below), so an `int` field is the only domain a dependent can demand
++        // as an expression. Widening it needs a typed scratch read per domain
++        // (and an answer to the decimal rounding question `Queries.updateValue`
++        // refuses), which is a capability change, not an identity.
+         if (state.type !== "int")
+-          throw new Error(
+-            "Raptor 3 update expression publication requires an integer field"
++          throw new QueryEngineError(
++            `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
++            {
++              meta: {
++                model: model["~"].names.ts!,
++                operation,
++                field
++              }
++            }
+           );
+         const references = getAdapterInternals(adapter).batchRefs;
+         const scratchId = this.ensureScratch();

@@ -1,0 +1,113 @@
+# falsifier falsify-deferral-dropped — swapped-in identities:
+e884ffb56c91ec761b4c5c7045527dfffce45b46322498190dfaac334d120810  src/query-engine/raptor3/shared/schema.ts
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  src/query-engine/raptor3/commands/commands.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (15 tests) 69ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 15ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 17ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 17ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 26ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 24ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (7 tests | 1 failed) 40ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a NUMBER key on the found arm, as the shipped engine does 9ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > multiplies a DECIMAL key on the found arm, as the shipped engine does 3ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > carries an int key divide-by-zero to the provider, as the shipped engine does 5ms
+   ✓ G4-02 — a scalar-only upsert carries no key-portability assertion > CREATES the missing row whose update names key arithmetic, as shipped does 3ms
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses a number key multiply beside a relation write, as shipped does 6ms
+   × G4-02 — a relation-bearing upsert update DOES carry it > still CREATES the missing row, because the shipped assertion is found-arm 8ms
+     → candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":6,"label":"o"},{"id":99,"label":"fresh"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":99,"label":"fresh"}',
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      },
+-     {
+-       id: 99,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+   ✓ G4-02 — a relation-bearing upsert update DOES carry it > refuses ahead of a conditional that would skip, as shipped does 6ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 14ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 16ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 13ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 7ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 5ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 14ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests | 5 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 6ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts > G4-02 — a relation-bearing upsert update DOES carry it > still CREATES the missing row, because the shipped assertion is found-arm
+AssertionError: candidate {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":6,"label":"o"},{"id":99,"label":"fresh"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+-   answer: 'ok:{"id":99,"label":"fresh"}',
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      },
+-     {
+-       id: 99,
+-       label: 'fresh'
+-     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":99,\"label\":\"fresh\"}",[39m
+[31m+   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "id": 99,[39m
+[32m-       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ bothEngines tests/raptor3/g4/unit02/upsert-key-portability.test.ts:112:10
+    110|   const candidate = await upsert(model, table, args, "candidate");
+    111|   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is…
+    112|   assert.deepEqual(
+       |          ^
+    113|     candidate,
+    114|     shipped,
+ ❯ tests/raptor3/g4/unit02/upsert-key-portability.test.ts:187:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 15 passed | 2 skipped (18)
+      Tests  1 failed | 86 passed | 6 skipped (93)
+   Start at  12:57:07
+   Duration  4.12s (transform 1.42s, setup 20ms, collect 3.56s, tests 289ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 4.62s wall, 667.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+# restored identities:
+999b3c8db7e70032a01313f64d0441e83c0f0c8de0913c0624a06e3ecd700777  src/query-engine/raptor3/shared/schema.ts
+f4ecd7addff0719e931925275253159748d65e70f9cae741ae8175b06357b0ce  src/query-engine/raptor3/commands/commands.ts

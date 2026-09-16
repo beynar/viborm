@@ -1,0 +1,154 @@
+[
+ {
+  "workload": "flat-scalar-update",
+  "stage": "full",
+  "mode": "cpu",
+  "iterations": 5000,
+  "warmupIterations": 1000,
+  "replicates": 5,
+  "comparisonMode": "semantic",
+  "baselineCommit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "baselineSourceCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "candidateCommit": "981368f6a4aad7628fe37bb5b5b38bac86b885d4",
+  "preparation": {
+   "baseline": {
+    "seam": "built-statement",
+    "statementCount": 1,
+    "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+   },
+   "candidate": {
+    "seam": "package",
+    "statementCount": 2,
+    "packageRefusal": null
+   }
+  },
+  "observedWitness": {
+   "baseline": {
+    "statementCount": 1
+   },
+   "candidate": {
+    "statementCount": 1
+   }
+  },
+  "metrics": {
+   "cpuMicrosecondsPerOperation": {
+    "B": 82.1814,
+    "N": 76.7528,
+    "madBaseline": 8.561800000000005,
+    "madCandidate": 11.626000000000005,
+    "E": 23.25200000000001,
+    "signedDelta": -5.428600000000003,
+    "budgetFraction": 0.05,
+    "budget": 4.10907,
+    "deltaPlusE": 17.823400000000007,
+    "withinBudget": false,
+    "straddles": true,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     90.7432,
+     82.1814,
+     72.7768,
+     91.1498,
+     80.7212
+    ],
+    "samplesCandidate": [
+     88.6576,
+     67.9232,
+     88.3788,
+     76.7528,
+     62.4296
+    ]
+   },
+   "wallMicrosecondsPerOperation": {
+    "B": 52.49309160000002,
+    "N": 61.84383319999997,
+    "madBaseline": 5.706299999999928,
+    "madCandidate": 13.37652479999997,
+    "E": 26.75304959999994,
+    "signedDelta": 9.35074159999995,
+    "budgetFraction": 0.05,
+    "budget": 2.6246545800000014,
+    "deltaPlusE": 36.10379119999989,
+    "withinBudget": false,
+    "straddles": true,
+    "improvementBeyondE": false,
+    "samplesBaseline": [
+     58.19939159999995,
+     50.665175,
+     45.093016600000006,
+     59.80057500000002,
+     52.49309160000002
+    ],
+    "samplesCandidate": [
+     75.72527499999997,
+     53.86545000000006,
+     75.41345000000001,
+     61.84383319999997,
+     48.4673084
+    ]
+   }
+  }
+ },
+ {
+  "workload": "flat-scalar-update",
+  "stage": "full",
+  "mode": "retained",
+  "iterations": 500,
+  "warmupIterations": 100,
+  "replicates": 5,
+  "comparisonMode": "semantic",
+  "baselineCommit": "e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0",
+  "baselineSourceCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "candidateCommit": "981368f6a4aad7628fe37bb5b5b38bac86b885d4",
+  "preparation": {
+   "baseline": {
+    "seam": "built-statement",
+    "statementCount": 1,
+    "packageRefusal": "Step 'user.update' carries a postcondition that is not yet enforced in batch mode."
+   },
+   "candidate": {
+    "seam": "package",
+    "statementCount": 2,
+    "packageRefusal": null
+   }
+  },
+  "observedWitness": {
+   "baseline": {
+    "statementCount": 1
+   },
+   "candidate": {
+    "statementCount": 1
+   }
+  },
+  "metrics": {
+   "peakRssBytes": {
+    "B": 116850688,
+    "N": 102924288,
+    "madBaseline": 294912,
+    "madCandidate": 1572864,
+    "E": 3145728,
+    "signedDelta": -13926400,
+    "budgetFraction": 0.1,
+    "budget": 11685068.8,
+    "deltaPlusE": -10780672,
+    "withinBudget": true,
+    "straddles": false,
+    "improvementBeyondE": true,
+    "samplesBaseline": [
+     116981760,
+     116850688,
+     115867648,
+     117981184,
+     116555776
+    ],
+    "samplesCandidate": [
+     103366656,
+     101351424,
+     102924288,
+     101122048,
+     105037824
+    ]
+   }
+  }
+ }
+]

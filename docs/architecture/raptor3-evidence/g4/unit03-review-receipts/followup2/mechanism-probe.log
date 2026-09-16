@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-mechanism.review.test.ts (2 tests) 21ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  01:39:43
+   Duration  1.87s (transform 1.16s, setup 10ms, collect 1.72s, tests 21ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 2.39s wall, 464.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

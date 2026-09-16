@@ -1,0 +1,8 @@
+eff2a327c3405e2f5c3f924fe5efc76e46f7b6ab  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/route/client-route.ts
+abbc4ece56665dc58eacae3a3adc6739443caf02  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/shared/schema.ts
+2faed0e99e9d9f35824c61c0d664a84a8958d823  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/shared/operation-context.ts
+f84afb627278884e271b5f775aeb242e64e44163  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/shared/query.ts
+cdf92cc19007189bd3c754e9e72c80afa6c1cd1b  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/commands/commands.ts
+2e6c4860ef43cb8853889122d6938e3bb7d641ff  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/commands/selection.ts
+6c2aa4f705a29871e07e17027b1e9b5bae02c40d  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/commands/relation-body.ts
+369f8d6aa1502d9c6cd1f282843f90df9e0b28f3  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/backup/pre-closure/src/query-engine/raptor3/commands/execution.ts

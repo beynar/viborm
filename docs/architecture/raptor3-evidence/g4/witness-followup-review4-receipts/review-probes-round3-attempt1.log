@@ -1,0 +1,84 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/write-lane-range.review.test.ts (6 tests) 11ms
+ ✓ |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/native-authority.review.test.ts (4 tests) 3ms
+ ❯ |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts (4 tests | 2 failed) 9ms
+   ✓ review probe (round 3): the verification pass's own identity > carries an identity on every run receipt it wrote 2ms
+   × review probe (round 3): the verification pass's own identity > measured the accepted claims at a DIFFERENT production identity than the round it re-measures 3ms
+     → the verification pass ran at the repair round's own production identity 7475621b…
++ actual - expected
+
++ [
++   '7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317'
++ ]
+- []
+
+   × review probe (round 3): the verification pass's own identity > closes at the identity its own runs were taken at 2ms
+     → /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/witness/receipts/followup-verify/native/mysql-attempt1/attempt.json was measured at production 7475621b…, the round closed at a830d713…
++ actual - expected
+
++ '7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317'
+- 'a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760'
+
+   ✓ review probe (round 3): the verification pass's own identity > keeps the harness half stable across the round it claims edited nothing 1ms
+ ✓ |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/landed-unit01.review.test.ts (4 tests) 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts > review probe (round 3): the verification pass's own identity > measured the accepted claims at a DIFFERENT production identity than the round it re-measures
+AssertionError: the verification pass ran at the repair round's own production identity 7475621b…
++ actual - expected
+
++ [
++   '7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts:82:12
+     80|         .filter((value): value is string => value !== undefined)
+     81|     );
+     82|     assert.deepEqual(
+       |            ^
+     83|       [...productions].filter((production) => production === before.pr…
+     84|       [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-witness-followup3| tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts > review probe (round 3): the verification pass's own identity > closes at the identity its own runs were taken at
+AssertionError: /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/witness/receipts/followup-verify/native/mysql-attempt1/attempt.json was measured at production 7475621b…, the round closed at a830d713…
++ actual - expected
+
++ '7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317'
+- 'a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760'
+
+
+Expected: [32m"a830d71355aef8384db97df62d9d2efbd25b329a4cc6178907a3530e692b8760"[39m
+Received: [31m"7475621b28b95516fc380bebc0bb3d13f982f07289d4954dffd83b311c2bf317"[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup3/evidence-identity.review.test.ts:98:14
+     96|     for (const path of runReceipts()) {
+     97|       const identity = identityOf(readJson(path));
+     98|       assert.equal(
+       |              ^
+     99|         identity?.production,
+    100|         after.production,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  2 failed | 16 passed (18)
+   Start at  09:06:49
+   Duration  397ms (transform 133ms, setup 11ms, collect 217ms, tests 41ms, environment 0ms, prepare 41ms)
+
+Vitest resources: 0.94s wall, 270.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

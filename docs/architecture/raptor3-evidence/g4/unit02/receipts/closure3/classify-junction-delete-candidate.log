@@ -1,0 +1,27 @@
+=== candidate tree (branch pattern-engine, G4 working tree), 2026-09-15T14:30:31Z ===
+=== container viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515 ===
+0cc61e61 refactor(raptor3): unify completion and scalar update ownership
+--- tree identities ---
+57ec20aa9c819de8f45fae9fe17be1eafc41b40938a71c722b79ed0b46e72aac  src/query-engine/raptor3/commands/selection.ts
+a3bf3e7beb9da956a1321c1ccf36cc168d225c6220585400bcc6f6b54b6db9f4  src/query-engine/raptor3/commands/relation-body.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts > G4-02 round 3 classification — junction delete by exact bytes > prints both engines' answer and rows for a junction delete
+[junction delete, exact bytes] shipped
+  answer ok:{"id":"wanted","name":"winner"}
+  links [] tags []
+
+stdout | tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts > G4-02 round 3 classification — junction delete by exact bytes > prints both engines' answer and rows for a junction delete
+[junction delete, exact bytes] candidate
+  answer ForeignKeyError: Foreign key constraint violation
+  links [{"ownerId":"wanted","tagId":"g1"}] tags [{"id":"g1","label":"tag"}]
+
+ ✓ |g4-review-unit02-closure3| tests/raptor3/g4/review/unit02-closure3/junction-delete.review.test.ts (1 test) 128ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:30:32
+   Duration  2.17s (transform 1.27s, setup 14ms, collect 1.86s, tests 128ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 2.88s wall, 457.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

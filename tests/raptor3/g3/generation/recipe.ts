@@ -18,8 +18,24 @@ const G3_BULK_PRESENTATIONS: readonly ["count", "select", "omit"] = [
   "omit",
 ];
 
+/**
+ * The seed domain this generator admits.
+ *
+ * G3's own campaign owns 8000-17999 and NOTHING about those seeds changes
+ * here: the picker is `seed ^ 0xa4093822`, the contract rotation is
+ * `(seed - 8000) % 4` and the actor/fault rules are `seed % 5`, so every
+ * recipe in the G3 range is byte-identical before and after this widening
+ * (fingerprint receipt: `g4/witness/receipts/followup/`). The ceiling exists
+ * so that the SAME generator can be run on the fresh disjoint ranges a later
+ * milestone freezes for its own campaign; which seeds a child may hold is
+ * decided by its campaign constant, its batch runner and
+ * `assertG3GeneratedBatchReceipt`, never by this bound.
+ */
+const GENERATED_SEED_FLOOR = 8000;
+const GENERATED_SEED_CEILING = 124_999;
+
 const commonRecipe = {
-  seed: z.number().int().min(8000).max(17_999),
+  seed: z.number().int().min(GENERATED_SEED_FLOOR).max(GENERATED_SEED_CEILING),
   actors: z.union([z.literal(1), z.literal(2)]),
   operations: z.number().int().min(1).max(32),
   fault: z.enum(["none", "legal-provider-failure"]),
@@ -110,7 +126,11 @@ function randomPicker(seed: number) {
 
 /** Public-input choices are independent of candidate commands and lowering. */
 export function generateG3Recipe(seed: number): G3GeneratedRecipe {
-  assert(Number.isInteger(seed) && seed >= 8000 && seed < 18_000);
+  assert(
+    Number.isInteger(seed) &&
+      seed >= GENERATED_SEED_FLOOR &&
+      seed <= GENERATED_SEED_CEILING
+  );
   const pick = randomPicker(seed);
   const contract = G3_GENERATED_CONTRACTS[(seed - 8000) % 4]!;
   const actors: 1 | 2 = seed % 5 === 0 ? 2 : 1;

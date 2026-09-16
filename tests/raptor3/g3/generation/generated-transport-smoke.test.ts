@@ -145,6 +145,22 @@ function representativeRecipes(): G3GeneratedRecipe[] {
       fanout: 3,
       shape: "repeated",
     }),
+    // `depth: 0` is the folded root `create` — one INSERT, published from its
+    // own RETURNING, no re-read to script (`transport-plans.ts`
+    // `ordinaryRecurrenceReplies`). The fault attaches to the reply rather than
+    // to a statement, so the fold and the injected failure are independent by
+    // construction; this recipe is what makes that a FIXED witness instead of
+    // an argument, on both transport profiles.
+    admit({
+      seed: 8611,
+      contract: "C11",
+      actors: 1,
+      operations: 2,
+      fault: "legal-provider-failure",
+      depth: 0,
+      fanout: 0,
+      shape: "ordinary",
+    }),
     admit({
       seed: 8031,
       contract: "C11",

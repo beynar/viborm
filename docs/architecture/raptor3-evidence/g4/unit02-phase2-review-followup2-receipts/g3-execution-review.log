@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  13:30:52
+   Duration  4.03s (transform 2.43s, setup 25ms, collect 3.70s, tests 61ms, environment 0ms, prepare 57ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-rQOiXS/vitest.json
+Vitest resources: 6.93s wall, 477.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-execution-review contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-rQOiXS

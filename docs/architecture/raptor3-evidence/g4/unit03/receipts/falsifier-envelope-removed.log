@@ -1,0 +1,30 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/route-transactions.test.ts (8 tests | 1 failed) 96ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-02/NS-05 one callback transaction commits, and a throw rolls every member back 44ms
+   × G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself 18ms
+     → Unique constraint violation
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-03 a nested transaction is a savepoint that keeps the outer effects 6ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 an array transaction keeps admission order, per-member results and atomicity 11ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-04 a batch-only driver packages candidate operations through the array owner 6ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > RF-09 a callback transaction stays refused on a non-interactive transport 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > LX-05/LX-06/NS-03 raw SQL bypasses the route entirely 3ms
+   ✓ G4-03 C13 candidate transactions, arrays and raw > NS-05 two clients over one database keep their own bound drivers 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/route-transactions.test.ts > G4-03 C13 candidate transactions, arrays and raw > LX-02 a failed operation inside a callback transaction rolls back only itself
+UniqueConstraintError: Unique constraint violation
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'SQLITE_CONSTRAINT_UNIQUE' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  23:26:19
+   Duration  3.44s (transform 1.96s, setup 15ms, collect 2.95s, tests 96ms, environment 0ms, prepare 59ms)
+
+Vitest resources: 7.69s wall, 559.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

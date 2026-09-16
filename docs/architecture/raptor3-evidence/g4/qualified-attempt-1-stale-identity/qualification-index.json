@@ -1,0 +1,581 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "status": "author-qualification-evidence-incomplete-see-gaps",
+  "baselineCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "frozenIdentity": {
+    "production": "e2d5bcb2201641372941c2c1fa6e648f52429fb3ca8ce948678baa80a31b589f",
+    "harness": "838a1e1bb2080e863f5decb56ce90c5218da1e1a341532c21d5b0e04453bc6c5",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "fixed": [
+    {
+      "mode": "g0",
+      "receipt": "fixed/g0.receipt",
+      "testFiles": 5,
+      "tests": 33,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-baseline",
+      "receipt": "fixed/g1-baseline.receipt",
+      "testFiles": 11,
+      "tests": 141,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-compare",
+      "receipt": "fixed/g1-compare.receipt",
+      "testFiles": 14,
+      "tests": 66,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-contracts",
+      "receipt": "fixed/g1-contracts.receipt",
+      "testFiles": 14,
+      "tests": 143,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-generated",
+      "receipt": "fixed/g1-generated.receipt",
+      "testFiles": 4,
+      "tests": 35,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g1-transport",
+      "receipt": "fixed/g1-transport.receipt",
+      "testFiles": 3,
+      "tests": 44,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-baseline",
+      "receipt": "fixed/g2-baseline.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g2-contracts",
+      "receipt": "fixed/g2-contracts.receipt",
+      "testFiles": 44,
+      "tests": 216,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g25-contracts",
+      "receipt": "fixed/g25-contracts.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g27-contracts",
+      "receipt": "fixed/g27-contracts.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-bulk-series",
+      "receipt": "fixed/g3-bulk-series.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-depth-recurrence",
+      "receipt": "fixed/g3-depth-recurrence.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-execution-review",
+      "receipt": "fixed/g3-execution-review.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-minimization",
+      "receipt": "fixed/g3-generated-minimization.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-smoke",
+      "receipt": "fixed/g3-generated-smoke.receipt",
+      "testFiles": 3,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-generated-transport-smoke",
+      "receipt": "fixed/g3-generated-transport-smoke.receipt",
+      "testFiles": 1,
+      "tests": 1,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-suppression-retry",
+      "receipt": "fixed/g3-suppression-retry.receipt",
+      "testFiles": 2,
+      "tests": 2,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3-transaction-array",
+      "receipt": "fixed/g3-transaction-array.receipt",
+      "testFiles": 3,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p02-contracts",
+      "receipt": "fixed/g3p02-contracts.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p03-contracts",
+      "receipt": "fixed/g3p03-contracts.receipt",
+      "testFiles": 4,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-contracts",
+      "receipt": "fixed/g3p04-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p04-review-contracts",
+      "receipt": "fixed/g3p04-review-contracts.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-contracts",
+      "receipt": "fixed/g3p05-contracts.receipt",
+      "testFiles": 6,
+      "tests": 21,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-recursive-read-fit",
+      "receipt": "fixed/g3p05-recursive-read-fit.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-selector-dependencies",
+      "receipt": "fixed/g3p05-selector-dependencies.receipt",
+      "testFiles": 2,
+      "tests": 11,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g3p05-variant-collection-order",
+      "receipt": "fixed/g3p05-variant-collection-order.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-generation-selftests",
+      "receipt": "fixed/g4-generation-selftests.receipt",
+      "status": "incomplete"
+    },
+    {
+      "mode": "g4-lifecycle-admission",
+      "receipt": "fixed/g4-lifecycle-admission.receipt",
+      "testFiles": 2,
+      "tests": 4,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-lifecycle-events",
+      "receipt": "fixed/g4-lifecycle-events.receipt",
+      "status": "incomplete"
+    },
+    {
+      "mode": "g4-read-aggregates",
+      "receipt": "fixed/g4-read-aggregates.receipt",
+      "testFiles": 2,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-codecs",
+      "receipt": "fixed/g4-read-codecs.receipt",
+      "testFiles": 4,
+      "tests": 12,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-contracts",
+      "receipt": "fixed/g4-read-contracts.receipt",
+      "testFiles": 21,
+      "tests": 62,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-filters",
+      "receipt": "fixed/g4-read-filters.receipt",
+      "testFiles": 3,
+      "tests": 13,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-operations",
+      "receipt": "fixed/g4-read-operations.receipt",
+      "testFiles": 2,
+      "tests": 11,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-ordering",
+      "receipt": "fixed/g4-read-ordering.receipt",
+      "testFiles": 3,
+      "tests": 5,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-pagination",
+      "receipt": "fixed/g4-read-pagination.receipt",
+      "testFiles": 2,
+      "tests": 6,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-projection",
+      "receipt": "fixed/g4-read-projection.receipt",
+      "testFiles": 3,
+      "tests": 7,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-read-recursive-fit",
+      "receipt": "fixed/g4-read-recursive-fit.receipt",
+      "testFiles": 2,
+      "tests": 3,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-admission",
+      "receipt": "fixed/g4-route-admission.receipt",
+      "testFiles": 2,
+      "tests": 7,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-route-cache",
+      "receipt": "fixed/g4-route-cache.receipt",
+      "status": "incomplete"
+    },
+    {
+      "mode": "g4-route-lifecycle",
+      "receipt": "fixed/g4-route-lifecycle.receipt",
+      "status": "incomplete"
+    },
+    {
+      "mode": "g4-route-transactions",
+      "receipt": "fixed/g4-route-transactions.receipt",
+      "testFiles": 2,
+      "tests": 13,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-unit01-author",
+      "receipt": "fixed/g4-unit01-author.receipt",
+      "testFiles": 29,
+      "tests": 83,
+      "failedTests": 0,
+      "status": "passed"
+    },
+    {
+      "mode": "g4-unit01-review",
+      "receipt": "fixed/g4-unit01-review.receipt",
+      "status": "incomplete"
+    },
+    {
+      "mode": "g4-unit02-author",
+      "receipt": "fixed/g4-unit02-author.receipt",
+      "status": "incomplete"
+    }
+  ],
+  "laneFixedModes": [],
+  "logOnlySelectors": "selector-launch-provenance.json",
+  "native": {
+    "postgres": [],
+    "mysql": [],
+    "selectorEvidence": [
+      {
+        "name": "credential-free aggregate",
+        "evidence": "support/credential-free-fixed.log",
+        "present": false
+      },
+      {
+        "name": "PGlite provider selector",
+        "evidence": "support/pglite.log",
+        "present": false
+      }
+    ]
+  },
+  "campaigns": [],
+  "replay": {
+    "passed": [],
+    "staleIdentityRefusals": []
+  },
+  "support": {
+    "driverIntegration": {
+      "status": "missing"
+    },
+    "receiptSelftests": {
+      "evidence": "support/campaign-receipts.log"
+    },
+    "cli": {
+      "evidence": "support/cli.log"
+    },
+    "typecheck": {
+      "exitCode": 1,
+      "historicalDiagnosticsOnly": false,
+      "diagnostics": null,
+      "evidence": "support/typecheck.log"
+    },
+    "queryEngineStructure": "support/query-engine-structure.log"
+  },
+  "structure": {
+    "status": "pending",
+    "evidence": null
+  },
+  "source": {
+    "cost": "support/source-cost.json",
+    "parserTokenCensus": null,
+    "frozenIdentityManifest": "support/frozen-identity-manifest.json",
+    "allowlist": "source-allowlist.json",
+    "patch": "source.patch",
+    "claimBoundary": "source cost only; no runtime or bundle improvement claim"
+  },
+  "retention": {
+    "status": "pending"
+  },
+  "evidenceBoundaries": {
+    "nativeSuites": "Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (PostgreSQL 127.0.0.1:65504, MySQL 127.0.0.1:65515); no claim about any other provider build or deployment",
+    "readCampaignProfiles": "The four G4 read profiles are distinguished by the transport model each cell actually exhibits, checked per child; profile names alone are not the claim",
+    "writeCampaign": "g4-write-seeds and g4-write-transport-seeds are the accepted G3 write generator on fresh disjoint seed ranges; they are new inputs, not a new generator",
+    "acceptance": "Independent and root review attestations are external to this sealed author tree"
+  },
+  "gaps": [
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-generation-selftests.receipt"
+    },
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-lifecycle-events.receipt"
+    },
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-route-cache.receipt"
+    },
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-route-lifecycle.receipt"
+    },
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-unit01-review.receipt"
+    },
+    {
+      "kind": "incomplete-receipt",
+      "subject": "fixed/g4-unit02-author.receipt"
+    },
+    {
+      "kind": "empty-group",
+      "subject": "native-pg"
+    },
+    {
+      "kind": "empty-group",
+      "subject": "native-mysql"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g4-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g4-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g4-write-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g4-write-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g3-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g3-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g2-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g2-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g1-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g1-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g3p06-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/g3p06-transport-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/cs03-extension-a-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/cs03-extension-b-seeds"
+    },
+    {
+      "kind": "missing-campaign",
+      "subject": "campaigns/cs03-extension-composition-seeds"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/driver-integration.vitest.json"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/campaign-receipts.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/campaign-receipts.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/cli.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/cli.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/typecheck.log"
+    },
+    {
+      "kind": "pending-structural-measurement",
+      "subject": "structural-measurement/receipt/verified.json"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/source-cost.json"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/query-engine-structure.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/credential-free-fixed.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/pglite.log"
+    },
+    {
+      "kind": "missing-support-evidence",
+      "subject": "support/retained-corpora-audit.json"
+    }
+  ],
+  "totals": {
+    "fixedModes": 45,
+    "fixedTestExecutions": 1231,
+    "laneFixedModes": 0,
+    "laneFixedTestExecutions": 0,
+    "postgresModes": 0,
+    "postgresTests": 0,
+    "mysqlModes": 0,
+    "mysqlTests": 0,
+    "campaignModes": 0,
+    "campaignCells": 0,
+    "campaignExactReplays": 0,
+    "campaignSkips": 0,
+    "selectedReplays": 0,
+    "staleIdentityRefusals": 0
+  }
+}

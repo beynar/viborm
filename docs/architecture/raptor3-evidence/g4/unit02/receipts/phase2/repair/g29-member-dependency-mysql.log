@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/post-prep/native-g29-member-dependency.test.ts (2 tests) 223ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  09:44:18
+   Duration  2.28s (transform 1.27s, setup 9ms, collect 1.91s, tests 223ms, environment 0ms, prepare 29ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-fZ5Y77/vitest.json
+Vitest resources: 4.37s wall, 533.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-member-dependency-mysql contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-fZ5Y77

@@ -1,0 +1,6 @@
+fatal: path 'src/query-engine/raptor3/route/client-route.ts' exists on disk, but not in '0cc61e61'
+src/query-engine/raptor3/route/client-route.ts {"bytes":8534,"physicalLines":222,"tokenLines":143}
+src/query-engine/query-engine.ts {"bytes":430,"physicalLines":10,"tokenLines":5}
+src/query-engine/pending-operation.ts {"bytes":4053,"physicalLines":103,"tokenLines":68}
+src/client/client.ts {"bytes":515,"physicalLines":22,"tokenLines":20}
+TOTAL {"bytes":13532,"physicalLines":357,"tokenLines":236}

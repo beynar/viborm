@@ -1,0 +1,100 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child update: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate ok:{"id":1,"label":"o"}
+            items [{"id":11,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  DIVERGE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child update: the child's key names NOTHING]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate Error: Raptor 3 G1 update operator is not implemented: 
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  DIVERGE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested child upsert: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate ok:{"id":1,"label":"o"}
+            items [{"id":11,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  DIVERGE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[nested updateMany member: set beside increment on the child's KEY]
+  shipped   QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate ok:{"id":1,"label":"o"}
+            items [{"id":11,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  DIVERGE
+
+stdout | tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+[root update: an UNKNOWN member beside one operator]
+  shipped   ValidationError: Validation failed for update: Value did not match any union member: Expected integer, Unknown key: nope
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  candidate ValidationError: Validation failed for update: Value did not match any union member: Expected integer, Unknown key: nope
+            items [{"id":10,"name":"i","ownerId":1}] owners [{"id":1,"label":"o"}]
+  AGREE
+
+ ❯ |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts (1 test | 1 failed) 54ms
+   × G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update 54ms
+     → nested key-update shapes that diverge
++ actual - expected
+
++ [
++   "nested child update: set beside increment on the child's KEY",
++   "nested child update: the child's key names NOTHING",
++   "nested child upsert: set beside increment on the child's KEY",
++   "nested updateMany member: set beside increment on the child's KEY"
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-decisions| tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts > G4-02 decisions review — the key-update predicate at NESTED sites > records what each engine answers for a nested child key update
+AssertionError: nested key-update shapes that diverge
++ actual - expected
+
++ [
++   "nested child update: set beside increment on the child's KEY",
++   "nested child update: the child's key names NOTHING",
++   "nested child upsert: set beside increment on the child's KEY",
++   "nested updateMany member: set beside increment on the child's KEY"
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "nested child update: set beside increment on the child's KEY",[39m
+[31m+   "nested child update: the child's key names NOTHING",[39m
+[31m+   "nested child upsert: set beside increment on the child's KEY",[39m
+[31m+   "nested updateMany member: set beside increment on the child's KEY",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/unit02-decisions/nested-key-refusal.review.test.ts:170:12
+    168|       if (!same) differing.push(name);
+    169|     }
+    170|     assert.deepEqual(differing, [], "nested key-update shapes that div…
+       |            ^
+    171|   }, 180_000);
+    172| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  18:06:20
+   Duration  2.10s (transform 1.27s, setup 10ms, collect 1.84s, tests 54ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 2.96s wall, 470.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

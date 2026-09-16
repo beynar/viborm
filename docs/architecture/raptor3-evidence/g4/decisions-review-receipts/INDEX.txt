@@ -1,0 +1,46 @@
+G4-02 decisions unit — independent review receipts (2026-09-15, 17:52–18:10)
+
+Source: /Users/arnaud/code/viborm, branch pattern-engine, HEAD 0cc61e61 (uncommitted unit).
+Control worktree: /private/tmp/viborm-g4-perf-baseline, clean, HEAD 0cc61e61.
+Providers: mysql viborm-raptor3-g3-mysql-20260914 d6da412eec3c 127.0.0.1:65515
+           pg    viborm-raptor3-g3-pg-20260914    7dfda37e8eea 127.0.0.1:65504
+
+REGISTERED MODES
+  g4-unit02-author.log              104 pass, then COUNT FAIL 20 !== 19   exit=1
+  g4-unit02-mysql-contracts.log     all pass, then COUNT FAIL 9 !== 5     exit=1
+  g4-unit02-pg-contracts.log        green
+  g4-route-transactions.log 13 | g4-route-lifecycle.log 8
+  g4-route-admission.log 7  | g4-route-cache.log 7
+  g3-execution-review.log 6 | g4-read-contracts.log 62
+  g2-mysql-contracts.log 13 | g2-pg-contracts.log 18
+  typecheck.log             only pattern/pack.ts 1443 + 2633
+
+AUTHOR ESTATE (workspace tests/raptor3/g4/unit02/unit02.workspace.ts)
+  author-estate-sqlite.log   109 passed / 10 skipped (119)
+  author-estate-mysql.log    118 passed /  1 skipped (119)
+
+REVIEWER PROBES RE-RUN UNMODIFIED (rounds 5–7, hashes verified)
+  probe-mysql-scope-boundaries.log       0 divergences (was 2 in round 7) — R-B5 repaired
+  probe-mysql-discriminator-scope.log    1 divergence  — R-D4, now a contract
+  probe-root-and-parent-held-scope.log   2 divergences — R-D4's family
+  probe-junction-upsert-scope.log        4 cells green
+  probe-transition-owner-boundaries.log  14 green
+  probe-upsert-transition-scope.log      9 green
+
+NEW REVIEWER PROBES (tests/raptor3/g4/review/unit02-decisions/)
+  probe-key-refusal-parity.log            22 shapes, 2 divergences (both adopted R-D2 (a))
+  control-key-refusal-parity-0cc61e61.log same probe at the clean baseline: 14 divergences
+  probe-nested-key-refusal.log            4 of 5 nested shapes diverge — FINDING 1
+  control-nested-key-refusal-0cc61e61.log the same 4 at the clean baseline: PRE-EXISTING
+  probe-batch-publication-identity.log    R-D3 on decimal/bigint/number, meta + no write dispatched
+  probe-junction-delete-mechanism.log     R-B5's mechanism in statements
+  probe-junction-link-bytes.log           R-D4's junction-link position, 5 rows, live MySQL
+
+FALSIFIERS (each mutation restored byte-identically from a scratchpad backup copy)
+  falsify-d6-route-lifecycle.log   + g4-route-lifecycle-after-restore.log      (production mutation)
+  falsify-rd4-shipped-swap.log     + unique-discriminator-after-restore.log
+  falsify-d5-shipped-swap.log      + g4-route-transactions-after-restore.log
+  falsify-verb-union.log           TS2345 at relation-body.ts(215,61)
+
+COST
+  cost-recheck.txt   independent countTokenLines census; every §D.6 figure reproduces

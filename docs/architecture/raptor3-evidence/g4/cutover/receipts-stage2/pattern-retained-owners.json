@@ -1,0 +1,50 @@
+{
+ "method": "import-graph reachability from the 29 tsdown entry points, with and without the pattern/ experiment as an extra seed",
+ "reachableFromEntries": 487,
+ "reachableWithPattern": 523,
+ "patternFiles": 11,
+ "patternLines": 10579,
+ "retainedOnlyViaPattern": [
+  "src/query-engine/JunctionStatements.ts",
+  "src/query-engine/builders/aggregate-utils.ts",
+  "src/query-engine/builders/polymorphic-collection-read-builder.ts",
+  "src/query-engine/builders/projection-select.ts",
+  "src/query-engine/builders/select-builder.ts",
+  "src/query-engine/builders/set-builder.ts",
+  "src/query-engine/operations/aggregate-input.ts",
+  "src/query-engine/operations/aggregate.ts",
+  "src/query-engine/operations/bulk-limit.ts",
+  "src/query-engine/operations/count.ts",
+  "src/query-engine/operations/create-many-portability.ts",
+  "src/query-engine/operations/create.ts",
+  "src/query-engine/operations/delete.ts",
+  "src/query-engine/operations/find-common.ts",
+  "src/query-engine/operations/find-unique.ts",
+  "src/query-engine/operations/groupby-having.ts",
+  "src/query-engine/operations/groupby.ts",
+  "src/query-engine/operations/index.ts",
+  "src/query-engine/operations/mutation-identity.ts",
+  "src/query-engine/operations/mutation-projection-fold.ts",
+  "src/query-engine/operations/update.ts",
+  "src/query-engine/operations/upsert.ts",
+  "src/query-engine/write-engine/link-target-groups.ts",
+  "src/query-engine/write-engine/series-result-read.ts",
+  "src/query-engine/write-engine/target-projection.ts"
+ ],
+ "retainedOnlyViaPatternLines": 7855,
+ "bundleCrossCheck": {
+  "note": "File-level import reachability is not export-level tree shaking. The measured bundles are the authority on what SHIPS.",
+  "engineFixtureWriteEngineModules": [],
+  "pgRelationsFixtureWriteEngineModules": [
+   "src/query-engine/write-engine/parse-boundary.ts",
+   "src/query-engine/write-engine/OperationFragment.ts"
+  ],
+  "pgRelationsFixtureOperationsModules": [],
+  "patternModulesInAnyFixture": []
+ },
+ "typeOnlyAnchor": "src/query-engine/types.ts declares PreparedBatchGuard.failure as import(\"./write-engine/OperationFragment\").Failure, so the OperationFragment -> record-series -> OperationExecutor chain must still RESOLVE for the typecheck even though only OperationFragment.ts and parse-boundary.ts are rendered into the public bundle.",
+ "writeEngineOnDisk": {
+  "files": 18,
+  "lines": 7961
+ }
+}

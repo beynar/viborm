@@ -1,0 +1,138 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts (12 tests | 2 failed) 96ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a multiplied parent key (non-returning) 34ms
+   ✓ G4-02 repair round 3 — the named key, attacked > carries a DEPENDENT through a divided parent key (non-returning) 6ms
+   ✓ G4-02 repair round 3 — the named key, attacked > truncates a NEGATIVE bigint quotient the way the shipped engine does 7ms
+   ✓ G4-02 repair round 3 — the named key, attacked > multiplies a NEGATIVE bigint key the way the shipped engine does 5ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > does not fire for arithmetic on a NON-key decimal column 7ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses a number key multiply through upsert as the shipped engine does 5ms
+   × G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through updateMany as shipped does 12ms
+     → candidate {"answer":"QueryError: Query execution failed","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'QueryError: Query execution failed',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through upsert as the shipped engine does 4ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers an INT key multiply through upsert the way the shipped engine does 5ms
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers a DECIMAL key multiply through upsert the way the shipped engine does 3ms
+   × G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does 4ms
+     → candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 repair round 3 — the admission mirror, attacked > answers a non-finite int key operand the way the shipped engine does 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > refuses an int key divide-by-zero through updateMany as shipped does
+AssertionError: candidate {"answer":"QueryError: Query execution failed","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'QueryError: Query execution failed',
+-   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[31m+   "answer": "QueryError: Query execution failed",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:210:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup| tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts > G4-02 repair round 3 — the admission mirror, attacked > answers a FLOAT key increment the way the shipped engine does
+AssertionError: candidate {"answer":"ok:{\"id\":7,\"label\":\"a\"}","rows":[{"id":7,"label":"a"}]}
+shipped   {"answer":"QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.","rows":[{"id":6,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":7,"label":"a"}',
+-   answer: "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",
+    rows: [
+      {
++       id: 7,
+-       id: 6,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.",[39m
+[31m+   "answer": "ok:{\"id\":7,\"label\":\"a\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 6,[39m
+[31m+       "id": 7,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:132:10
+    130|     returning
+    131|   );
+    132|   assert.deepEqual(
+       |          ^
+    133|     candidate,
+    134|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup/key-repair.review.test.ts:258:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  10:17:25
+   Duration  2.42s (transform 1.48s, setup 10ms, collect 2.18s, tests 96ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 2.98s wall, 472.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

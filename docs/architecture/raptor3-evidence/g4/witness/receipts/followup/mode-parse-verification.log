@@ -1,0 +1,21 @@
+# parse-level verification of the modes this follow-up registered
+# (the same refusals the CLI self-test spawns a child for; this one is not identity-pinned)
+ACCEPTED ["g4-write-seeds"] -> {"mode":"g4-write-seeds","wallMs":120000}
+ACCEPTED ["g4-write-transport-seeds"] -> {"mode":"g4-write-transport-seeds","wallMs":120000}
+ACCEPTED ["g4-unit01-author"] -> {"mode":"g4-unit01-author","wallMs":120000}
+ACCEPTED ["g4-unit01-review"] -> {"mode":"g4-unit01-review","wallMs":120000}
+ACCEPTED ["g4-write-seed-batch","75000"] -> {"mode":"g4-write-seed-batch","firstSeed":75000,"wallMs":120000}
+ACCEPTED ["g4-write-seed-batch","99900"] -> {"mode":"g4-write-seed-batch","firstSeed":99900,"wallMs":120000}
+ACCEPTED ["g4-write-transport-seed-batch","100000"] -> {"mode":"g4-write-transport-seed-batch","firstSeed":100000,"wallMs":120000}
+ACCEPTED ["g4-write-transport-seed-batch","124900"] -> {"mode":"g4-write-transport-seed-batch","firstSeed":124900,"wallMs":120000}
+REFUSED  ["g4-write-seed-batch","74999"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-seed-batch","8000"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-seed-batch","20000"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-seed-batch","99901"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-transport-seed-batch","75000"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-transport-seed-batch","125000"] -> Generated batch must start at an exact frozen boundary
+REFUSED  ["g4-write-seeds","--subject=shipped"] -> Subject selection applies only to the G4 generated read campaign
+REFUSED  ["g4-write-seed-batch","75000","--subject=candidate"] -> Subject selection applies only to the G4 generated read campaign
+REFUSED  ["g4-write-seeds","75000"] -> Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1
+REFUSED  ["g4-unit01-author","--testNamePattern=absent"] -> Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1
+REFUSED  ["g4-unit01-review","83"] -> Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1

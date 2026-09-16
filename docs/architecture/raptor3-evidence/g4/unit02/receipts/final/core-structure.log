@@ -1,0 +1,17 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 36ms
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 28ms
+ ✓ |raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 5ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 18ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 8ms
+
+ Test Files  6 passed (6)
+      Tests  37 passed (37)
+   Start at  03:00:21
+   Duration  2.42s (transform 1.15s, setup 12ms, collect 2.02s, tests 108ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.69s wall, 714.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

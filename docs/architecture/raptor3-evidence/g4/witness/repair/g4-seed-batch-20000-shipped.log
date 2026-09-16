@@ -1,0 +1,26 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/generation/sqlite-campaign.test.ts (1 test) 1172ms
+   ✓ executes one complete G4 SQLite read seed batch  1171ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:29:10
+   Duration  3.15s (transform 1.17s, setup 9ms, collect 1.77s, tests 1.17s, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-rAHP8F/vitest.json
+Vitest resources: 5.24s wall, 718.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Stale Raptor 3 evidence: executed source or runtime changed
++ actual - expected
+
+  {
+    harness: '3eb5272843751e18b2c5a68c20f70707a0480721c376d9cd01d49630d8eb8cc8',
++   production: '71f85ad414f93ecf01e2ae8c49027bf43db29b724a9831bdd58519ca64206938',
+-   production: '2b1c61ef3ba5733d785a0b383518b973b2d5fdbc72400a388e798ff3fa5d9765',
+    runtime: {
+      architecture: 'arm64',
+      node: 'v24.21.0',
+      platform: 'darwin',
+      sqliteDriver: '12.6.0',
+

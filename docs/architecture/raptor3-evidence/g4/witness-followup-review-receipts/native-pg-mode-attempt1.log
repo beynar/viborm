@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/g4/native/read-envelope-native.test.ts (4 tests) 65ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:26:25
+   Duration  1.71s (transform 988ms, setup 8ms, collect 1.47s, tests 65ms, environment 0ms, prepare 33ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Ao43S9/vitest.json
+Vitest resources: 3.81s wall, 500.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-envelope-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Ao43S9
+RETRY_WRAPPER: success after 2 attempt(s)

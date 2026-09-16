@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests) 82ms
+ ✓ |raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 1ms
+ ✓ |raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 182ms
+ ✓ |raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 96ms
+
+ Test Files  4 passed (4)
+      Tests  141 passed (141)
+   Start at  02:41:49
+   Duration  2.61s (transform 1.14s, setup 11ms, collect 2.01s, tests 361ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 4.70s wall, 751.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

@@ -1,0 +1,59 @@
+{
+ "unit": "g4-cutover-measurement (stage 2b, identity 2)",
+ "capturedAt": "2026-09-16T00:44:17.446Z",
+ "frozenIdentityFile": "docs/architecture/raptor3-evidence/g4/freeze/identity.json",
+ "frozen": {
+  "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+  "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+  "runtime": {
+   "node": "v24.21.0",
+   "platform": "darwin",
+   "architecture": "arm64",
+   "sqliteDriver": "12.6.0",
+   "vitest": "3.1.4"
+  }
+ },
+ "mainTreeNow": {
+  "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+  "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+  "runtime": {
+   "node": "v24.21.0",
+   "platform": "darwin",
+   "architecture": "arm64",
+   "sqliteDriver": "12.6.0",
+   "vitest": "3.1.4"
+  }
+ },
+ "mainTreeMatchesFrozen": {
+  "production": true,
+  "harness": true
+ },
+ "worktreePreCutover": {
+  "commit": "cacb2827",
+  "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
+  "harness": "5b40db1f0fcbaa9fcb9c6d2e52ff290fa1f6c2cc71bc6a7acf043a1a2781764f",
+  "productionEqualsFrozen": true,
+  "harnessEqualsFrozen": false,
+  "harnessDifferenceReason": "tests/raptor3 in the worktree is the prep-stage overlay (394 files) rather than the main tree (414): 20 review/freeze test files added after the prep copy and 4 differing. scripts/ and benchmarks/ are byte-identical to the main tree. The prompt names only src/, scripts/raptor3-manifest.mjs, vitest.workspace.ts and benchmarks/baseline.json for the re-sync, so tests/ were not re-synced; the cutover deletes 197 test files anyway, so harness equality is unreachable on the candidate by construction."
+ },
+ "worktreeAfterCutover": {
+  "commit": "0f09f7b6",
+  "identity": {
+   "production": "44b2514c15e330b4fde9c74c6a5701fe4b1a4f2629fe2fe17aaf4dda5f402ecd",
+   "harness": "d2aa050f72a1fbfba6e685b5f6a4feb7f5fc99112f23944b04e7d26a71f4e38d",
+   "runtime": {
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "architecture": "arm64",
+    "sqliteDriver": "12.6.0",
+    "vitest": "3.1.4"
+   }
+  },
+  "note": "production necessarily differs from frozen: the cutover deletes 33 src owners and adds src/query-engine/routed-operations.ts."
+ },
+ "protocolSha256": {
+  "baseline": "6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d",
+  "candidate": "6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d",
+  "identical": true
+ }
+}

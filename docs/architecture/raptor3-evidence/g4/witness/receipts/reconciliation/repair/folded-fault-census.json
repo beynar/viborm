@@ -1,0 +1,120 @@
+{
+  "what": "folded (depth-0 C11 root create) x fault census",
+  "identity": {
+    "production": "3bbaa936ad5b3d52fc2d849324f2a6fa054633fb4e0128dd78049b6704c4c43c",
+    "harness": "1bc5b4729b456cc1bab2c8a1d28214b936428f8cd60aaa53db120acb1f0c1a0e",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "sources": {
+    "tests/raptor3/g3/generation/generated-transport-smoke.test.ts": "5dfcd8d9bd76353f517e49bf224c2859399bcdb3ec409dda39f48b0ce841e9c5",
+    "tests/raptor3/g3/generation/recipe.ts": "0580c90c0384fd1aa7c5e6e66be6619740148de4df147deef580821053d44f33",
+    "tests/raptor3/g3/generation/transport-plans.ts": "e331824c984f9cd4b8a56399e5ff5ec4dacfbcf3aa48cf5a2f0432cae63911e1"
+  },
+  "campaigns": {
+    "g3-transport-seed-batch (8000-17999)": {
+      "firstSeed": 8000,
+      "seedCount": 10000,
+      "c11": 2500,
+      "folded": 233,
+      "foldedFault": 44,
+      "foldedOverlap": 52,
+      "foldedFaultSeeds": [
+        8091,
+        8611,
+        8651,
+        9331
+      ]
+    },
+    "g3-transport-seed-batch 8000 (the child run)": {
+      "firstSeed": 8000,
+      "seedCount": 100,
+      "c11": 25,
+      "folded": 4,
+      "foldedFault": 1,
+      "foldedOverlap": 1,
+      "foldedFaultSeeds": [
+        8091
+      ]
+    },
+    "g4-write-transport-seed-batch (100000-124999)": {
+      "firstSeed": 100000,
+      "seedCount": 25000,
+      "c11": 6250,
+      "folded": 624,
+      "foldedFault": 108,
+      "foldedOverlap": 130,
+      "foldedFaultSeeds": [
+        100031,
+        100311,
+        100611,
+        101111
+      ]
+    },
+    "g4-write-transport-seed-batch 100000 (the child run)": {
+      "firstSeed": 100000,
+      "seedCount": 100,
+      "c11": 25,
+      "folded": 7,
+      "foldedFault": 1,
+      "foldedOverlap": 2,
+      "foldedFaultSeeds": [
+        100031
+      ]
+    },
+    "g4-transport-seed-batch (50000-74999)": {
+      "firstSeed": 50000,
+      "seedCount": 25000,
+      "c11": 6250,
+      "folded": 606,
+      "foldedFault": 131,
+      "foldedOverlap": 119,
+      "foldedFaultSeeds": [
+        50291,
+        50551,
+        50631,
+        50711
+      ]
+    },
+    "g4-transport-seed-batch 50000 (the child run)": {
+      "firstSeed": 50000,
+      "seedCount": 100,
+      "c11": 25,
+      "folded": 1,
+      "foldedFault": 0,
+      "foldedOverlap": 0,
+      "foldedFaultSeeds": []
+    }
+  },
+  "fixedRepresentativeMatrix": {
+    "depthZeroC11": [
+      {
+        "seed": 8027,
+        "shape": "repeated",
+        "fault": "none",
+        "actors": 1
+      },
+      {
+        "seed": 8611,
+        "shape": "ordinary",
+        "fault": "legal-provider-failure",
+        "actors": 1
+      }
+    ],
+    "generatedShapeOfSeed8611": {
+      "seed": 8611,
+      "actors": 1,
+      "operations": 26,
+      "fault": "legal-provider-failure",
+      "contract": "C11",
+      "depth": 0,
+      "fanout": 1,
+      "shape": "ordinary"
+    }
+  }
+}

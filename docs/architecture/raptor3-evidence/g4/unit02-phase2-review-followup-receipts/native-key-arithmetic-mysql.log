@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 187ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  10:00:15
+   Duration  1.87s (transform 1.08s, setup 9ms, collect 1.55s, tests 187ms, environment 0ms, prepare 36ms)
+
+Vitest resources: 2.41s wall, 465.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

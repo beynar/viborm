@@ -1,0 +1,103 @@
+== falsifier: shared/query.ts swapped to the pre-closure (round-4) identity, probe re-added
+5143b7b36f6711dc0605ee534b8ef28d351f278ebebbed2354e1955c22352715  src/query-engine/raptor3/shared/query.ts
+5ca4d152b24a030e51958f2a869e58a1fd38b179424d0d3691289222aabf28ce  tests/raptor3/g4/unit02/zz-probe.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+COLLATION [{"TABLE_COLLATION":"utf8mb4_0900_ai_ci"}]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findUnique exact {"ok":{"id":"wanted","email":"claim@x","name":"winner"}}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 ["wanted"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findUnique CASE {"ok":{"id":"wanted","email":"claim@x","name":"winner"}}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 ["WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate findUnique CASE {"ok":null}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`id` = ? AND BINARY `q0`.`id` = ?) ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findFirst CASE {"ok":null}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE (`t0`.`name` = ? AND BINARY `t0`.`name` = ?) ORDER BY `t0`.`id` ASC LIMIT 1 ["WINNER","WINNER"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate findFirst CASE {"ok":null}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`name` = ? AND BINARY `q0`.`name` = ?) ORDER BY `q0`.`id` ASC LIMIT 1 ["WINNER","WINNER"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findFirst by KEY CASE {"ok":null}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE (`t0`.`id` = ? AND BINARY `t0`.`id` = ?) ORDER BY `t0`.`id` ASC LIMIT 1 ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate findFirst by KEY CASE {"ok":null}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`id` = ? AND BINARY `q0`.`id` = ?) ORDER BY `q0`.`id` ASC LIMIT 1 ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findMany by KEY CASE {"ok":[]}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE (`t0`.`id` = ? AND BINARY `t0`.`id` = ?) ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findUnique EXTENDED {"ok":{"id":"wanted","email":"claim@x","name":"winner"}}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE (`t0`.`id` = ? AND NOT ((`t0`.`name` = ? AND BINARY `t0`.`name` = ?))) LIMIT 1 ["WANTED","zz","zz"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate findUnique EXTENDED {"ok":null}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE ((`q0`.`id` = ? AND BINARY `q0`.`id` = ?) AND NOT ((`q0`.`name` = ? AND BINARY `q0`.`name` = ?))) ["WANTED","WANTED","zz","zz"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped findUnique by UNIQUE email CASE {"ok":{"id":"wanted","email":"claim@x","name":"winner"}}
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`email` = ? LIMIT 1 ["CLAIM@X"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate findUnique by UNIQUE email CASE {"ok":null}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`email` = ? AND BINARY `q0`.`email` = ?) ["CLAIM@X","CLAIM@X"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped update by KEY CASE {"ok":{"id":"wanted","email":"claim@x","name":"winner"}}
+    SELECT `t0`.`id` AS `id` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE ["WANTED"]
+    UPDATE `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` SET `name` = ? WHERE `zz_a_f7a06df5be454f65ae9189d9011814af`.`id` = ? ["winner","wanted"]
+    SELECT `t0`.`id` AS `id`, `t0`.`email` AS `email`, `t0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 ["wanted"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate update by KEY CASE {"err":"NotFoundError: No author record found for update"}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`id` = ? AND BINARY `q0`.`id` = ?) ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped connect CASE {"ok":{"id":"p3-15111c","authorId":"WANTED"}}
+    SELECT `t0`.`id` AS `id` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE ["WANTED"]
+    INSERT INTO `raptor3_g2`.`zz_p_80d22f791ae940ddafb99216c3c96a7f` (`id`, `title`, `authorId`) VALUES (?, ?, CAST(? AS CHAR)) ["p3-15111c","T","WANTED"]
+    SELECT `t0`.`id` AS `id`, `t0`.`authorId` AS `authorId` FROM `raptor3_g2`.`zz_p_80d22f791ae940ddafb99216c3c96a7f` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 ["p3-15111c"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate connect CASE {"err":"NestedWriteError: Cannot connect relation 'author': target record was not found."}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`id` = ? AND BINARY `q0`.`id` = ?) ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE ["WANTED","WANTED"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- shipped connectOrCreate CASE {"ok":{"id":"p1-e5e609","authorId":"WANTED"}}
+    SELECT `t0`.`id` AS `id` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 FOR UPDATE ["WANTED"]
+    INSERT INTO `raptor3_g2`.`zz_p_80d22f791ae940ddafb99216c3c96a7f` (`id`, `title`, `authorId`) VALUES (?, ?, CAST(? AS CHAR)) ["p1-e5e609","T","WANTED"]
+    SELECT `t0`.`id` AS `id`, `t0`.`authorId` AS `authorId` FROM `raptor3_g2`.`zz_p_80d22f791ae940ddafb99216c3c96a7f` AS `t0` WHERE `t0`.`id` = ? LIMIT 1 ["p1-e5e609"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+--- candidate connectOrCreate CASE {"err":"UniqueConstraintError: Unique constraint violation"}
+    SELECT `q0`.`id` AS `id`, `q0`.`email` AS `email`, `q0`.`name` AS `name` FROM `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` AS `q0` WHERE (`q0`.`id` = ? AND BINARY `q0`.`id` = ?) ORDER BY `q0`.`id` ASC LIMIT 1 FOR UPDATE ["WANTED","WANTED"]
+    INSERT INTO `raptor3_g2`.`zz_a_f7a06df5be454f65ae9189d9011814af` (`id`, `email`, `name`) VALUES (?, ?, ?) ["WANTED","eec84bc@x","n"]
+
+stdout | tests/raptor3/g4/unit02/zz-probe.test.ts > probe > shipped vs candidate key lookup spelling
+FINAL AUTHORS [{"id":"wanted","email":"claim@x","name":"winner"}]
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/zz-probe.test.ts (1 test) 242ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:05:03
+   Duration  2.12s (transform 1.15s, setup 11ms, collect 1.68s, tests 242ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 2.75s wall, 478.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+run exit=0 (port 65515, container viborm-raptor3-g3-mysql-20260914 d6da412eec3c)
+== restored
+694cdb8a06e8a00d098c8759acb35b6c59b182327df54a07b7f06e3804184c9f  src/query-engine/raptor3/shared/query.ts
+ls: tests/raptor3/g4/unit02/zz-probe.test.ts: No such file or directory

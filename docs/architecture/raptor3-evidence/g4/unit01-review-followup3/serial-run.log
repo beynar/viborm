@@ -1,0 +1,21 @@
+### g29 (attempt 4)
+JSON report written to /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/unit01-review-followup3/write-regressions-g29.json
+Vitest resources: 4.60s wall, 730.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+### ownership (attempt 1)
+JSON report written to /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/unit01-review-followup3/write-regressions-ownership.json
+Vitest resources: 4.93s wall, 753.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+### pglite (attempt 1)
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 4.84s wall, 1556.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+### typecheck (attempt 1)
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+src/query-engine/pattern/pack.ts(2633,58): error TS2345: Argument of type 'VariantCarrierSlot' is not assignable to parameter of type 'VariantJunctionCarrierSlot'.
+  Type 'VariantRowCarrierSlot' is not assignable to type 'VariantJunctionCarrierSlot'.
+    The types of 'edge.kind' are incompatible between these types.
+      Type '"variantRowCarrier"' is not assignable to type '"variantJunctionCarrier"'.
+tests/pattern/pack/program-dump.ts(131,7): error TS2532: Object is possibly 'undefined'.
+tests/raptor3/g4/review/unit01-followup2/cursor-refusal.test.ts(29,32): error TS2638: Type '{}' may represent a primitive value, which is not permitted as the right operand of the 'in' operator.
+TypeScript (whole estate, native): 6.71s wall, 5932.2 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+ALL DONE
+
+[exited with code 0]

@@ -1,0 +1,531 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (7 tests | 1 failed) 50ms
+   × G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 24ms
+     → the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      },
+      "name": "QueryError"
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 3ms
+ ❯ |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (6 tests | 4 failed) 23ms
+   × G4-02 D-7 — a lone statement leaves the batch > create: one statement rejected before dispatch answers the shipped failure exactly 6ms
+     → a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "create"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "create",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+   × G4-02 D-7 — a lone statement leaves the batch > createMany: one statement rejected before dispatch answers the shipped failure exactly 3ms
+     → a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "createMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "createMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+   × G4-02 D-7 — a lone statement leaves the batch > updateMany: one statement rejected before dispatch answers the shipped failure exactly 5ms
+     → a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "updateMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "updateMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+   × G4-02 D-7 — a lone statement leaves the batch > deleteMany: one statement rejected before dispatch answers the shipped failure exactly 3ms
+     → a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "deleteMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "deleteMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+   ✓ G4-02 D-7 — a lone statement leaves the batch > 5. a multi-statement batch is still a batch, and still agrees with the shipped engine 3ms
+   ✓ G4-02 D-7 — a lone statement leaves the batch > 6. a set window that committed still publishes its record-series progress 2ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests | 1 failed) 18ms
+   ✓ G2.9 result progress [commands] (sqlite-interactive) > preserves malformed-result translation with truthful progress 13ms
+   × G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress 5ms
+     → {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 1,
+  "corrupted": true,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "failure": {
+    "name": "QueryEngineError",
+    "code": "V9001",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"create\": the value is not a canonical integer.",
+    "meta": {
+      "driver": "sqlite3",
+      "operation": "create",
+      "scalarType": "int",
+      "recordSeriesProgress": {
+        "atomicity": "segment",
+        "phase": "result",
+        "committedSegments": 1,
+        "completedMembers": 0,
+        "committedWriteMembers": 1
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    driver: 'sqlite3',
+    operation: 'create',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   },
+    scalarType: 'int'
+  }
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts > G2.9 result progress [commands] (sqlite-atomic-batch) > preserves malformed-result translation with truthful progress
+AssertionError: {
+  "profile": "sqlite-atomic-batch",
+  "engine": "commands",
+  "insertDispatches": 1,
+  "acknowledgedInsertBatches": 1,
+  "corrupted": true,
+  "finalDatabase": [
+    {
+      "id": 1,
+      "label": "written"
+    }
+  ],
+  "failure": {
+    "name": "QueryEngineError",
+    "code": "V9001",
+    "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"create\": the value is not a canonical integer.",
+    "meta": {
+      "driver": "sqlite3",
+      "operation": "create",
+      "scalarType": "int",
+      "recordSeriesProgress": {
+        "atomicity": "segment",
+        "phase": "result",
+        "committedSegments": 1,
+        "completedMembers": 0,
+        "committedWriteMembers": 1
+      }
+    }
+  }
+}
++ actual - expected
+
+  {
+    driver: 'sqlite3',
+    operation: 'create',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   },
+    scalarType: 'int'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "driver": "sqlite3",[22m
+[2m    "operation": "create",[22m
+[31m+   "recordSeriesProgress": {[39m
+[31m+     "atomicity": "segment",[39m
+[31m+     "committedSegments": 1,[39m
+[31m+     "committedWriteMembers": 1,[39m
+[31m+     "completedMembers": 0,[39m
+[31m+     "phase": "result",[39m
+[31m+   },[39m
+[2m    "scalarType": "int",[22m
+[2m  }[22m
+
+ ❯ assertMalformedResultFailure tests/raptor3/post-prep/g29-result-progress.test.ts:152:10
+    150|     diagnostic
+    151|   );
+    152|   assert.deepEqual(
+       |          ^
+    153|     { ...failure.meta },
+    154|     {
+ ❯ tests/raptor3/post-prep/g29-result-progress.test.ts:233:5
+ ❯ withWorld tests/raptor3/post-prep/g29-result-progress.test.ts:179:12
+ ❯ runMalformedResult tests/raptor3/post-prep/g29-result-progress.test.ts:196:3
+ ❯ tests/raptor3/post-prep/g29-result-progress.test.ts:259:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts > G4-02 D-7 — a lone statement leaves the batch > create: one statement rejected before dispatch answers the shipped failure exactly
+AssertionError: a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "create"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "create",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/unit02/lone-statement-transport.test.ts:222:14
+    220|         `the verb must be ONE statement to measure this: ${JSON.string…
+    221|       );
+    222|       assert.equal(
+       |              ^
+    223|         candidate.meta.statementIndex,
+    224|         undefined,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts > G4-02 D-7 — a lone statement leaves the batch > createMany: one statement rejected before dispatch answers the shipped failure exactly
+AssertionError: a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "createMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "createMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/unit02/lone-statement-transport.test.ts:222:14
+    220|         `the verb must be ONE statement to measure this: ${JSON.string…
+    221|       );
+    222|       assert.equal(
+       |              ^
+    223|         candidate.meta.statementIndex,
+    224|         undefined,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts > G4-02 D-7 — a lone statement leaves the batch > updateMany: one statement rejected before dispatch answers the shipped failure exactly
+AssertionError: a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "updateMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "updateMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/unit02/lone-statement-transport.test.ts:222:14
+    220|         `the verb must be ONE statement to measure this: ${JSON.string…
+    221|       );
+    222|       assert.equal(
+       |              ^
+    223|         candidate.meta.statementIndex,
+    224|         undefined,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/lone-statement-transport.test.ts > G4-02 D-7 — a lone statement leaves the batch > deleteMany: one statement rejected before dispatch answers the shipped failure exactly
+AssertionError: a statement outside a batch has no index to attribute: {
+  "shipped": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "deleteMany"
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  },
+  "candidate": {
+    "code": "V2001",
+    "meta": {
+      "driver": "sqlite3",
+      "model": "owner",
+      "operation": "deleteMany",
+      "statementIndex": 0
+    },
+    "name": "QueryError",
+    "dispatched": 1
+  }
+}
+
+0 !== undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/unit02/lone-statement-transport.test.ts:222:14
+    220|         `the verb must be ONE statement to measure this: ${JSON.string…
+    221|       );
+    222|       assert.equal(
+       |              ^
+    223|         candidate.meta.statementIndex,
+    224|         undefined,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress
+AssertionError: the rejected root create must answer what the shipped engine answers: {
+  "shipped": {
+    "rows": [],
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create"
+      },
+      "name": "QueryError"
+    }
+  },
+  "candidate": {
+    "rows": [],
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "create",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    }
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'create',
++       statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    rows: [],
+    value: undefined
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,11 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "create",[22m
+[31m+       "statementIndex": 0,[39m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "rows": [],[22m
+[2m    "value": undefined,[22m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:296:12
+    294|     // (a lone statement leaves the batch) removed it at the transport…
+    295|     // shapes it reached are pinned in `lone-statement-transport.test.…
+    296|     assert.deepEqual(
+       |            ^
+    297|       candidate,
+    298|       shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  6 failed | 9 passed (15)
+   Start at  23:15:30
+   Duration  3.89s (transform 2.27s, setup 16ms, collect 3.40s, tests 91ms, environment 0ms, prepare 50ms)
+
+Vitest resources: 6.21s wall, 654.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

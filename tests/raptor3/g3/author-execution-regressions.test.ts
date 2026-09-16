@@ -10,14 +10,18 @@ import {
   QueryEngineError,
   TransactionError,
   UnsupportedOperationError,
+  VibORMErrorCode,
 } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
+
+const PARENT_INSERT = /^INSERT INTO "g3_author_execution_parents"/;
 
 class ObservedSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
@@ -55,20 +59,62 @@ class BatchOnlySQLiteDriver extends ObservedSQLiteDriver {
   }
 }
 
-class MalformedBatchResultSQLiteDriver extends BatchOnlySQLiteDriver {
-  protected override async executeBatch<T>(
+/**
+ * The fault cut: the provider answers a row whose `id` is not an integer.
+ *
+ * Stated over ANY row-bearing response on ANY transport, at `execute` — which
+ * the driver's own batch entry dispatches every query it does not dispatch
+ * verbatim through
+ * (`drivers/driver-transaction-base.ts` `executeBatch`) — and NOT over
+ * `executeBatch` alone. Which driver entry carries the fault is a physical
+ * choice, not a property of this specimen: since Arnaud's D-7 decision a set
+ * statement that is the operation's only statement leaves the batch
+ * (`shared/operation-context.ts` `setMutations`, the `lone` condition
+ * `statements.length === 1 && attempt.pending.length === 0 &&
+ * continuations.length === 0`, guarding `if (this.usesBatch && !lone)`), so an
+ * `executeBatch`-only cut is ELIMINATED for a relation-free `createMany` and
+ * this specimen silently stops witnessing — raptor3 plan §5.4, and exactly what
+ * qualification attempt 2 measured here ("Missing expected rejection"). The
+ * property is unchanged: a malformed provider result is translated into the
+ * established identity, with truthful progress, and nothing is published. The
+ * two G2.9 specimens were re-expressed the same way
+ * (`tests/raptor3/post-prep/g29-result-progress.test.ts` and its PGlite twin,
+ * `g4/regression/note.md` §D.3).
+ */
+class MalformedResultSQLiteDriver extends BatchOnlySQLiteDriver {
+  corrupted = false;
+  private armed = false;
+
+  /** Arm the cut after the migration, and forget the migration's traffic. */
+  arm(): void {
+    this.statements.length = 0;
+    this.batchCalls = 0;
+    this.batches.length = 0;
+    this.batchResults.length = 0;
+    this.corrupted = false;
+    this.armed = true;
+  }
+
+  protected override async execute<T>(
     client: Database.Database,
-    queries: BatchQuery[]
-  ): Promise<QueryResult<T>[]> {
-    const results = await super.executeBatch<T>(client, queries);
-    return results.map((result) => ({
-      ...result,
-      rows: result.rows.map((row) => {
-        if (row !== null && typeof row === "object")
-          Reflect.set(row, "id", "malformed");
-        return row;
-      }),
-    }));
+    statement: string,
+    parameters: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    const response = await super.execute<T>(
+      client,
+      statement,
+      parameters,
+      context
+    );
+    if (!this.armed) return response;
+    for (const row of response.rows) {
+      if (isRecord(row) && Object.hasOwn(row, "id")) {
+        Reflect.set(row, "id", "malformed");
+        this.corrupted = true;
+      }
+    }
+    return response;
   }
 }
 
@@ -114,6 +160,19 @@ function executionSchema() {
   return { leftChild, parent, record, rightChild };
 }
 
+function failureObservation(failure: unknown): object {
+  if (failure instanceof QueryEngineError)
+    return {
+      name: failure.name,
+      code: failure.code,
+      message: failure.message,
+      meta: { ...failure.meta },
+    };
+  if (failure instanceof Error)
+    return { name: failure.name, message: failure.message };
+  return { thrown: String(failure) };
+}
+
 function transactionArray(
   client: object,
   operations: readonly unknown[]
@@ -124,50 +183,210 @@ function transactionArray(
 }
 
 describe("G3-02 author execution regressions", () => {
-  it("reports a malformed result after its atomic batch was acknowledged", async () => {
-    const schema = executionSchema();
-    const database = new Database(":memory:");
-    const driver = new MalformedBatchResultSQLiteDriver({ client: database });
-    const client = createClient({ schema, driver });
-    const migration = await syncLiveSchema(client);
-    assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
-    driver.statements.length = 0;
-    driver.batchCalls = 0;
+  it("reports a malformed result on the transport its plan uses, with the progress that transport has", async () => {
+    // HALF A — the request this specimen has always made (a two-row,
+    // relation-free `createMany` with `select`) is ONE statement, so after D-7
+    // it leaves the batch and the truthful answer is the SHIPPED one: the
+    // malformed-scalar refusal with `{driver, operation, scalarType}` and no
+    // record series to report on at all. `submit()` is the only writer of
+    // `committedSegments` / `mayHaveCommittedSegment`
+    // (`shared/operation-context.ts:716`, `:776`), so a statement that never
+    // entered a batch has no segment to publish — which is precisely the
+    // shipped `runBorrowedStatementAtomic` answer this engine now matches.
+    const loneSchema = executionSchema();
+    const loneDatabase = new Database(":memory:");
+    const loneDriver = new MalformedResultSQLiteDriver({
+      client: loneDatabase,
+    });
+    const loneClient = createClient({ schema: loneSchema, driver: loneDriver });
+    assert.equal((await syncLiveSchema(loneClient)).applied, true);
+    const loneCandidate = createCommandEngine({
+      schema: loneSchema,
+      driver: loneDriver,
+    });
+    loneDriver.arm();
+    let loneValue: unknown;
+    let loneFailure: unknown;
     try {
-      await assert.rejects(
-        candidate.execute("record", "createMany", {
-          data: [
-            { id: 1, code: "one" },
-            { id: 2, code: "two" },
-          ],
-          select: { id: true },
-        }),
-        (failure) => {
-          assert(failure instanceof QueryEngineError);
-          assert.deepEqual(failure.meta.recordSeriesProgress, {
-            atomicity: "segment",
-            phase: "result",
-            committedSegments: 1,
-            committedWriteMembers: 1,
-            completedMembers: 0,
-          });
-          return true;
-        }
+      loneValue = await loneCandidate.execute("record", "createMany", {
+        data: [
+          { id: 1, code: "one" },
+          { id: 2, code: "two" },
+        ],
+        select: { id: true },
+      });
+    } catch (error) {
+      loneFailure = error;
+    }
+    const loneRows = loneDatabase
+      .prepare("SELECT id,code FROM g3_author_execution_records ORDER BY id")
+      .all();
+    const loneDiagnostic = JSON.stringify(
+      {
+        half: "lone statement",
+        statements: loneDriver.statements,
+        batchCalls: loneDriver.batchCalls,
+        corrupted: loneDriver.corrupted,
+        rows: loneRows,
+        value: loneValue,
+        failure: failureObservation(loneFailure),
+      },
+      undefined,
+      2
+    );
+    try {
+      assert.equal(loneValue, undefined, loneDiagnostic);
+      assert.equal(loneDriver.corrupted, true, loneDiagnostic);
+      assert.equal(loneDriver.statements.length, 1, loneDiagnostic);
+      assert.equal(loneDriver.batchCalls, 0, loneDiagnostic);
+      assert(loneFailure instanceof QueryEngineError, loneDiagnostic);
+      assert.equal(
+        loneFailure.code,
+        VibORMErrorCode.INTERNAL_ERROR,
+        loneDiagnostic
       );
-      assert.equal(driver.batchCalls, 1);
+      assert.equal(
+        loneFailure.message,
+        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+        loneDiagnostic
+      );
       assert.deepEqual(
-        database
-          .prepare("SELECT id,code FROM g3_author_execution_records ORDER BY id")
-          .all(),
+        { ...loneFailure.meta },
+        { driver: "sqlite3", operation: "createMany", scalarType: "int" },
+        loneDiagnostic
+      );
+      // Statement-atomic: the write committed with its own statement and the
+      // failure happened afterwards, decoding what the provider answered.
+      assert.deepEqual(
+        loneRows,
         [
           { id: 1, code: "one" },
           { id: 2, code: "two" },
-        ]
+        ],
+        loneDiagnostic
       );
     } finally {
-      await client.$disconnect();
-      database.close();
+      await loneClient.$disconnect();
+      loneDatabase.close();
+    }
+
+    // HALF B — the property this cell has always owned ("an acknowledged atomic
+    // batch answers with truthful progress"), on a request that is still a REAL
+    // batch after D-7: a `createMany` whose member carries a NESTED write. Its
+    // plan is several statements — the scratch prologue, the parent insert, the
+    // generated-key capture, the nested child insert, then the terminal
+    // read-back — so `lone` is false (measured: the write window this operation
+    // submits is five statements in one `executeBatch` entry, whichever of the
+    // three conjuncts `statements.length === 1`, `attempt.pending.length === 0`,
+    // `continuations.length === 0` the plan trips) and `setMutations` keeps its
+    // batch envelope. That is a STRUCTURAL multi-statement plan, not a bind-budget
+    // split: no planner choice can fold three tables into one statement, so
+    // unlike the pre-D-7 shape this half cannot be silently eliminated. The
+    // write window is acknowledged and commits; the malformed row then arrives
+    // in the terminal read, so the refusal still carries `committedSegments: 1`
+    // exactly as before. Its MEMBER counts are the ones this request really has
+    // — two write members (the parent record and its nested child), both
+    // complete — where the old one-statement request had one and none. The
+    // bind-budget-split form of the same property is pinned separately at
+    // `tests/raptor3/g4/unit02/lone-statement-transport.test.ts` row 6.
+    const batchSchema = executionSchema();
+    const batchDatabase = new Database(":memory:");
+    const batchDriver = new MalformedResultSQLiteDriver({
+      client: batchDatabase,
+    });
+    const batchClient = createClient({
+      schema: batchSchema,
+      driver: batchDriver,
+    });
+    assert.equal((await syncLiveSchema(batchClient)).applied, true);
+    const batchCandidate = createCommandEngine({
+      schema: batchSchema,
+      driver: batchDriver,
+    });
+    batchDriver.arm();
+    let batchValue: unknown;
+    let batchFailure: unknown;
+    try {
+      batchValue = await batchCandidate.execute("parent", "createMany", {
+        data: [
+          {
+            label: "batched",
+            leftChildren: {
+              createMany: { data: [{ id: 1, label: "left-1" }] },
+            },
+          },
+        ],
+        select: { id: true, label: true },
+      });
+    } catch (error) {
+      batchFailure = error;
+    }
+    const batchRows = batchDatabase
+      .prepare("SELECT id,label FROM g3_author_execution_parents ORDER BY id")
+      .all();
+    const batchChildRows = batchDatabase
+      .prepare(
+        "SELECT id,label,parentId FROM g3_author_execution_left_children ORDER BY id"
+      )
+      .all();
+    const batchDiagnostic = JSON.stringify(
+      {
+        half: "real batch",
+        statements: batchDriver.statements,
+        batchCalls: batchDriver.batchCalls,
+        batches: batchDriver.batches.map((queries) =>
+          queries.map(({ sql }) => sql)
+        ),
+        corrupted: batchDriver.corrupted,
+        rows: batchRows,
+        children: batchChildRows,
+        value: batchValue,
+        failure: failureObservation(batchFailure),
+      },
+      undefined,
+      2
+    );
+    try {
+      assert.equal(batchValue, undefined, batchDiagnostic);
+      assert.equal(batchDriver.corrupted, true, batchDiagnostic);
+      // Two batch entries, both genuinely plural: the write window (scratch
+      // prologue, parent insert, generated-key capture, child insert) and the
+      // terminal window (the read-back and the scratch release).
+      assert.equal(batchDriver.batchCalls, 2, batchDiagnostic);
+      const writeWindow = batchDriver.batches.find((queries) =>
+        queries.some(({ sql }) => PARENT_INSERT.test(sql))
+      );
+      assert(writeWindow && writeWindow.length > 1, batchDiagnostic);
+      assert(batchFailure instanceof QueryEngineError, batchDiagnostic);
+      assert.equal(
+        batchFailure.message,
+        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+        batchDiagnostic
+      );
+      assert.deepEqual(
+        batchFailure.meta.recordSeriesProgress,
+        {
+          atomicity: "segment",
+          phase: "result",
+          committedSegments: 1,
+          committedWriteMembers: 2,
+          completedMembers: 2,
+        },
+        batchDiagnostic
+      );
+      assert.deepEqual(
+        batchRows,
+        [{ id: 1, label: "batched" }],
+        batchDiagnostic
+      );
+      assert.deepEqual(
+        batchChildRows,
+        [{ id: 1, label: "left-1", parentId: 1 }],
+        batchDiagnostic
+      );
+    } finally {
+      await batchClient.$disconnect();
+      batchDatabase.close();
     }
   });
 

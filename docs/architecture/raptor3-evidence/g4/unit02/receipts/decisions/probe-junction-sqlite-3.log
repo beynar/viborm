@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests | 4 skipped) 62ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed | 4 skipped (9)
+   Start at  17:24:01
+   Duration  2.31s (transform 1.40s, setup 10ms, collect 2.06s, tests 62ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 2.81s wall, 466.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

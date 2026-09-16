@@ -1,0 +1,11 @@
+--- a/tests/raptor3/g4/unit01/world.ts (r4)
++++ b/tests/raptor3/g4/unit01/world.ts (r5, finding F)
+@@ -170,7 +170,7 @@
+ export async function differential(
+   seed: (world: World) => void,
+   model: string,
+-  operation: string,
++  operation: Parameters<World["engine"]["execute"]>[1],
+   args: Record<string, unknown>
+ ): Promise<{ shipped: unknown; candidate: unknown }> {
+   const shippedWorld = createWorld();

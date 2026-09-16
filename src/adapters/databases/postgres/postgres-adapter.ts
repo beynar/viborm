@@ -272,6 +272,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     greatest: (...exprs: Sql[]): Sql => sql`GREATEST(${sql.join(exprs, ", ")})`,
     least: (...exprs: Sql[]): Sql => sql`LEAST(${sql.join(exprs, ", ")})`,
 
+    // PostgreSQL integer division already truncates toward zero, which is why
+    // `set.divide` ignores `target.integer` here as well. Casting either side
+    // would narrow a `bigint` operand to `int4`.
+    integerDivide: (left: Sql, right: Sql): Sql => sql`(${left} / ${right})`,
+
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor): Sql =>
       sql`CAST(${expr} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
 

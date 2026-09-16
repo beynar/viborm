@@ -21,7 +21,12 @@ import { recurrenceCompoundWorld } from "./recurrence-compound-world";
 import { recurrenceOrdinaryWorld } from "./recurrence-ordinary-world";
 import { recurrenceVariantWorld } from "./recurrence-variant-world";
 
-type Candidate = ReturnType<typeof createCommandEngine>;
+// The generated transport plans drive the two candidate entries a public recipe
+// reaches; the prepared-operation handle is exercised by its own unit checks.
+type Candidate = Pick<
+  ReturnType<typeof createCommandEngine>,
+  "execute" | "prepareBatch"
+>;
 
 export interface TransportJob {
   readonly name: string;
@@ -225,7 +230,7 @@ function bulkTransportPlan(
               replies: [
                 scriptedReply({
                   name: `${name}:bulk`,
-                  via: "batch",
+                  via: "execute",
                   statements: expectedStatements(action, 1, rows[0]!.id),
                   responses: [
                     response(
@@ -342,7 +347,7 @@ function suppressionTransportPlan(
             : [{ id: rows[0]!.id }];
         const reply = scriptedReply({
           name: `${name}:scope`,
-          via: "batch",
+          via: "execute",
           statements: expectedStatements("INSERT", 1, firstParameter),
           responses: [response(returned, returned.length)],
           fault,
@@ -467,7 +472,7 @@ function transactionTransportPlan(
         const expected = [{ id }];
         const reply = scriptedReply({
           name: `${name}:suffix`,
-          via: "batch",
+          via: "execute",
           statements: expectedStatements("INSERT", 1, id),
           responses: [response(expected, 1)],
           fault: false,
@@ -501,11 +506,12 @@ function recurrenceSegment(
   name: string,
   statements: readonly ExpectedStatement[],
   expected: unknown | undefined,
-  fault: boolean
+  fault: boolean,
+  via: "batch" | "execute" = "batch"
 ): Reply {
   return scriptedReply({
     name,
-    via: "batch",
+    via,
     statements: [...statements],
     responses: statements.map((statement, index) =>
       expected !== undefined && index === statements.length - 1
@@ -524,15 +530,28 @@ function ordinaryRecurrenceReplies(
   fault: boolean
 ): Reply[] {
   const insertCount = recipe.depth + 1 + recipe.depth * recipe.fanout;
+  // `insertCount === 1` (depth 0) is the scalar-only root `create`: it names no
+  // relation, its projection is RETURNING-safe and the adapter has RETURNING,
+  // so the candidate folds the write and the read into one statement and
+  // publishes the row from the INSERT's own RETURNING — the shipped engine's
+  // tape. There is no re-read left to script. A depth >= 1 recipe names a
+  // relation, does not fold, and keeps the trailing SELECT.
+  // (`g4/unit02/note.md` §P.4.7, §R2.5 — recorded root-`create` fold.)
+  const folded = insertCount === 1;
   return [
     recurrenceSegment(
       `${name}:recurrence-0`,
       [
         ...expectedStatements("INSERT", insertCount, firstParameter),
-        ...expectedStatements("SELECT", 1),
+        ...(folded ? [] : expectedStatements("SELECT", 1)),
       ],
       expected,
-      fault
+      fault,
+      // D-7: the folded root `create` is the operation's ONLY statement, so it
+      // needs no batch envelope and runs on the plain execute path — the
+      // shipped `runStatementAtomic` transport. Every other segment here is a
+      // record-series member and stays in its batch.
+      folded ? "execute" : "batch"
     ),
   ];
 }

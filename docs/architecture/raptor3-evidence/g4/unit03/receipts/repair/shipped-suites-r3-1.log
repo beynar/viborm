@@ -1,0 +1,36 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors-array.core.test.ts (54 tests) 53ms
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 24ms
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 5ms
+ ✓ |coverage-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 12ms
+ ✓ |coverage-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 6ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-closure.core.test.ts (8 tests) 14ms
+ ✓ |coverage-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-observed-legacy-coverage.core.test.ts (4 tests) 4ms
+ ✓ |coverage-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |coverage-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 2ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors-array.core.test.ts (54 tests) 51ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 24ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 5ms
+ ✓ |layer-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 12ms
+ ✓ |layer-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 6ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-closure.core.test.ts (8 tests) 12ms
+ ✓ |layer-client| tests/contracts/public-client/nested-transaction-contract.core.test.ts (8 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-observed-legacy-coverage.core.test.ts (4 tests) 4ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/array-transaction-legacy-batch-boundaries.core.test.ts (5 tests) 2ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors-array.core.test.ts (54 tests) 52ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 24ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 5ms
+ ✓ |coverage-extensions| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 12ms
+ ✓ |coverage-extensions| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 6ms
+ ✓ |coverage-extensions| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+
+ Test Files  26 passed (26)
+      Tests  677 passed (677)
+   Start at  00:08:52
+   Duration  7.25s (transform 3.15s, setup 45ms, collect 6.32s, tests 351ms, environment 0ms, prepare 87ms)
+
+Vitest resources: 9.47s wall, 778.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

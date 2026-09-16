@@ -136,6 +136,18 @@ describe("shared adapter SQL vocabulary", () => {
         expectSql(adapter.expressions.subtract(left, right), "(? - ?)", [2, 3]);
         expectSql(adapter.expressions.multiply(left, right), "(? * ?)", [2, 3]);
         expectSql(adapter.expressions.divide(left, right), "(? / ?)", [2, 3]);
+        // The integer quotient is the one arithmetic spelling `/` cannot carry
+        // portably: it must truncate toward zero, which each dialect states in
+        // its own way (the same fact `set.divide`'s `target.integer` carries).
+        expectSql(
+          adapter.expressions.integerDivide(left, right),
+          name === "mysql"
+            ? "TRUNCATE(? / ?, 0)"
+            : name === "sqlite"
+              ? "(? / CAST(? AS INTEGER))"
+              : "(? / ?)",
+          [2, 3]
+        );
         expectSql(adapter.expressions.upper(left), "UPPER(?)", [2]);
         expectSql(adapter.expressions.lower(left), "LOWER(?)", [2]);
         expectSql(

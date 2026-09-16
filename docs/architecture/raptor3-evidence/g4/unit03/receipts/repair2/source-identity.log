@@ -1,0 +1,44 @@
+77df5c0944bf12f47cc8d14b7afc2ffdcad88ece048883ff77a5c6b3054bf881  src/query-engine/raptor3/route/client-route.ts
+bc3e1191b9467968b091fdff7d8cbff131cb102a75be7d67ca03c64fab6e795a  src/query-engine/pending-operation.ts
+8ec68253f71da757d8c00a8d1f4f213248b205b93a8b7a85abd59d202b63958c  src/client/client.ts
+bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612  src/query-engine/query-engine.ts
+70b4fabe5a1e42a4d8b0d78195683738598be2837e6eb261d1088b5f9daae78f  tests/raptor3/g4/route-transactions.test.ts
+--- git diff --stat (shipped files) ---
+ src/client/client.ts                  |  30 +++++++-
+ src/query-engine/pending-operation.ts | 137 +++++++++++++++++++++++++++++-----
+ src/query-engine/query-engine.ts      |  14 +++-
+ 3 files changed, 158 insertions(+), 23 deletions(-)
+--- untracked candidate files ---
+?? src/query-engine/raptor3/route/
+?? tests/raptor3/g4/
+?? tests/types/raptor3/
+=== FINAL IDENTITY, captured after the last edit of repair 2 (2026-09-14T23:32:48Z) ===
+77df5c0944bf12f47cc8d14b7afc2ffdcad88ece048883ff77a5c6b3054bf881  src/query-engine/raptor3/route/client-route.ts
+bc3e1191b9467968b091fdff7d8cbff131cb102a75be7d67ca03c64fab6e795a  src/query-engine/pending-operation.ts
+8ec68253f71da757d8c00a8d1f4f213248b205b93a8b7a85abd59d202b63958c  src/client/client.ts
+bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612  src/query-engine/query-engine.ts
+295ab1632843c4b244fb5032ca9ac5d0e8268e54d4e82a2aaad5a18107b15506  tests/raptor3/g4/route-lifecycle.test.ts
+70b4fabe5a1e42a4d8b0d78195683738598be2837e6eb261d1088b5f9daae78f  tests/raptor3/g4/route-transactions.test.ts
+5b1f597aa94cfec0e8b178f836feea5c6a0f851562ccc9414f196649abf878fe  tests/raptor3/g4/route-cache.test.ts
+b7e2348a932ebb4679c8ae81c988b26bb98ea3d03399c2416d05ee6fbe2459ad  tests/raptor3/g4/route-admission.test.ts
+72c6807333fa179dbccf9ae9fedbc881dc9083aa7c36400731d622e4c50b6b0f  tests/types/raptor3/route-public-types.core.types.ts
+90fed107091af9ac1282e1375453c04aee3a194dd3fc0af95261df93d9cefe46  docs/architecture/raptor3-evidence/g4/unit03/production.patch
+fb2f8556394e525923220cc049457ddf644189e86fb2cf2c6b50104f266d1ca4  docs/architecture/raptor3-evidence/g4/unit03/tests.patch
+762b6b8e1760da3924e3c78e893b0b46ca26f1a8f3434444dd41e00f357338c0  docs/architecture/raptor3-evidence/g4/unit03/note.md
+65fb70caeefacf9cb8925235af59e8e748271345b1f03a0736789487792f53b9  docs/architecture/raptor3-evidence/g4/unit03/handoff.md
+--- biome check (edited test file) ---
+Checked 1 file in 9ms. No fixes applied.
+=== FINAL IDENTITY (re-captured after the last documentation edit, 2026-09-14T23:33:54Z) ===
+77df5c0944bf12f47cc8d14b7afc2ffdcad88ece048883ff77a5c6b3054bf881  src/query-engine/raptor3/route/client-route.ts
+bc3e1191b9467968b091fdff7d8cbff131cb102a75be7d67ca03c64fab6e795a  src/query-engine/pending-operation.ts
+8ec68253f71da757d8c00a8d1f4f213248b205b93a8b7a85abd59d202b63958c  src/client/client.ts
+bb07f7a0e52e61c086eb85d811361b2621cae950d1d396ee4908236680d5b612  src/query-engine/query-engine.ts
+295ab1632843c4b244fb5032ca9ac5d0e8268e54d4e82a2aaad5a18107b15506  tests/raptor3/g4/route-lifecycle.test.ts
+70b4fabe5a1e42a4d8b0d78195683738598be2837e6eb261d1088b5f9daae78f  tests/raptor3/g4/route-transactions.test.ts
+5b1f597aa94cfec0e8b178f836feea5c6a0f851562ccc9414f196649abf878fe  tests/raptor3/g4/route-cache.test.ts
+b7e2348a932ebb4679c8ae81c988b26bb98ea3d03399c2416d05ee6fbe2459ad  tests/raptor3/g4/route-admission.test.ts
+72c6807333fa179dbccf9ae9fedbc881dc9083aa7c36400731d622e4c50b6b0f  tests/types/raptor3/route-public-types.core.types.ts
+90fed107091af9ac1282e1375453c04aee3a194dd3fc0af95261df93d9cefe46  docs/architecture/raptor3-evidence/g4/unit03/production.patch
+fb2f8556394e525923220cc049457ddf644189e86fb2cf2c6b50104f266d1ca4  docs/architecture/raptor3-evidence/g4/unit03/tests.patch
+01c56e86d48423c250976621886c63ece7b5d12ae89d37d346398ee5dade7910  docs/architecture/raptor3-evidence/g4/unit03/note.md
+65fb70caeefacf9cb8925235af59e8e748271345b1f03a0736789487792f53b9  docs/architecture/raptor3-evidence/g4/unit03/handoff.md

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 73ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:15:22
+   Duration  5.59s (transform 2.22s, setup 15ms, collect 3.32s, tests 73ms, environment 0ms, prepare 51ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Ikbp8s/vitest.json
+Vitest resources: 15.31s wall, 513.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-suppression-retry contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Ikbp8s

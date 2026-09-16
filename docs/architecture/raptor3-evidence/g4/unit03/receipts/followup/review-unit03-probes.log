@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-followup.review.test.ts (3 tests) 37ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-behavior-divergence.review.test.ts (4 tests) 18ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-envelope.review.test.ts (2 tests) 6ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-admission-count.review.test.ts (2 tests) 7ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-uncaught-failure.review.test.ts (2 tests) 8ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-region-mechanism.review.test.ts (2 tests) 6ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts (2 tests) 7ms
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-observer-failures.review.test.ts (2 tests) 7ms
+
+ Test Files  8 passed (8)
+      Tests  19 passed (19)
+   Start at  10:51:00
+   Duration  3.66s (transform 1.73s, setup 14ms, collect 3.40s, tests 96ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 4.25s wall, 651.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

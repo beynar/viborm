@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-transactions.test.ts (12 tests) 105ms
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (7 tests) 22ms
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (5 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/route-cache.test.ts (7 tests) 17ms
+
+ Test Files  4 passed (4)
+      Tests  31 passed (31)
+   Start at  10:36:23
+   Duration  3.43s (transform 1.73s, setup 13ms, collect 2.93s, tests 164ms, environment 0ms, prepare 64ms)
+
+Vitest resources: 5.88s wall, 647.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

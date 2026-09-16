@@ -15,6 +15,7 @@ import {
   type PrepareOperationInput,
   type PrepareWriteOutcomeRegistration,
 } from "./pending-operation";
+import type { ClientOperationRoute } from "./raptor3/route/client-route";
 import {
   type ModelRegistry,
   type Operation,
@@ -39,6 +40,12 @@ export class QueryEngine {
   readonly clientId: symbol;
   /** Identity of the current root or transaction-bound execution scope. */
   readonly scopeId: symbol;
+  /**
+   * The private Raptor 3 route, when this client lineage was constructed with
+   * one. Absent on every public client: the shipped operation owners below
+   * answer instead, unchanged (G4-03, `g4/unit03/note.md`).
+   */
+  readonly route: ClientOperationRoute | undefined;
   private readonly operationExecutor: OperationExecutor;
   private readonly cacheOperationExecutor: OperationExecutor;
 
@@ -48,9 +55,11 @@ export class QueryEngine {
     clientId = Symbol("viborm.client"),
     scopeId = Symbol("viborm.scope"),
     extensionChain?: ResolvedExtensionChain,
-    transactionWriteOutcomes?: TransactionWriteOutcomes
+    transactionWriteOutcomes?: TransactionWriteOutcomes,
+    route?: ClientOperationRoute
   ) {
     this.driver = driver;
+    this.route = route;
     this.registry = registry;
     if (!registry.schemas) {
       throw new QueryEngineError(
@@ -110,7 +119,8 @@ export class QueryEngine {
       this.clientId,
       Symbol("viborm.scope"),
       extensionChain,
-      transactionWriteOutcomes
+      transactionWriteOutcomes,
+      this.route
     );
   }
 

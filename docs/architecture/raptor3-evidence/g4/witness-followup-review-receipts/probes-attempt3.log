@@ -1,0 +1,108 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts (5 tests | 4 failed) 5ms
+   × review probe: the G4 write lanes' registration > does not let an inherited seed count shrink a write child 3ms
+     → tests/raptor3/g4/generation/write-campaign.test.ts takes its seed count from the ambient environment
+
+true !== false
+
+   × review probe: the G4 write lanes' registration > sanitises the seed-count variable in the runner, as it does the subject 0ms
+     → the runner forwards an inherited VIBORM_RAPTOR3_GENERATED_SEED_COUNT to every child
+   × review probe: the G4 write lanes' registration > refuses a child that holds fewer seeds than the frozen batch 1ms
+     → Missing expected exception: a 1-seed child of a 100-seed frozen batch still qualifies
+   × review probe: the G4 write lanes' registration > pins the child cell count of every registered seed-batch mode 0ms
+     → g4-write-seed-batch is registered in 1 of the runner's two maps
+
+1 !== 2
+
+   ✓ review probe: the G4 write lanes' registration > keeps the write ranges disjoint from every other frozen campaign 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts > review probe: the G4 write lanes' registration > does not let an inherited seed count shrink a write child
+AssertionError: tests/raptor3/g4/generation/write-campaign.test.ts takes its seed count from the ambient environment
+
+true !== false
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- false[39m
+[31m+ true[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts:34:14
+     32|       "tests/raptor3/g4/generation/write-transport-campaign.test.ts",
+     33|     ])
+     34|       assert.equal(
+       |              ^
+     35|         read(child).includes(AMBIENT_COUNT),
+     36|         false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts > review probe: the G4 write lanes' registration > sanitises the seed-count variable in the runner, as it does the subject
+AssertionError: the runner forwards an inherited VIBORM_RAPTOR3_GENERATED_SEED_COUNT to every child
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts:47:12
+     45|       "the subject leak repair is missing"
+     46|     );
+     47|     assert.ok(
+       |            ^
+     48|       runner.includes(`delete environment.${AMBIENT_COUNT}`),
+     49|       `the runner forwards an inherited ${AMBIENT_COUNT} to every chil…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts > review probe: the G4 write lanes' registration > refuses a child that holds fewer seeds than the frozen batch
+AssertionError: Missing expected exception: a 1-seed child of a 100-seed frozen batch still qualifies
+
+simple
+
+ ❯ tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts:85:12
+     83|       skipped: 0,
+     84|     };
+     85|     assert.throws(
+       |            ^
+     86|       () =>
+     87|         assertG3GeneratedBatchReceipt(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |g4-review-witness-followup| tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts > review probe: the G4 write lanes' registration > pins the child cell count of every registered seed-batch mode
+AssertionError: g4-write-seed-batch is registered in 1 of the runner's two maps
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/review/witness-followup/write-lane-registration.review.test.ts:115:14
+    113|     for (const mode of modes) {
+    114|       const occurrences = runner.split(`"${mode}": `).length - 1;
+    115|       assert.equal(
+       |              ^
+    116|         occurrences,
+    117|         2,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+   Start at  05:24:12
+   Duration  214ms (transform 21ms, setup 9ms, collect 23ms, tests 5ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 0.66s wall, 197.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+RETRY_WRAPPER: exit 1 after 3 attempt(s)

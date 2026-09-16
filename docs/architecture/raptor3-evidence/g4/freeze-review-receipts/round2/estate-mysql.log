@@ -1,0 +1,34 @@
+container viborm-raptor3-g3-mysql-20260914 -> 127.0.0.1:65515
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 985ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  519ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests) 76ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 136ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 12ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 50ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 26ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 21ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 82ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 26ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 17ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 22ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 114ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 17ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 7ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 6ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 29ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 138ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 2ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 11ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 7ms
+
+ Test Files  20 passed | 1 skipped (21)
+      Tests  127 passed | 1 skipped (128)
+   Start at  19:47:49
+   Duration  7.01s (transform 1.89s, setup 31ms, collect 4.99s, tests 1.79s, environment 0ms, prepare 32ms)
+
+Vitest resources: 7.64s wall, 722.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=0

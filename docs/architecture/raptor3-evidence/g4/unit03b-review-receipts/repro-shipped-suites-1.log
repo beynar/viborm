@@ -1,0 +1,27 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 62ms
+ ✓ |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 5ms
+ ✓ |coverage-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 22ms
+ ✓ |coverage-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 7ms
+ ✓ |coverage-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 49ms
+ ✓ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 7ms
+ ✓ |layer-client| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 17ms
+ ✓ |layer-client| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 6ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors-integration.core.test.ts (48 tests) 55ms
+ ✓ |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests) 6ms
+ ✓ |coverage-extensions| tests/contracts/public-client/request-transforms.core.test.ts (43 tests) 19ms
+ ✓ |coverage-extensions| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 10ms
+ ✓ |coverage-extensions| tests/contracts/public-client/extensions-foundation.core.test.ts (16 tests) 8ms
+ ✓ |coverage-extensions| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 23ms
+
+ Test Files  17 passed (17)
+      Tests  519 passed (519)
+   Start at  11:13:08
+   Duration  10.38s (transform 5.06s, setup 45ms, collect 9.20s, tests 304ms, environment 0ms, prepare 182ms)
+
+Vitest resources: 13.36s wall, 695.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

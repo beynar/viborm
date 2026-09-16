@@ -1,0 +1,125 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-behavior-divergence.review.test.ts (4 tests) 32ms
+ ❯ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-envelope.review.test.ts (2 tests | 1 failed) 10ms
+   ✓ G4-03 review — the envelope the route opens > a single-statement write inside $transaction(callback) issues the same control statements on both routes 4ms
+   × G4-03 review — the envelope the route opens > an observer sees the same non-operation unit kinds inside $transaction(callback) on both routes 5ms
+     → candidate=["transaction:$transaction(callback)","operation:create","savepoint:create","statement:create","statement:create"] shipped=["transaction:$transaction(callback)","operation:create","statement:create"]
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create',
++   'statement:create'
+  ]
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-admission-count.review.test.ts (2 tests) 4ms
+ ❯ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts (2 tests | 2 failed) 10ms
+   × G4-03 review — array transactions containing a read > a read-only array transaction on a batch-only driver behaves the same on both routes 7ms
+     → candidate=TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+shipped=ok:[[{"email":"read-array@example.test"}]]
++ actual - expected
+
++ 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+- 'ok:[[{"email":"read-array@example.test"}]]'
+
+   × G4-03 review — array transactions containing a read > a mixed read+write array transaction on a batch-only driver behaves the same on both routes 3ms
+     → candidate=TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+shipped=ok:[{"id":1,"email":"mixed-write@example.test","name":"Write"},[{"email":"mixed-write@example.test"}]]
++ actual - expected
+
++ 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+- 'ok:[{"id":1,"email":"mixed-write@example.test","name":"Write"},[{"email":"mixed-write@example.test"}]]'
+
+ ✓ |g4-review-unit03| tests/raptor3/g4/review/unit03/route-observer-failures.review.test.ts (2 tests) 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit03| tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts > G4-03 review — array transactions containing a read > a read-only array transaction on a batch-only driver behaves the same on both routes
+AssertionError: candidate=TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+shipped=ok:[[{"email":"read-array@example.test"}]]
++ actual - expected
+
++ 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+- 'ok:[[{"email":"read-array@example.test"}]]'
+
+
+Expected: [32m"ok:[[{"email":"read-array@example.test"}]]"[39m
+Received: [31m"TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically."[39m
+
+ ❯ tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts:114:12
+    112|       );
+    113|     }
+    114|     assert.equal(
+       |            ^
+    115|       results.candidate,
+    116|       results.shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |g4-review-unit03| tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts > G4-03 review — array transactions containing a read > a mixed read+write array transaction on a batch-only driver behaves the same on both routes
+AssertionError: candidate=TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.
+shipped=ok:[{"id":1,"email":"mixed-write@example.test","name":"Write"},[{"email":"mixed-write@example.test"}]]
++ actual - expected
+
++ 'TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically.'
+- 'ok:[{"id":1,"email":"mixed-write@example.test","name":"Write"},[{"email":"mixed-write@example.test"}]]'
+
+
+Expected: [32m"ok:[{"id":1,"email":"mixed-write@example.test","name":"Write"},[{"email":"mixed-write@example.test"}]]"[39m
+Received: [31m"TransactionError:Driver "sqlite3" does not support callback transactions and this transaction contains operations that cannot be batched atomically."[39m
+
+ ❯ tests/raptor3/g4/review/unit03/route-array-reads.review.test.ts:134:12
+    132|       );
+    133|     }
+    134|     assert.equal(
+       |            ^
+    135|       results.candidate,
+    136|       results.shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |g4-review-unit03| tests/raptor3/g4/review/unit03/route-envelope.review.test.ts > G4-03 review — the envelope the route opens > an observer sees the same non-operation unit kinds inside $transaction(callback) on both routes
+AssertionError: candidate=["transaction:$transaction(callback)","operation:create","savepoint:create","statement:create","statement:create"] shipped=["transaction:$transaction(callback)","operation:create","statement:create"]
++ actual - expected
+
+  [
+    'transaction:$transaction(callback)',
+    'operation:create',
++   'savepoint:create',
+    'statement:create',
++   'statement:create'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "transaction:$transaction(callback)",[22m
+[2m    "operation:create",[22m
+[31m+   "savepoint:create",[39m
+[31m+   "statement:create",[39m
+[2m    "statement:create",[22m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/review/unit03/route-envelope.review.test.ts:150:12
+    148|     // `withTransaction` carries the client's TRUSTED context, so it d…
+    149|     // the shipped route does not produce that unit at all.
+    150|     assert.deepEqual(
+       |            ^
+    151|       observations.candidate.units,
+    152|       observations.shipped.units,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  2 failed | 3 passed (5)
+      Tests  3 failed | 9 passed (12)
+   Start at  00:10:52
+   Duration  2.27s (transform 1.20s, setup 15ms, collect 2.06s, tests 61ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.96s wall, 601.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,21 @@
+CELL: scalar-find-unique/cold-prepare modes=retained extra=
+COMMAND: cd /private/tmp/viborm-g4-perf-baseline && TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 benchmarks/operation-pipeline-compare.mjs --baseline-dir /private/tmp/viborm-g4-perf-baseline --baseline-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 --baseline-source-commit 0cc61e61f372945026b0b564fa643de67168c08e --candidate-dir /private/tmp/viborm-g4-perf-candidate --candidate-commit 981368f6a4aad7628fe37bb5b5b38bac86b885d4 --providers sqlite3 --comparison semantic --workloads scalar-find-unique --stages cold-prepare --modes retained --output /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/g4cut/cells/pass1__scalar-find-unique__cold-prepare__retained.json
+STARTED: 2026-09-15T18:49:46Z
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 1/5: baseline
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 1/5: candidate
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 2/5: candidate
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 2/5: baseline
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 3/5: baseline
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 3/5: candidate
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 4/5: candidate
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 4/5: baseline
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 5/5: baseline
+sqlite3/scalar-find-unique/cold-prepare/retained replicate 5/5: candidate
+EXIT: 0
+FINISHED: 2026-09-15T18:50:01Z
+REPORT_BYTES: 6507364
+REPORT_SHA256: ca78057353edeb8a9220dcc2e99341c56228ee7ddf434c978e9922051ca12346
+scalar-find-unique/cold-prepare/retained seam=package/package stmts=1/1
+  peakRss: B=2.06324e+8 N=2.07143e+8 E=2.949e+5 budget=2.063e+7 d+E=1.114e+6 WITHIN

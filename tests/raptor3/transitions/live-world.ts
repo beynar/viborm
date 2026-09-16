@@ -15,7 +15,6 @@ import {
 } from "@src/sql/identifiers";
 import { Pool as PgPool, type PoolClient } from "pg";
 import {
-  createPool,
   type Pool as MySQLPool,
   type PoolConnection,
   type RowDataPacket,
@@ -114,6 +113,7 @@ class LiveObservation implements LiveNames {
   }[] = [];
   readonly rollbacks: { failure?: unknown }[] = [];
   private failure: { cause: unknown } | undefined;
+  backgroundTransportFailure: { cause: unknown } | undefined;
   readonly quote = createIdentifierQuoter(provider === "pg" ? '"' : "`");
   readonly table;
   peer?: LivePeer;
@@ -195,6 +195,19 @@ class LiveObservation implements LiveNames {
   }
   assertHealthy() {
     if (this.failure) throw this.failure.cause;
+  }
+  /**
+   * A background transport failure is the RUN's failure.
+   *
+   * It is filed where a body failure is filed, so every existing
+   * `assertHealthy()` call site surfaces it with no new concept; `runLiveWorld`
+   * additionally rethrows it at teardown when nothing else failed, because a
+   * borrowed pool that died after the last assertion must not leave a green
+   * cell behind. See `watchPool` below for why the fixture subscribes at all.
+   */
+  transportFailed(cause: unknown) {
+    this.failure ??= { cause };
+    this.backgroundTransportFailure ??= { cause };
   }
   async rolledBack() {
     const event: { failure?: unknown } = {};
@@ -331,6 +344,56 @@ class AtomicMySQLDriver extends ObservedMySQLDriver {
   }
 }
 
+/**
+ * The pool the SHIPPED DRIVER itself would build for these options.
+ *
+ * `new PgPool(options)` and `createPool(options)` here used to bypass the
+ * driver's own pool configuration: PostgreSQL's DATE/TIMESTAMP text parsers
+ * (`utcSafeTypes`, `src/drivers/pg/index.ts`) and MySQL's `timezone: "Z"`,
+ * `supportBigNumbers` and `dateStrings: ["DATE"]`
+ * (`src/drivers/mysql2/index.ts`). A temporal or wide-numeric column therefore
+ * decoded under this fixture the way it decodes nowhere in production — for
+ * the shipped engine and the candidate alike, which is why the difference only
+ * ever surfaced as a codec failure with no engine to blame. The pool now comes
+ * from the driver's own factory and the fixture borrows the same transport for
+ * its raw SQL, so seeding, inspection and both engines see one configuration.
+ *
+ * No `namespace` is passed to the factory: the per-run namespace does not exist
+ * when the pool is built, and on MySQL the namespace IS the connection
+ * database. The observed drivers above still carry it, so every statement the
+ * ORM issues is still qualified by the per-run namespace.
+ */
+class PgPoolFactory extends PgDriver {
+  ownPool(): Promise<PgPool> {
+    return this.getClient() as Promise<PgPool>;
+  }
+}
+class MySQLPoolFactory extends MySQL2Driver {
+  ownPool(): Promise<MySQLPool> {
+    return this.getClient() as Promise<MySQLPool>;
+  }
+}
+
+/**
+ * Subscribe the FIXTURE to the PostgreSQL pool it borrowed.
+ *
+ * `PgDriver.initClient()` retains the background failures of a pool it built
+ * in a WeakMap keyed on that driver, and the factory instance above is
+ * discarded the moment the pool is taken — so the retained failure became
+ * unreadable and a run could pass over a dead transport. Under the pre-repair
+ * bare `new PgPool(options)` there was no listener at all and Node failed the
+ * run loudly; this restores that, through the observation instead of through
+ * an uncaught exception.
+ *
+ * PostgreSQL only, because the defect is: `MySQL2Driver.initClient()`
+ * subscribes to nothing, so a borrowed mysql2 pool behaves exactly as the
+ * fixture-built one did.
+ */
+function watchPgPool(observation: LiveObservation, pool: PgPool): PgPool {
+  pool.on("error", (failure) => observation.transportFailed(failure));
+  return pool;
+}
+
 /** One fresh namespace per invocation; only the test-owned server removes it. */
 export async function runLiveWorld(
   fixture: LiveFixture,
@@ -360,8 +423,17 @@ export async function runLiveWorld(
     connectionLimit: 1,
     connectTimeout: 10_000,
   };
-  const pg = provider === "pg" ? new PgPool(pgOptions) : undefined;
-  const mysql = provider === "mysql" ? createPool(mysqlOptions) : undefined;
+  const pg =
+    provider === "pg"
+      ? watchPgPool(
+          observation,
+          await new PgPoolFactory({ options: pgOptions }).ownPool()
+        )
+      : undefined;
+  const mysql =
+    provider === "mysql"
+      ? await new MySQLPoolFactory({ options: mysqlOptions }).ownPool()
+      : undefined;
   if (fixture.afterRollback) {
     assert(pg, "Native post-rollback injection is admitted on PostgreSQL only");
     pg.on("connect", (client) => {
@@ -414,8 +486,15 @@ export async function runLiveWorld(
       }
     }
     if (barrier) {
-      const peerPg = pg ? new PgPool(pgOptions) : undefined;
-      const peerMySQL = mysql ? createPool(mysqlOptions) : undefined;
+      const peerPg = pg
+        ? watchPgPool(
+            observation,
+            await new PgPoolFactory({ options: pgOptions }).ownPool()
+          )
+        : undefined;
+      const peerMySQL = mysql
+        ? await new MySQLPoolFactory({ options: mysqlOptions }).ownPool()
+        : undefined;
       pools.push(peerPg ?? peerMySQL!);
       const peerRead: NativeRead = (statement) =>
         peerPg
@@ -570,5 +649,9 @@ export async function runLiveWorld(
         throw withSuppressedFailure(terminalFailure, closeFailure);
       throw closeFailure;
     }
+    // Nothing else failed, so a background transport failure has no other way
+    // out: the last `assertHealthy()` may have run before the pool died.
+    if (!bodyFailed && observation.backgroundTransportFailure)
+      throw observation.backgroundTransportFailure.cause;
   }
 }

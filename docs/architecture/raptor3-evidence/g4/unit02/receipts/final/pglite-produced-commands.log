@@ -1,0 +1,7 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/expanded/produced-commands.test.ts (3 tests) 846ms
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 5.15s wall, 1614.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

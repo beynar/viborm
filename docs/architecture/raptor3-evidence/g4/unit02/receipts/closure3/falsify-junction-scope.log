@@ -1,0 +1,129 @@
+=== falsifier: swap the two files back to the ROUND-2 spelling (scratchpad copies, never git checkout) ===
+--- identities BEFORE the swap (round 3) ---
+57ec20aa9c819de8f45fae9fe17be1eafc41b40938a71c722b79ed0b46e72aac  src/query-engine/raptor3/commands/selection.ts
+a3bf3e7beb9da956a1321c1ccf36cc168d225c6220585400bcc6f6b54b6db9f4  src/query-engine/raptor3/commands/relation-body.ts
+--- the round-2 reconstructions, verified against the identities recorded in note §R5.8 ---
+31528299cbf52124def84145d0eb51eba417c80eddb4e3942a5513a4b6f0a7cd  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/selection.round2.ts
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/relation-body.round2.ts
+--- identities IN the swap ---
+31528299cbf52124def84145d0eb51eba417c80eddb4e3942a5513a4b6f0a7cd  src/query-engine/raptor3/commands/selection.ts
+bbccc1313821e2d75f753ac85b98d7e380a02980d6eac1985b716977463688f5  src/query-engine/raptor3/commands/relation-body.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (5 tests | 2 failed) 433ms
+   ✓ G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 28ms
+   ✓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does 130ms
+   × G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique 181ms
+     → junction disconnect on a collation-equal key
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot disconnect relation 'tags': target record was not found for this parent.",
++   links: [
++     {
++       ownerId: 'wanted',
++       tagId: 'g1'
++     }
++   ],
+-   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   links: [],
+    notes: [
+      {
+        id: 'n1',
+        ownerId: 'wanted'
+      }
+
+   × G4-02 native MySQL discriminator scope > pins the PRE-EXISTING junction delete divergence, and that the selector's spelling is no longer what separates the two engines 37ms
+     → G1
++ actual - expected
+
++ "NestedWriteError: Cannot delete relation 'tags': target record was not found for this parent."
+- 'ForeignKeyError: Foreign key constraint violation'
+
+   ✓ G4-02 native MySQL discriminator scope > pins R-D4: a collation-equal connect stores the located row's key, the shipped engine the request's literal 29ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique
+AssertionError: junction disconnect on a collation-equal key
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot disconnect relation 'tags': target record was not found for this parent.",
++   links: [
++     {
++       ownerId: 'wanted',
++       tagId: 'g1'
++     }
++   ],
+-   answer: 'ok:{"id":"wanted","email":"claim@x","name":"winner"}',
+-   links: [],
+    notes: [
+      {
+        id: 'n1',
+        ownerId: 'wanted'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,8 +1,13 @@[39m
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":\"wanted\",\"email\":\"claim@x\",\"name\":\"winner\"}",[39m
+[32m-   "links": [],[39m
+[31m+   "answer": "NestedWriteError: Cannot disconnect relation 'tags': target record was not found for this parent.",[39m
+[31m+   "links": [[39m
+[31m+     {[39m
+[31m+       "ownerId": "wanted",[39m
+[31m+       "tagId": "g1",[39m
+[31m+     },[39m
+[31m+   ],[39m
+[2m    "notes": [[22m
+[2m      {[22m
+[2m        "id": "n1",[22m
+[2m        "ownerId": "wanted",[22m
+[2m      },[22m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:761:16
+    759|         const shipped = await run("shipped", request);
+    760|         const candidate = await run("candidate", request);
+    761|         assert.deepEqual(candidate, shipped, name);
+       |                ^
+    762|       }
+    763|     }, 180_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 native MySQL discriminator scope > pins the PRE-EXISTING junction delete divergence, and that the selector's spelling is no longer what separates the two engines
+AssertionError: G1
++ actual - expected
+
++ "NestedWriteError: Cannot delete relation 'tags': target record was not found for this parent."
+- 'ForeignKeyError: Foreign key constraint violation'
+
+
+Expected: [32m"ForeignKeyError: Foreign key constraint violation"[39m
+Received: [31m"NestedWriteError: Cannot delete relation 'tags': target record was not found for this parent."[39m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:786:16
+    784|         assert.deepEqual(shipped.links, [], id);
+    785|         assert.deepEqual(shipped.tags, [], id);
+    786|         assert.equal(
+       |                ^
+    787|           candidate.answer,
+    788|           "ForeignKeyError: Foreign key constraint violation",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  16:33:47
+   Duration  2.43s (transform 1.29s, setup 11ms, collect 1.86s, tests 433ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 2.99s wall, 503.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+--- identities AFTER the restore (must equal the BEFORE block) ---
+57ec20aa9c819de8f45fae9fe17be1eafc41b40938a71c722b79ed0b46e72aac  src/query-engine/raptor3/commands/selection.ts
+a3bf3e7beb9da956a1321c1ccf36cc168d225c6220585400bcc6f6b54b6db9f4  src/query-engine/raptor3/commands/relation-body.ts

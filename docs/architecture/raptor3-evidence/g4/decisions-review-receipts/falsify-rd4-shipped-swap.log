@@ -1,0 +1,50 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests | 1 failed) 723ms
+   ✓ G4-02 unique discriminator > spells the discriminator with the constraint's equality and the filter half with the text contract 28ms
+   ✓ G4-02 native MySQL unique discriminator > answers a collation-equal key exactly as the shipped engine does 161ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by exact bytes 9ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > deletes the link and the target, addressed by a collation-equal key 5ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > still removes ONLY the link row for a junction disconnect 5ms
+   ✓ G4-02 — the junction delete removes the link row, then the target > still deletes a REFERENCE-held target with one statement 6ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  397ms
+   ✓ G4-02 native MySQL discriminator scope > R-B5: a junction delete removes the link row and the target, by either spelling 61ms
+   × G4-02 native MySQL discriminator scope > R-D4 THE CONTRACT: a collation-equal connect stores the LOCATED row's key in the foreign-key column 16ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:{"id":"n2","title":"T","ownerId":"WANTED"}'
+- 'ok:{"id":"n2","title":"T","ownerId":"wanted"}'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/unique-discriminator.test.ts > G4-02 native MySQL discriminator scope > R-D4 THE CONTRACT: a collation-equal connect stores the LOCATED row's key in the foreign-key column
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ 'ok:{"id":"n2","title":"T","ownerId":"WANTED"}'
+- 'ok:{"id":"n2","title":"T","ownerId":"wanted"}'
+
+
+Expected: [32m"ok:{"id":"n2","title":"T","ownerId":"[7mwanted[27m"}"[39m
+Received: [31m"ok:{"id":"n2","title":"T","ownerId":"[7mWANTED[27m"}"[39m
+
+ ❯ tests/raptor3/g4/unit02/unique-discriminator.test.ts:994:14
+    992|         })
+    993|       );
+    994|       assert.equal(
+       |              ^
+    995|         created.answer,
+    996|         'ok:{"id":"n2","title":"T","ownerId":"wanted"}'
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 passed (9)
+   Start at  18:03:22
+   Duration  2.98s (transform 1.46s, setup 10ms, collect 2.12s, tests 723ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.52s wall, 551.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

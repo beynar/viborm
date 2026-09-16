@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/generation/write-campaign.test.ts (1 test) 2840ms
+   ✓ executes one complete G4 write-envelope SQLite seed batch  2839ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  09:11:35
+   Duration  5.02s (transform 1.29s, setup 12ms, collect 1.98s, tests 2.84s, environment 0ms, prepare 46ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-bPSgMN/vitest.json
+Vitest resources: 7.24s wall, 814.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-write-seed-batch contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-bPSgMN

@@ -1,0 +1,258 @@
+diff --git a/tests/raptor3/core-structure/measurement/extension-a-scenario.ts b/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+index 4d6a4229..d25ae8e8 100644
+--- a/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
++++ b/tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+@@ -11,7 +11,20 @@ import type {
+ import type { ExtensionARecipe } from "./extension-recipes";
+ 
+ const whitespace = /\s+/;
+-const lookupWhere = /WHERE[\s\S]*"lookup"\s*=/;
++// The nested upsert's locate binds `lookup` through a PUBLIC text filter, which
++// the candidate spells with the adapter's exact-text operator. That operator
++// may name a byte-exact collation between the column and the comparison —
++// `"lookup" COLLATE BINARY = ?` on SQLite (`sqlite-adapter.ts` `exactTextEq`),
++// `COLLATE "C"` where Postgres names one — or none at all (Postgres
++// `exactTextEq` is the plain `=`; MySQL prefixes `BINARY`). The cut is the
++// locate statement, not one provider's punctuation, so the recognizer reads
++// the key binding with or without one of those two collations. It deliberately
++// does NOT accept an insensitive collation: that would be a different
++// comparison, and a locate that stopped being exact-text must fail here rather
++// than be recognized as the same cut. `parentId` / `parentTenant` are the
++// relation scope's own key equality, not a public text filter, and carry no
++// collation.
++const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:BINARY|"C"))?\s*=/;
+ const parentIdWhere = /WHERE[\s\S]*"parentId"\s*=/;
+ const parentTenantWhere = /WHERE[\s\S]*"parentTenant"\s*=/;
+ const terminalRowFailure = /could not read back one of the updated rows/;
+@@ -534,6 +547,12 @@ export function extensionAScenario(
+             sql.includes(nestedTable) &&
+             lookupWhere.test(sql)
+           ) {
++            // The locate is the observation point because it is what decides
++            // found from missing: the composition slice pins the same property.
++            assert.equal(
++              completion.rows.length,
++              recipe.nestedShape === "upsert-found" ? 1 : 0
++            );
+             cuts.push(
+               `choice:${recipe.nestedShape.slice("upsert-".length)}/root-member/${choiceObservation}`
+             );
+diff --git a/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts b/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
+index dde3d87f..72cbcf0d 100644
+--- a/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
++++ b/tests/raptor3/core-structure/measurement/extension-composition-scenario.ts
+@@ -6,6 +6,15 @@ import type { ScenarioDefinition } from "../../harness/protocol";
+ import type { ExtensionCompositionRecipe } from "./extension-recipes";
+ 
+ const whitespace = /\s+/;
++// The holder upsert's locate binds `lookup` through a PUBLIC text filter, which
++// the candidate spells with the adapter's exact-text operator. That operator
++// may name a byte-exact collation between the column and the comparison —
++// `"lookup" COLLATE BINARY = ?` on SQLite (`sqlite-adapter.ts` `exactTextEq`),
++// `COLLATE "C"` where Postgres names one — or none at all. The cut is the
++// locate statement, not one provider's punctuation, so the recognizer reads
++// the key binding with or without one of those two collations, and never with
++// an insensitive one: that would be a different comparison, not this cut.
++const lookupWhere = /WHERE[\s\S]*"lookup"(?: COLLATE (?:BINARY|"C"))?\s*=/;
+ 
+ function assertScheduledCut(
+   schedule: readonly string[],
+@@ -501,7 +510,7 @@ export function extensionCompositionScenario(
+             isSelect &&
+             choiceObservation < selectedCount &&
+             completion.sql.includes(holderTable) &&
+-            /WHERE[\s\S]*"lookup"\s*=/.test(completion.sql)
++            lookupWhere.test(completion.sql)
+           ) {
+             assert.equal(
+               completion.rows.length,
+diff --git a/tests/raptor3/g3/generation/generated-transport-smoke.test.ts b/tests/raptor3/g3/generation/generated-transport-smoke.test.ts
+index 31a00887..bd1de6ee 100644
+--- a/tests/raptor3/g3/generation/generated-transport-smoke.test.ts
++++ b/tests/raptor3/g3/generation/generated-transport-smoke.test.ts
+@@ -145,6 +145,22 @@ function representativeRecipes(): G3GeneratedRecipe[] {
+       fanout: 3,
+       shape: "repeated",
+     }),
++    // `depth: 0` is the folded root `create` — one INSERT, published from its
++    // own RETURNING, no re-read to script (`transport-plans.ts`
++    // `ordinaryRecurrenceReplies`). The fault attaches to the reply rather than
++    // to a statement, so the fold and the injected failure are independent by
++    // construction; this recipe is what makes that a FIXED witness instead of
++    // an argument, on both transport profiles.
++    admit({
++      seed: 8611,
++      contract: "C11",
++      actors: 1,
++      operations: 2,
++      fault: "legal-provider-failure",
++      depth: 0,
++      fanout: 0,
++      shape: "ordinary",
++    }),
+     admit({
+       seed: 8031,
+       contract: "C11",
+diff --git a/tests/raptor3/g3/generation/transport-plans.ts b/tests/raptor3/g3/generation/transport-plans.ts
+index 88eb064f..b87372db 100644
+--- a/tests/raptor3/g3/generation/transport-plans.ts
++++ b/tests/raptor3/g3/generation/transport-plans.ts
+@@ -21,7 +21,12 @@ import { recurrenceCompoundWorld } from "./recurrence-compound-world";
+ import { recurrenceOrdinaryWorld } from "./recurrence-ordinary-world";
+ import { recurrenceVariantWorld } from "./recurrence-variant-world";
+ 
+-type Candidate = ReturnType<typeof createCommandEngine>;
++// The generated transport plans drive the two candidate entries a public recipe
++// reaches; the prepared-operation handle is exercised by its own unit checks.
++type Candidate = Pick<
++  ReturnType<typeof createCommandEngine>,
++  "execute" | "prepareBatch"
++>;
+ 
+ export interface TransportJob {
+   readonly name: string;
+@@ -524,12 +529,20 @@ function ordinaryRecurrenceReplies(
+   fault: boolean
+ ): Reply[] {
+   const insertCount = recipe.depth + 1 + recipe.depth * recipe.fanout;
++  // `insertCount === 1` (depth 0) is the scalar-only root `create`: it names no
++  // relation, its projection is RETURNING-safe and the adapter has RETURNING,
++  // so the candidate folds the write and the read into one statement and
++  // publishes the row from the INSERT's own RETURNING — the shipped engine's
++  // tape. There is no re-read left to script. A depth >= 1 recipe names a
++  // relation, does not fold, and keeps the trailing SELECT.
++  // (`g4/unit02/note.md` §P.4.7, §R2.5 — recorded root-`create` fold.)
++  const folded = insertCount === 1;
+   return [
+     recurrenceSegment(
+       `${name}:recurrence-0`,
+       [
+         ...expectedStatements("INSERT", insertCount, firstParameter),
+-        ...expectedStatements("SELECT", 1),
++        ...(folded ? [] : expectedStatements("SELECT", 1)),
+       ],
+       expected,
+       fault
+diff --git a/tests/raptor3/g4/read-codecs.test.ts b/tests/raptor3/g4/read-codecs.test.ts
+index 6fbe721..217e24b 100644
+--- a/tests/raptor3/g4/read-codecs.test.ts
++++ b/tests/raptor3/g4/read-codecs.test.ts
+@@ -22,6 +22,7 @@ import {
+   SPECIMENS,
+   SPECIMEN_TABLE,
+   type SpecimenValues,
++  VECTOR_TABLE,
+   codecWorldSchema,
+   spatialWorldSchema,
+   vectorWorldSchema,
+@@ -424,7 +425,23 @@ describe("G4 C12 vector capability boundary (SC-13)", () => {
+   let world: WitnessWorld;
+ 
+   beforeEach(async () => {
+-    world = await createWitnessWorld(vectorWorldSchema());
++    // This is the one witness world whose row CANNOT be written by the shipped
++    // client: both engines refuse a vector write here, so an engine-written
++    // seed would leave the table empty and make the read half vacuous. The row
++    // is therefore hand-written with raw SQL, the mechanism `WitnessWorld`
++    // exposes for exactly this case, and the physical spelling it writes is
++    // pinned in the cell below.
++    world = await createWitnessWorld(vectorWorldSchema(), {
++      seed: (database) => {
++        const seeded = EMBEDDINGS[0];
++        assert.ok(seeded, "SC-13 needs a seeded embedding");
++        database
++          .prepare(
++            `INSERT INTO ${VECTOR_TABLE} (id, embedded_name, embedded_vector) VALUES (?, ?, ?)`
++          )
++          .run(seeded.id, seeded.name, JSON.stringify(seeded.embedding));
++      },
++    });
+   });
+ 
+   afterEach(async () => {
+@@ -433,41 +450,46 @@ describe("G4 C12 vector capability boundary (SC-13)", () => {
+ 
+   /**
+    * SQLite declares no vector tier (`sqlite-adapter.ts` `vector =
+-   * unsupportedVector`). The contract is a refusal with one identity, not a
+-   * silent degradation — and the candidate must refuse identically. The round
+-   * trip itself is witnessed only on a capable provider, in
+-   * `tests/raptor3/g4/native/`.
++   * unsupportedVector`). The WRITE is where the capability is asked: the
++   * contract is a refusal with one identity, not a silent degradation, and the
++   * candidate must refuse identically. The READ is still answered — the vector
++   * field carries as JSON — so the same cell measures that a stored vector
++   * comes back decoded from both engines. What is NOT witnessed here is the
++   * round trip through the engine's own vector writer; that needs a capable
++   * provider, in `tests/raptor3/g4/native/`.
+    */
+-  it("SC-13 refuses a vector write and read identically on a provider without the tier", async () => {
++  it("SC-13 refuses a vector write identically and decodes a stored vector", async () => {
++    const seeded = EMBEDDINGS[0];
++    const refused = EMBEDDINGS[1];
++    assert.ok(seeded && refused, "SC-13 needs two embedding fixtures");
++    // A row the seed did NOT write, so a duplicate key can never stand in for
++    // the capability refusal.
+     const shippedWrite = await observeFailure(() =>
+       Promise.resolve(
+-        world.shipped.embedded?.create?.({ data: { ...EMBEDDINGS[0] } })
++        world.shipped.embedded?.create?.({ data: { ...refused } })
+       )
+     );
+     const candidateWrite = await observeFailure(() =>
+-      world.candidate.execute("embedded", "create", {
+-        data: { ...EMBEDDINGS[0] },
+-      })
++      world.candidate.execute("embedded", "create", { data: { ...refused } })
+     );
+     assert.equal(
+       candidateWrite.constructorName,
+       shippedWrite.constructorName,
+       `the candidate raised ${candidateWrite.constructorName} (${candidateWrite.message}) where the shipped engine raises ${shippedWrite.constructorName}`
+     );
+-    const shippedRead = await observeFailure(() =>
+-      Promise.resolve(
+-        world.shipped.embedded?.findMany?.({ select: { embedding: true } })
+-      )
+-    );
+-    const candidateRead = await observeFailure(() =>
+-      world.candidate.execute("embedded", "findMany", {
+-        select: { embedding: true },
+-      })
+-    );
+-    assert.equal(
+-      candidateRead.constructorName,
+-      shippedRead.constructorName,
+-      `the candidate raised ${candidateRead.constructorName} (${candidateRead.message}) where the shipped engine raises ${shippedRead.constructorName}`
++    const stored = world.database
++      .prepare(`SELECT embedded_vector FROM ${VECTOR_TABLE} WHERE id = ?`)
++      .get(seeded.id) as Record<string, unknown>;
++    assert.equal(stored.embedded_vector, "[1,0,0]");
++    // One read, two facts: the refused write stored nothing (a leaked row would
++    // show up as a second member) and both engines decode the stored list to
++    // the hand value.
++    await expectRead(
++      world,
++      "embedded",
++      "findMany",
++      { select: { embedding: true } },
++      [{ embedding: [...seeded.embedding] }]
+     );
+   });
+ });
+diff --git a/tests/raptor3/g4/read-recursive-fit.test.ts b/tests/raptor3/g4/read-recursive-fit.test.ts
+index 62f1c3e..7ff37cc 100644
+--- a/tests/raptor3/g4/read-recursive-fit.test.ts
++++ b/tests/raptor3/g4/read-recursive-fit.test.ts
+@@ -240,7 +240,10 @@ describe("G4 RF-16 recursive-read fit on the fuller codec set", () => {
+       if (value === null || typeof value !== "object") return;
+       const row = value as Record<string, unknown>;
+       if (typeof row.code === "string") flat.push(row);
+-      for (const nested of Object.values(row)) walk(nested);
++      // The traversal relation is the thing being flattened. Descending every
++      // nested value also pushes the row's own `document` JSON payload, whose
++      // `code` then replaces the traversal row in the map below.
++      walk(row.children);
+     };
+     walk(rows);
+     const byCode = new Map(flat.map((row) => [String(row.code), row]));

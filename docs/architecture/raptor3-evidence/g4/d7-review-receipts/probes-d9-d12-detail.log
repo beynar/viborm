@@ -1,0 +1,280 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts (12 tests | 2 failed) 69ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D1 root update matching no row, batch-only: same failure, same cache answer 28ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D2 root update matching no row, transaction-capable: same failure, same cache answer 4ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D3 a lone statement that fails AFTER the provider ran it 3ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D4 a lone statement rejected by a unique violation invalidates on neither engine 3ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D5 the G2.9 cut on a transaction-capable driver leaves the same state on both engines 3ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D6 the G2.9 cut on a batch-only driver leaves the same state on both engines 2ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D7 a one-statement createMany with skipDuplicates answers what shipped answers 5ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D8 a throwing cache listener never replaces the operation's own failure (uncertain arm) 2ms
+   × G4-02 D-7 review — the lone statement once it reaches the provider > D9 a throwing cache listener beside a malformed committed result (committed arm) 7ms
+     → D9 failure {
+  "candidate": {
+    "batches": 0,
+    "failure": {
+      "cause": {
+        "kind": "TypeError",
+        "message": "Invalid provider integer"
+      },
+      "errors": [
+        {
+          "kind": "TypeError",
+          "message": "Invalid provider integer"
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "written"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 0,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "create",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "create",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "create"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "written"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
+    cause: {
++     kind: 'TypeError',
++     message: 'Invalid provider integer'
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'create',
+-       scalarType: 'int'
+-     }
+    },
+    errors: [
+      {
++       kind: 'TypeError',
++       message: 'Invalid provider integer'
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'create',
+-         scalarType: 'int'
+-       }
+      },
+      {
+        code: 'V10004',
+        kind: 'CacheConfigurationError',
+        meta: {
+
+   × G4-02 D-7 review — the lone statement once it reaches the provider > D12 the same listener failure beside a malformed result on the BATCH transport 5ms
+     → D12 failure {
+  "candidate": {
+    "batches": 1,
+    "failure": {
+      "code": "V10004",
+      "kind": "CacheConfigurationError",
+      "meta": {
+        "commitCertainty": "committed",
+        "method": "invalidate",
+        "model": "owner",
+        "operation": "createMany",
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "result",
+          "committedSegments": 1,
+          "completedMembers": 0,
+          "committedWriteMembers": 1
+        }
+      }
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  },
+  "shipped": {
+    "batches": 1,
+    "failure": {
+      "cause": {
+        "code": "V9001",
+        "kind": "QueryEngineError",
+        "meta": {
+          "driver": "sqlite3",
+          "operation": "createMany",
+          "scalarType": "int"
+        }
+      },
+      "errors": [
+        {
+          "code": "V9001",
+          "kind": "QueryEngineError",
+          "meta": {
+            "driver": "sqlite3",
+            "operation": "createMany",
+            "scalarType": "int"
+          }
+        },
+        {
+          "code": "V10004",
+          "kind": "CacheConfigurationError",
+          "meta": {
+            "commitCertainty": "committed",
+            "method": "invalidate",
+            "model": "owner",
+            "operation": "createMany"
+          }
+        }
+      ],
+      "kind": "AggregateError",
+      "message": "Query execution and write-outcome publication both failed."
+    },
+    "invalidations": 1,
+    "rows": [
+      {
+        "id": 1,
+        "owner_label": "seed"
+      },
+      {
+        "id": 2,
+        "owner_label": "a"
+      },
+      {
+        "id": 3,
+        "owner_label": "b"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
++   code: 'V10004',
++   kind: 'CacheConfigurationError',
++   meta: {
++     commitCertainty: 'committed',
++     method: 'invalidate',
++     model: 'owner',
++     operation: 'createMany',
++     recordSeriesProgress: {
++       atomicity: 'segment',
++       committedSegments: 1,
++       committedWriteMembers: 1,
++       completedMembers: 0,
++       phase: 'result'
+-   cause: {
+-     code: 'V9001',
+-     kind: 'QueryEngineError',
+-     meta: {
+-       driver: 'sqlite3',
+-       operation: 'createMany',
+-       scalarType: 'int'
+      }
+    },
+-   errors: [
+-     {
+-       code: 'V9001',
+-       kind: 'QueryEngineError',
+-       meta: {
+-         driver: 'sqlite3',
+-         operation: 'createMany',
+-         scalarType: 'int'
+-       }
+-     },
+-     {
+-       code: 'V10004',
+-       kind: 'CacheConfigurationError',
+-       meta: {
+-         commitCertainty: 'committed',
+-         method: 'invalidate',
+-         model: 'owner',
+-         operation: 'createMany'
+-       }
+-     }
+-   ],
+-   kind: 'AggregateError',
+-   message: 'Query execution and write-outcome publication both failed.'
+  }
+
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D11 a multi-statement write inside its own region tells the cache nothing 3ms
+   ✓ G4-02 D-7 review — the lone statement once it reaches the provider > D10 a lone deleteMany that matches nothing still ran, on both engines 2ms
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 passed (12)
+   Start at  23:55:25
+   Duration  2.21s (transform 1.35s, setup 0ms, collect 2.00s, tests 69ms, environment 0ms, prepare 33ms)
+

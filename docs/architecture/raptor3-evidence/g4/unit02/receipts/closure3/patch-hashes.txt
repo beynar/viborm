@@ -1,0 +1,2 @@
+4a20a31efe54be3cc3f75f1e1f80f3d804753194d26ec2c62d25185baf80f331  docs/architecture/raptor3-evidence/g4/unit02/production-closure.patch
+50baa7de565acbf5b73f8c0cdec9fb6a199647b39a673dc0e7fbf55e753f3556  docs/architecture/raptor3-evidence/g4/unit02/tests-closure.patch

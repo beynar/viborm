@@ -6,7 +6,10 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import type { OperationContext } from "../shared/operation-context";
-import type { SelectorFacts } from "../shared/query";
+import {
+  returningSafeProjection,
+  type SelectorFacts,
+} from "../shared/query";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
 import {
@@ -24,6 +27,33 @@ import {
 } from "./selection";
 
 export { Selection } from "./selection";
+
+/** One operation's constructed physical form, and whether it may be one statement. */
+export interface PhysicalPlan {
+  /**
+   * May this form reduce to ONE physical statement? It is an ADMISSIBILITY, not
+   * a count: a form whose shape rules a single statement out (a locate-then-
+   * mutate route, a per-row recoverable skip, a re-read after a non-RETURNING
+   * write) answers `false` and opens its envelope immediately. Every other form
+   * answers `true` and lets the construction itself state the count, at the one
+   * place every provider round trip crosses (`OperationContext.dispatch`): a
+   * second statement raises the envelope sentinel before any provider work and
+   * the body is constructed again inside the region.
+   */
+  readonly single: boolean;
+  run(): Promise<unknown>;
+}
+
+/** A bulk verb publishes rows only when the caller selected a shape. */
+function bulkProjection(
+  context: OperationContext,
+  model: AnyModel,
+  args: Arguments
+) {
+  return args.select
+    ? context.queries.prepareProjection(model, { select: args.select })
+    : undefined;
+}
 
 type Reference = Extract<Membership, { kind: "reference" }>;
 type Junction = Extract<Membership, { kind: "junction" }>;
@@ -977,12 +1007,82 @@ export class Commands {
       selection.required
     );
   }
-  async execute(
+  /**
+   * A root `create`/`update` that writes no relation and publishes no relation
+   * is the set-oriented mutation owner plus ONE cardinality decision — the same
+   * statement, the same prepared projection and the same decoder a bulk verb
+   * uses, so no second single-row physical path exists. It is also the shipped
+   * fold gate (`UpdateOperation` `canFold`, `DeleteOperation.ts:206-212`): a
+   * relation projection must read other rows, which no RETURNING can carry, and
+   * a provider without RETURNING keeps the located/mutated/re-read route.
+   */
+  /**
+   * A root `update` that writes no relation and publishes no relation is the
+   * set-oriented mutation owner plus ONE cardinality decision — the same
+   * statement, the same prepared projection and the same decoder a bulk verb
+   * uses, so no second single-row physical path exists. It is also the shipped
+   * fold gate (`UpdateOperation` `canFold`): a relation projection must read
+   * other rows, which no RETURNING can carry, and a provider without RETURNING
+   * keeps the located/mutated/re-read route.
+   *
+   * Root `create` folds under the same three conditions, through the set-oriented
+   * INSERT owner ({@link rootCreate}).
+   */
+  private rootUpdate(
     model: AnyModel,
-    args: Arguments,
-    raw: Arguments
-  ): Promise<unknown> {
+    args: Arguments
+  ): (() => Promise<unknown>) | undefined {
     const ctx = this.context;
+    if (ctx.schema.namesRelation(model, args.data)) return undefined;
+    if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
+    const projection = ctx.queries.prepareProjection(model, args);
+    if (!returningSafeProjection(projection)) return undefined;
+    const values = ctx.schema.scalars(model, args.data);
+    const selector = ctx.queries.prepareSelector(model, args.where, true);
+    return () =>
+      ctx.updateMany(model, selector, values, undefined, projection, () =>
+        new NotFoundError(model["~"].names.ts!, "update")
+      );
+  }
+  /**
+   * A root `create` that writes no relation and publishes no relation is the
+   * set-oriented INSERT owner plus ONE cardinality decision, exactly as
+   * {@link rootUpdate} is for `update`: one `INSERT … RETURNING <projection>`,
+   * the same prepared projection and the same decoder a bulk create uses. It is
+   * the shipped classification too — `canExecuteDirectly` runs this shape
+   * through `runStatementAtomic` with no transaction, measured.
+   *
+   * The gate is the fold's own reachability: a relation in `data` needs the
+   * record route's dependency machinery, a projection that reads other rows has
+   * no RETURNING spelling, and a provider without RETURNING must re-read.
+   */
+  private rootCreate(
+    model: AnyModel,
+    args: Arguments
+  ): (() => Promise<unknown>) | undefined {
+    const ctx = this.context;
+    if (ctx.schema.namesRelation(model, args.data)) return undefined;
+    if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
+    const projection = ctx.queries.prepareProjection(model, args);
+    if (!returningSafeProjection(projection)) return undefined;
+    const values = ctx.schema.scalars(model, args.data);
+    return () =>
+      ctx.createMany(model, [values], projection, false, () => {
+        throw new TypeError("INSERT did not produce the required record");
+      });
+  }
+  /**
+   * Construct this operation's physical form and answer whether that form MAY
+   * be one statement ({@link PhysicalPlan.single}). Construction reaches no
+   * provider, so the envelope owner can ask before it decides
+   * (`OperationContext.run`). The envelope RULE itself lives in one place, the
+   * context: a form admitted here is only confirmed single by reaching its
+   * terminal statement having issued no other.
+   */
+  plan(model: AnyModel, args: Arguments, raw: Arguments): PhysicalPlan {
+    const ctx = this.context;
+    const adapter = ctx.driver.adapter;
+    const returning = adapter.capabilities.supportsReturning;
     if (ctx.operation === "createMany") {
       const rows = entries(args.data);
       const relationBearing = rows.some((row) =>
@@ -1006,28 +1106,63 @@ export class Commands {
           records: occurrences,
           select: args.select,
         };
-        return this.execution.records(series.records, series.select, series);
+        return {
+          single: false,
+          run: () =>
+            this.execution.records(series.records, series.select, series),
+        };
       }
-      return ctx.createMany(
-        model,
-        rows.map((row) => ctx.schema.scalars(model, row)),
-        args.select,
-        args.skipDuplicates
-      );
+      const projection = bulkProjection(ctx, model, args);
+      const values = rows.map((row) => ctx.schema.scalars(model, row));
+      const recoverableSkip =
+        args.skipDuplicates === true &&
+        adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
+      // `single` is the envelope owner's OPTIMISTIC question — "may this form
+      // reduce to one statement?" — never a per-verb count. A relation-free
+      // `createMany` writes one grouped, bind-budgeted INSERT per column set, so
+      // the answer is a row-count-independent fact: a recoverable skip is
+      // per-row by construction, and a projection without RETURNING re-reads.
+      // How many statements the construction actually produces is the
+      // construction's own answer, enforced at `OperationContext.dispatch`.
+      return {
+        single: values.length === 0 || (!recoverableSkip && (!projection || returning)),
+        run: () =>
+          ctx.createMany(model, values, projection, args.skipDuplicates),
+      };
     }
     if (ctx.operation === "deleteMany") {
-      if (args.limit === 0) return ctx.emptyBulkResult(args.select);
-      return ctx.deleteMany(
-        model,
-        ctx.queries.prepareSelector(model, args.where),
-        args.limit,
-        args.select
-      );
+      const projection = bulkProjection(ctx, model, args);
+      if (args.limit === 0)
+        return { single: true, run: async () => ctx.emptyBulkResult(projection) };
+      const selector = ctx.queries.prepareSelector(model, args.where);
+      return {
+        single: !projection || (returning && returningSafeProjection(projection)),
+        run: () => ctx.deleteMany(model, selector, args.limit, projection),
+      };
+    }
+    // Root delete is the selected-row removal owner plus ONE cardinality: locate
+    // by the extended-unique selector, publish the removed row's prepared
+    // projection (RETURNING where the adapter carries it, the locked capture
+    // where it does not), and own the missing-row identity.
+    if (ctx.operation === "delete") {
+      const projection = ctx.queries.prepareProjection(model, args);
+      const selector = ctx.queries.prepareSelector(model, args.where, true);
+      return {
+        single: returning && returningSafeProjection(projection),
+        run: () =>
+          ctx.deleteMany(model, selector, undefined, projection, () =>
+            new NotFoundError(model["~"].names.ts!, "delete")
+          ),
+      };
     }
     if (ctx.operation === "upsert") {
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
-      const lookup = this.lookup(model, { kind: "query", where: args.where });
+      const lookup = this.lookup(model, {
+        kind: "query",
+        where: args.where,
+        unique: true,
+      });
       const queries = this.context.queries;
       const probes: Condition[] = [];
       for (const field of ["targetWhere", "setWhere"] as const) {
@@ -1056,6 +1191,19 @@ export class Commands {
       const found = this.occurrence(
         this.update(lookup, args.update!, raw.update!, true)
       );
+      // The shipped engine's THIRD key owner, raised where it raises it: at
+      // analysis, before either arm exists, so a missing row is refused too and
+      // nothing is written (`EngineSchema.keyTransitionRefusal`). Both facts it
+      // needs are read off structures that already exist — the update arm's own
+      // recorded key transitions, and the locator's DISCRIMINATOR pins — so the
+      // refusal restates neither the relation walk nor the selector.
+      const transition = ctx.schema.keyTransitionRefusal(
+        model,
+        args.update!,
+        lookup.selector.facts.keys,
+        found.command.transitions
+      );
+      if (transition) throw transition;
       const choice: Choose = {
         kind: "choose",
         model,
@@ -1078,37 +1226,60 @@ export class Commands {
       this.materializePlacement(occurrence);
       this.bindTree(occurrence);
       this.analyzeOccurrence(occurrence);
-      return this.execution.complete(occurrence, args);
+      // The row key's portability contract, carried where the shipped engine
+      // carries it for an upsert: on the FOUND arm (`UpsertOperation.compileFoundArm`
+      // runs `updateLegality` only once that arm is selected, so a create still
+      // writes its row) and only when the update payload names relations
+      // (`updateHasRelations ? … : undefined`). It outranks a nested-write
+      // refusal on the same arm, as the shipped legality order does.
+      const foundArm = this.choiceArm(occurrence, "found");
+      if (foundArm && ctx.schema.namesRelation(model, args.update!))
+        foundArm.refusal =
+          ctx.schema.keyPortabilityRefusal(model, args.update) ??
+          foundArm.refusal;
+      return {
+        single: false,
+        run: () => this.execution.complete(occurrence, args),
+      };
     }
     if (ctx.operation === "create" || ctx.operation === "update") {
+      const folded =
+        ctx.operation === "update"
+          ? this.rootUpdate(model, args)
+          : this.rootCreate(model, args);
+      if (folded) return { single: true, run: folded };
       const root =
         ctx.operation === "create"
           ? this.create(model, args.data, raw.data)
           : this.update(
               this.lookup(
                 model,
-                { kind: "query", where: args.where! },
+                { kind: "query", where: args.where!, unique: true },
                 new NotFoundError(model["~"].names.ts!, "update")
               ),
               args.data,
               raw.data
             );
       for (const field of ctx.schema.keys(model)) root.fields.field(field);
-      return this.execution.complete(this.analyze(root), args);
+      const occurrence = this.analyze(root);
+      return {
+        single: false,
+        run: () => this.execution.complete(occurrence, args),
+      };
     }
     const updateData = args.data;
-    const relationBearing = model["~"].relationNames.some(
-      (name) => updateData[name] !== undefined
-    );
-    if (args.limit === 0) return ctx.emptyBulkResult(args.select);
+    const relationBearing = ctx.schema.namesRelation(model, updateData);
+    const projection = bulkProjection(ctx, model, args);
+    if (args.limit === 0)
+      return { single: true, run: async () => ctx.emptyBulkResult(projection) };
     if (!relationBearing) {
-      return ctx.updateMany(
-        model,
-        ctx.queries.prepareSelector(model, args.where),
-        ctx.schema.scalars(model, updateData),
-        args.limit,
-        args.select
-      );
+      const selector = ctx.queries.prepareSelector(model, args.where);
+      const values = ctx.schema.scalars(model, updateData);
+      return {
+        single: !projection || returning,
+        run: () =>
+          ctx.updateMany(model, selector, values, args.limit, projection),
+      };
     }
     const selection = this.lookup(
       model,
@@ -1123,9 +1294,17 @@ export class Commands {
       mutation: { kind: "update", raw: raw.data },
     };
     const occurrence = this.analyzeSeries(series);
-    if (args.select)
-      return this.execution.series(occurrence, series.selection, args.select);
-    const count = await this.execution.series(occurrence);
-    return { count };
+    return {
+      single: false,
+      run: async () => {
+        if (args.select)
+          return this.execution.series(
+            occurrence,
+            series.selection,
+            args.select
+          );
+        return { count: await this.execution.series(occurrence) };
+      },
+    };
   }
 }

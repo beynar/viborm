@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 64ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  02:16:01
+   Duration  5.45s (transform 1.83s, setup 16ms, collect 2.69s, tests 64ms, environment 0ms, prepare 49ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AZtkJk/vitest.json
+Vitest resources: 11.94s wall, 477.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs01-structural-reference contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-AZtkJk

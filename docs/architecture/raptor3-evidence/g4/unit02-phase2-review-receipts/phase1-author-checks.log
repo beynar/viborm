@@ -1,0 +1,573 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests | 1 failed) 34ms
+   ✓ G4-02 §5.4 — the malformed-result cut around the folded root create > 1. the split trace on a provider without RETURNING still reaches the cut 18ms
+   ✓ G4-02 §5.4 — the malformed-result cut around the folded root create > 1b. the same split trace on a segment-atomic transport reports truthful progress 2ms
+   ✓ G4-02 §5.4 — the malformed-result cut around the folded root create > 2. a relation-bearing create reaches the cut on a later statement 4ms
+   × G4-02 §5.4 — the malformed-result cut around the folded root create > 3. the folded form answers exactly what the shipped engine answers 9ms
+     → the folded create is shipped parity
++ actual - expected
+... Skipped lines
+
+  {
+    corrupted: true,
+    failure: {
+      code: 'V9001',
+      message: 'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
+...
+    },
++   rows: [],
++   statements: 2,
+-   rows: [
+-     {
+-       id: 1,
+-       label: 'written'
+-     }
+-   ],
+-   statements: 1,
+    value: undefined
+  }
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests | 5 failed) 27ms
+   × G4-02 operationRegion — ownership is stated, never inferred > opens exactly one region for a multi-statement borrowed write, and none without the grant 9ms
+     → exactly one region: []
+
+0 !== 1
+
+   ✓ G4-02 operationRegion — ownership is stated, never inferred > runs a single-statement borrowed write directly even when a region was granted 3ms
+   × G4-02 scalar update language (SC-03…SC-06 write side) > spells every arithmetic operator in SQL, in the provider's own vocabulary 6ms
+     → Raptor 3 G1 update operator is not implemented: multiply
+   × G4-02 scalar update language (SC-03…SC-06 write side) > refuses an exact decimal divided by zero before any statement is issued 2ms
+     → Error: Raptor 3 G1 update operator is not implemented: divide
+   × G4-02 root create folds to one statement > costs one statement and no envelope, and publishes the created row 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    control: 0,
++   statements: 2,
++   transactions: 1
+-   statements: 1,
+-   transactions: 0
+  }
+
+   ✓ G4-02 root create folds to one statement > keeps the qualified route when the data names a relation 2ms
+   × G4-02 a statement-atomic operation has no record series > carries the shipped meta for a missing root delete on a batch-only driver 2ms
+     → no series, no progress record
++ actual - expected
+
+  {
+    model: 'author',
+    operation: 'delete',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   }
+  }
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests | 1 failed) 16ms
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth 9ms
+     → Driver "sqlite3" returned a malformed bigint scalar for operation "findMany": the value is not a canonical integer.
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 applies descendant where, select and orderBy at every level 4ms
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 orders roots by seed and keeps one statement per traversal 3ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 22ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 21ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests | 1 failed) 11ms
+   ✓ G4-02 §5.4 — the root conditional member's found/missing cut > update: one statement decides found from missing, and both branches equal shipped 5ms
+   ✓ G4-02 §5.4 — the root conditional member's found/missing cut > delete: the same strategy, and the row set is the shipped one on both branches 2ms
+   × G4-02 §5.4 — the root conditional member's found/missing cut > create: the root record is one INSERT … RETURNING, with no re-read to observe 2ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'INSERT',
++   'SELECT'
+  ]
+
+   ✓ G4-02 §5.4 — the root conditional member's found/missing cut > a relation-bearing root create keeps its statements, so its cuts are NOT eliminated 2ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 14ms
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/prepared-operation.test.ts (5 tests) 11ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests | 2 failed) 5ms
+   ✓ G4-02 decimal having _sum operand (§10.10) > binds the operand exactly as the shipped engine does, on all three dialects 3ms
+   × G4-02 decimal having _sum operand (§10.10) > binds a sum operand WIDER than the column's own precision, as shipped 1ms
+     → PostgreSQL
++ actual - expected
+
++ 'CAST($1 AS NUMERIC(16,2))'
+- 'CAST($1 AS NUMERIC(19,2))'
+                       ^
+
+   × G4-02 decimal having _sum operand (§10.10) > raises the registered refusal when the provider cannot cast the coefficient 1ms
+     → The input did not match the regular expression /outside this provider's exact HAVING operand cast domain/. Input:
+
+'ok:SELECT "q0"."bucket" AS "bucket", COUNT(*) AS "_count" FROM "g4u2_having_ledger" AS "q0" GROUP BY "q0"."bucket" HAVING SUM("q0"."amount") > CAST($1 AS INTEGER)'
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test | 1 failed) 4ms
+   × G4-02 SC-13 — the vector crossings without a provider tier > refuses the write with the shipped identity and decodes the read identically 4ms
+     → the candidate raised FeatureNotSupportedError (vector.literal is not supported. Load the pgvector extension.) where the shipped engine raises QueryError (Query execution failed)
++ actual - expected
+
+  {
++   constructorName: 'FeatureNotSupportedError',
+-   constructorName: 'QueryError',
+    failed: true,
++   message: 'vector.literal is not supported. Load the pgvector extension.'
+-   message: 'Query execution failed'
+  }
+
+ ✓ |g4-unit02-author| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 13ms
+ ↓ |g4-unit02-author| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test | 1 skipped)
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests | 1 failed) 6ms
+   × G4-01 repair 3 review — which refusal wins when two are owed > decimal domain vs the cursor refusal 3ms
+     → decimal mismatch beside a cursor refusal
+  candidate {"error":"Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."}
+  shipped   {"error":"Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported."}
++ actual - expected
+
+  {
++   error: "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+   ✓ G4-01 repair 3 review — which refusal wins when two are owed > decimal domain vs the cross-model scope refusal, in one filter 1ms
+   ✓ G4-01 repair 3 review — which refusal wins when two are owed > decimal domain vs a null cursor field 1ms
+   ✓ G4-01 repair 3 review — which refusal wins when two are owed > the cursor refusal vs an unknown-field selector 1ms
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests | 2 failed) 4ms
+   × G4-01 repair 3 review — is the refusal ORDER new? > cross-model scope refusal (r2 code) beside the cursor violation 2ms
+     → pre-existing scope refusal vs cursor refusal
+  candidate Field reference 'line.fee' cannot be use
+  shipped   Cursor pagination supports direct scalar
++ actual - expected
+
+  {
++   error: "Field reference 'line.fee' cannot be used while filtering 'led': a field reference may only compare columns of the same model."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+   ✓ G4-01 repair 3 review — is the refusal ORDER new? > GeoPoint-free control: a plain unsatisfiable filter beside the cursor violation 1ms
+   × G4-01 repair 3 review — is the refusal ORDER new? > decimal domain refusal (r5 code) beside the cursor violation 1ms
+     → r5 decimal refusal vs cursor refusal
+  candidate Field reference 'micros' cannot be compa
+  shipped   Cursor pagination supports direct scalar
++ actual - expected
+
+  {
++   error: "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts > G4-02 decimal having _sum operand (§10.10) > binds a sum operand WIDER than the column's own precision, as shipped
+AssertionError: PostgreSQL
++ actual - expected
+
++ 'CAST($1 AS NUMERIC(16,2))'
+- 'CAST($1 AS NUMERIC(19,2))'
+                       ^
+
+
+Expected: [32m"CAST($1 AS NUMERIC(1[7m9[27m,2))"[39m
+Received: [31m"CAST($1 AS NUMERIC(1[7m6[27m,2))"[39m
+
+ ❯ tests/raptor3/g4/unit02/decimal-having-operand.test.ts:122:14
+    120|       );
+    121|       const candidateOperand = operandAfter(candidate(adapter(), args)…
+    122|       assert.equal(candidateOperand, shippedOperand, name);
+       |              ^
+    123|     }
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/decimal-having-operand.test.ts > G4-02 decimal having _sum operand (§10.10) > raises the registered refusal when the provider cannot cast the coefficient
+AssertionError: The input did not match the regular expression /outside this provider's exact HAVING operand cast domain/. Input:
+
+'ok:SELECT "q0"."bucket" AS "bucket", COUNT(*) AS "_count" FROM "g4u2_having_ledger" AS "q0" GROUP BY "q0"."bucket" HAVING SUM("q0"."amount") > CAST($1 AS INTEGER)'
+
+
+[32m- Expected:[39m 
+/outside this provider's exact HAVING operand cast domain/
+
+[31m+ Received:[39m 
+"ok:SELECT \"q0\".\"bucket\" AS \"bucket\", COUNT(*) AS \"_count\" FROM \"g4u2_having_ledger\" AS \"q0\" GROUP BY \"q0\".\"bucket\" HAVING SUM(\"q0\".\"amount\") > CAST($1 AS INTEGER)"
+
+ ❯ tests/raptor3/g4/unit02/decimal-having-operand.test.ts:141:12
+    139|     );
+    140|     const candidateOutcome = observe(() => candidate(new SQLiteAdapter…
+    141|     assert.match(
+       |            ^
+    142|       candidateOutcome,
+    143|       /outside this provider's exact HAVING operand cast domain/
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/k-competing-refusals.test.ts > G4-01 repair 3 review — which refusal wins when two are owed > decimal domain vs the cursor refusal
+AssertionError: decimal mismatch beside a cursor refusal
+  candidate {"error":"Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."}
+  shipped   {"error":"Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported."}
++ actual - expected
+
+  {
++   error: "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "error": "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",[39m
+[31m+   "error": "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale.",[39m
+[2m  }[22m
+
+ ❯ agrees tests/raptor3/g4/unit02/k-competing-refusals.test.ts:24:10
+     22|   seen: { shipped: unknown; candidate: unknown }
+     23| ): void => {
+     24|   assert.deepEqual(
+       |          ^
+     25|     seen.candidate,
+     26|     seen.shipped,
+ ❯ tests/raptor3/g4/unit02/k-competing-refusals.test.ts:40:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts > G4-01 repair 3 review — is the refusal ORDER new? > cross-model scope refusal (r2 code) beside the cursor violation
+AssertionError: pre-existing scope refusal vs cursor refusal
+  candidate Field reference 'line.fee' cannot be use
+  shipped   Cursor pagination supports direct scalar
++ actual - expected
+
+  {
++   error: "Field reference 'line.fee' cannot be used while filtering 'led': a field reference may only compare columns of the same model."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "error": "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",[39m
+[31m+   "error": "Field reference 'line.fee' cannot be used while filtering 'led': a field reference may only compare columns of the same model.",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/k-refusal-order-history.test.ts:38:12
+     36|     const seen = await both({ cents: { equals: lineRefs.fee } });
+     37|     const names = shortName(seen);
+     38|     assert.deepEqual(
+       |            ^
+     39|       seen.candidate,
+     40|       seen.shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts > G4-01 repair 3 review — is the refusal ORDER new? > decimal domain refusal (r5 code) beside the cursor violation
+AssertionError: r5 decimal refusal vs cursor refusal
+  candidate Field reference 'micros' cannot be compa
+  shipped   Cursor pagination supports direct scalar
++ actual - expected
+
+  {
++   error: "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale."
+-   error: 'Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "error": "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",[39m
+[31m+   "error": "Field reference 'micros' cannot be compared with 'cents' on 'led': 'cents' is decimal(12,2) and 'micros' is decimal(12,4). Two decimals compare exactly only when they declare the same precision and scale.",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/k-refusal-order-history.test.ts:57:12
+     55|     const seen = await both({ cents: { equals: ledRefs.micros } });
+     56|     const names = shortName(seen);
+     57|     assert.deepEqual(
+       |            ^
+     58|       seen.candidate,
+     59|       seen.shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts > G4-02 §5.4 — the malformed-result cut around the folded root create > 3. the folded form answers exactly what the shipped engine answers
+AssertionError: the folded create is shipped parity
++ actual - expected
+... Skipped lines
+
+  {
+    corrupted: true,
+    failure: {
+      code: 'V9001',
+      message: 'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
+...
+    },
++   rows: [],
++   statements: 2,
+-   rows: [
+-     {
+-       id: 1,
+-       label: 'written'
+-     }
+-   ],
+-   statements: 1,
+    value: undefined
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -8,14 +8,9 @@[39m
+[2m        "operation": "create",[22m
+[2m        "scalarType": "int",[22m
+[2m      },[22m
+[2m      "name": "QueryEngineError",[22m
+[2m    },[22m
+[32m-   "rows": [[39m
+[32m-     {[39m
+[32m-       "id": 1,[39m
+[32m-       "label": "written",[39m
+[32m-     },[39m
+[32m-   ],[39m
+[32m-   "statements": 1,[39m
+[31m+   "rows": [],[39m
+[31m+   "statements": 2,[39m
+[2m    "value": undefined,[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/malformed-result-cuts.test.ts:301:12
+    299|     const shipped = await run("shipped");
+    300|     const candidate = await run("candidate");
+    301|     assert.deepEqual(candidate, shipped, "the folded create is shipped…
+       |            ^
+    302|     assert.equal(shipped.statements, 1, "one statement, no re-read");
+    303|     assert.deepEqual(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts > G4-02 operationRegion — ownership is stated, never inferred > opens exactly one region for a multi-statement borrowed write, and none without the grant
+AssertionError: exactly one region: []
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts:90:14
+     88|       const granted = cost(driver);
+     89|       assert.ok(granted.statements > 1, "a relation-bearing update is …
+     90|       assert.equal(
+       |              ^
+     91|         savepoints(driver),
+     92|         1,
+ ❯ src/drivers/driver-transaction-base.ts:629:26
+ ❯ trackedCallback src/drivers/driver-transaction-base.ts:365:16
+ ❯ runTransactionLifecycle src/drivers/shared/transactions.ts:193:14
+ ❯ runTransaction src/drivers/driver-transaction-base.ts:385:16
+ ❯ RecordingSQLiteDriver.runConnectionTransactionLease src/drivers/driver-transaction-base.ts:94:14
+ ❯ src/drivers/savepoint-queue.ts:63:19
+ ❯ SavepointQueue.flush src/drivers/savepoint-queue.ts:92:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts > G4-02 scalar update language (SC-03…SC-06 write side) > spells every arithmetic operator in SQL, in the provider's own vocabulary
+Error: Raptor 3 G1 update operator is not implemented: multiply
+ ❯ Queries.updateValue src/query-engine/raptor3/shared/query.ts:641:13
+    639|         return this.fieldValue(model, field, operation.set);
+    640|       if (!isOperatorRecord(value)) return this.fieldValue(model, fiel…
+    641|       throw new Error(
+       |             ^
+    642|         `Raptor 3 G1 update operator is not implemented: ${Object.keys…
+    643|       );
+ ❯ src/query-engine/raptor3/shared/operation-context.ts:1135:11
+ ❯ OperationContext.updateMany src/query-engine/raptor3/shared/operation-context.ts:1132:48
+ ❯ src/query-engine/raptor3/commands/commands.ts:1045:11
+ ❯ OperationContext.run src/query-engine/raptor3/shared/operation-context.ts:409:22
+ ❯ body src/query-engine/raptor3/commands/index.ts:158:22
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:170:16
+ ❯ Object.execute src/query-engine/raptor3/commands/index.ts:211:53
+ ❯ tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts:182:42
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts > G4-02 scalar update language (SC-03…SC-06 write side) > refuses an exact decimal divided by zero before any statement is issued
+AssertionError: Error: Raptor 3 G1 update operator is not implemented: divide
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts:241:14
+    239|         failure = caught;
+    240|       }
+    241|       assert.ok(failure instanceof QueryEngineError, String(failure));
+       |              ^
+    242|       assert.equal(
+    243|         failure.message,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts > G4-02 root create folds to one statement > costs one statement and no envelope, and publishes the created row
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    control: 0,
++   statements: 2,
++   transactions: 1
+-   statements: 1,
+-   transactions: 0
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "control": 0,[22m
+[32m-   "statements": 1,[39m
+[32m-   "transactions": 0,[39m
+[31m+   "statements": 2,[39m
+[31m+   "transactions": 1,[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts:266:12
+    264|     });
+    265|     assert.deepEqual(value, { id: 3, name: "Cy", age: 29, avatar: null…
+    266|     assert.deepEqual(cost(world.driver), {
+       |            ^
+    267|       statements: 1,
+    268|       transactions: 0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts > G4-02 a statement-atomic operation has no record series > carries the shipped meta for a missing root delete on a batch-only driver
+AssertionError: no series, no progress record
++ actual - expected
+
+  {
+    model: 'author',
+    operation: 'delete',
++   recordSeriesProgress: {
++     atomicity: 'segment',
++     committedSegments: 1,
++     committedWriteMembers: 1,
++     completedMembers: 0,
++     phase: 'result'
++   }
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "model": "author",[22m
+[2m    "operation": "delete",[22m
+[31m+   "recordSeriesProgress": {[39m
+[31m+     "atomicity": "segment",[39m
+[31m+     "committedSegments": 1,[39m
+[31m+     "committedWriteMembers": 1,[39m
+[31m+     "completedMembers": 0,[39m
+[31m+     "phase": "result",[39m
+[31m+   },[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts:312:14
+    310|       }
+    311|       assert.ok(failure instanceof NotFoundError, String(failure));
+    312|       assert.deepEqual(
+       |              ^
+    313|         { ...failure.meta },
+    314|         { model: "author", operation: "delete" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth
+QueryEngineError: Driver "sqlite3" returned a malformed bigint scalar for operation "findMany": the value is not a canonical integer.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts > G4-02 §5.4 — the root conditional member's found/missing cut > create: the root record is one INSERT … RETURNING, with no re-read to observe
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'INSERT',
++   'SELECT'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "INSERT",[22m
+[31m+   "SELECT",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/unit02/root-member-cut-trace.test.ts:165:12
+    163|       invoke("author", "create", { data: { id: 8, name: "Di", age: 21 …
+    164|     );
+    165|     assert.deepEqual(created.statements, ["INSERT"]);
+       |            ^
+    166|     assert.deepEqual(shipped.statements, ["INSERT"]);
+    167|     assert.equal(created.transactions, 0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/vector-capability.test.ts > G4-02 SC-13 — the vector crossings without a provider tier > refuses the write with the shipped identity and decodes the read identically
+AssertionError: the candidate raised FeatureNotSupportedError (vector.literal is not supported. Load the pgvector extension.) where the shipped engine raises QueryError (Query execution failed)
++ actual - expected
+
+  {
++   constructorName: 'FeatureNotSupportedError',
+-   constructorName: 'QueryError',
+    failed: true,
++   message: 'vector.literal is not supported. Load the pgvector extension.'
+-   message: 'Query execution failed'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "constructorName": "QueryError",[39m
+[31m+   "constructorName": "FeatureNotSupportedError",[39m
+[2m    "failed": true,[22m
+[32m-   "message": "Query execution failed",[39m
+[31m+   "message": "vector.literal is not supported. Load the pgvector extension.",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/vector-capability.test.ts:92:12
+     90|     );
+     91|     assert.equal(shippedWrite.failed, true, "the shipped write must re…
+     92|     assert.deepEqual(
+       |            ^
+     93|       {
+     94|         failed: candidateWrite.failed,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+
+
+ Test Files  8 failed | 5 passed | 1 skipped (14)
+      Tests  14 failed | 46 passed | 1 skipped (61)
+   Start at  08:54:02
+   Duration  3.37s (transform 1.40s, setup 16ms, collect 2.95s, tests 188ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.85s wall, 678.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

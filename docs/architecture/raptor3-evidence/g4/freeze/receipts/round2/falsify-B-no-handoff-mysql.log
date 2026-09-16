@@ -1,0 +1,68 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-unit02-author| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests | 1 failed) 794ms
+   × G4-02 native MySQL nested key refusal > refuses a nested upsert whose target is PRESENT, writing nothing 318ms
+     → candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[11]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
++     11
+-     10
+    ]
+  }
+
+   ✓ G4-02 native MySQL nested key refusal > creates the row for a nested upsert whose target is ABSENT  366ms
+   ✓ G4-02 native MySQL nested key refusal > refuses a nested update whose key names set beside an operator 109ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-unit02-author| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts > G4-02 native MySQL nested key refusal > refuses a nested upsert whose target is PRESENT, writing nothing
+AssertionError: candidate {"answer":"ok:{\"id\":1,\"label\":\"o\"}","items":[11]}
+shipped   {"answer":"QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.","items":[10]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":1,"label":"o"}',
+-   answer: "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",
+    items: [
++     11
+-     10
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.",[39m
+[31m+   "answer": "ok:{\"id\":1,\"label\":\"o\"}",[39m
+[2m    "items": [[22m
+[32m-     10,[39m
+[31m+     11,[39m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts:183:18
+    181|           const shipped = await measure("shipped");
+    182|           const candidate = await measure("candidate");
+    183|           assert.deepEqual(
+       |                  ^
+    184|             candidate,
+    185|             shipped,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  19:24:09
+   Duration  5.37s (transform 2.84s, setup 28ms, collect 4.27s, tests 794ms, environment 0ms, prepare 77ms)
+
+Vitest resources: 6.48s wall, 458.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

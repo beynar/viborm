@@ -1,0 +1,282 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a DECIMAL key multiply beside a relation write the way shipped does
+[decimal-multiply+relation] QueryEngineError: Arithmetic updates are not portable for decimal primary key field 'id'. Use an explicit set value.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > does NOT refuse a supported int key increment beside a relation write
+[int-increment+relation] NestedWriteError: Cannot update relation 'items' with onUpdate('restrict') while the current relation is occupied.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a MATCHED conditional the way shipped does
+[matched-conditional] QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > orders the portability refusal against a nested-write refusal the way shipped does
+[portability-vs-nested] QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > raises the gated refusal on an ATOMIC BATCH profile the way shipped does
+[batch relation-bearing] QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value.
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose scalar update divides the key by zero
+[absent divide-by-zero] ok:{"id":99,"label":"new"}
+
+stdout | tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — a NESTED upsert's update payload > answers a nested upsert whose update multiplies the target key the way shipped does
+[nested upsert] ok:{"id":3,"label":"p"}
+
+ ❯ |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts (14 tests | 4 failed) 141ms
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers an int key divide-by-zero beside a relation write the way shipped does 38ms
+     → candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+   ✓ G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a DECIMAL key multiply beside a relation write the way shipped does 16ms
+   ✓ G4-02 review follow-up 2 — the relation-bearing half of the gate > does NOT refuse a supported int key increment beside a relation write 10ms
+   ✓ G4-02 review follow-up 2 — the relation-bearing half of the gate > answers a MATCHED conditional the way shipped does 8ms
+   × G4-02 review follow-up 2 — the relation-bearing half of the gate > answers `set` beside the operator on the gated arm the way shipped does 10ms
+     → candidate {"answer":"NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+   ✓ G4-02 review follow-up 2 — the relation-bearing half of the gate > orders the portability refusal against a nested-write refusal the way shipped does 8ms
+   ✓ G4-02 review follow-up 2 — the profile and the absent row > raises the gated refusal on an ATOMIC BATCH profile the way shipped does 8ms
+   × G4-02 review follow-up 2 — the profile and the absent row > performs a scalar-only key multiply on an ATOMIC BATCH profile the way shipped does 8ms
+     → candidate {"answer":"Error: Raptor 3 update expression publication requires an integer field","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 update expression publication requires an integer field',
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+   ✓ G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose scalar update divides the key by zero 6ms
+   × G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose relation-bearing update divides the key by zero 5ms
+     → candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":3,"label":"p"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+   ✓ G4-02 review follow-up 2 — the contract that must still fire > still refuses a number key multiply on `update` 5ms
+   ✓ G4-02 review follow-up 2 — the contract that must still fire > still refuses an int key divide-by-zero on `updateMany` 5ms
+   ✓ G4-02 review follow-up 2 — the contract that must still fire > refuses a relation-bearing `update` key multiply at admission, as shipped does 4ms
+   ✓ G4-02 review follow-up 2 — a NESTED upsert's update payload > answers a nested upsert whose update multiplies the target key the way shipped does 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers an int key divide-by-zero beside a relation write the way shipped does
+AssertionError: candidate {"answer":"QueryEngineError: Cannot divide primary key field 'id' by zero.","rows":[{"id":3,"label":"p"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: "QueryEngineError: Cannot divide primary key field 'id' by zero.",
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "QueryEngineError: Cannot divide primary key field 'id' by zero.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:189:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the relation-bearing half of the gate > answers `set` beside the operator on the gated arm the way shipped does
+AssertionError: candidate {"answer":"NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.","rows":[{"id":6,"label":"o"}]}
+shipped   {"answer":"QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.","rows":[{"id":6,"label":"o"}]}
++ actual - expected
+
+  {
++   answer: "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",
+-   answer: "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",
+    rows: [
+      {
+        id: 6,
+        label: 'o'
+      }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,7 +1,7 @@[39m
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation.",[39m
+[31m+   "answer": "NestedWriteError: Cannot update relation 'notes' with onUpdate('restrict') while the current relation is occupied.",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 6,[22m
+[2m        "label": "o",[22m
+[2m      },[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:227:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > performs a scalar-only key multiply on an ATOMIC BATCH profile the way shipped does
+AssertionError: candidate {"answer":"Error: Raptor 3 update expression publication requires an integer field","rows":[{"id":6,"label":"a"}]}
+shipped   {"answer":"ok:{\"id\":12,\"label\":\"a\"}","rows":[{"id":12,"label":"a"}]}
++ actual - expected
+
+  {
++   answer: 'Error: Raptor 3 update expression publication requires an integer field',
+-   answer: 'ok:{"id":12,"label":"a"}',
+    rows: [
+      {
++       id: 6,
+-       id: 12,
+        label: 'a'
+      }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "ok:{\"id\":12,\"label\":\"a\"}",[39m
+[31m+   "answer": "Error: Raptor 3 update expression publication requires an integer field",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[32m-       "id": 12,[39m
+[31m+       "id": 6,[39m
+[2m        "label": "a",[22m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:267:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |g4-review-unit02-phase2-followup2| tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts > G4-02 review follow-up 2 — the profile and the absent row > CREATES the missing row whose relation-bearing update divides the key by zero
+AssertionError: candidate {"answer":"ok:{\"id\":99,\"label\":\"fresh\"}","rows":[{"id":3,"label":"p"},{"id":99,"label":"fresh"}]}
+shipped   {"answer":"QueryEngineError: Cannot divide a primary key by zero.","rows":[{"id":3,"label":"p"}]}
++ actual - expected
+
+  {
++   answer: 'ok:{"id":99,"label":"fresh"}',
+-   answer: 'QueryEngineError: Cannot divide a primary key by zero.',
+    rows: [
+      {
+        id: 3,
+        label: 'p'
+      },
++     {
++       id: 99,
++       label: 'fresh'
++     }
+    ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "answer": "QueryEngineError: Cannot divide a primary key by zero.",[39m
+[31m+   "answer": "ok:{\"id\":99,\"label\":\"fresh\"}",[39m
+[2m    "rows": [[22m
+[2m      {[22m
+[2m        "id": 3,[22m
+[2m        "label": "p",[22m
+[31m+     },[39m
+[31m+     {[39m
+[31m+       "id": 99,[39m
+[31m+       "label": "fresh",[39m
+[2m      },[22m
+[2m    ],[22m
+[2m  }[22m
+
+ ❯ both tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:179:10
+    177|   );
+    178|   // biome-ignore lint/suspicious/noMisplacedAssertion: helper is only…
+    179|   assert.deepEqual(
+       |          ^
+    180|     candidate,
+    181|     shipped,
+ ❯ tests/raptor3/g4/review/unit02-phase2-followup2/upsert-gate.review.test.ts:290:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 10 passed (14)
+   Start at  13:23:55
+   Duration  2.39s (transform 1.43s, setup 10ms, collect 2.11s, tests 141ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 2.97s wall, 483.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

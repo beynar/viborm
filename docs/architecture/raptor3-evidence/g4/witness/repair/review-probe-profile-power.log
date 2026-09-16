@@ -1,0 +1,108 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |g4-review-witness| tests/raptor3/g4/review/witness/campaign-profile-power.review.test.ts (1 test | 1 failed) 452ms
+   × review probe: G4 campaign profile axis > every profile produces an identical value AND an identical statement stream 452ms
+     → at least one profile is observationally distinct — the probe's premise is wrong
++ actual - expected
+
++ [
++   'sqlite-atomic-batch:20000',
++   'sqlite-atomic-batch:20001',
++   'sqlite-atomic-batch:20002',
++   'sqlite-atomic-batch:20003',
++   'sqlite-atomic-batch:20004',
++   'sqlite-atomic-batch:20005',
++   'sqlite-atomic-batch:20006',
++   'sqlite-atomic-batch:20007',
++   'sqlite-atomic-batch:20008',
++   'sqlite-atomic-batch:20009',
++   'sqlite-atomic-batch:20010',
++   'sqlite-atomic-batch:20011',
++   'sqlite-atomic-batch:20012',
++   'sqlite-atomic-batch:20013',
++   'sqlite-atomic-batch:20014',
++   'sqlite-atomic-batch:20015',
++   'sqlite-atomic-batch:20016',
++   'sqlite-atomic-batch:20017',
++   'sqlite-atomic-batch:20018',
++   'sqlite-atomic-batch:20019'
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |g4-review-witness| tests/raptor3/g4/review/witness/campaign-profile-power.review.test.ts > review probe: G4 campaign profile axis > every profile produces an identical value AND an identical statement stream
+AssertionError: at least one profile is observationally distinct — the probe's premise is wrong
++ actual - expected
+
++ [
++   'sqlite-atomic-batch:20000',
++   'sqlite-atomic-batch:20001',
++   'sqlite-atomic-batch:20002',
++   'sqlite-atomic-batch:20003',
++   'sqlite-atomic-batch:20004',
++   'sqlite-atomic-batch:20005',
++   'sqlite-atomic-batch:20006',
++   'sqlite-atomic-batch:20007',
++   'sqlite-atomic-batch:20008',
++   'sqlite-atomic-batch:20009',
++   'sqlite-atomic-batch:20010',
++   'sqlite-atomic-batch:20011',
++   'sqlite-atomic-batch:20012',
++   'sqlite-atomic-batch:20013',
++   'sqlite-atomic-batch:20014',
++   'sqlite-atomic-batch:20015',
++   'sqlite-atomic-batch:20016',
++   'sqlite-atomic-batch:20017',
++   'sqlite-atomic-batch:20018',
++   'sqlite-atomic-batch:20019'
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "sqlite-atomic-batch:20000",[39m
+[31m+   "sqlite-atomic-batch:20001",[39m
+[31m+   "sqlite-atomic-batch:20002",[39m
+[31m+   "sqlite-atomic-batch:20003",[39m
+[31m+   "sqlite-atomic-batch:20004",[39m
+[31m+   "sqlite-atomic-batch:20005",[39m
+[31m+   "sqlite-atomic-batch:20006",[39m
+[31m+   "sqlite-atomic-batch:20007",[39m
+[31m+   "sqlite-atomic-batch:20008",[39m
+[31m+   "sqlite-atomic-batch:20009",[39m
+[31m+   "sqlite-atomic-batch:20010",[39m
+[31m+   "sqlite-atomic-batch:20011",[39m
+[31m+   "sqlite-atomic-batch:20012",[39m
+[31m+   "sqlite-atomic-batch:20013",[39m
+[31m+   "sqlite-atomic-batch:20014",[39m
+[31m+   "sqlite-atomic-batch:20015",[39m
+[31m+   "sqlite-atomic-batch:20016",[39m
+[31m+   "sqlite-atomic-batch:20017",[39m
+[31m+   "sqlite-atomic-batch:20018",[39m
+[31m+   "sqlite-atomic-batch:20019",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/review/witness/campaign-profile-power.review.test.ts:75:14
+     73|         }
+     74|       }
+     75|       assert.deepEqual(
+       |              ^
+     76|         differing,
+     77|         [],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  00:28:08
+   Duration  2.18s (transform 1.08s, setup 9ms, collect 1.60s, tests 452ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 2.72s wall, 618.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

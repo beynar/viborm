@@ -4,6 +4,7 @@ import {
 } from "@adapters/adapter-internals";
 import type { AnyDriver } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+import { deriveStatementExecutionContext } from "@drivers/execution-context";
 import type {
   BatchQuery,
   QueryExecutionContext,
@@ -25,17 +26,23 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit
 } from "../../bind-budget";
-import type { PreparedBatchOperation } from "../../types";
+import type {
+  PreparedBatchGuard,
+  PreparedBatchOperation
+} from "../../types";
 import {
   InvalidScalarResult,
   Queries,
   type PreparedProjection,
   type PreparedSelector,
-  type Query
+  type Query,
+  type Read,
+  returningSafeProjection
 } from "./query";
 import {
   type EngineSchema,
   type Input,
+  isReadOperation,
   type Operation,
   record
 } from "./schema";
@@ -49,13 +56,51 @@ export type MemberRollback = <T>(
   context: QueryExecutionContext
 ) => Promise<T>;
 
+/**
+ * Where this operation publishes the DURABLE PHASE of its own writes.
+ *
+ * The transport is the only thing that knows it, so the transport says it — at
+ * the moment it learns it, not afterwards from an error's published meta. That
+ * is where the shipped executor says it too: `committedWriteSegment` from the
+ * segment's own acknowledgement (`write-engine/OperationExecutor.ts:974-990`)
+ * and `writeMayBeVisible` from the branch that records a dispatch it cannot
+ * prove rolled back (`:1050-1058`), both before the driver's error is
+ * rethrown. The candidate's two corresponding sites are in {@link submit}.
+ *
+ * `recordSeriesProgress` is therefore the PUBLIC report of a record series and
+ * nothing else; no consumer reads a cache signal back out of it
+ * (`g4/regression/note.md` "Seam round").
+ */
+export interface WriteOutcomeSeam {
+  /** A write segment of this operation is durable. */
+  readonly committedSegment?: () => Promise<void>;
+  /** A dispatched write segment cannot be proven rolled back. */
+  readonly mayBeVisible?: () => Promise<void>;
+}
+
 export type ExecutionBinding =
   | {
       readonly kind: "borrowed-transaction";
       readonly driver: AnyDriver;
+      /** MEMBER isolation inside the caller's own scope (array fallback). */
       readonly memberRollback?: MemberRollback;
+      /**
+       * The caller transferred the OPERATION region: it opened none itself, and
+       * the candidate opens exactly one when the operation needs more than one
+       * statement. Supplied only by the callback-transaction route, never by
+       * the array fallback, which mirrors the shipped `runLinearOn` and opens
+       * no operation envelope at all (note §8.4, brief item 11 revision 4).
+       */
+      readonly operationRegion?: MemberRollback;
+      readonly writeOutcome?: WriteOutcomeSeam;
     }
-  | { readonly kind: "atomic-array" };
+  | { readonly kind: "atomic-array" }
+  /**
+   * The root situation, stated by name: no borrowed driver and no grant, the
+   * operation owns its own standalone envelope. It carries nothing but the
+   * write-outcome seam, and an absent binding still means exactly this.
+   */
+  | { readonly kind: "standalone"; readonly writeOutcome?: WriteOutcomeSeam };
 
 type ExecutionOwnership =
   | "standalone"
@@ -69,6 +114,11 @@ export class OperationContext {
   readonly usesBatch: boolean;
   private readonly ownership: ExecutionOwnership;
   private readonly memberRollback?: MemberRollback;
+  private readonly operationRegion?: MemberRollback;
+  /** Where this operation states its own durable write phase ({@link WriteOutcomeSeam}). */
+  private readonly writeOutcome?: WriteOutcomeSeam;
+  /** True only while the operation's OWN region is the current transport. */
+  private ownRegionOpen = false;
   private transport: AnyDriver;
   private attempt = new TransportAttempt();
   private readonly committedMembers = new Set<Member>();
@@ -81,19 +131,73 @@ export class OperationContext {
   private mayHaveCommittedSegment: true | undefined;
   private completedMembers = 0;
   private memberAdmissionStarted = false;
+  /**
+   * The transport window of the operation's OWN set-oriented statement, while
+   * one is submitting ({@link setMutations}).
+   *
+   * A set mutation admits no member: it is the one atomic unit a folded root
+   * write — or a relation-free bulk verb — issues on its own behalf, so its
+   * window is a transport artifact and not a record-series member. That is the
+   * one fact {@link failure} asks to decide whether an uncertain outcome is
+   * PUBLIC progress or stays internal.
+   */
+  private setWindow?: Member;
+  /**
+   * A write-outcome listener that failed while {@link submit} acknowledged its
+   * committed segment, HELD until the operation's own answer to that batch is
+   * known ({@link settleSubmitted}).
+   *
+   * The batch transport acknowledges BEFORE its responses are decoded, so it is
+   * the one site where the listener fails first. The shipped `runAtomicBatch`
+   * holds it in exactly the same place (`write-engine/OperationExecutor.ts`
+   * `committed()` at `:1277-1289` captures `outcomeFailure` instead of throwing
+   * it) and composes only once `operation.parse` has answered (`:1332-1343`).
+   */
+  private heldOutcomeFailure?: { readonly failure: unknown };
   private atomicAssertionRejection?: unknown;
   private readonly incompletePreparation = new Error(
     "Raptor 3 operation requires dynamic execution"
   );
   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
+  private readonly preparedGuards: PreparedBatchGuard[] = [];
+  /**
+   * Failures this operation has ALREADY ANSWERED with, which {@link failure}
+   * returns unchanged: the premise it raised about the world (see `published`),
+   * and the write-outcome answers the batch transport states once its hold is
+   * released ({@link settleSubmitted}, {@link submit}'s catch) — the shipped
+   * `runAtomicBatch` throws those exactly as built
+   * (`write-engine/OperationExecutor.ts:1306-1309`, `:1336-1343`), while the
+   * progress-bearing aggregate of its PROGRESSIVE path is a different failure
+   * that is attributed (`:1037-1046`) and is not marked here.
+   */
+  private readonly answeredFailures = new WeakSet<object>();
   private readonly correlationId = crypto.randomUUID();
+  /**
+   * The operation's physical envelope. `deferred` is the only state in which the
+   * envelope has not been decided yet: it becomes `statement` when the operation
+   * reaches its terminal statement without having issued any other, and `open`
+   * when it does not (§ {@link run}).
+   */
+  private envelope: "open" | "deferred" | "statement" = "open";
+  private performed = 0;
+  private readonly requiresEnvelope = new Error(
+    "Raptor 3 operation requires its physical envelope"
+  );
   constructor(
     readonly schema: EngineSchema,
     factoryDriver: AnyDriver,
     readonly modelName: string,
     readonly operation: Operation,
     binding?: ExecutionBinding,
-    prepareBatch = false
+    prepareBatch = false,
+    /**
+     * The caller's own trusted execution context. It already carries this
+     * operation's model, verb, correlation id, instrumentation and resolved
+     * extension chain, and the chain is held by the identity of that exact
+     * object, so the candidate passes it through rather than minting a second
+     * attribution (g4/unit03/note.md B-4).
+     */
+    private readonly callerAttribution?: QueryExecutionContext
   ) {
     if (binding?.kind === "atomic-array") {
       throw new TransactionError(
@@ -111,10 +215,16 @@ export class OperationContext {
     this.ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
-    this.driver = binding?.driver ?? factoryDriver;
+    this.driver =
+      binding?.kind === "borrowed-transaction" ? binding.driver : factoryDriver;
+    this.writeOutcome = binding?.writeOutcome;
     this.memberRollback =
       binding?.kind === "borrowed-transaction"
         ? binding.memberRollback
+        : undefined;
+    this.operationRegion =
+      binding?.kind === "borrowed-transaction"
+        ? binding.operationRegion
         : undefined;
     this.transport = this.driver;
     this.usesBatch =
@@ -122,22 +232,49 @@ export class OperationContext {
       (this.ownership === "standalone" && !this.driver.supportsTransactions);
     this.queries = new Queries(schema, this.driver.adapter);
   }
-  get attribution() {
+  get attribution(): QueryExecutionContext {
+    return (
+      this.callerAttribution ?? {
+        model: this.modelName,
+        operation: this.operation,
+        correlationId: this.correlationId
+      }
+    );
+  }
+  /**
+   * This operation's own facts for an error's meta. Attribution is the driver's
+   * context (and may be the caller's trusted object); an error's meta is the
+   * candidate's own record and keeps the exact fields it has always carried.
+   */
+  private get errorMeta(): Record<string, unknown> {
     return {
       model: this.modelName,
       operation: this.operation,
       correlationId: this.correlationId
     };
   }
+  /**
+   * The attribution ONE statement executes under. A statement compiled for a
+   * nested record names that record's model, so a provider failure, a statement
+   * transform and an observer name the model whose table the statement already
+   * named — the shipped rule exactly (`statementExecutionContext`,
+   * `src/query-engine/pattern/execute/values.ts`): the operation's own context
+   * while the models agree, and otherwise the SAME context re-attributed by the
+   * snapshot owner, which keeps the correlation id, instrumentation and resolved
+   * extension chain (`deriveStatementExecutionContext`). Without a caller
+   * context the candidate keeps its own minted attribution.
+   */
   private statementContext(
     model: AnyModel,
     operation: string
   ): QueryExecutionContext {
-    return {
-      model: model["~"].names.ts!,
-      operation,
-      correlationId: this.correlationId
-    };
+    const name = model["~"].names.ts!;
+    const caller = this.callerAttribution;
+    if (!caller)
+      return { model: name, operation, correlationId: this.correlationId };
+    return caller.model === name
+      ? caller
+      : deriveStatementExecutionContext(caller, name);
   }
   private queue(
     statement: Sql,
@@ -217,7 +354,12 @@ export class OperationContext {
         this.transport = outer;
       }
     };
-    return this.memberRollback
+    // One rule: a member rollback opens inside whatever scope the operation is
+    // CURRENTLY running in. While the operation holds a region of its own, the
+    // caller's grant names the caller's scope, and re-entering it while this
+    // nested one is active is the exact `TransactionError: … cannot be used
+    // while its nested transaction is active` that note §8.4 measured.
+    return this.memberRollback && !this.ownRegionOpen
       ? this.memberRollback(withinRollback, this.attribution)
       : outer.withTransaction(withinRollback, undefined, this.attribution);
   }
@@ -246,6 +388,8 @@ export class OperationContext {
     phase: RecordSeriesProgress["phase"],
     member?: Member
   ): unknown {
+    if (typeof error === "object" && error !== null && this.answeredFailures.has(error))
+      return error;
     let failure = error;
     if (error instanceof InvalidScalarResult) {
       const driver = this.driver.driverName;
@@ -257,10 +401,26 @@ export class OperationContext {
       );
     }
     const attribution = member ? this.memberAttribution.get(member) : undefined;
+    // A failure carries record-series progress only when it BELONGS to a record
+    // series. A committed segment and a prefix phase are the series the
+    // operation already has; an UNCERTAIN outcome is not one on its own, so a
+    // set-oriented statement's window ({@link setWindow}) reports nothing while
+    // its outcome is merely unknown. That unknown outcome stays internal — the
+    // fact itself is unchanged, still gates recovery, and still reaches the
+    // cache through the seam `submit` states it on ({@link WriteOutcomeSeam}) —
+    // exactly as the shipped executor keeps `progress.mayHaveCommittedSegment`
+    // internal for a single operation and rethrows the driver's own error
+    // (`write-engine/OperationExecutor.ts:1031-1072`; `attachProgress` :2308
+    // reaches only record-series member and invalidation failures).
+    // The narrowing is only that arm: a set window whose segment DID commit is
+    // a committed segment like any other and keeps publishing its progress,
+    // pinned by `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts` cell 1b
+    // and `lone-statement-transport.test.ts` row 6.
+    const setStatement = member !== undefined && member === this.setWindow;
     return this.usesBatch &&
       (phase === "prefix" ||
         this.committedSegments > 0 ||
-        this.mayHaveCommittedSegment)
+        (this.mayHaveCommittedSegment && !setStatement))
       ? attachRecordSeriesProgress(failure, {
           atomicity: "segment",
           phase,
@@ -275,29 +435,97 @@ export class OperationContext {
         })
       : failure;
   }
-  async run<T>(body: () => Promise<T>): Promise<T> {
+  /**
+   * The operation's own region, or `undefined` when this ownership has none.
+   *
+   * A standalone operation on a transaction-capable driver owns one
+   * transaction. A BORROWED operation owns one only when its caller SAID so, by
+   * granting `operationRegion` — which the callback-transaction route supplies
+   * because it opened no scope of its own. Without that grant a borrowed
+   * operation owns none: its caller's scope is the unit, so every statement
+   * runs directly on the borrowed driver and a failing one poisons that scope
+   * exactly as the shipped `runStatementAtomic` and `runLinearOn` paths leave
+   * it. The `memberRollback` grant is never mistaken for it — it is MEMBER
+   * isolation only: `tests/raptor3/g3/suppression-retry-contract.test.ts` pins
+   * one savepoint per suppressed member and none for the operation, and
+   * `tests/raptor3/g3/scope-composition-native.test.ts` fails outright if this
+   * operation opens a second scope on the caller's driver while that grant is
+   * the array fallback's (note §8.4, measured).
+   * An atomic batch and a batch preparation are already their own unit.
+   */
+  private region():
+    | ((execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>)
+    | undefined {
+    if (this.usesBatch) return undefined;
+    if (this.ownership === "borrowed-transaction") {
+      const granted = this.operationRegion;
+      return granted
+        ? (execute) => granted(execute, this.attribution)
+        : undefined;
+    }
+    if (this.ownership !== "standalone") return undefined;
+    return (execute) =>
+      this.driver.withTransaction(execute, undefined, this.attribution);
+  }
+  /** Run the operation inside the one region it owns. */
+  private async withinRegion<T>(
+    region: (execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>,
+    body: () => Promise<T>
+  ): Promise<T> {
+    return (await region(async (transaction) => {
+      this.transport = transaction;
+      this.ownRegionOpen = true;
+      try {
+        return await body();
+      } finally {
+        this.transport = this.driver;
+        this.ownRegionOpen = false;
+      }
+    })) as T;
+  }
+  /**
+   * ONE rule for the physical envelope: it opens at the first statement that is
+   * not the operation's only statement.
+   *
+   * An operation that reaches its terminal statement having issued no other runs
+   * that statement directly — no BEGIN/COMMIT standalone, no savepoint inside a
+   * borrowed transaction — which is the shipped `runStatementAtomic` condition
+   * (empty planning, exactly one non-guard step: `OperationExecutor.ts`
+   * `compileSingleStatementCandidate` + `canExecuteDirectly`) restated in this
+   * engine's vocabulary. Any other operation raises {@link requiresEnvelope}
+   * BEFORE its first round trip, and the body runs again inside the region;
+   * nothing has reached the provider at that point.
+   *
+   * `single` is the constructed plan's ADMISSIBILITY, not its count
+   * (`Commands.plan`): a form whose shape rules one statement out never enters
+   * the deferred state, so it opens its region immediately and is constructed
+   * exactly once. Every other form is admitted optimistically and the COUNT is
+   * answered here, by the construction itself — which is why the rule can be
+   * stated in one place and still be the operative decision. `createMany` is
+   * the shape that makes the difference observable, and the observable split is
+   * the BIND BUDGET, not the spelling of the rows: `schema.scalars` normalizes
+   * every row to one column set first, so rows presenting different keys are
+   * still one grouped INSERT with no envelope (measured — review follow-up N2),
+   * while a batch whose placeholders exceed the provider's limit is constructed
+   * twice and raises the sentinel exactly once
+   * (`g4/unit02/physical-envelope.test.ts`: 2 statements, 1 transaction,
+   * `restarts === 1`, every row written once).
+   */
+  async run<T>(body: () => Promise<T>, single = false): Promise<T> {
     try {
       if (this.ownership === "batch-preparation") return await body();
-      if (
-        this.operation === "findMany" ||
-        this.operation === "findUnique" ||
-        this.operation === "groupBy"
-      )
+      if (isReadOperation(this.operation)) return await body();
+      const region = this.region();
+      if (!region) return await body();
+      if (!single) return await this.withinRegion(region, body);
+      this.envelope = "deferred";
+      try {
         return await body();
-      if (this.ownership === "borrowed-transaction") return await body();
-      if (this.usesBatch) return await body();
-      return await this.driver.withTransaction(
-        async (transaction) => {
-          this.transport = transaction;
-          try {
-            return await body();
-          } finally {
-            this.transport = this.driver;
-          }
-        },
-        undefined,
-        this.attribution
-      );
+      } catch (error) {
+        if (error !== this.requiresEnvelope) throw error;
+      }
+      this.restart();
+      return await this.withinRegion(region, body);
     } catch (error) {
       if (
         error instanceof InvalidScalarResult ||
@@ -311,15 +539,82 @@ export class OperationContext {
       throw error;
     }
   }
-  async read(query: Query, internal = false): Promise<Input[]> {
+  /**
+   * Every provider round trip crosses here, so the envelope rule has exactly one
+   * site. `terminal` marks the operation's result-publishing transport, which is
+   * followed by nothing.
+   */
+  private async dispatch<T>(
+    statements: number,
+    terminal: boolean,
+    execute: () => Promise<T>
+  ): Promise<T> {
+    if (this.envelope === "deferred") {
+      if (!(terminal && statements === 1 && this.performed === 0))
+        throw this.requiresEnvelope;
+      this.envelope = "statement";
+    }
+    this.performed += statements;
+    return execute();
+  }
+  /** Discard the un-executed plan so the body can be constructed again. */
+  private restart(): void {
+    this.attempt = new TransportAttempt();
+    this.continuations.length = 0;
+    this.memberAdmissionStarted = false;
+    this.envelope = "open";
+  }
+  /**
+   * One read. `model` is the model the statement addresses when that is not the
+   * operation's own — a nested locate names the nested record, exactly as the
+   * shipped executor's per-step derivation does ({@link statementContext}).
+   */
+  async read(
+    query: Query,
+    internal = false,
+    terminal = false,
+    model?: AnyModel
+  ): Promise<Input[]> {
     if (this.ownership === "batch-preparation") {
       throw this.incompletePreparation;
     }
-    const response = await this.transport._execute<Input>(
-      query.sql,
-      this.attribution
+    const context = model
+      ? this.statementContext(model, this.operation)
+      : this.attribution;
+    const response = await this.dispatch(1, terminal, () =>
+      this.transport._execute<Input>(query.sql, context)
     );
     return this.queries.decodeQuery(query, response.rows, internal);
+  }
+  /**
+   * One read's published result, live or packaged. A prepared read is one
+   * statement plus the operation's own cardinality decision; packaging queues
+   * that exact statement and installs the SAME decoder and cardinality as the
+   * package's parser, so a read member is statically packageable and no second
+   * projection or decoder exists (g4/unit03/note.md D-2).
+   */
+  async publish(read: Read, missing?: () => Error): Promise<unknown> {
+    const decide = (rows: Input[]) => {
+      const value = read.result(rows);
+      if (value === null && missing) throw missing();
+      return value;
+    };
+    if (this.ownership !== "batch-preparation")
+      return decide(await this.read(read.query, false, true));
+    const resultIndex = this.attempt.pending.length;
+    this.queue(read.query.sql);
+    this.preparedParser = (results) => {
+      const response = results[resultIndex];
+      if (!response)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+          { meta: this.errorMeta }
+        );
+      return decide(
+        this.queries.decodeQuery(read.query, response.rows.map(record))
+      );
+    };
+    return undefined;
   }
   referenceProjection(model: AnyModel, values: Input): Query {
     const adapter = this.driver.adapter;
@@ -351,18 +646,20 @@ export class OperationContext {
     for (const projection of projections) this.queue(projection.sql);
     if (this.attempt.pending.length === 0) return [];
     const responses = await this.submit(false, member);
-    try {
-      const rows = projections.map((projection, index) =>
-        this.queries.decodeQuery(
-          projection,
-          responses[resultIndex + index]!.rows,
-          true
-        )
-      );
-      return Array.isArray(query) ? rows : (rows[0] ?? []);
-    } catch (error) {
-      throw this.failure(error, "result", member);
-    }
+    return this.settleSubmitted(() => {
+      try {
+        const rows = projections.map((projection, index) =>
+          this.queries.decodeQuery(
+            projection,
+            responses[resultIndex + index]!.rows,
+            true
+          )
+        );
+        return Array.isArray(query) ? rows : (rows[0] ?? []);
+      } catch (error) {
+        throw this.failure(error, "result", member);
+      }
+    });
   }
   async requireAbsent(query: Query, failure: Error): Promise<void> {
     if (this.usesBatch) {
@@ -418,17 +715,39 @@ export class OperationContext {
       if (members.length === 0) return;
       this.committedSegments++;
       for (const member of members) this.committedMembers.add(member);
+      // This transport acknowledges before it has decoded anything, so the
+      // listener's failure is HELD rather than thrown: the operation's own
+      // answer is still to come, and it stays primary if it fails too
+      // ({@link heldOutcomeFailure}, released by {@link settleSubmitted}).
+      try {
+        await this.writeOutcome?.committedSegment?.();
+      } catch (failure) {
+        this.heldOutcomeFailure = { failure };
+      }
     };
     try {
-      const responses = await this.transport._executeBatch<Input>(
-        statements,
-        undefined,
-        this.attribution,
-        this.driver.supportsOrderedCommittedSegments ? acknowledged : undefined
+      const responses = await this.dispatch(statements.length, false, () =>
+        this.transport._executeBatch<Input>(
+          statements,
+          undefined,
+          this.attribution,
+          this.driver.supportsOrderedCommittedSegments ? acknowledged : undefined
+        )
       );
       if (!this.driver.supportsOrderedCommittedSegments) await acknowledged();
       return responses.slice(guards.length);
     } catch (error) {
+      // A listener that failed while this batch acknowledged is composed with
+      // the batch's own failure, which stays primary, and the uncertain-outcome
+      // arm below is not reached: a segment that acknowledged is known to have
+      // committed. Shipped states both at the same point of its own catch
+      // (`write-engine/OperationExecutor.ts:1306-1309`).
+      const acknowledgedOutcomeFailure = this.heldOutcomeFailure;
+      this.heldOutcomeFailure = undefined;
+      if (acknowledgedOutcomeFailure)
+        throw this.answered(
+          this.retainOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
+        );
       // Atomic rejection is retryable only with exact effect attribution and a
       // direct provider cause. Cleanup aggregation retains an extra cause link.
       if (
@@ -453,8 +772,16 @@ export class OperationContext {
         !this.driver.supportsOrderedCommittedSegments &&
         this.committedSegments === precedingSegments &&
         !(error instanceof UniqueConstraintError)
-      )
+      ) {
         this.mayHaveCommittedSegment = true;
+        // Said where it is learned and BEFORE the failure is attributed or
+        // published, which is the shipped order (`OperationExecutor.ts:1050-1058`
+        // sets the same internal flag, notifies, and only then rethrows).
+        // Whether the meta reports it is a separate question, answered once in
+        // `failure()`; whether the listener's own failure may replace this
+        // operation's is answered once in {@link stateWriteOutcome}.
+        await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
+      }
       let attributedError = error;
       if (error instanceof NestedWriteAssertionError) {
         const statementIndex = error.meta.statementIndex;
@@ -503,6 +830,36 @@ export class OperationContext {
         : attributedError;
     }
   }
+  /**
+   * The operation's own answer to a batch {@link submit} returned, composed
+   * with a listener failure that batch HELD while it acknowledged
+   * ({@link heldOutcomeFailure}).
+   *
+   * The shipped `runAtomicBatch` order exactly
+   * (`write-engine/OperationExecutor.ts:1332-1343`): the answer is decoded
+   * first, a decode failure stays primary with the listener's retained beside
+   * it, and a listener that failed beside an answer that SUCCEEDED is published
+   * alone. Every caller of {@link submit} decodes here, so the hold is released
+   * exactly once per submission — and on the plain transport there is nothing
+   * to hold, because {@link dispatchSetMutations} decodes and acknowledges in
+   * one frame and states its primary directly.
+   */
+  private async settleSubmitted<T>(
+    answer: () => T | PromiseLike<T>
+  ): Promise<T> {
+    const held = this.heldOutcomeFailure;
+    this.heldOutcomeFailure = undefined;
+    let value: T;
+    try {
+      value = await answer();
+    } catch (failure) {
+      throw held
+        ? this.answered(this.retainOutcomeFailure(failure, held.failure))
+        : failure;
+    }
+    if (held) throw this.answered(held.failure);
+    return value;
+  }
   rejectedProducer(error: unknown): object | undefined {
     return this.attempt.rejectedInsert &&
       this.attempt.rejectedInsert.error === error
@@ -527,8 +884,83 @@ export class OperationContext {
     this.attempt = attempt;
     this.atomicAssertionRejection = undefined;
   }
-  emptyBulkResult(select?: Input): unknown {
-    const result = () => (select ? [] : { count: 0 });
+  /**
+   * The operation's own cardinality over the rows a set-oriented mutation
+   * published. A bulk verb publishes the set; a root single-row verb publishes
+   * one row and owns the missing-row failure. The decision is stated here, in
+   * the same closure that decodes, so a packaged operation states it too.
+   */
+  private published(rows: Input[], single?: () => Error): unknown {
+    if (!single) return rows;
+    const row = rows[0];
+    if (!row) {
+      // The operation's own PREMISE failed: the row it addressed is not there.
+      // That is a statement about the world, not a report about the transport,
+      // so it carries no record-series progress — the shipped engine's
+      // `NotFoundError` meta for the same request is exactly
+      // `{model, operation}` on every driver. A provider ANOMALY raised from
+      // the same place (an INSERT that answered no row) throws from inside
+      // `single()` instead of returning, is never marked, and keeps the
+      // progress record its transport owes it.
+      throw this.answered(single());
+    }
+    return row;
+  }
+  /**
+   * The same premise as {@link published}'s missing-row failure, moved INSIDE
+   * the atomic unit for a packaged operation.
+   *
+   * `published` is a JavaScript postcondition, and a packaged operation only
+   * reaches its parser after the array's one batch has committed — so a missing
+   * row would raise the right error while every sibling member stayed durable.
+   * A batch has no JS postcondition available, so the premise becomes a
+   * statement: one `assertions.exists` over the same selector, queued ahead of
+   * the mutation and declared to the array owner, which aborts the whole batch
+   * and reconstructs this operation's own `NotFoundError` from the guard's
+   * model and verb. This is exactly the shipped fold's batch shape
+   * (`DeleteOperation` `foldGuard`/`buildRootPresenceGuard`, `UpdateOperation`'s
+   * equivalent): `[presence guard, mutation … RETURNING]`, one round trip.
+   */
+  private packagedPresence(
+    model: AnyModel,
+    selector: PreparedSelector,
+    single?: () => Error
+  ): void {
+    if (!single || this.ownership !== "batch-preparation") return;
+    const probe = this.queries.select(
+      model,
+      {
+        select: Object.fromEntries(
+          this.schema.keys(model).map((field) => [field, true])
+        )
+      },
+      undefined,
+      { selector }
+    );
+    this.preparedGuards.push({
+      queryIndex: this.attempt.pending.length,
+      premise: "exists",
+      probe: probe.sql,
+      failure: {
+        kind: "notFound",
+        // Never user-facing: `createFailureError` ignores this message for
+        // `kind: "notFound"` and rebuilds the shipped sentence from the model
+        // and verb below. It is read only by `sameAttribution`
+        // (`batch-error-attribution.ts`), where being CONSTANT per model and
+        // verb is what makes two guards of the same shape agree.
+        message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+        raceable: false
+      },
+      model: model["~"].names.ts!,
+      operation: this.operation
+    });
+    this.queue(
+      this.driver.adapter.assertions.exists(probe.sql),
+      this.statementContext(model, this.operation)
+    );
+  }
+  emptyBulkResult(projection?: PreparedProjection): unknown {
+    const result = () => (projection ? [] : { count: 0 });
     if (this.ownership === "batch-preparation") {
       this.preparedParser = result;
       return undefined;
@@ -583,7 +1015,7 @@ export class OperationContext {
       if (!response)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the ${this.ownership === "batch-preparation" ? "prepared" : "terminal"} result for operation '${this.operation}'.`,
-          { meta: this.attribution }
+          { meta: this.errorMeta }
         );
       output.push(
         ...this.queries.decodeQuery(terminal, response.rows.map(record))
@@ -597,7 +1029,10 @@ export class OperationContext {
   ): Promise<T> {
     if (!this.usesBatch) {
       const output: Input[] = [];
-      for (const terminal of queries) output.push(...(await this.read(terminal)));
+      for (const terminal of queries)
+        output.push(
+          ...(await this.read(terminal, false, queries.length === 1))
+        );
       return result(output);
     }
     const resultIndex = this.attempt.pending.length;
@@ -615,13 +1050,15 @@ export class OperationContext {
     }
     if (this.attempt.pending.length === 0) return result([]);
     const responses = await this.submit();
-    try {
-      return result(
-        this.decodeTerminalResults(queries, responses, resultIndex)
-      );
-    } catch (error) {
-      throw queries.length ? this.failure(error, "result") : error;
-    }
+    return this.settleSubmitted(() => {
+      try {
+        return result(
+          this.decodeTerminalResults(queries, responses, resultIndex)
+        );
+      } catch (error) {
+        throw queries.length ? this.failure(error, "result") : error;
+      }
+    });
   }
   isIncompletePreparation(error: unknown): boolean {
     return error === this.incompletePreparation;
@@ -635,6 +1072,7 @@ export class OperationContext {
         params: query.params ?? [],
         context: query.context ?? this.attribution
       })),
+      ...(this.preparedGuards.length ? { guards: this.preparedGuards } : {}),
       parseResult: this.preparedParser
     };
   }
@@ -648,7 +1086,7 @@ export class OperationContext {
       if (!result)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
-          { meta: this.attribution }
+          { meta: this.errorMeta }
         );
       return parse(result);
     });
@@ -670,45 +1108,180 @@ export class OperationContext {
           firstResult + statements.length
         );
         if (window.length !== statements.length) {
+          // One sentence for one condition: `publish` and
+          // `decodeTerminalResults` state it the same way, and a root write now
+          // reaches this owner through the fold.
           throw new TransactionError(
-            `Driver '${this.driver.driverName}' omitted a prepared result for operation '${this.operation}'.`,
-            { meta: this.attribution }
+            `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+            { meta: this.errorMeta }
           );
         }
         return parse(window);
       };
       return undefined;
     }
-    if (this.usesBatch) {
+    // ONE rule for the physical envelope, asked here of this owner's two
+    // transports: a set statement that is the operation's ONLY statement needs
+    // no envelope, so it takes the plain execute path on a batch-only driver
+    // exactly as on every other. That is the shipped transport rule — the same
+    // `runStatementAtomic` condition {@link run} already restates for the
+    // envelope (`write-engine/OperationExecutor.ts` `canExecuteDirectly` at
+    // `:241` and its `:346-357` call site), which sends this shape through
+    // `_execute` and never through `_executeBatch`. Arnaud's D-7 decision
+    // (2026-09-15) is to take it exactly: a ONE-STATEMENT BATCH is what makes
+    // the driver seam attribute `statementIndex: 0` to a rejection the shipped
+    // engine attributes no index to (`drivers/driver-diagnostics.ts:35-36`),
+    // for the folded root write and for every relation-free bulk verb alike.
+    //
+    // Each conjunct is a different way of not being the only statement: a plan
+    // of several statements; something already queued on this attempt that
+    // would ride the same batch (`requireAbsent`/`requirePresent`); a
+    // generated-output continuation whose guard must precede the mutation
+    // inside one atomic unit ({@link submit}).
+    const lone =
+      statements.length === 1 &&
+      this.attempt.pending.length === 0 &&
+      this.continuations.length === 0;
+    if (this.usesBatch && !lone) {
       const windowMember: Member = {};
+      this.setWindow = windowMember;
       for (const statement of statements)
         this.queue(statement.sql, statement.context, windowMember);
       const results = await this.submit(true, windowMember);
-      try {
-        return parse(results);
-      } catch (error) {
-        throw this.failure(error, "result", windowMember);
-      }
+      return this.settleSubmitted(() => {
+        try {
+          return parse(results);
+        } catch (error) {
+          throw this.failure(error, "result", windowMember);
+        }
+      });
     }
-    const results: QueryResult<unknown>[] = [];
-    for (const statement of statements)
-      results.push(
-        await this.transport._execute(statement.sql, statement.context)
-      );
-    return parse(results);
+    return this.dispatchSetMutations(statements, parse);
+  }
+  /**
+   * The operation's own set-oriented statements on the plain execute path, and
+   * the durable phase of the write it just made.
+   *
+   * This is the shipped `runBorrowedStatementAtomic` situation
+   * (`write-engine/OperationExecutor.ts:1558-1645`): no envelope, so this
+   * transport is the only one that learns whether the write became durable, and
+   * it says so on the same rail {@link submit} uses ({@link WriteOutcomeSeam}) —
+   * `mayBeVisible` when its statement fails without proving rollback, and
+   * `committedSegment` once its statement has returned, whether or not the
+   * result then decodes. Only a STANDALONE operation running outside any region
+   * owns that answer: a borrowed operation's caller owns the scope (the shipped
+   * `runLinearOn` notifies nothing), and this operation's own region answers
+   * with its rollback.
+   */
+  private dispatchSetMutations(
+    statements: readonly {
+      readonly sql: Sql;
+      readonly context: QueryExecutionContext;
+    }[],
+    parse: (results: readonly QueryResult<unknown>[]) => unknown
+  ): Promise<unknown> {
+    return this.dispatch(statements.length, true, async () => {
+      const owned = this.ownership === "standalone" && !this.ownRegionOpen;
+      const results: QueryResult<unknown>[] = [];
+      try {
+        for (const statement of statements)
+          results.push(
+            await this.transport._execute(statement.sql, statement.context)
+          );
+      } catch (error) {
+        // The same sentence {@link submit}'s catch states about its batch: a
+        // dispatched write whose rollback the transport cannot prove may be
+        // visible, and a unique rejection is the one class that proves it.
+        if (owned && !(error instanceof UniqueConstraintError))
+          await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
+        throw error;
+      }
+      let decoded: { readonly failure: unknown } | { readonly value: unknown };
+      try {
+        decoded = { value: parse(results) };
+      } catch (error) {
+        // Translated HERE, once, so the one value this arm holds is the one the
+        // caller would have received: {@link run}'s catch is the only other
+        // translator of a decoding failure, and it no longer recognises this
+        // one once {@link stateWriteOutcome} has composed it with a listener's.
+        // The registered malformed-scalar refusal must stay primary, so the
+        // public failure — not the internal `InvalidScalarResult` — is what is
+        // both published to the cache seam and thrown.
+        decoded = { failure: this.failure(error, "result") };
+      }
+      if (owned)
+        await this.stateWriteOutcome(
+          this.writeOutcome?.committedSegment,
+          "failure" in decoded ? decoded.failure : undefined
+        );
+      if ("failure" in decoded) throw decoded.failure;
+      return decoded.value;
+    });
+  }
+  /**
+   * Say ONE durable write phase on the client's cache rail, keeping the
+   * OPERATION's own failure primary when the client's listener throws.
+   *
+   * The shipped engine composes the two exactly this way —
+   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859-871`) at every
+   * executor site that notifies while holding a failure
+   * (`write-engine/OperationExecutor.ts:1310`, `:1341`, `:1609`, `:1640`). The
+   * composition is restated here rather than imported because
+   * `@extensions/query` imports `write-engine/routing` and with it every
+   * shipped operation class — the one import this engine may not have. `primary`
+   * absent means the operation has not failed, which is the shipped
+   * `throw outcomeFailure` arm.
+   */
+  private async stateWriteOutcome(
+    say: (() => Promise<void>) | undefined,
+    primary?: unknown
+  ): Promise<void> {
+    if (!say) return;
+    try {
+      await say();
+    } catch (outcomeFailure) {
+      if (primary === undefined) throw outcomeFailure;
+      throw this.answered(this.retainOutcomeFailure(primary, outcomeFailure));
+    }
+  }
+  /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
+  private answered<T>(failure: T): T {
+    if (typeof failure === "object" && failure !== null)
+      this.answeredFailures.add(failure);
+    return failure;
+  }
+  /**
+   * ONE composition of the two failures, wherever the operation's own failure
+   * becomes known: it stays primary and every listener failure is retained
+   * beside it. {@link stateWriteOutcome} composes when the primary is already
+   * in hand; {@link settleSubmitted} composes when the batch transport learned
+   * the listener's failure FIRST and held it.
+   */
+  private retainOutcomeFailure(
+    primary: unknown,
+    outcomeFailure: unknown
+  ): AggregateError {
+    return new AggregateError(
+      [
+        primary,
+        ...(outcomeFailure instanceof AggregateError
+          ? outcomeFailure.errors
+          : [outcomeFailure])
+      ],
+      "Query execution and write-outcome publication both failed.",
+      { cause: primary }
+    );
   }
   async createMany(
     model: AnyModel,
     rows: Input[],
-    select?: Input,
-    skipDuplicates = false
+    projection?: PreparedProjection,
+    skipDuplicates = false,
+    single?: () => Error
   ): Promise<unknown> {
-    if (rows.length === 0) return this.emptyBulkResult(select);
+    if (rows.length === 0) return this.emptyBulkResult(projection);
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const projection = select
-      ? q.prepareProjection(model, { select })
-      : undefined;
     if (skipDuplicates && rows.some((row) => Object.keys(row).length === 0))
       throw new UnsupportedOperationError(
         "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
@@ -753,7 +1326,7 @@ export class OperationContext {
             if (missing.length > 0 && generated === undefined)
               throw new TransactionError(
                 `Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.`,
-                { meta: this.attribution }
+                { meta: this.errorMeta }
               );
             return generated;
           })
@@ -764,13 +1337,15 @@ export class OperationContext {
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
         const statement = buildInsert(columns, [row], false);
-        const context = this.statementContext(model, "createMany");
+        const context = this.statementContext(model, this.operation);
         let response: QueryResult<unknown> | undefined;
         if (recoverableSkip) {
           response = await this.executeMember(async () => {
             try {
-              return await this.withMemberRollback((driver) =>
-                driver._execute(statement, context)
+              return await this.dispatch(1, false, () =>
+                this.withMemberRollback((driver) =>
+                  driver._execute(statement, context)
+                )
               );
             } catch (error) {
               if (error instanceof UniqueConstraintError) return undefined;
@@ -779,7 +1354,10 @@ export class OperationContext {
           }, row);
         } else {
           response = await this.executeMember(
-            () => this.transport._execute(statement, context),
+            () =>
+              this.dispatch(1, false, () =>
+                this.transport._execute(statement, context)
+              ),
             row
           );
         }
@@ -794,11 +1372,13 @@ export class OperationContext {
           ...(generated ? { [generated]: response.insertId } : {})
         });
       }
-      return projection
-        ? identities.length
-          ? this.finishMany(this.seriesQueries(projection, identities))
-          : []
-        : { count };
+      if (!projection) return { count };
+      return identities.length
+        ? this.finishTerminals(
+            this.seriesQueries(projection, identities),
+            (published) => this.published(published, single)
+          )
+        : this.published([], single);
     }
     const returning = projection
       ? adapter.mutations.returning(
@@ -829,7 +1409,7 @@ export class OperationContext {
           if (returning) statement = sql`${statement} ${returning}`;
           statements.push({
             sql: statement,
-            context: this.statementContext(model, "createMany")
+            context: this.statementContext(model, this.operation)
           });
         }
         continue;
@@ -849,7 +1429,7 @@ export class OperationContext {
       for (const chunk of chunks)
         statements.push({
           sql: chunk.statement,
-          context: this.statementContext(model, "createMany")
+          context: this.statementContext(model, this.operation)
         });
     }
     return this.setMutations(statements, (results) => {
@@ -862,7 +1442,7 @@ export class OperationContext {
         output.push(
           ...q.decodeProjection(projection.shape, result.rows.map(record))
         );
-      return output;
+      return this.published(output, single);
     });
   }
   async updateMany(
@@ -870,26 +1450,21 @@ export class OperationContext {
     selector: PreparedSelector,
     values: Input,
     limit?: number,
-    select?: Input
+    projection?: PreparedProjection,
+    single?: () => Error
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = Object.entries(values).map(([field, value]) =>
-      adapter.set.assign(
-        q.column(model, field),
-        q.updateValue(model, field, value)
-      )
+      q.updateAssignment(model, field, value)
     );
-    const projection = select
-      ? q.prepareProjection(model, { select })
-      : undefined;
     if (projection && !adapter.capabilities.supportsReturning) {
       const identities = await this.captureMutationIdentities(
         model,
         selector,
         limit
       );
-      if (identities.length === 0) return [];
+      if (identities.length === 0) return this.published([], single);
       const statement = adapter.mutations.update(
         q.table(model),
         sql.join(assignments, ", "),
@@ -897,25 +1472,29 @@ export class OperationContext {
           ...identities.map((identity) => q.lowerIdentity(model, identity))
         )
       );
-      const response = await this.transport._execute(
-        statement,
-        this.statementContext(model, "updateMany")
+      const response = await this.dispatch(1, false, () =>
+        this.transport._execute(
+          statement,
+          this.statementContext(model, this.operation)
+        )
       );
       if (response.rowCount !== identities.length)
         throw new TransactionError(
           "updateMany selected-row cardinality changed during its locked mutation.",
-          { meta: this.attribution }
+          { meta: this.errorMeta }
         );
-      return this.finishMany(
+      return this.finishTerminals(
         this.seriesQueries(
           projection,
           identities.map((identity) =>
             this.updatedIdentity(model, identity, values)
           ),
           "updateMany"
-        )
+        ),
+        (published) => this.published(published, single)
       );
     }
+    this.packagedPresence(model, selector, single);
     const limited = q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.update(
       q.table(model),
@@ -931,10 +1510,13 @@ export class OperationContext {
       )}`;
     return this.setMutation(
       statement,
-      this.statementContext(model, "updateMany"),
+      this.statementContext(model, this.operation),
       (result) =>
         projection
-          ? q.decodeProjection(projection.shape, result.rows.map(record))
+          ? this.published(
+              q.decodeProjection(projection.shape, result.rows.map(record)),
+              single
+            )
           : { count: result.rowCount }
     );
   }
@@ -942,39 +1524,49 @@ export class OperationContext {
     model: AnyModel,
     selector: PreparedSelector,
     limit?: number,
-    select?: Input
+    projection?: PreparedProjection,
+    single?: () => Error
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const projection = select
-      ? q.prepareProjection(model, { select })
-      : undefined;
-    if (projection && !adapter.capabilities.supportsReturning) {
+    // A relation carrier reads rows a DELETE is removing, so it can never ride
+    // that statement's RETURNING: the row's shape is captured BEFORE the
+    // removal, under the same locked capture the non-returning branch owns.
+    if (
+      projection &&
+      !(
+        adapter.capabilities.supportsReturning &&
+        returningSafeProjection(projection)
+      )
+    ) {
       const identities = await this.captureMutationIdentities(
         model,
         selector,
         limit
       );
-      if (identities.length === 0) return [];
+      if (identities.length === 0) return this.published([], single);
       const rows: Input[] = [];
       for (const query of this.seriesQueries(projection, identities))
-        rows.push(...(await this.read(query)));
-      const response = await this.transport._execute(
-        adapter.mutations.delete(
-          q.table(model),
-          adapter.operators.or(
-            ...identities.map((identity) => q.lowerIdentity(model, identity))
-          )
-        ),
-        this.statementContext(model, "deleteMany")
+        rows.push(...(await this.read(query, false, false, model)));
+      const response = await this.dispatch(1, false, () =>
+        this.transport._execute(
+          adapter.mutations.delete(
+            q.table(model),
+            adapter.operators.or(
+              ...identities.map((identity) => q.lowerIdentity(model, identity))
+            )
+          ),
+          this.statementContext(model, this.operation)
+        )
       );
       if (response.rowCount !== identities.length)
         throw new TransactionError(
           "deleteMany selected-row cardinality changed during its locked mutation.",
-          { meta: this.attribution }
+          { meta: this.errorMeta }
         );
-      return rows;
+      return this.published(rows, single);
     }
+    this.packagedPresence(model, selector, single);
     const limited = q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.delete(
       q.table(model),
@@ -989,10 +1581,13 @@ export class OperationContext {
       )}`;
     return this.setMutation(
       statement,
-      this.statementContext(model, "deleteMany"),
+      this.statementContext(model, this.operation),
       (result) =>
         projection
-          ? q.decodeProjection(projection.shape, result.rows.map(record))
+          ? this.published(
+              q.decodeProjection(projection.shape, result.rows.map(record)),
+              single
+            )
           : { count: result.rowCount }
     );
   }
@@ -1006,7 +1601,7 @@ export class OperationContext {
     if (this.usesBatch)
       throw new TransactionError(
         `Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.`,
-        { meta: this.attribution }
+        { meta: this.errorMeta }
       );
     const keys = this.schema.keys(model);
     const rows = await this.read(
@@ -1019,7 +1614,9 @@ export class OperationContext {
         undefined,
         { selector, forUpdate: true }
       ),
-      true
+      true,
+      false,
+      model
     );
     return rows.map((row) => this.schema.identity(model, row));
   }
@@ -1109,7 +1706,9 @@ export class OperationContext {
       this.attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
       try {
-        response = await this.transport._execute<Input>(statement, context);
+        response = await this.dispatch(1, false, () =>
+          this.transport._execute<Input>(statement, context)
+        );
       } catch (error) {
         if (producer && error instanceof UniqueConstraintError)
           this.attempt.rejectedInsert = { error, producer };
@@ -1163,21 +1762,22 @@ export class OperationContext {
         );
         if (producer) this.attempt.insertProducers.set(inserted, producer);
         const responses = await this.submit(true, member);
-        let stored: Input;
-        try {
-          const rows = q.decodeProjection(
-            projection.shape,
-            responses[resultIndex]!.rows,
-            true
-          );
-          if (!rows[0])
-            throw new TypeError(
-              "INSERT RETURNING did not produce the required record"
+        const stored = await this.settleSubmitted(() => {
+          try {
+            const rows = q.decodeProjection(
+              projection.shape,
+              responses[resultIndex]!.rows,
+              true
             );
-          stored = rows[0];
-        } catch (error) {
-          throw this.failure(error, "result", member);
-        }
+            if (!rows[0])
+              throw new TypeError(
+                "INSERT RETURNING did not produce the required record"
+              );
+            return rows[0];
+          } catch (error) {
+            throw this.failure(error, "result", member);
+          }
+        });
         this.continuations.push({
           model,
           query: q.select(model, {}, undefined, {
@@ -1222,9 +1822,25 @@ export class OperationContext {
           continue;
         const state = physicalField(this.schema, model, field).scalar["~"]
           .state;
+        // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
+        // publication gap, raised where it always was — before any statement of
+        // this update is dispatched, so nothing is written. On a driver with no
+        // interactive transaction the evaluated value has to travel through the
+        // adapter's batch scratch, which is read back with an integer cast
+        // (below), so an `int` field is the only domain a dependent can demand
+        // as an expression. Widening it needs a typed scratch read per domain
+        // (and an answer to the decimal rounding question `Queries.updateValue`
+        // refuses), which is a capability change, not an identity.
         if (state.type !== "int")
-          throw new Error(
-            "Raptor 3 update expression publication requires an integer field"
+          throw new QueryEngineError(
+            `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
+            {
+              meta: {
+                model: model["~"].names.ts!,
+                operation,
+                field
+              }
+            }
           );
         const references = getAdapterInternals(adapter).batchRefs;
         const scratchId = this.ensureScratch();
@@ -1249,10 +1865,7 @@ export class OperationContext {
       }
     }
     const assignments = Object.entries(written).map(([field, value]) =>
-      adapter.set.assign(
-        q.column(model, field),
-        q.updateValue(model, field, value)
-      )
+      q.updateAssignment(model, field, value)
     );
     const statement = adapter.mutations.update(
       q.table(model),
@@ -1265,7 +1878,9 @@ export class OperationContext {
       const select = Object.fromEntries(fields.map((field) => [field, true]));
       const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
-        await this.transport._execute(statement, context);
+        await this.dispatch(1, false, () =>
+          this.transport._execute(statement, context)
+        );
         // The mutation's locked capture remains protected through this stored-row read.
         const rows = await this.read(
           q.select(model, {}, undefined, {
@@ -1278,11 +1893,13 @@ export class OperationContext {
           throw new TypeError("UPDATE did not produce the required record");
         return { ...written, ...rows[0] };
       }
-      const response = await this.transport._execute<Input>(
-        sql`${statement} ${adapter.mutations.returning(
-          sql.join(q.lowerProjection(projection).columns, ", ")
-        )}`,
-        context
+      const response = await this.dispatch(1, false, () =>
+        this.transport._execute<Input>(
+          sql`${statement} ${adapter.mutations.returning(
+            sql.join(q.lowerProjection(projection).columns, ", ")
+          )}`,
+          context
+        )
       );
       const rows = q.decodeProjection(projection.shape, response.rows, true);
       if (!rows[0])
@@ -1356,7 +1973,9 @@ export class OperationContext {
       const context = this.statementContext(edge.source, "update");
       if (this.usesBatch) this.queue(remove, context, member);
       else {
-        const response = await this.transport._execute(remove, context);
+        const response = await this.dispatch(1, false, () =>
+          this.transport._execute(remove, context)
+        );
         if (response.rowCount !== 1) {
           const failure = new TransactionError(
             `Concurrent membership change on the singular polymorphic member of relation '${edge.name}': the captured owner's membership was already removed; retry to converge.`
@@ -1601,6 +2220,9 @@ export class OperationContext {
     member: Member
   ): Promise<void> {
     if (this.usesBatch) this.queue(statement, context, member);
-    else await this.transport._execute(statement, context);
+    else
+      await this.dispatch(1, false, () =>
+        this.transport._execute(statement, context)
+      );
   }
 }

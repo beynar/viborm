@@ -212,6 +212,96 @@ test("completed G2 progress survives watchdog termination without becoming quali
     assert.equal(existsSync(join(progressDirectory, file)), false);
 });
 
+test("the command refuses a filtered G4 mode and an off-boundary G4 child", () => {
+  fail(
+    run(["g4-read-contracts", "--testNamePattern=absent"]),
+    /cannot be filtered/
+  );
+  fail(run(["g4-seed-batch", "19999"]), /exact frozen boundary/);
+  fail(run(["g4-transport-seed-batch", "20000"]), /exact frozen boundary/);
+  fail(run(["g4-seeds", "20000"]), /cannot be filtered/);
+  fail(
+    run(["g4-unit01-author", "--testNamePattern=absent"]),
+    /cannot be filtered/
+  );
+  fail(run(["g4-unit01-review", "83"]), /cannot be filtered/);
+  fail(
+    run(["g4-unit02-author", "--testNamePattern=absent"]),
+    /cannot be filtered/
+  );
+  fail(run(["g4-unit02-mysql-contracts", "5"]), /cannot be filtered/);
+});
+
+test("the G4 write lanes own their own range and take no subject", () => {
+  // The write lanes run the G3 generator on fresh seeds. Two things must hold
+  // from the command line: a child cannot start inside an already-qualified
+  // range, and the read campaign's `--subject` flag is refused here rather
+  // than silently ignored - there is one subject, the candidate.
+  fail(run(["g4-write-seed-batch", "74999"]), /exact frozen boundary/);
+  fail(run(["g4-write-seed-batch", "8000"]), /exact frozen boundary/);
+  fail(run(["g4-write-transport-seed-batch", "75000"]), /exact frozen boundary/);
+  fail(run(["g4-write-transport-seed-batch", "125000"]), /exact frozen boundary/);
+  fail(
+    run(["g4-write-seeds", "--subject=shipped"]),
+    /Subject selection applies only/
+  );
+  fail(
+    run(["g4-write-seed-batch", "75000", "--subject=candidate"]),
+    /Subject selection applies only/
+  );
+  fail(run(["g4-write-seeds", "75000"]), /cannot be filtered/);
+});
+
+test("a G4 campaign subject comes from the command, never from the shell", () => {
+  // An inherited VIBORM_RAPTOR3_G4_SUBJECT used to decide what a child ran and
+  // which receipt assertion the runner then applied, so a whole campaign could
+  // be an oracle-validation run that still printed "verified".
+  const leaked = run(["g4-seed-batch", "20000"], {
+    VIBORM_RAPTOR3_G4_SUBJECT: "shipped",
+  });
+  const diagnostics = `${leaked.stdout}\n${leaked.stderr}`.match(
+    /(?:diagnostics|Evidence): (.+)/
+  )?.[1];
+  assert(diagnostics, "the child did not report its evidence directory");
+  const attempt = JSON.parse(
+    readFileSync(join(diagnostics, "attempt.json"), "utf8")
+  );
+  assert.equal(
+    attempt.subject,
+    "candidate",
+    "an inherited subject changed what the child ran"
+  );
+  assert.equal(attempt.qualifying, true);
+  assert.doesNotMatch(leaked.stdout, /subject shipped/);
+
+  // Asked for by name, the oracle-validation lane runs and says so everywhere
+  // the runner writes: stdout, verified.json and the child receipt.
+  const asked = run(["g4-seed-batch", "20000", "--subject=shipped"], {
+    VIBORM_RAPTOR3_G4_SUBJECT: "candidate",
+  });
+  pass(asked);
+  assert.match(asked.stdout, /subject shipped, NOT qualifying — oracle validation/);
+  const evidence = asked.stdout.match(/Evidence: (.+)/)?.[1];
+  assert(evidence, "the passing command omitted its evidence directory");
+  const verified = JSON.parse(
+    readFileSync(join(evidence, "verified.json"), "utf8")
+  );
+  assert.equal(verified.subject, "shipped");
+  assert.equal(verified.qualifying, false);
+  const receipt = JSON.parse(
+    readFileSync(join(evidence, "generated-campaign.json"), "utf8")
+  );
+  assert.equal(receipt.subject, "shipped");
+  assert.equal(receipt.qualifying, false);
+  assert.equal(receipt.status, "oracle-validation");
+  assert.equal(receipt.seedCount, 100);
+  fail(
+    run(["g4-seed-batch", "20000", "--subject=oracle"]),
+    /Subject is candidate or shipped/
+  );
+  fail(run(["g0", "--subject=shipped"]), /Subject selection applies only/);
+});
+
 test("test:all cannot replace the required lane through inherited specimen variables", () => {
   const outcome = execute(
     "scripts/run-credential-free-tests.mjs",

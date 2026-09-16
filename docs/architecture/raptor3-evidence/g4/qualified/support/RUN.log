@@ -1,0 +1,9 @@
+receipts-selftest exit=0
+cli-selftest exit=0
+typecheck exit=1
+structure exit=0
+source-cost exit=0
+driver-integration exit=0
+credential-free-fixed exit=0
+credential-free-provider exit=0
+=== 02:37:14 group support finished ===

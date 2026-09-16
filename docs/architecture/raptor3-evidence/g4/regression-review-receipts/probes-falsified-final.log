@@ -1,0 +1,311 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts (8 tests | 5 failed) 120ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure 60ms
+     → P1 {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0,
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true
+        }
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'update',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 0,
++         committedWriteMembers: 0,
++         completedMembers: 0,
++         mayHaveCommittedSegment: true,
++         phase: 'member'
++       },
+        statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P2 a nested write inside a root create rejected before dispatch answers the shipped failure 16ms
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P3 an array member rejected before dispatch answers the shipped failure 7ms
+   × G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine 10ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   phase: 'member'
++ }
+- undefined
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine 6ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   phase: 'member'
++ }
+- undefined
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine 7ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   phase: 'member'
++ }
+- undefined
+
+   × G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on shipped and not on the candidate route 8ms
+     → P7 {
+  "candidate": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+1 !== 0
+
+   ✓ G4 regression review — neighbouring uncertain-outcome shapes > P8 a committed set window with a malformed result still publishes progress on the candidate only 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P1 a root update rejected before dispatch answers the shipped failure
+AssertionError: P1 {
+  "candidate": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0,
+        "recordSeriesProgress": {
+          "atomicity": "segment",
+          "phase": "member",
+          "committedSegments": 0,
+          "completedMembers": 0,
+          "committedWriteMembers": 0,
+          "mayHaveCommittedSegment": true
+        }
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  },
+  "shipped": {
+    "failure": {
+      "code": "V2001",
+      "meta": {
+        "driver": "sqlite3",
+        "model": "owner",
+        "operation": "update",
+        "statementIndex": 0
+      },
+      "name": "QueryError"
+    },
+    "notes": [],
+    "owners": [
+      {
+        "id": 7,
+        "owner_label": "seed"
+      }
+    ]
+  }
+}
++ actual - expected
+
+  {
+    failure: {
+      code: 'V2001',
+      meta: {
+        driver: 'sqlite3',
+        model: 'owner',
+        operation: 'update',
++       recordSeriesProgress: {
++         atomicity: 'segment',
++         committedSegments: 0,
++         committedWriteMembers: 0,
++         completedMembers: 0,
++         mayHaveCommittedSegment: true,
++         phase: 'member'
++       },
+        statementIndex: 0
+      },
+      name: 'QueryError'
+    },
+    notes: [],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,10 +3,18 @@[39m
+[2m      "code": "V2001",[22m
+[2m      "meta": {[22m
+[2m        "driver": "sqlite3",[22m
+[2m        "model": "owner",[22m
+[2m        "operation": "update",[22m
+[31m+       "recordSeriesProgress": {[39m
+[31m+         "atomicity": "segment",[39m
+[31m+         "committedSegments": 0,[39m
+[31m+         "committedWriteMembers": 0,[39m
+[31m+         "completedMembers": 0,[39m
+[31m+         "mayHaveCommittedSegment": true,[39m
+[31m+         "phase": "member",[39m
+[31m+       },[39m
+[2m        "statementIndex": 0,[22m
+[2m      },[22m
+[2m      "name": "QueryError",[22m
+[2m    },[22m
+[2m    "notes": [],[22m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:260:12
+    258|     );
+    259|     assert.equal(shipped.failure.meta.recordSeriesProgress, undefined);
+    260|     assert.deepEqual(candidate, shipped, report("P1", { candidate, shi…
+       |            ^
+    261|   });
+    262| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P4 createMany rejected before dispatch publishes no progress on either engine
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P5 updateMany rejected before dispatch publishes no progress on either engine
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P6 deleteMany rejected before dispatch publishes no progress on either engine
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ {
++   atomicity: 'segment',
++   committedSegments: 0,
++   committedWriteMembers: 0,
++   completedMembers: 0,
++   mayHaveCommittedSegment: true,
++   phase: 'member'
++ }
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:325:14
+    323|       const { shipped, candidate } = await differential(bulk.drive);
+    324|       assert.equal(shipped.failure.meta.recordSeriesProgress, undefine…
+    325|       assert.equal(candidate.failure.meta.recordSeriesProgress, undefi…
+       |              ^
+    326|       assert.equal(shipped.failure.meta.statementIndex, undefined);
+    327|       // The recorded blocker, reproduced on a bulk verb.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |raptor3-review-regression| tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts > G4 regression review — neighbouring uncertain-outcome shapes > P7 an uncertain root create invalidates the cache on shipped and not on the candidate route
+AssertionError: P7 {
+  "candidate": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  },
+  "shipped": {
+    "invalidations": 1,
+    "rejected": "QueryError"
+  }
+}
+
+1 !== 0
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/review/regression/uncertain-outcome-neighbours.review.test.ts:387:12
+    385|     // outcome it cannot prove rolled back; the candidate route does n…
+    386|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    387|     assert.equal(
+       |            ^
+    388|       candidate.invalidations,
+    389|       0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 3 passed (8)
+   Start at  21:44:31
+   Duration  3.26s (transform 2.05s, setup 0ms, collect 2.97s, tests 120ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 3.82s wall, 466.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

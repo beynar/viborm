@@ -25,6 +25,7 @@ import type {
 import {
   type BoundMembership,
   membershipFields,
+  nestedTargetAddressesConstraint,
   type Selection,
   type SelectionSource,
 } from "./selection";
@@ -211,6 +212,7 @@ export class RelationBody {
             {
               kind: "query",
               where: selector,
+              unique: nestedTargetAddressesConstraint(edge, verb),
               membership: { edge, parent: parent.located!.fields },
             },
             new NestedWriteError(
@@ -249,17 +251,29 @@ export class RelationBody {
                 origin
               );
           } else {
+            const removal: Removal = {
+              kind: "remove",
+              edge,
+              source: parent.fields,
+              target: outgoing.fields,
+              keep: [],
+            };
+            // A JUNCTION `delete` removes the LINK row before the target, in
+            // this one region: the link references the target, so deleting the
+            // target first is a foreign-key violation wherever the constraint
+            // is enforced. The order is the shipped engine's own — "locate the
+            // connected child, DELETE its join rows, then the child"
+            // (`write-engine/RelationJunctionPart.ts:911-937` `compileDelete`:
+            // `junctionDeleteTargets` then `childDelete`). A `disconnect`
+            // places the removal alone, and a reference-held target carries its
+            // own foreign key, so it places the deletion alone.
+            if (verb === "delete" && edge.kind === "junction")
+              this.commands.place(parent, removal, "after", origin);
             this.commands.place(
               parent,
               verb === "delete"
                 ? { kind: "delete", located: outgoing, origin }
-                : {
-                    kind: "remove",
-                    edge,
-                    source: parent.fields,
-                    target: outgoing.fields,
-                    keep: [],
-                  },
+                : removal,
               "after",
               origin
             );
@@ -320,6 +334,39 @@ export class RelationBody {
           const source = entries(rawPayload)[index]!;
           const conditional: Input =
             verb === "connect" ? { where: supplied } : supplied;
+          // The child's OWN key update is judged by the same owner that judges
+          // the root's, at the position this body already admits it, and R-D2
+          // (c) is about the SHAPE, not the site. `connect` and
+          // `connectOrCreate` carry no update payload, so they ask nothing.
+          //
+          // WHEN the answer is stated is the shipped engine's placement, not
+          // this body's. A nested `update` is asserted at COMPILE time
+          // (`RelationWritePart.ts:856`), so its refusal is raised here, before
+          // anything is located. A nested `upsert` is not: the shipped engine
+          // builds the same assertion as a closure (`RelationUpsertPart.ts:1006`)
+          // and invokes it only inside the FOUND arm (`:468`), so an absent
+          // target takes the create arm and the update payload is never judged
+          // — the shape `EngineSchema.keyPortabilityRefusal`'s own docblock
+          // warns a wider placement breaks, "an upsert that CREATES a row the
+          // arithmetic never touches". The upsert's refusal is therefore handed
+          // to its found arm below, the way the ROOT upsert hands it to its own
+          // (`commands.ts:1236-1239`). The carrier differs because the position
+          // does: the root assigns `CommandOccurrence.refusal` on an already
+          // MATERIALIZED arm, while this body writes a recipe, and a recipe
+          // never carries occurrence refusal into materialization (guide,
+          // "Reusing a command or `Selection` never reuses occurrence ancestry,
+          // children, refusal, or attempt state"). The found arm's own deferred
+          // `Assignments` is the recipe-borne half of the same channel: it holds
+          // the refusal until `activate()` observes the choice
+          // (`execution.ts:259`, `:389`), which is the arm-conditional rule the
+          // guide already states for every `Choose` arm.
+          const childUpdate =
+            verb === "upsert" ? conditional.update : conditional.data;
+          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
+            edge.target,
+            childUpdate
+          );
+          if (keyRefusal && verb !== "upsert") throw keyRefusal;
           const missing =
             conditional.create === undefined
               ? undefined
@@ -344,7 +391,8 @@ export class RelationBody {
           const queries = this.commands.context.queries;
           const ownSelector = queries.prepareSelector(
             edge.target,
-            conditional.where as Input | undefined
+            conditional.where as Input | undefined,
+            nestedTargetAddressesConstraint(edge, verb)
           );
           let selectionSource: SelectionSource = {
             kind: "query",
@@ -454,11 +502,7 @@ export class RelationBody {
                 ? this.commands.occurrence(
                     this.commands.update(
                       lookup,
-                      record(
-                        verb === "upsert"
-                          ? conditional.update
-                          : conditional.data
-                      ),
+                      record(childUpdate),
                       record(
                         verb === "upsert"
                           ? source.update
@@ -473,6 +517,11 @@ export class RelationBody {
           if (target.found) {
             target.found.command.origin = origin;
             target.found.command.requirement = foundRequirement;
+            // The upsert's key refusal, on the arm that owns it: the update the
+            // found arm would run is the payload being judged, its `Assignments`
+            // is deferred, and an untaken arm never activates. `undefined` for a
+            // nested `update`, which already refused above.
+            if (keyRefusal) target.found.command.fields.reject(keyRefusal);
           }
           this.association(edge, target, correlated);
           this.supply(target);
@@ -489,6 +538,13 @@ export class RelationBody {
         this.membershipSource(edge, parent.fields);
         for (const [index, member] of entries(payload).entries()) {
           const input = record(member);
+          // The same owner, at the third nested position that admits an update
+          // payload. A `deleteMany` member has no `data`, so it asks nothing.
+          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
+            edge.target,
+            input.data
+          );
+          if (keyRefusal) throw keyRefusal;
           const where =
             verb === "updateMany"
               ? input.where === undefined
@@ -575,7 +631,11 @@ export class RelationBody {
     return selectors.map((where): Choose => {
       const lookup = this.commands.lookup(
         edge.target,
-        { kind: "query", where },
+        {
+          kind: "query",
+          where,
+          unique: nestedTargetAddressesConstraint(edge, "set"),
+        },
         new NestedWriteError(
           `Cannot set relation '${edge.name}': target record was not found.`,
           edge.name

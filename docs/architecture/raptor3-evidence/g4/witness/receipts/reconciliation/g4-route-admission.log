@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-admission.test.ts (7 tests) 56ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  12:34:51
+   Duration  2.80s (transform 1.68s, setup 10ms, collect 2.50s, tests 56ms, environment 0ms, prepare 36ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-88un2M/vitest.json
+Vitest resources: 5.34s wall, 516.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Missing candidate/profile/scenario cell in tests/raptor3/g4/route-admission.test.ts
+
+7 !== 5
+

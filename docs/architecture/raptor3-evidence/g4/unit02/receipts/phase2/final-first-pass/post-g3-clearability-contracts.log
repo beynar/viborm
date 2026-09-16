@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 40ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:25:16
+   Duration  1.78s (transform 1.10s, setup 8ms, collect 1.61s, tests 40ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nI4f0s/vitest.json
+Vitest resources: 3.76s wall, 520.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-clearability-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-nI4f0s

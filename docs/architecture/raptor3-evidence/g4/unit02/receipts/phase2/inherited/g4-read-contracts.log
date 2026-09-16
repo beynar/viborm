@@ -1,0 +1,157 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests | 1 failed) 113ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W01 composes AND, OR and NOT recursively 35ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W01 rebinds the field-reference scope inside a nested relation predicate 10ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W02 keeps a cursor strictly unique while extended where stays filtered 7ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W03 answers equals, in, notIn, ranges, nested not and field references 6ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W04 escapes LIKE literals and honours the insensitive mode 6ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W04 folds only ASCII under the insensitive mode 8ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W03 partitions a nullable column at the NULL itself 4ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W08 answers to-one shorthand, is and isNot including real nullability 5ms
+   ✓ G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W09 answers independent some, every and none quantifiers 5ms
+   × G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W10 answers tagged variant collection quantifiers 9ms
+     → The candidate disagrees with the hand-computed value for board.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
+      id: 2
+    }
+  ]
+
+   ✓ G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W05 keeps scalar membership and list containment distinct 10ms
+   ✓ G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W05 refuses a list container on a scalar column 3ms
+   ✓ G4 C01 container predicate vocabulary (Q-W05, Q-W06) > Q-W06 answers JSON path, comparison and nested not predicates 5ms
+ ❯ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests | 1 failed) 55ms
+   ✓ G4 C12 scalar and list codec read crossings > pins the physical spelling the codec witnesses read back 8ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-01…SC-12, SL-01…SL-10 round-trip exactly through findUnique 7ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-06 and SL-06 keep the exact decimal domain and fresh public values 4ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-11 keeps the database NULL and the JSON null sentinels distinct 7ms
+   ✓ G4 C12 scalar and list codec read crossings > SC-12 publishes a fresh Uint8Array per read 4ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-01…SL-05 and SL-07…SL-10 answer the list container predicates 9ms
+   ✓ G4 C12 scalar and list codec read crossings > SL-06 refuses decimal-list ordering and value aggregation (RF-05) 4ms
+   ✓ G4 C12 scalar and list codec read crossings > Q-R01 refuses a malformed provider row at the decode boundary 4ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > pins the physical spelling of a point column 2ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > SC-14 round-trips an exact EPSG:4326 point and answers within 2ms
+   ✓ G4 C12 spatial codec read crossings (SC-13, SC-14) > Q-W07 refuses the metre-distance tier identically without provider support 1ms
+   × G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier 4ms
+     → the candidate raised FeatureNotSupportedError (vector.literal is not supported. Load the pgvector extension.) where the shipped engine raises QueryError
++ actual - expected
+
++ 'FeatureNotSupportedError'
+- 'QueryError'
+
+ ❯ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests | 1 failed) 16ms
+   × G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth 9ms
+     → Driver "sqlite3" returned a malformed bigint scalar for operation "findMany": the value is not a canonical integer.
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 applies descendant where, select and orderBy at every level 4ms
+   ✓ G4 RF-16 recursive-read fit on the fuller codec set > RF-16 orders roots by seed and keeps one statement per traversal 3ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 48ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 38ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 26ms
+ ❯ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests | 1 failed) 25ms
+   ✓ G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O01 orders a scalar domain ascending and descending 7ms
+   ✓ G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O01 places nulls exactly where { sort, nulls } asks 4ms
+   ✓ G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O03 descends to-one relations and stops after eight hops (RF-07) 5ms
+   × G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O04 orders collections only by _count 6ms
+     → Raptor 3 G1 variant carrier membership is not implemented: items
+   ✓ G4 C01 distance ordering (Q-O02) > Q-O02 refuses distance ordering identically on a provider without the tier 3ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 30ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-codecs.test.ts > G4 C12 vector capability boundary (SC-13) > SC-13 refuses a vector write and read identically on a provider without the tier
+AssertionError: the candidate raised FeatureNotSupportedError (vector.literal is not supported. Load the pgvector extension.) where the shipped engine raises QueryError
++ actual - expected
+
++ 'FeatureNotSupportedError'
+- 'QueryError'
+
+
+Expected: [32m"[7mQuery[27mError"[39m
+Received: [31m"[7mFeatureNotSupported[27mError"[39m
+
+ ❯ tests/raptor3/g4/read-codecs.test.ts:452:12
+    450|       })
+    451|     );
+    452|     assert.equal(
+       |            ^
+    453|       candidateWrite.constructorName,
+    454|       shippedWrite.constructorName,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-filters.test.ts > G4 C01 predicate vocabulary (Q-W01…Q-W10) > Q-W10 answers tagged variant collection quantifiers
+AssertionError: The candidate disagrees with the hand-computed value for board.findMany
++ actual - expected
+
+  [
+    {
++     id: 1
++   },
++   {
+      id: 2
+    }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[31m+     "id": 1,[39m
+[31m+   },[39m
+[31m+   {[39m
+[2m      "id": 2,[22m
+[2m    },[22m
+[2m  ][22m
+
+ ❯ expectRead tests/raptor3/g4/witness-world.ts:121:10
+    119|   );
+    120|   const candidate = await world.candidate.execute(model, operation as …
+    121|   assert.deepStrictEqual(
+       |          ^
+    122|     candidate,
+    123|     expected,
+ ❯ tests/raptor3/g4/read-filters.test.ts:520:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-ordering.test.ts > G4 C01 ordering vocabulary (Q-O01…Q-O04) > Q-O04 orders collections only by _count
+Error: Raptor 3 G1 variant carrier membership is not implemented: items
+ ❯ variantMember src/query-engine/raptor3/shared/storage.ts:64:11
+     62|   const member = resolved ?? tagged;
+     63|   if (member === undefined)
+     64|     throw new Error(
+       |           ^
+     65|       `Raptor 3 G1 variant carrier membership is not implemented: ${na…
+     66|     );
+ ❯ buildMembershipView src/query-engine/raptor3/shared/storage.ts:111:20
+ ❯ EngineSchema.membership src/query-engine/raptor3/shared/schema.ts:297:9
+ ❯ bindMembership src/query-engine/raptor3/shared/storage.ts:48:17
+ ❯ Queries.relationOrderTerm src/query-engine/raptor3/shared/query.ts:1707:18
+ ❯ Queries.orderTerm src/query-engine/raptor3/shared/query.ts:1665:19
+ ❯ src/query-engine/raptor3/shared/query.ts:1653:19
+ ❯ src/query-engine/raptor3/shared/query.ts:1650:29
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts > G4 RF-16 recursive-read fit on the fuller codec set > RF-16 projects the fuller codec set at every depth
+QueryEngineError: Driver "sqlite3" returned a malformed bigint scalar for operation "findMany": the value is not a canonical integer.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  4 failed | 4 passed (8)
+      Tests  4 failed | 58 passed (62)
+   Start at  04:40:36
+   Duration  2.83s (transform 1.19s, setup 15ms, collect 2.27s, tests 353ms, environment 0ms, prepare 40ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-sCwsgM/vitest.json
+Vitest resources: 4.98s wall, 714.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-sCwsgM

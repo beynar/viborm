@@ -1,0 +1,59 @@
+== the two spellings, as they stand in the sources ==
+--- shared/query.ts wholeValue (the owner, NEW) ---
+export function wholeValue(
+  value: unknown,
+): { readonly value: unknown } | undefined {
+  if (value instanceof Sql || value === null || typeof value !== "object")
+    return { value };
+  if (!isOperatorRecord(value)) return { value };
+  return Object.hasOwn(value, "set")
+    ? { value: record(value).set }
+    : undefined;
+}
+--- commands/assignments.ts scalarAssignment (the consumer, NOW) ---
+function scalarAssignment(value: unknown): unknown {
+  const whole = wholeValue(value);
+  return whole ? whole.value : value;
+}
+--- commands/assignments.ts scalarAssignment (the inline predicate, BEFORE, at 1e9b7c52) ---
+function scalarAssignment(value: unknown): unknown {
+  // An operator record states `set` as its OWN property. A `Uint8Array`
+  // inherits `set` from its prototype and is one whole blob value, never an
+  // operator record; the same holds for any class instance a codec owns.
+  return value !== null &&
+    typeof value === "object" &&
+    !(value instanceof Sql) &&
+    Object.hasOwn(value, "set")
+    ? record(value).set
+    : value;
+}
+
+== domain census (REPLICATION of the two spellings above, not the compiled modules) ==
+AGREE   null                               old=null new=null
+AGREE   undefined                          old=undefined new=undefined
+AGREE   number                             old=7 new=7
+AGREE   bigint                             old=7n new=7n
+AGREE   string                             old="x" new="x"
+AGREE   boolean                            old=true new=true
+AGREE   Uint8Array                         old=Uint8Array new=Uint8Array
+AGREE   Date                               old=Date new=Date
+AGREE   Decimal (decimal.js)               old=Decimal new=Decimal
+AGREE   array                              old=Array new=Array
+AGREE   array of Uint8Array                old=Array new=Array
+AGREE   Map                                old=Map new=Map
+AGREE   Set                                old=Set new=Set
+AGREE   Sql                                old=Sql new=Sql
+AGREE   plain { set }                      old=9 new=9
+AGREE   plain { set: null }                old=null new=null
+AGREE   plain { increment }                old=Object new=Object
+AGREE   plain { set, increment }           old=9 new=9
+AGREE   plain {}                           old=Object new=Object
+AGREE   null-prototype { set }             old=5 new=5
+AGREE   null-prototype { increment }       old=null-proto new=null-proto
+DIVERGE  class instance with an OWN `set`   old="own" new=OwnSet
+
+22 domains, 1 diverging.
+
+== can an estate value domain carry an OWN `set`? ==
+$ grep -rn "this\.set\s*=" src/validation/ src/schema/ src/query-engine/
+(no match)

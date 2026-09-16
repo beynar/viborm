@@ -1,0 +1,9 @@
+modes total: 103
+broken: 7  intact: 96  unresolved: 0
+BROKEN	g4-lifecycle-admission	G4_LIFECYCLE_ADMISSION_TESTS	1 missing	tests/raptor3/g4/lifecycle-admission.test.ts
+BROKEN	g4-lifecycle-events	G4_LIFECYCLE_EVENTS_TESTS	1 missing	tests/raptor3/g4/lifecycle-events.test.ts
+BROKEN	g4-route-admission	G4_ROUTE_ADMISSION_TESTS	1 missing	tests/raptor3/g4/route-admission.test.ts
+BROKEN	g4-route-cache	G4_ROUTE_CACHE_TESTS	1 missing	tests/raptor3/g4/route-cache.test.ts
+BROKEN	g4-route-lifecycle	G4_ROUTE_LIFECYCLE_TESTS	1 missing	tests/raptor3/g4/route-lifecycle.test.ts
+BROKEN	g4-route-transactions	G4_ROUTE_TRANSACTION_TESTS	1 missing	tests/raptor3/g4/route-transactions.test.ts
+BROKEN	g4-unit02-author	G4_UNIT02_AUTHOR_TESTS	1 missing	tests/raptor3/g4/unit02/packaged-array.test.ts

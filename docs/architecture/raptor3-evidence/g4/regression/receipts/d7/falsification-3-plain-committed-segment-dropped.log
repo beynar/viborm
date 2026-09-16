@@ -1,0 +1,47 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (7 tests | 1 failed) 43ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 18ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 5ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 3ms
+   × G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 6ms
+     → a committed write is durable whether or not its result decodes: {"candidate":{"invalidations":0,"outcome":"QueryEngineError"},"shipped":{"invalidations":1,"outcome":"QueryEngineError"}}
+
+0 !== 1
+
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once
+AssertionError: a committed write is durable whether or not its result decodes: {"candidate":{"invalidations":0,"outcome":"QueryEngineError"},"shipped":{"invalidations":1,"outcome":"QueryEngineError"}}
+
+0 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:378:12
+    376|     assert.equal(candidate.outcome, shipped.outcome, JSON.stringify({ …
+    377|     assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped })…
+    378|     assert.equal(
+       |            ^
+    379|       candidate.invalidations,
+    380|       1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  23:15:56
+   Duration  1.97s (transform 1.17s, setup 8ms, collect 1.72s, tests 43ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 4.11s wall, 565.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/route-lifecycle.test.ts (8 tests) 57ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  16:08:21
+   Duration  2.20s (transform 1.35s, setup 10ms, collect 2.00s, tests 57ms, environment 0ms, prepare 28ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vboyif/vitest.json
+Vitest resources: 4.45s wall, 533.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-route-lifecycle contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-vboyif

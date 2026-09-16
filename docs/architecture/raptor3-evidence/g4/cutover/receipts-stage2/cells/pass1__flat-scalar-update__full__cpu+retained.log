@@ -1,0 +1,34 @@
+CELL: flat-scalar-update/full modes=cpu,retained extra=
+COMMAND: cd /private/tmp/viborm-g4-perf-baseline && TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 benchmarks/operation-pipeline-compare.mjs --baseline-dir /private/tmp/viborm-g4-perf-baseline --baseline-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 --baseline-source-commit 0cc61e61f372945026b0b564fa643de67168c08e --candidate-dir /private/tmp/viborm-g4-perf-candidate --candidate-commit 981368f6a4aad7628fe37bb5b5b38bac86b885d4 --providers sqlite3 --comparison semantic --workloads flat-scalar-update --stages full --modes cpu,retained --output /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/g4cut/cells/pass1__flat-scalar-update__full__cpu+retained.json
+STARTED: 2026-09-15T18:24:34Z
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/flat-scalar-update/full/cpu replicate 1/5: baseline
+sqlite3/flat-scalar-update/full/cpu replicate 1/5: candidate
+sqlite3/flat-scalar-update/full/cpu replicate 2/5: candidate
+sqlite3/flat-scalar-update/full/cpu replicate 2/5: baseline
+sqlite3/flat-scalar-update/full/cpu replicate 3/5: baseline
+sqlite3/flat-scalar-update/full/cpu replicate 3/5: candidate
+sqlite3/flat-scalar-update/full/cpu replicate 4/5: candidate
+sqlite3/flat-scalar-update/full/cpu replicate 4/5: baseline
+sqlite3/flat-scalar-update/full/cpu replicate 5/5: baseline
+sqlite3/flat-scalar-update/full/cpu replicate 5/5: candidate
+sqlite3/flat-scalar-update/full/retained replicate 1/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 1/5: candidate
+sqlite3/flat-scalar-update/full/retained replicate 2/5: candidate
+sqlite3/flat-scalar-update/full/retained replicate 2/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 3/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 3/5: candidate
+sqlite3/flat-scalar-update/full/retained replicate 4/5: candidate
+sqlite3/flat-scalar-update/full/retained replicate 4/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 5/5: baseline
+sqlite3/flat-scalar-update/full/retained replicate 5/5: candidate
+EXIT: 0
+FINISHED: 2026-09-15T18:27:56Z
+REPORT_BYTES: 12972873
+REPORT_SHA256: 97c2d86012d6fc6419478f88b1b11bbbf1c41b4ace6a7a00b7fae3eb53896180
+flat-scalar-update/full/cpu seam=built-statement/package stmts=1/2
+  cpu: B=82.1814 N=76.7528 E=23.25 budget=4.109 d+E=17.82 STRADDLES
+  wall: B=52.4931 N=61.8438 E=26.75 budget=2.625 d+E=36.10 STRADDLES
+flat-scalar-update/full/retained seam=built-statement/package stmts=1/2
+  peakRss: B=1.16851e+8 N=1.02924e+8 E=3.146e+6 budget=1.169e+7 d+E=-1.078e+7 WITHIN
