@@ -155,9 +155,27 @@ export class OperationContext {
    */
   private heldOutcomeFailure?: { readonly failure: unknown };
   private atomicAssertionRejection?: unknown;
-  private readonly incompletePreparation = new Error(
-    "Raptor 3 operation requires dynamic execution"
-  );
+  private incompletePreparationSentinel?: Error;
+  /**
+   * The preparation sentinel, built on its FIRST use and never before.
+   *
+   * It is a control-flow value, not a diagnostic: it is compared by identity
+   * ({@link isIncompletePreparation}) and thrown by the four preparation-only
+   * refusals, and no caller ever sees it — `prepareBatch`
+   * (`commands/index.ts:204`) turns it into `undefined`. Constructing it in the
+   * field block cost a full V8 stack capture on EVERY operation, prepared or
+   * not, which the G4 cutover diagnosis measured as the dominant share of the
+   * preparation regression (`g4/cutover/perf-diagnosis.md` §4.1). It stays an
+   * `Error` — a branded object would lose the `cause` link
+   * `attachRecordSeriesProgress` attaches only to an `Error`
+   * (`src/errors/record-series-progress.ts:26-28`) on the one path that wraps
+   * it (a batch-preparation prefix flush, `commands/execution.ts:382`).
+   */
+  private get incompletePreparation(): Error {
+    return (this.incompletePreparationSentinel ??= new Error(
+      "Raptor 3 operation requires dynamic execution"
+    ));
+  }
   private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
   private readonly preparedGuards: PreparedBatchGuard[] = [];
   /**
@@ -180,9 +198,19 @@ export class OperationContext {
    */
   private envelope: "open" | "deferred" | "statement" = "open";
   private performed = 0;
-  private readonly requiresEnvelope = new Error(
-    "Raptor 3 operation requires its physical envelope"
-  );
+  private requiresEnvelopeSentinel?: Error;
+  /**
+   * The envelope sentinel, built on its FIRST use and never before — the same
+   * control-flow value as {@link incompletePreparation} and for the same
+   * reason. It is raised by {@link dispatch} and caught by its one reader
+   * ({@link run}), which compares it by identity; a successful operation never
+   * materialises it, and an operation that does pays for exactly one.
+   */
+  private get requiresEnvelope(): Error {
+    return (this.requiresEnvelopeSentinel ??= new Error(
+      "Raptor 3 operation requires its physical envelope"
+    ));
+  }
   constructor(
     readonly schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -1824,7 +1852,12 @@ export class OperationContext {
           .state;
         // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
         // publication gap, raised where it always was — before any statement of
-        // this update is dispatched, so nothing is written. On a driver with no
+        // this update is dispatched, so nothing is written. The class is
+        // `UnsupportedOperationError` (V8003 UNSUPPORTED_OPERATION, Arnaud
+        // 2026-09-16, R-D3-class): a consumer can tell this deliberate
+        // capability boundary from a crash by class, which the base
+        // `QueryEngineError` (V9001 INTERNAL_ERROR) did not allow. The sentence
+        // and the `meta` are unchanged. On a driver with no
         // interactive transaction the evaluated value has to travel through the
         // adapter's batch scratch, which is read back with an integer cast
         // (below), so an `int` field is the only domain a dependent can demand
@@ -1832,7 +1865,7 @@ export class OperationContext {
         // (and an answer to the decimal rounding question `Queries.updateValue`
         // refuses), which is a capability change, not an identity.
         if (state.type !== "int")
-          throw new QueryEngineError(
+          throw new UnsupportedOperationError(
             `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
             {
               meta: {

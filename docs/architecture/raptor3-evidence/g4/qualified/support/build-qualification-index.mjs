@@ -9,7 +9,7 @@ const finalRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const outputFile = path.join(finalRoot, "qualification-index.json");
 const identity = await readJson("support/final-identity.json");
 const deriveOnly = process.argv.includes("--derive");
-const baselineCommit = "0cc61e61f372945026b0b564fa643de67168c08e";
+const baselineCommit = "0f25637bcd73b3f402c0bb41aadbb70e67a0a964";
 
 /**
  * Totals pinned after the qualification runs finished, derived from the
@@ -23,7 +23,7 @@ const baselineCommit = "0cc61e61f372945026b0b564fa643de67168c08e";
  */
 const PINNED_TOTALS = {
   fixedModes: 65,
-  fixedTestExecutions: 1742,
+  fixedTestExecutions: 1746,
   fixedModesNotPassed: 0,
   laneFixedModes: 1,
   laneFixedTestExecutions: 33,
@@ -308,24 +308,31 @@ for (const group of ["replays/receipts", "replays"]) {
       continue;
     }
 
-    if (name.endsWith(".not-a-replay-input")) {
-      // The gate prints a ZodError whose inner quotes are escaped, so match the
-      // code and the key name rather than the rendered message sentence.
-      const rejectedSubjectKey =
-        log !== undefined &&
-        /"code":\s*"unrecognized_keys"/.test(log) &&
-        /"subject"/.test(log);
+    /**
+     * A G4 read corpus is not a replay input. Attempt 3 was renamed by hand to
+     * `<name>.not-a-replay-input`; this attempt's sequencer leaves the plain
+     * name, so the classification is made from the log the gate wrote — the
+     * corpus schema's `unrecognized_keys` on `subject` — and never from the
+     * file name alone. A receipt that does not carry that sentence stays a red.
+     */
+    const rejectedSubjectKey =
+      log !== undefined && /"code":\s*"unrecognized_keys"/.test(log) && /"subject"/.test(log);
+    if (name.endsWith(".not-a-replay-input") || rejectedSubjectKey) {
       if (!rejectedSubjectKey) {
         gaps.push({ kind: "unclassified-replay-refusal", subject: label });
       }
+      const plainName = name.replace(/\.not-a-replay-input$/, "");
+      const batch = plainName.match(/^g4-(seeds|transport-seeds)-(\d+)$/);
       unsupportedReplayInputs.push({
-        name: name.replace(/\.not-a-replay-input$/, ""),
+        name: plainName,
         receipt: relative(directory),
         evidence: `replays/${name}.log`,
         reason:
           'A G4 read child corpus carries the campaign subject ("candidate"/"shipped"); the generic replay gate\'s corpus schema rejects unknown keys. The runner reproduces a G4 read child by re-running its own seed batch, which is what that family\'s archive descriptor names as its replayCommand.',
-        reproduction: `scripts/run-raptor3.mjs ${name.replace(/^g4-(seeds|transport-seeds)-(\d+)\.not-a-replay-input$/, (_, family, seed) => `g4-${family === "seeds" ? "seed-batch" : "transport-seed-batch"} ${seed}`)} --subject=candidate`,
-        note: "replays/NOTE.md",
+        reproduction: batch
+          ? `scripts/run-raptor3.mjs g4-${batch[1] === "seeds" ? "seed-batch" : "transport-seed-batch"} ${batch[2]} --subject=candidate`
+          : undefined,
+        note: existsSync(path.join(finalRoot, "replays/NOTE.md")) ? "replays/NOTE.md" : null,
         status: rejectedSubjectKey ? "input-not-accepted-by-replay-gate" : "unclassified",
       });
       continue;
@@ -463,8 +470,19 @@ if (typecheckFile) {
   }
 }
 
+/**
+ * The integrator's driver writes the structural measurement under `structure/`;
+ * the previous package's layout called the same directory
+ * `structural-measurement/`. Whichever exists is the evidence, and the index
+ * records the path it actually read.
+ */
+const structureRoots = ["structure", "structural-measurement"];
+const structureRoot =
+  structureRoots.find((candidate) =>
+    existsSync(path.join(finalRoot, candidate, "receipt", "verified.json")),
+  ) ?? structureRoots[0];
 let structure;
-const structureReceipt = path.join(finalRoot, "structural-measurement", "receipt", "verified.json");
+const structureReceipt = path.join(finalRoot, structureRoot, "receipt", "verified.json");
 if (existsSync(structureReceipt)) {
   const structureVerified = JSON.parse(await readFile(structureReceipt, "utf8"));
   if (
@@ -475,7 +493,7 @@ if (existsSync(structureReceipt)) {
   ) {
     gaps.push({
       kind: "structural-measurement",
-      subject: "structural-measurement/receipt/verified.json",
+      subject: `${structureRoot}/receipt/verified.json`,
       cases: structureVerified.cases?.length,
       replays: structureVerified.replays,
       skipped: structureVerified.skipped,
@@ -486,11 +504,13 @@ if (existsSync(structureReceipt)) {
     exactReplays: structureVerified.replays,
     skipped: structureVerified.skipped,
     alternative: structureVerified.alternative,
-    instrumentationRestored: true,
-    evidence: "structural-measurement/receipt/verified.json",
+    instrumentationRestored: existsSync(
+      path.join(finalRoot, structureRoot, "reversed-identity.json"),
+    ),
+    evidence: `${structureRoot}/receipt/verified.json`,
   };
 } else {
-  gaps.push({ kind: "pending-structural-measurement", subject: "structural-measurement/receipt/verified.json" });
+  gaps.push({ kind: "pending-structural-measurement", subject: `${structureRoot}/receipt/verified.json` });
   structure = { status: "pending", evidence: null };
 }
 
@@ -522,7 +542,9 @@ if (sourceCostFile) {
  */
 const parserTokenCensus = existsSync(path.join(finalRoot, "support/parser-token-census.json"))
   ? "support/parser-token-census.json"
-  : "support/source-cost.json#files (per-file token-line census by the same census owner and function hash)";
+  : sourceCostFile
+    ? "support/source-cost.json#files (per-file token-line census by the same census owner and function hash)"
+    : "support/query-engine-structure.log (whole-query-engine census; the per-file charged census is absent with support/source-cost.json — see gaps)";
 
 /**
  * The two credential-free selectors are log-only: their launchers print
@@ -587,6 +609,26 @@ await writeFile(
   path.join(finalRoot, "selector-launch-provenance.json"),
   `${JSON.stringify(selectorProvenance, null, 2)}\n`,
 );
+
+/**
+ * The two provider host ports are ephemeral: Docker Desktop was restarted
+ * before this attempt, so the ports are read from the container record this
+ * package captured rather than repeated from the previous package.
+ */
+let providerPortSentence = "provider host ports unrecorded";
+const providerPortsFile = path.join(finalRoot, "support", "provider-ports.json");
+if (existsSync(providerPortsFile)) {
+  const record = JSON.parse(await readFile(providerPortsFile, "utf8"));
+  const port = (name, container) =>
+    `${name} ${record.containers.find((entry) => entry.name.includes(container))?.ports?.[
+      container === "pg" ? "5432/tcp" : "3306/tcp"
+    ]?.[0]?.HostIp}:${record.containers.find((entry) => entry.name.includes(container))?.ports?.[
+      container === "pg" ? "5432/tcp" : "3306/tcp"
+    ]?.[0]?.HostPort}`;
+  providerPortSentence = `${port("PostgreSQL", "pg")}, ${port("MySQL", "mysql")}, recorded in support/provider-ports.json`;
+} else {
+  gaps.push({ kind: "missing-support-evidence", subject: "support/provider-ports.json" });
+}
 
 let retention;
 const retentionFile = path.join(finalRoot, "support", "retained-corpora-audit.json");
@@ -691,6 +733,7 @@ const index = {
       evidence: "support/typecheck.log",
     },
     queryEngineStructure: "support/query-engine-structure.log",
+    providerPorts: existsSync(providerPortsFile) ? "support/provider-ports.json" : null,
   },
   structure,
   source: {
@@ -704,8 +747,7 @@ const index = {
   },
   retention,
   evidenceBoundaries: {
-    nativeSuites:
-      "Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (PostgreSQL 127.0.0.1:65504, MySQL 127.0.0.1:65515); no claim about any other provider build or deployment",
+    nativeSuites: `Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (${providerPortSentence}); no claim about any other provider build or deployment`,
     readCampaignProfiles:
       "The four G4 read profiles are distinguished by the transport model each cell actually exhibits, checked per child; profile names alone are not the claim",
     writeCampaign:

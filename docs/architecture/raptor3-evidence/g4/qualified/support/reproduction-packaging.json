@@ -3,8 +3,8 @@
   "purpose": "The two G4 read-child re-runs, each proved byte-identical to the retained child corpus it reproduces",
   "milestone": "g4",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
   },
   "records": [
     {
@@ -14,12 +14,12 @@
       "file": "generated-corpus.json.gz",
       "encoding": "gzip",
       "originalBytes": 338001,
-      "originalSha256": "4a8a8000c2496547f02d60563b6db31b9e1ec3d56eeed7551088da7ef9410d54",
-      "archiveBytes": 11917,
-      "archiveSha256": "07435336149c59bb6d86a6f166989389d7e35c0a9da755df094e3c7b93188de5",
+      "originalSha256": "4d72098b348fc2e81c5e361e5c5613b3f282ccdc68689c189f7d5ea9640d0a39",
+      "archiveBytes": 11919,
+      "archiveSha256": "b081f4b9fc114bfd6bab21b4356edc4519580856e5f53bdd9fa435d084755411",
       "identity": {
-        "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-        "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+        "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+        "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
       },
       "role": "G4 read child reproduction",
       "campaign": "g4-seeds",
@@ -37,12 +37,12 @@
       "file": "generated-corpus.json.gz",
       "encoding": "gzip",
       "originalBytes": 324201,
-      "originalSha256": "822595a2a190eecf4b82726297a72da2c81b31b964772c8218c6ebb74232b120",
-      "archiveBytes": 10910,
-      "archiveSha256": "5b0390a264357ffb48db2adb71eac895369315d8ef15681b146116e7d3c70aa5",
+      "originalSha256": "202325d185603cd2e1e6d54846aa733a6ac917843d53ebc3a26e255ac8be09cd",
+      "archiveBytes": 10911,
+      "archiveSha256": "3c56ce9e898529e0b6b7e0d96086fee92b7170c5248f62d07bed83d44947d5f1",
       "identity": {
-        "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-        "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+        "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+        "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
       },
       "role": "G4 read child reproduction",
       "campaign": "g4-transport-seeds",

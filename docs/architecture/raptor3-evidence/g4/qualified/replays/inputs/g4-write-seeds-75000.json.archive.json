@@ -3,13 +3,13 @@
   "source": "g4-write-seeds-75000.json",
   "file": "g4-write-seeds-75000.json.gz",
   "encoding": "gzip",
-  "originalBytes": 61423545,
-  "originalSha256": "9b1995808e5d64eff56003a61937d56537eead3053334675748deb55c940e0f2",
-  "archiveBytes": 1180728,
-  "archiveSha256": "1d96e23f469cc0166c18aaa30bb934b354a3878b481aa27967b911deedffa734",
+  "originalBytes": 61396812,
+  "originalSha256": "59290dfcb7a7dce2bbc2dcf210cb6e7b79a9d333c5d806de28ae0ec64ab1a658",
+  "archiveBytes": 1179751,
+  "archiveSha256": "d0124eb7b85eabd779955c0461e6cafe40ce7a28d23144ef0850459d8ace4434",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

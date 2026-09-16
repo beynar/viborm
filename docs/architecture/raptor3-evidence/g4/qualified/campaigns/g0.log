@@ -1,15 +1,15 @@
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-5
 
- ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1413ms
-   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1285ms
- ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 44ms
+ ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1598ms
+   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1344ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 47ms
 
  Test Files  2 passed (2)
       Tests  33 passed (33)
-   Start at  02:48:22
-   Duration  4.76s (transform 1.34s, setup 20ms, collect 2.06s, tests 1.46s, environment 0ms, prepare 34ms)
+   Start at  13:39:52
+   Duration  6.37s (transform 1.70s, setup 12ms, collect 2.64s, tests 1.65s, environment 0ms, prepare 34ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-zYdEcJ/vitest.json
-Vitest resources: 8.98s wall, 806.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-zYdEcJ
+JSON report written to /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-eLl7qI/vitest.json
+Vitest resources: 10.74s wall, 847.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-eLl7qI

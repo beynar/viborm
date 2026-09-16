@@ -2,8 +2,8 @@
   "formatVersion": 1,
   "milestone": "g4",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
     "runtime": {
       "node": "v24.21.0",
       "platform": "darwin",
@@ -22,14 +22,14 @@
       "name": "credential-free aggregate",
       "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"Raptor 3 fixed\"",
       "evidence": "support/credential-free-fixed.log",
-      "evidenceSha256": "9bdc33e20e8f4c00d361d4e83b7dab23959ffca5f28c430af18637da9254e5bc",
+      "evidenceSha256": "6c7d500529f0b94a4695c651243eb2fa3e8f8f3d113d65ab45785a93387f5fbe",
       "selection": {
         "testFiles": 65,
         "tests": 758
       },
       "resourceLines": [
-        "Vitest resources: 23.12s wall, 908.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
-        "[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 27.41s wall, 59.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified."
+        "Vitest resources: 25.67s wall, 912.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.",
+        "[test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 29.57s wall, 58.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified."
       ],
       "status": "passed"
     },
@@ -37,14 +37,14 @@
       "name": "PGlite provider selector",
       "command": "/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node scripts/run-credential-free-tests.mjs --only \"raptor3-provider:\"",
       "evidence": "support/credential-free-provider.log",
-      "evidenceSha256": "22e315b1cac94460dad0cc1c3fa75e09d577786d8703d78f54ee3959ede2faad",
+      "evidenceSha256": "c68a5ec7585723169b1bfd7be41a669afbeea87f4521a9d934473cd3fcdaea83",
       "selection": {
         "testFiles": 5,
         "tests": 11
       },
       "resourceLines": [
-        "[test:all] raptor3-provider: tests/raptor3/expanded/produced-legacy.test.ts: 30.95s wall, 1273.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.",
-        "[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-legacy.test.ts: 28.95s wall, 1332.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified."
+        "[test:all] raptor3-provider: tests/raptor3/expanded/produced-legacy.test.ts: 32.91s wall, 1258.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.",
+        "[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-legacy.test.ts: 31.08s wall, 1389.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified."
       ],
       "status": "passed"
     }

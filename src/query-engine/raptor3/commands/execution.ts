@@ -239,13 +239,13 @@ export class CommandExecution {
     );
     const found = rows[0];
     if (!found) {
-      if (selection.required) throw selection.required;
+      if (selection.required) throw selection.required();
       return;
     }
     attempt.rows.set(selection, found);
     attempt.bind(selection.fields, found);
     if (this.context.usesBatch && selection.retained)
-      this.context.requirePresent(selection.captured(), selection.retained);
+      this.context.requirePresent(selection.captured(), selection.retained());
   }
   async run(
     occurrence: CommandOccurrence,
@@ -266,15 +266,17 @@ export class CommandExecution {
           !command.located.retained &&
           !attempt.retained.has(command.located)
         ) {
+          const missingRow =
+            command.requirement?.failure ?? command.located.required;
           ctx.requirePresent(
             command.located.captured(
               undefined,
               command.requirement?.membership ?? command.located.membership(),
               1
             ),
-            command.requirement?.failure ??
-              command.located.required ??
-              new NotFoundError(command.model["~"].names.ts!, "update")
+            missingRow
+              ? missingRow()
+              : new NotFoundError(command.model["~"].names.ts!, "update")
           );
         }
         await this.requireTransitions(command);
@@ -354,7 +356,7 @@ export class CommandExecution {
                 : undefined,
             }
           ),
-          command.failure
+          command.failure()
         );
         return;
       }
@@ -424,7 +426,7 @@ export class CommandExecution {
               false,
               requirement.selection.model
             );
-            if (!rows[0]) throw requirement.failure;
+            if (!rows[0]) throw requirement.failure();
           }
           if (found) {
             if (ctx.usesBatch && supplied) {

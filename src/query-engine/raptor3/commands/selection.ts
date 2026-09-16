@@ -14,6 +14,19 @@ export interface BoundMembership {
   readonly edge: Membership;
   readonly parent: Assignments;
 }
+/**
+ * A failure a PLAN knows how to build, not one it owns.
+ *
+ * Every one of these sentences is a pure function of construction-time facts —
+ * the verb and the relation name — so the plan carries the recipe and the one
+ * site that actually raises it builds it. Constructing them while nothing has
+ * failed ran the whole `VibORMError` constructor (two stack captures, two
+ * metadata sanitisations) on the success path of every nested write, which the
+ * G4 cutover diagnosis measured (`g4/cutover/perf-diagnosis.md` §4.1, cause
+ * 1b). The thunk is called EXACTLY where the old value was raised or handed to
+ * an assertion, so the error a caller sees is byte-identical.
+ */
+export type DeferredFailure = () => Error;
 export type SelectionSource =
   | {
       readonly kind: "query";
@@ -101,14 +114,14 @@ export class Selection {
   private readonly rowProjection: PreparedProjection;
   private readonly identityProjection: PreparedProjection;
   origin?: Origin;
-  retained?: Error;
+  retained?: DeferredFailure;
   membershipOnly?: boolean;
 
   constructor(
     private readonly execution: CommandExecution,
     readonly model: AnyModel,
     readonly source: SelectionSource,
-    readonly required?: Error,
+    readonly required?: DeferredFailure,
     facts?: SelectorFacts
   ) {
     const queries = execution.context.queries;

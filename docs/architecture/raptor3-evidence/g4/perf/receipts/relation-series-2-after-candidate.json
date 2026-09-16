@@ -1,0 +1,43 @@
+{
+ "engine": "candidate",
+ "status": "contract verified",
+ "outcome": {
+  "kind": "success",
+  "value": {
+   "count": 2
+  }
+ },
+ "defaults": [
+  "series_child_1",
+  "series_child_2",
+  "series_child_3"
+ ],
+ "reachedCuts": [
+  "selected-roots-captured",
+  "first-member-visible",
+  "second-member-visible"
+ ],
+ "statementCount": 3,
+ "children": [
+  {
+   "id": "conditional_found",
+   "parentId": 5000,
+   "label": "existing-child"
+  },
+  {
+   "id": "series_child_2",
+   "parentId": 5000,
+   "label": "series-child"
+  },
+  {
+   "id": "series_child_3",
+   "parentId": 6000,
+   "label": "series-child"
+  },
+  {
+   "id": "transition_child",
+   "parentId": 10000,
+   "label": "cascade-child"
+  }
+ ]
+}

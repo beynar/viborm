@@ -1,0 +1,8 @@
+{
+ "engine": "candidate",
+ "arm": "before",
+ "status": "contract FAILED (QueryError: Query execution failed)",
+ "assertionFailures": [
+  "equal: series effects started before every member was admitted |  | 3 !== 5"
+ ]
+}

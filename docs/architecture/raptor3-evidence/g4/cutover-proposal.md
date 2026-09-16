@@ -1,5 +1,12 @@
 # C-01 cutover — proposal for Arnaud
 
+> **Read [§9–§12 (stage 2c)](#stage-2c--the-same-20-cells-re-measured-after-the-performance-pass)
+> for the current numbers.** Sections 1–8 below are the **identity-2**
+> proposal and are kept verbatim as the record of that identity; the series
+> was re-run after the performance pass and after Arnaud's D-8 decision, and
+> six cells now pass where three did. The recommendation is still "do not
+> cut over yet", for a smaller set of reasons.
+
 **What this asks for: nothing yet.** It is the measured cost and consequence of
 making the Raptor 3 route the only operation owner, so that the decision is
 made against numbers rather than against a forecast. Nothing is pushed, the main
@@ -436,3 +443,302 @@ Two read-only diagnostics ran after this proposal was written:
   adjudicated default-evaluation difference (plan §2.3, 2026-09-08), not an
   engine defect; it is a frozen-contract blocker (the benchmark pins one
   ledger for both engines) recorded as decision D-8 in `g4.md`.
+
+---
+
+# Stage 2c — the same 20 cells, re-measured after the performance pass
+
+Everything above is the **identity-2** proposal and stands as written. This
+section does not revise it; it re-measures it. Measured against the **third**
+frozen identity, `g4/freeze/identity.json`
+(`production 2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975`),
+which is identity 2 plus the performance-pass safe fixes, with Arnaud's **D-8**
+decision applied to the benchmark. Nothing is pushed, the main tree still
+contains and still uses the legacy engine, and no database was changed.
+
+Working record: [`g4/cutover/note.md`](cutover/note.md) §§C0–C8. Protocol,
+written before the runs: [`protocol.md`](cutover/protocol.md) §9. Aggregate:
+[`performance-identity3.json`](cutover/performance-identity3.json); first series
+alone [`performance-identity3-pass1.json`](cutover/performance-identity3-pass1.json);
+the identity-2 record [`performance.json`](cutover/performance.json) is
+untouched. Raw evidence: [`receipts-stage2c/cells/`](cutover/receipts-stage2c/cells/).
+
+## 9. The recommendation in one paragraph
+
+**Still do not cut over — but for a different and much smaller set of reasons.**
+Size is unchanged and still well past target (engine **23.8 %** of baseline
+gzip, both public PostgreSQL fixtures **69.8 %**). On performance the picture has
+moved substantially: **6 cells pass** where 3 did at identity 2, **no cell's
+verdict got worse**, the wall-time regression on every nested and conditional
+write has disappeared, and the worst preparation cell has come down from
+**2.15×** to **1.45×** CPU. What still blocks is now three things, not fifteen:
+**(a)** steady-state **preparation** is still a resolved regression on four
+cells (1.40×–1.48× CPU), about half the size it was; **(b)** `relation-series-2`
+still diverges in persisted primary keys — D-8 made the cell *runnable* on both
+sides, and the **cross-engine** state comparison then refused it, which is the
+gate doing its job; **(c)** seven cells came back **inconclusive** because the
+machine was too noisy for a 5 % budget — on 13 of the 17 measurable cells the
+protocol's own uncertainty `E` exceeded the budget, which makes "pass"
+arithmetically unreachable regardless of the candidate. (c) is a *measurement*
+blocker, not a candidate result, and it is the cheapest of the three to clear: a
+single re-run of the same 20 cells on a quiet machine.
+
+## 10. Cell by cell, identity 2 → identity 3
+
+Both series are the frozen 20-cell matrix, sqlite3, five alternating
+fresh-process samples per side, `E = 2 × max(MAD)`,
+`(N − B) + E ≤ 0.05 × B` for time and `≤ 0.10 × B` for peak RSS, no outlier
+removal, the worse of two full series. D-8 changed a `PROTOCOL_PATHS` file, so
+the two series are **not** comparable command-for-command; each column is its own
+series' N/B ratio, and both series' raw samples are retained.
+
+| Cell | id2 | id3 | CPU N/B id2 → id3 | wall N/B id2 → id3 | RSS N/B id3 |
+| --- | --- | --- | ---: | ---: | ---: |
+| `scalar-find-unique/cold-prepare` | blocks | inconclusive | 1.100 → **1.025** | 1.143 → **0.999** | 0.996 |
+| `scalar-find-unique/prepare` | blocks | **blocks** | 2.152 → **1.454** | 2.672 → **1.374** | 0.987 |
+| `scalar-find-unique/execute` | pass | **pass** | 0.969 → 0.985 | 0.969 → 0.983 | 0.983 |
+| `scalar-find-unique/full` | blocks | inconclusive | 1.345 → **1.030** | 1.618 → **1.066** | 0.968 |
+| `flat-scalar-update/prepare` | not measurable | not measurable | — | — | — |
+| `flat-scalar-update/execute` | not measurable | not measurable | — | — | — |
+| `flat-scalar-update/full` | blocks | **pass** | 1.012 → **0.757** | 1.323 → **0.870** | 0.954 |
+| `fixed-collection-rowref-20/prepare` | blocks | **blocks** | 1.403 → **0.927** | 1.890 → **1.085** | 0.980 |
+| `fixed-collection-rowref-20/execute` | pass | **pass** | 1.006 → 1.022 | 1.007 → 1.021 | 0.986 |
+| `fixed-collection-rowref-20/full` | blocks | inconclusive | 1.108 → **0.951** | 1.203 → **1.020** | 0.930 |
+| `nested-conditional-found/full` | blocks | inconclusive | 0.874 → 0.893 | 1.145 → **0.978** | 0.915 |
+| `nested-conditional-missing/full` | blocks | **pass** | 0.886 → **0.801** | 1.184 → **0.927** | 0.912 |
+| `key-transition-cascade/full` | blocks | inconclusive | 1.185 → **0.901** | 1.447 → **1.024** | 0.796 |
+| `bulk-update-returning-100/prepare` | blocks | **blocks** | 1.607 → **1.484** | 1.530 → **1.256** | 0.975 |
+| `bulk-update-returning-100/full` | inconclusive | **pass** | 0.925 → **0.829** | 1.059 → **0.966** | 0.979 |
+| `relation-series-2/full` | contract divergence | **contract divergence** | — | — | — |
+| `fixed-collection-rowref-1000/prepare` | blocks | **blocks** | 1.616 → **1.401** | 1.545 → **1.215** | 0.951 |
+| `fixed-collection-rowref-1000/execute` | pass | **pass** | 1.007 → 0.969 | 1.003 → 0.967 | 0.954 |
+| `fixed-collection-rowref-1000/parse` | inconclusive | inconclusive | 1.007 → 1.035 | 1.043 → 1.075 | 0.949 |
+| `fixed-collection-rowref-1000/full` | inconclusive | inconclusive | 1.042 → 1.015 | 1.047 → 1.010 | 1.034 |
+
+| Verdict | identity 2 | identity 3 |
+| --- | ---: | ---: |
+| pass | 3 | **6** |
+| blocks adoption (resolved, over budget) | 11 | **4** |
+| inconclusive after the one permitted repeat — blocks adoption | 3 | **7** |
+| not measurable comparably — end-to-end evidence retained | 2 | 2 |
+| blocks adoption — required contract divergence | 1 | 1 |
+
+### 10.1 Which cells are now within budget
+
+Six, and each one passes on **both** independent series:
+
+- `scalar-find-unique/execute`, `fixed-collection-rowref-20/execute`,
+  `fixed-collection-rowref-1000/execute` — the provider-bound stage, 0.969–1.022.
+  These were the control at identity 2 and they still are: where the work is
+  SQLite's, the two engines are indistinguishable.
+- `flat-scalar-update/full` — **0.757 CPU / 0.870 wall**, from a resolved
+  regression at identity 2 (1.012 / 1.323). The extra round trip the candidate's
+  two-statement package implies is no longer visible as a wall-time cost.
+- `nested-conditional-missing/full` — 0.801 / 0.927, from 0.886 / 1.184.
+- `bulk-update-returning-100/full` — 0.829 / 0.966, from 0.925 / 1.059.
+
+**Peak memory passes every measurable cell**, as it did at identity 2, and is
+still a large win where the candidate's smaller working set shows:
+`key-transition-cascade/full` at **0.796** and the nested writes at 0.91.
+`fixed-collection-rowref-1000/full` is the only cell above parity (1.034), well
+inside the 10 % budget.
+
+### 10.2 Which cells remain over budget
+
+Four, all of them the **steady-state preparation** stage; three of them are
+resolved over budget on **both** passes, at CPU `E/B` between 2.9 % and 9.2 %:
+
+| Cell | CPU N/B | B → N (µs/op, pass 2) | wall N/B |
+| --- | ---: | --- | ---: |
+| `bulk-update-returning-100/prepare` | **1.484** | 44.52 → 66.07 | 1.256 |
+| `scalar-find-unique/prepare` | **1.454** | 13.65 → 19.85 | 1.374 |
+| `fixed-collection-rowref-1000/prepare` | **1.401** | 47.55 → 66.62 | 1.215 |
+| `fixed-collection-rowref-20/prepare` | **0.927** (p2) / 1.051 (p1) | 32.82 → 30.41 | 1.085 |
+
+The first three are the same regression the
+[perf diagnosis](cutover/perf-diagnosis.md) localized, at roughly half its
+former size: 2.15× → 1.45× on the smallest read. The fourth is a boundary case
+and is recorded as blocking only under the worst-of-two rule — it is over budget
+on pass 1 (1.051 CPU, 1.202 wall) and *under parity in CPU* on pass 2 (0.927),
+with `E/B` of 10.6 % in that pass; its wall time is over budget in both.
+
+`flat-scalar-update/prepare` and `/execute` remain **not measurable comparably**
+for the unchanged physical reason of §6.2: the shipped engine's package seam
+refuses this workload and falls back to one built statement, while the
+candidate's package holds two. The `full` cell is measured, and it now passes.
+
+### 10.3 The measurement blocker: seven inconclusive cells
+
+`E = 2 × max(MAD)` exceeded the 5 % budget on at least one metric of **13 of the
+17 measurable cells** in at least one pass — up to 23 % CPU and 42 % wall.
+Where `E > budget`, `(N − B) + E ≤ budget` cannot hold even if `N = B` exactly,
+so "pass" is unavailable and "inconclusive" is the best a correct candidate can
+score. Seven cells landed there.
+
+The cause is recorded rather than asserted: the series ran on a 14-core machine
+whose owner was running Cursor, Codex, Devin, Raycast, Dia and Claude throughout,
+at a 1-minute load average of 5.8–13.1, with a system-level storm between the
+two passes that peaked at **143** and broke a 300 s build limit (the attempt
+taken during it was aborted, kept and never used —
+[`cells/aborted-pass2-attempt1/`](cutover/receipts-stage2c/cells/aborted-pass2-attempt1/)).
+The identity-2 series, on a quieter machine, had CPU `E/B` under 2.5 % on six of
+those same seven cells (`nested-conditional-found/full` was the exception there
+too, at 8.7 %).
+
+Under plan §7 an inconclusive cell **blocks adoption**, and that is how all seven
+are recorded. But the remedy is different from a regression's: re-run the same
+20 cells on a quiet machine. The protocol, the worktrees, the driver and the
+aggregator are all in place and the whole series takes about nine minutes.
+
+### 10.4 `relation-series-2` — D-8 worked; the divergence did not go away
+
+D-8 replaced one comparator carrying the shipped engine's numbers with **one
+ledger per engine**, selected by the engine's own recorded admission count. The
+effect is exactly what §9.5 predicted, and it is a real improvement in what the
+benchmark can see:
+
+- **identity 2** — the contract assertion threw inside the observed driver call;
+  the engine re-wrapped it; the harness surfaced `QueryError: Query execution
+  failed`. No candidate replicate completed.
+- **identity 3** — all five baseline and all five candidate replicates complete.
+  Each engine satisfies **its own** ledger: admissions, statement count and
+  persisted ids. The within-engine contract observation passes on both sides.
+
+The cell then refuses at the **cross-engine** comparison
+(`operation-pipeline-semantics.mjs:74`, via `verifyRewriteBenchmarkEvidence`):
+
+```
+AssertionError [ERR_ASSERTION]: ["sqlite3","relation-series-2"] changed final
+  parentId 5000:  candidate series_child_2   vs   shipped series_child_3
+  parentId 6000:  candidate series_child_3   vs   shipped series_child_5
+```
+
+| | admissions per member | statements | persisted child ids |
+| --- | ---: | ---: | --- |
+| shipped ledger | 2 | 7 | `series_child_3` (5000), `series_child_5` (6000) |
+| candidate ledger | 1 | 3 | `series_child_2` (5000), `series_child_3` (6000) |
+
+Both answer `{ count: 2 }`; both insert exactly one child per located parent with
+the same `parentId` and `label`; every other table is identical. What differs is
+the value of a **counter** default, because the shipped engine evaluates
+`k + 2nk` defaults and the candidate `k + nk`
+([classification](cutover/relation-series-2-classification.md)). D-8 pinned each
+engine's ledger so the benchmark stops asserting one engine's numbers against the
+other; it did not, and was not intended to, make the two engines write the same
+rows. Under plan §7 "required contract divergences … 0", so this **blocks
+adoption on its own**, independently of every number above — and the cell passing
+its own ledger is evidence that the candidate matched **its own** recorded
+behavior, never the shipped one.
+
+The decision this leaves with you is unchanged in substance and sharper in form:
+it is now one assertion, in the cross-engine comparator, about two primary keys.
+Either the adjudicated one-evaluation-per-admitted-input contract's effect on
+count-dependent generated defaults is an accepted public-behavior change at
+adoption, or the fixture's generated id must stop being a call counter.
+
+## 11. The revised recommendation
+
+1. **Do not cut over yet.** Three blockers remain, and one of them is a
+   correctness question.
+2. **Clear the measurement blocker first — it is the cheapest.** Re-run the same
+   20 cells on a quiet machine (no Cursor/Codex/Devin/Raycast/Dia/Claude
+   foreground work, nothing else in the workspace). If the seven inconclusive
+   cells resolve where their medians already sit — 0.81–1.06 CPU, 0.91–1.09 wall
+   — the gate reduces to the preparation cells and `relation-series-2`. That is about nine
+   minutes per pass, not a work package.
+3. **Finish the preparation pass.** It is still the only resolved timing
+   regression and it is now 1.40×–1.48× rather than 1.4×–2.2×. The diagnosis
+   that produced this halving is in [`perf-diagnosis.md`](cutover/perf-diagnosis.md)
+   and names what is left.
+4. **Decide `relation-series-2`.** It is a hard gate, it is a correctness
+   question, and D-8 has already reduced it to a single adjudicable difference.
+5. **Fix the alias drift** (§6.4) — still present and still independent: the
+   candidate's prepared SQL carries `q0`, `q1`, … per client where the shipped
+   engine emits a stable `t0`, which defeats any prepared-statement cache that
+   keys on statement text. Both sides' prepared SQL is retained per sample in
+   `performance-identity3.json`; the `LIMIT 1` difference of §6.5 is unchanged
+   too.
+6. **The size result still does not need revisiting**: engine gzip **0.2377**
+   (target ≤ 0.75), `pg-simple` **0.6984** and `pg-relations` **0.6986** (target
+   ≤ 1.00), from [`bundle-ratios-identity3.json`](cutover/bundle-ratios-identity3.json).
+   The engine bundle is byte-identical to identity 2's; the two PostgreSQL
+   fixtures grew by 77 gzip bytes.
+7. **Retire the seven two-sided harness modes at the cutover** (§3.1) —
+   unchanged.
+
+## 12. What is NOT done (stage 2c)
+
+- **Nothing is pushed.** Branches `g4-perf-measurement` (candidate, tip
+  `90d4bb47`) and `g4-perf-baseline-overlay` (baseline, tip `e532bbec`) are
+  local and throwaway, in `/private/tmp/viborm-g4-perf-candidate` and
+  `/private/tmp/viborm-g4-perf-baseline`. **No commit was added to either
+  worktree by this stage**; both are exactly as the previous author left them,
+  and both are left in place for the integrator.
+- **The main tree is untouched apart from evidence.** `/Users/arnaud/code/viborm`
+  keeps the legacy engine, keeps the optional `route` parameter, keeps all its
+  tests and modes. Nothing there was committed, staged, reset, stashed or
+  deleted; the only writes were under
+  `docs/architecture/raptor3-evidence/g4/cutover/` and this file. The main
+  tree's `captureRaptor3Identity()` was re-checked **after** the integrator's
+  campaign finished and both its `production` and `harness` fingerprints are
+  still byte-equal to `g4/freeze/identity.json`.
+- **No database was changed**, created or migrated. Every sqlite3 fixture in
+  this series is `:memory:`.
+- **SQLite only.** Nothing ran against native PostgreSQL or MySQL; the `g4.md`
+  environment blocker stands.
+- **No suite, mode, typecheck or build was run by this stage.** The typecheck,
+  build, bundle and registered-mode receipts under `receipts-stage2c/` are the
+  previous author's; this stage verified them as files and independently
+  re-verified the identity, the protocol hash and the cutover patch, then ran
+  only the 40 + 40 benchmark commands.
+- **The adapter's falsifiers were not re-run for this identity.** The
+  old-versus-old calibration, the changed-SQL / wrong-result specimens and the
+  unchanged benchmark suites were established at stage 2a against the baseline
+  overlay. The cross-engine comparator did demonstrably refuse a wrong-state
+  cell in this series (`relation-series-2`), which is a live falsifier, but it
+  is not the full set.
+- **No production change was made to make anything measurable.** The phase
+  adapter and the D-8 ledger both live in `benchmarks/` only and are the same
+  bytes on both sides; `protocolIdentity(...).sha256 = f23e0aac…f22a` in both
+  worktrees.
+- **No lock file was removed**, including a stale one this stage's own aborted
+  attempt created at
+  `/private/tmp/viborm-g4-cutover-tmp/viborm-test-c33ebb4c906dfea8.lock`
+  (owner PID absent from the process table). It is still there and will refuse
+  commands that use that `TMPDIR` until someone clears it;
+  `scripts/test-run-lock.mjs:223` prints the instruction.
+
+## Integrator addendum to stage 2c (16:25, 2026-09-16)
+
+Two corrections to §11 and one note, by the integrator after reading the
+stage-2c record:
+
+1. **§11 item 5 is stale.** The per-client alias drift of §6.4 (`q0` … `q10`
+   growing over a client's life, receipt `receipts-stage2/prepared-sql-alias-drift.json`)
+   was fixed by the performance pass: `Queries.rootAlias` scopes the alias
+   counter per statement, and the pin
+   `tests/raptor3/g4/unit02/prepared-statement-stability.test.ts` (three cells:
+   byte-identical SQL for two successive identical `findUnique` calls, nested
+   scopes inside one statement's scope, one scope per statement of a
+   multi-statement operation) is green in qualification attempt 5
+   (`qualified/fixed/g4-unit02-author.log`). What remains is the naming
+   difference only: the candidate spells the root alias `q0` where the shipped
+   engine spells `t0`; the retained prepared SQL of every identity-3 cell shows
+   aliases `q0`–`q2` and no larger index. This is a spelling, not a cache
+   defeat.
+2. **The measurement blocker is environmental and is not being re-run by the
+   integrator.** The gate fails on substance regardless of noise: the three
+   preparation cells over budget on both passes (1.40–1.48× CPU with E/B of
+   2.9–9.2 %) block adoption whatever a quieter series says. A quiet-machine
+   re-run would only resolve the seven inconclusive cells' labels; it is
+   offered to Arnaud as an option, not spent now.
+3. **`relation-series-2`** is unchanged in nature: the D-8 difference now lands
+   on the workload's counter default in the cross-engine final-state
+   comparison. Making the benchmark's generated ids engine-neutral is a
+   `benchmarks/**` change (a protocol path, so a new measurement identity) and
+   is listed as a follow-up for Arnaud's decision, not applied.
+
+The stale lock the stage left in `/private/tmp/viborm-g4-cutover-tmp` was
+removed by the integrator at 16:14 after confirming its owner (pid 81219) was
+absent from the process table; record in
+`cutover/receipts-stage2c/cells/aborted-pass2-attempt1/stale-lock-removed-by-integrator.txt`.

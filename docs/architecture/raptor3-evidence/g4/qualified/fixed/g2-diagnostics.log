@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 319ms
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 196ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  02:17:35
-   Duration  4.70s (transform 1.59s, setup 11ms, collect 2.39s, tests 319ms, environment 0ms, prepare 43ms)
+   Start at  13:09:46
+   Duration  4.85s (transform 1.63s, setup 15ms, collect 2.46s, tests 196ms, environment 0ms, prepare 32ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-MWxK2e/vitest.json
-Vitest resources: 11.29s wall, 588.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-diagnostics disputed behavior reproduced (not accepted). Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-MWxK2e
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8GInpf/vitest.json
+Vitest resources: 10.72s wall, 575.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-diagnostics disputed behavior reproduced (not accepted). Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8GInpf

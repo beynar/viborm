@@ -1,0 +1,19 @@
+{
+  "mode": "cs02-structure-measure",
+  "identity": {
+    "production": "bcb2d2a087aca1d50a291908c191a83f9dd3639af14cfddcd9559d206f30be16",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

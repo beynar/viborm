@@ -516,11 +516,22 @@ export class EngineSchema {
     }
     return fields;
   }
+  /**
+   * The admitted payload's scalar fields, in the model's own scalar order.
+   *
+   * One pass into one object. The model's scalar order is already memoised by
+   * the model itself (`schema/model/model.ts`, `_scalarFieldNames ??=`), so the
+   * only per-call cost left was the three intermediates
+   * `Object.fromEntries(names.filter(…).map(…))` built — on a normalization
+   * every row of every `createMany` crosses (`g4/cutover/perf-diagnosis.md`
+   * §4.2). Same keys, same order, same values.
+   */
   scalars(model: AnyModel, admitted: Input): Input {
-    return Object.fromEntries(
-      model["~"].scalarFieldNames
-        .filter((field) => admitted[field] !== undefined)
-        .map((field) => [field, admitted[field]])
-    );
+    const values: Input = {};
+    for (const field of model["~"].scalarFieldNames) {
+      const value = admitted[field];
+      if (value !== undefined) values[field] = value;
+    }
+    return values;
   }
 }

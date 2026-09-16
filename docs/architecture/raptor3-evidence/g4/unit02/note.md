@@ -4231,3 +4231,18 @@ and the new cell file parked, the same five diagnostics are still reported
 ([`typecheck-attribution.log`](../freeze/receipts/typecheck-attribution.log));
 every file was then restored byte-identically from its scratchpad copy. They
 belong to the reviewer's stream and were not edited here.
+
+## P.0 D-7.1 — decided by Arnaud (2026-09-16): accept the difference
+
+Written by the performance pass ([`../perf/note.md`](../perf/note.md), brief
+item 7) into this unit's note, because the row belongs to the unit that owns
+the pin. **No code.**
+
+| id | decision | change (owner) | cell | receipt |
+| --- | --- | --- | --- | --- |
+| **D-7.1** | "accept the difference" — a root `update`/`delete` rejected BEFORE dispatch on a batch-only driver publishes no `statementIndex`, where the shipped engine publishes `0` | **none.** The shipped fold is two statements (presence guard + mutation, a real batch); this engine's D-7 fold is ONE statement with a JavaScript postcondition, so the driver seam has no batch to index. Matching it would need a per-verb branch or a second statement, and the frozen fast-path counts must not increase. The difference is now stated in the private guide's envelope paragraph (`src/query-engine/raptor3/AGENTS.md:411-423`), with the instruction not to manufacture the index | `lone-statement-transport.test.ts` → **row 7, unchanged**: it stays the recorded difference, not a defect. No registered oracle reaches it | [`../perf/receipts/g4-unit02-author.log`](../perf/receipts/g4-unit02-author.log) (127/127 at the decision, `lone-statement-transport` 7/7), ledger row [`../../g4.md:448`](../../g4.md) |
+
+Classified as an RF-15 diagnostic-meta difference: `statementIndex` describes
+the shipped engine's own physical layout, which this engine deliberately does
+not share. The same price read from the other side is D-7 itself, which Arnaud
+accepted on 2026-09-15.

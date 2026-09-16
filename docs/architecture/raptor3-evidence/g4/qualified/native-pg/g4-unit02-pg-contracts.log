@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test) 33ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-date-codec.test.ts (1 test) 25ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:21:47
-   Duration  4.56s (transform 1.50s, setup 12ms, collect 2.30s, tests 33ms, environment 0ms, prepare 49ms)
+   Start at  13:13:55
+   Duration  4.08s (transform 1.16s, setup 8ms, collect 1.74s, tests 25ms, environment 0ms, prepare 26ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-eENg47/vitest.json
-Vitest resources: 10.44s wall, 482.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g4-unit02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-eENg47
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2QvHfX/vitest.json
+Vitest resources: 9.58s wall, 511.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2QvHfX

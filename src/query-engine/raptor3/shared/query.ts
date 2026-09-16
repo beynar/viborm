@@ -484,6 +484,36 @@ export class Queries {
   alias(): string {
     return `q${this.nextAlias++}`;
   }
+  /**
+   * The FIRST alias of one statement, which opens that statement's alias scope.
+   *
+   * An alias is a fact of the statement it names, not of this owner's history,
+   * so a statement whose first alias is minted by one of the six owners named
+   * below starts at `q0`, and the same logical query always emits the same
+   * text. Without it the engine-lifetime read owner
+   * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
+   * `findUnique`, so its statement text was unique per call — measured as an
+   * obstacle by the cutover protocol (`g4/cutover/protocol.md` §7.2) and a
+   * guaranteed miss for any transport that caches by statement text
+   * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
+   *
+   * The SIX owners that open a statement are {@link select}, {@link aggregated},
+   * {@link grouped}, {@link selectSeries}, {@link recursive} and
+   * {@link junction} — every method here that assembles a complete statement —
+   * and each calls this before any other alias of that statement. Nothing else
+   * may: a `lower…` fragment continues the statement it is part of, because a
+   * mutation statement is assembled from several of them by the physical owner
+   * (`OperationContext`'s `lowerMutationLimit` + `lowerProjection` pair) and
+   * two fragments of ONE statement must not both start at `q0`. For the same
+   * reason no statement owner may be entered while another statement is being
+   * built: a nested complete statement is a subquery of its parent and shares
+   * the parent's scope, which is why the nested relation projection, the
+   * correlated count and the cursor window mint plain {@link alias}es.
+   */
+  private rootAlias(): string {
+    this.nextAlias = 0;
+    return this.alias();
+  }
   table(model: AnyModel, alias?: string): Sql {
     return this.adapter.identifiers.table(model["~"].names.sql!, alias);
   }
@@ -718,7 +748,7 @@ export class Queries {
     forUpdate = false,
   ): Query {
     const a = this.adapter;
-    const alias = this.alias();
+    const alias = this.rootAlias();
     const owner =
       edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
     const fields: Record<string, Leaf> = {};
@@ -2348,7 +2378,7 @@ export class Queries {
       selector?: PreparedSelector;
     } = {},
   ): Query {
-    const alias = this.alias();
+    const alias = this.rootAlias();
     // The shipped owner sequence, and the reason it is stated here: when one
     // call violates two contracts at once, the refusal the caller sees is the
     // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
@@ -2548,7 +2578,7 @@ export class Queries {
     shape: (alias: string) => Extract<Shape, { kind: "object" }>,
   ): Query {
     const a = this.adapter;
-    const inner = this.alias();
+    const inner = this.rootAlias();
     const page = this.page(model, args, inner);
     const filter = this.lowerWhere(model, args.where, inner);
     const window = assembleAdapterSelect(a, {
@@ -2696,7 +2726,7 @@ export class Queries {
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
     const model = prepared.model;
-    const alias = this.alias();
+    const alias = this.rootAlias();
     const projection = this.lowerProjection(prepared, alias);
     const predicates = identities.map(
       (identity) => this.lowerIdentity(model, identity, alias),
@@ -2752,7 +2782,7 @@ export class Queries {
         `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`,
       );
     const a = this.adapter;
-    const cteName = this.alias();
+    const cteName = this.rootAlias();
     const occupied = new Set(
       storedFields(this.schema, model).map((field) =>
         this.columnName(model, field),
@@ -3342,7 +3372,7 @@ export class Queries {
   }
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
-    const alias = this.alias();
+    const alias = this.rootAlias();
     const by = args.by!;
     const aggregates = this.prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};

@@ -1,0 +1,40 @@
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-2Wkb3J
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (52039.708208ms)
+✔ the command refuses filtering, missing required cases and profiles (34663.765042ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (68067.985209ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (127160.450083ms)
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (17994.773208ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (37214.749583ms)
+✔ the command refuses a filtered G4 mode and an off-boundary G4 child (10060.118583ms)
+✔ the G4 write lanes own their own range and take no subject (7600.757ms)
+✔ a G4 campaign subject comes from the command, never from the shell (41877.154416ms)
+✔ test:all cannot replace the required lane through inherited specimen variables (41652.365917ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 457399.652375
+
+✖ failing tests:
+
+test at scripts/raptor3-cli.test.mjs:167:1
+✖ the outer watchdog terminates a public call awaiting a queued provider reply (17994.773208ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /G1 nontermination: public operation awaits queued provider reply/. Input:
+  
+  '\n RUN  v3.1.4 /Users/arnaud/code/viborm\n\n'
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/raptor3-cli.test.mjs:172:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '\n RUN  v3.1.4 /Users/arnaud/code/viborm\n\n',
+    expected: /G1 nontermination: public operation awaits queued provider reply/,
+    operator: 'match',
+    diff: 'simple'
+  }
+Node resources: 460.04s wall, 198.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

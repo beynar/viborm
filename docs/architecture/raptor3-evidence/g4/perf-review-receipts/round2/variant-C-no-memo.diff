@@ -1,0 +1,11 @@
+--- variant-A-round2-late.mjs	2026-09-16 12:18:55
++++ variant-C-round2-no-memo-late.mjs	2026-09-16 12:18:55
+@@ -359,7 +359,7 @@
+             ? defaults.length
+             : defaults.length - 1;
+           sawFirstEffect = true;
+-          admissionsBeforeFirstEffect ??= observedAdmissions;
++          admissionsBeforeFirstEffect = observedAdmissions;
+           assert.deepEqual(children[0], ledger.children[0]);
+           cuts.push("first-member-visible");
+         }

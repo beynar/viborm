@@ -1,20 +1,20 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 124ms
- ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 116ms
- ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 19ms
- ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 71ms
- ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 53ms
- ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 39ms
- ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 36ms
- ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 42ms
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 177ms
+ ✓ |raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 286ms
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 73ms
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 165ms
+ ✓ |raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 103ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 48ms
+ ✓ |raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 45ms
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 74ms
 
  Test Files  8 passed (8)
       Tests  62 passed (62)
-   Start at  02:06:19
-   Duration  7.30s (transform 2.12s, setup 34ms, collect 4.26s, tests 500ms, environment 0ms, prepare 64ms)
+   Start at  12:57:21
+   Duration  16.44s (transform 4.32s, setup 41ms, collect 10.32s, tests 972ms, environment 0ms, prepare 78ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-uINa0c/vitest.json
-Vitest resources: 14.16s wall, 667.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g4-read-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-uINa0c
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RMp4o7/vitest.json
+Vitest resources: 29.17s wall, 667.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-RMp4o7

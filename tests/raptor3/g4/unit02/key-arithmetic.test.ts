@@ -42,7 +42,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, UnsupportedOperationError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -486,8 +486,12 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
    * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
    * "give it a public identity now" (R-D3). The refusal is raised at the same
    * point it always was — before any statement of the update is dispatched — and
-   * is now a registered `QueryEngineError` naming the model, the field and the
-   * operation, with `meta` `{ model, operation, field }`.
+   * is now a registered `UnsupportedOperationError` naming the model, the field
+   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
+   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
+   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
+   * can tell this deliberate capability boundary from a crash (V9001
+   * INTERNAL_ERROR) without reading the sentence.
    *
    * The divergence from the shipped row answer is the recorded, accepted half of
    * the decision: the shipped engine computes the value in JavaScript and
@@ -540,11 +544,17 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
       // The accepted divergence, recorded: the shipped engine computes the
       // value in JavaScript and answers the row.
       assert.equal(shipped.answer, shippedAnswer);
-      // The decided identity: a registered QueryEngineError, naming the model,
-      // the field and the operation, raised before any statement is dispatched.
+      // The decided identity: a registered UnsupportedOperationError (R-D3
+      // plus R-D3-class), naming the model, the field and the operation, raised
+      // before any statement is dispatched. It is still a QueryEngineError —
+      // the class narrows the code, it does not leave the family.
       assert.equal(
         candidate.answer,
-        "QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
+        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
+      );
+      assert.equal(
+        candidate.raised instanceof UnsupportedOperationError,
+        true
       );
       assert.equal(candidate.raised instanceof QueryEngineError, true);
       assert.deepEqual(

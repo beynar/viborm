@@ -3,13 +3,13 @@
   "source": "corpus.json",
   "file": "corpus.json.gz",
   "encoding": "gzip",
-  "originalBytes": 8765492,
-  "originalSha256": "4e8108016e51f9befcf36be8f02df47e90c03c7e1a238a9f8b6fa1918a956c3c",
-  "archiveBytes": 285940,
-  "archiveSha256": "a0b7b7b1345ae0011e68cbd06a9d395ef4e5f907f40043a66d3ddb9f071e235c",
+  "originalBytes": 8752208,
+  "originalSha256": "61b1fa25c2920f36505d137dc996f21c0e7968c8b162192423da27ccdcffe3b3",
+  "archiveBytes": 279430,
+  "archiveSha256": "dd19bd39fa96de8500f1ed8f7439fe404b8f8f6680436daaab4e70608c0befe7",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
   },
   "campaign": "g2-seeds",
   "firstSeed": 3700,

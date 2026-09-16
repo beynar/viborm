@@ -1,38 +1,38 @@
-=== 01:58:18 g4-write-transport-seeds (/private/tmp/viborm-g4-lane-4) ===
-=== 01:58:18 g4-transport-seeds (/private/tmp/viborm-g4-lane-2) ===
-=== 01:58:18 g4-write-seeds (/private/tmp/viborm-g4-lane-3) ===
-=== 01:58:18 g4-seeds (/private/tmp/viborm-g4-lane-1) ===
-=== 01:58:18 g3-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
-=== 01:58:18 g3-seeds (/private/tmp/viborm-g4-lane-5) ===
-g3-transport-seeds exit=0 Raptor 3 g3-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g3-transport-seeds-QrzieO
-=== 02:31:38 g2-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
-g3-seeds exit=0 Raptor 3 g3-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g3-seeds-Qoft3F
-=== 02:32:04 g2-seeds (/private/tmp/viborm-g4-lane-5) ===
-g2-transport-seeds exit=0 Raptor 3 g2-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g2-transport-seeds-aMAJLP
-=== 02:44:27 g1-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
-g2-seeds exit=0 Raptor 3 g2-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g2-seeds-h8UlEh
-=== 02:45:55 g1-seeds (/private/tmp/viborm-g4-lane-5) ===
-g1-transport-seeds exit=0 Raptor 3 g1-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g1-transport-seeds-vIYSFf
-=== 02:46:49 g3p06-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
-g3p06-transport-seeds exit=0 Raptor 3 g3p06-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g3p06-transport-seeds-GgaLCO
-=== 02:47:05 cs03-extension-b-seeds (/private/tmp/viborm-g4-lane-6) ===
-cs03-extension-b-seeds exit=0 Raptor 3 cs03-extension-b-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Gybeli
-=== 02:47:21 cs03-extension-composition-seeds (/private/tmp/viborm-g4-lane-6) ===
-cs03-extension-composition-seeds exit=0 Raptor 3 cs03-extension-composition-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-SQU6eh
-=== 02:47:38 lane done ===
-g1-seeds exit=0 Raptor 3 g1-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g1-seeds-46AlXh
-=== 02:48:15 g0 (/private/tmp/viborm-g4-lane-5) ===
-g0 exit=0 Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-zYdEcJ
-=== 02:48:29 g3p06-seeds (/private/tmp/viborm-g4-lane-5) ===
-g3p06-seeds exit=0 Raptor 3 g3p06-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g3p06-seeds-Rxw99b
-=== 02:48:44 cs03-extension-a-seeds (/private/tmp/viborm-g4-lane-5) ===
-cs03-extension-a-seeds exit=0 Raptor 3 cs03-extension-a-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-UF0A1s
-=== 02:49:08 lane done ===
-g4-transport-seeds exit=0 Raptor 3 g4-transport-seeds (subject candidate, qualifying) campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-2/viborm-raptor3-g4-transport-seeds-jCok73
-=== 02:58:56 lane done ===
-g4-seeds exit=0 Raptor 3 g4-seeds (subject candidate, qualifying) campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g4-seeds-FVnwtb
-=== 02:58:59 lane done ===
-g4-write-transport-seeds exit=0 Raptor 3 g4-write-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-4/viborm-raptor3-g4-write-transport-seeds-Zxyus6
-=== 03:06:04 lane done ===
-g4-write-seeds exit=0 Raptor 3 g4-write-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-3/viborm-raptor3-g4-write-seeds-B3meST
-=== 03:06:59 lane done ===
+=== 12:47:50 g4-transport-seeds (/private/tmp/viborm-g4-lane-2) ===
+=== 12:47:50 g3-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+=== 12:47:50 g3-seeds (/private/tmp/viborm-g4-lane-5) ===
+=== 12:47:50 g4-write-transport-seeds (/private/tmp/viborm-g4-lane-4) ===
+=== 12:47:50 g4-seeds (/private/tmp/viborm-g4-lane-1) ===
+=== 12:47:50 g4-write-seeds (/private/tmp/viborm-g4-lane-3) ===
+g3-transport-seeds exit=0 Raptor 3 g3-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g3-transport-seeds-j2F4Sl
+=== 13:23:48 g2-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g3-seeds exit=0 Raptor 3 g3-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g3-seeds-WCIhcu
+=== 13:24:37 g2-seeds (/private/tmp/viborm-g4-lane-5) ===
+g2-transport-seeds exit=0 Raptor 3 g2-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g2-transport-seeds-Wmi7Ca
+=== 13:36:11 g1-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g2-seeds exit=0 Raptor 3 g2-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g2-seeds-Ukieuj
+=== 13:37:33 g1-seeds (/private/tmp/viborm-g4-lane-5) ===
+g1-transport-seeds exit=0 Raptor 3 g1-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g1-transport-seeds-tI8wch
+=== 13:38:11 g3p06-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g3p06-transport-seeds exit=0 Raptor 3 g3p06-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g3p06-transport-seeds-rLeYSz
+=== 13:38:26 cs03-extension-b-seeds (/private/tmp/viborm-g4-lane-6) ===
+cs03-extension-b-seeds exit=0 Raptor 3 cs03-extension-b-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-LO6FLN
+=== 13:38:42 cs03-extension-composition-seeds (/private/tmp/viborm-g4-lane-6) ===
+cs03-extension-composition-seeds exit=0 Raptor 3 cs03-extension-composition-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OfHyqt
+=== 13:38:59 lane done ===
+g1-seeds exit=0 Raptor 3 g1-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g1-seeds-mk5Vh4
+=== 13:39:46 g0 (/private/tmp/viborm-g4-lane-5) ===
+g0 exit=0 Raptor 3 g0 contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-eLl7qI
+=== 13:39:59 g3p06-seeds (/private/tmp/viborm-g4-lane-5) ===
+g3p06-seeds exit=0 Raptor 3 g3p06-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g3p06-seeds-eWGh8v
+=== 13:40:13 cs03-extension-a-seeds (/private/tmp/viborm-g4-lane-5) ===
+cs03-extension-a-seeds exit=0 Raptor 3 cs03-extension-a-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-WZsIiw
+=== 13:40:25 lane done ===
+g4-seeds exit=0 Raptor 3 g4-seeds (subject candidate, qualifying) campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-1/viborm-raptor3-g4-seeds-sG6pnr
+=== 13:49:34 lane done ===
+g4-transport-seeds exit=0 Raptor 3 g4-transport-seeds (subject candidate, qualifying) campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-2/viborm-raptor3-g4-transport-seeds-iGHz0S
+=== 13:49:38 lane done ===
+g4-write-transport-seeds exit=0 Raptor 3 g4-write-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-4/viborm-raptor3-g4-write-transport-seeds-CRRYJo
+=== 14:03:17 lane done ===
+g4-write-seeds exit=0 Raptor 3 g4-write-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-3/viborm-raptor3-g4-write-seeds-dc4x66
+=== 14:04:48 lane done ===

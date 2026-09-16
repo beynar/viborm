@@ -475,3 +475,204 @@ observable at the benchmark seams. It therefore carries §7.3 forward unchanged:
 
 Both are still issued as commands in stage 2b so the refusal is a first-hand
 receipt of this identity rather than an inference from the probe.
+
+## 9. Stage 2c — the series against the THIRD frozen identity (performance pass)
+
+Written **before** the stage-2c series runs. Identity 2 was superseded by the
+performance-pass safe fixes and the D-8 benchmark decision, so every number
+sections 1–8 produced against it is retained as a receipt of *that* identity and
+is **not** a result for this one. Sections 1–6 are unchanged and still govern;
+§§7.1–7.3 still govern; §7.4 is **superseded by D-8** (§9.5 below). This section
+records only what differs.
+
+### 9.1 The two sides
+
+| Side | Worktree | Branch | Commit |
+| --- | --- | --- | --- |
+| baseline | `/private/tmp/viborm-g4-perf-baseline` | `g4-perf-baseline-overlay` | `e532bbec7667343fc5471929d5051dd15be1852b` (protocol overlay #2, one commit above the phase adapter `e67b511b`) |
+| candidate | `/private/tmp/viborm-g4-perf-candidate` | `g4-perf-measurement` | `90d4bb4769e1746181633fa0eb76335d119f798a` |
+
+Candidate branch graph. The identity-2 tips are stale and were left reachable as
+branch `g4-perf-measurement-stage2b`; the identity-1 tips remain reachable as
+`g4-perf-measurement-stage2a`. Nothing was deleted.
+
+```
+0cc61e61  refactor(raptor3): unify completion and scalar update ownership   (base)
+5c08e840  chore(raptor3): candidate production for measurement (pre-freeze)
+be447a3b  chore(raptor3): candidate test harness for measurement (pre-freeze)
+cacb2827  chore(raptor3): frozen G4 production for measurement (identity 2)
+a9a482e1  chore(raptor3): frozen G4 production for measurement (identity 3, perf pass)
+59c44d3c  chore(raptor3): C-01 cutover for measurement (identity 3, perf pass)
+0db0377f  test(raptor3): re-sync the eight stale harness files identity 3 contradicts
+c22cb59e  test(bench): G4 cutover preparation phase adapter          (cherry-pick of 9086ad81)
+90d4bb47  test(bench): D-8 per-engine ledger for relation-series-2   (cherry-pick of e532bbec)
+```
+
+The branch was reset to `cacb2827` — the identity-2 **pre-cutover** production
+commit — before the re-sync, not built on the stale `9086ad81`, because
+`captureRaptor3Identity().production` fingerprints every file under `src/`, so
+the pre-cutover production identity can only be verified on a tree that still
+holds the legacy owners.
+
+The two protocol overlay commits are the **top two** commits on the candidate, so
+the 24 `PROTOCOL_PATHS` files are the overlays' own bytes on both sides.
+
+### 9.2 The protocol identity changes, and the old receipts stay
+
+D-8 (Arnaud, 2026-09-16) changed `benchmarks/operation-pipeline-contract-workloads.mjs`
+in the main tree. That file **is** a `PROTOCOL_PATHS` member, so the protocol
+identity moves:
+
+| | value |
+| --- | --- |
+| `protocolIdentity(...).sha256`, stages 2a and 2b | `6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d` |
+| `protocolIdentity(...).sha256`, stage 2c | `f23e0aace9f0a8de55a1218d054870c1353a8456ec441f91d8bc5e437e0af22a` |
+
+Verified equal in **both** worktrees before the series, and `diff -rq` reports
+the two `benchmarks/` trees identical except the git-ignored
+`benchmarks/baseline.json` (not a `PROTOCOL_PATHS` member; nothing under
+`benchmarks/` or `scripts/` reads it).
+
+`RAPTOR3_WORKLOAD_VERSION` (`benchmarks/operation-pipeline-catalog.mjs:463`) is
+**unchanged at 1**: D-8 changes what `relation-series-2` asserts, not the
+workload set, its stages, its counts or its fixtures.
+
+Because the protocol identity changed, **the stage-2a and stage-2b receipts are
+not comparable to this series command-for-command** and are kept as receipts of
+their own protocol: `performance.json` (identity 2, protocol `6716a222…`) is
+retained untouched, and this series writes `performance-identity3.json`.
+Likewise `bundles.json` / `bundle-ratios.json` are retained and this stage
+writes `bundles-identity3.json` / `bundle-ratios-identity3.json`.
+
+**The baseline's source commit moves with the overlay.** `validateCheckout`
+(`benchmarks/operation-pipeline-compare.mjs:212-257`) accepts an overlay that is
+**one direct commit** above the declared source and whose diff touches only
+`PROTOCOL_PATHS`. The D-8 overlay is one commit above the adapter overlay, so
+the declared source becomes `e67b511b` rather than `0cc61e61`. This preserves
+the falsifier for the D-8 commit; the equivalent proof for `e67b511b` itself is
+`git show --stat e67b511b` (5 files, all `PROTOCOL_PATHS`, +226/−56), recorded
+in stage 2a and re-read this stage. `e67b511b` contains no `src/` change, so the
+baseline implementation measured here is still exactly `0cc61e61`'s.
+
+### 9.3 Identity
+
+`captureRaptor3Identity()` in the candidate worktree at `a9a482e1` — that is,
+**before** the cutover — reports
+`production = 2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975`,
+byte-equal to `g4/freeze/identity.json`. The same call in
+`/Users/arnaud/code/viborm` reports the same value (and the frozen `harness`
+value too). Receipt:
+[`receipts-stage2c/identity-identity3.json`](receipts-stage2c/identity-identity3.json).
+
+The candidate's `harness` fingerprint is **not** equal to the freeze and cannot
+be, for the reason stage 2b recorded (B1): the cutover deletes 197 test files
+and the worktree never held the ~200 test files added to the main tree after the
+prep stage copied `tests/`. Only `production` is claimed equal.
+
+### 9.4 The exact command
+
+One cell in one mode per command, 40 commands per pass, five alternating
+fresh-process pairs per side, run from the **baseline overlay worktree as
+coordinator**:
+
+```sh
+cd /private/tmp/viborm-g4-perf-baseline
+TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 \
+  benchmarks/operation-pipeline-compare.mjs \
+  --baseline-dir /private/tmp/viborm-g4-perf-baseline \
+  --baseline-commit e532bbec7667343fc5471929d5051dd15be1852b \
+  --baseline-source-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 \
+  --candidate-dir /private/tmp/viborm-g4-perf-candidate \
+  --candidate-commit 90d4bb4769e1746181633fa0eb76335d119f798a \
+  --providers sqlite3 --comparison semantic \
+  --workloads <workload> --stages <stage> --modes <cpu|retained> \
+  [--iterations 1000 --warmup 200]   # fixed-collection-rowref-1000, cpu only \
+  --output <receipts-stage2c/cells/pass{1,2}__<workload>__<stage>__<mode>.json>
+```
+
+The 20 cells, their modes and their counts are exactly §5's matrix with §8.3's
+and §8.4's refinements, unchanged:
+
+- every cell is run twice, once `--modes cpu` and once `--modes retained`; the
+  5 % time gate reads the `cpu` command's `cpuMicrosecondsPerOperation` and
+  `wallMicrosecondsPerOperation`, the 10 % peak-memory gate reads the `retained`
+  command's `peakRssBytes` (§7.1);
+- `fixed-collection-rowref-1000`'s **`cpu`** commands pass
+  `--iterations 1000 --warmup 200` explicitly; its **`retained`** commands take
+  the catalog's own count (§8.4). Every other cell takes the catalog default.
+
+Verdicts and their rules are §5's, unchanged. No outlier removal; a claim of
+improvement requires improvement greater than `E`; a cell still unresolved after
+the one permitted repeat of the **full** series is "inconclusive — blocks
+adoption", never "passed".
+
+### 9.5 What D-8 changes about `relation-series-2` (§7.4 superseded)
+
+§7.4 recorded `relation-series-2/full` as **"blocks adoption — required contract
+divergence"**: the frozen comparator asserted the *shipped* engine's persisted
+child ids and its five default evaluations, so the candidate failed the
+workload's independent contract observation and the cell could not be measured.
+
+D-8 replaces that single comparator with **one ledger per engine**
+(`RELATION_SERIES_2_LEDGERS`): each ledger names `admissionsPerMember`,
+`statements` and the persisted child ids, and `seriesLedger(admissions)` selects
+the ledger by **the engine's own recorded admission count**, asserting that
+exactly one ledger explains it. A third answer — a member skipped, a default
+evaluated twice on the candidate, a replayed nested create — matches neither
+ledger and fails inside `seriesLedger` rather than silently borrowing the other
+engine's numbers. The engine-independent facts (`{ count: 2 }`, the roots
+captured before any member is admitted, the reached cuts, every member admitted
+before the first effect) are still asserted identically on both sides.
+
+Consequences recorded before the run:
+
+1. `relation-series-2/full` is expected to become **measurable** on both sides.
+   Whether it does is a measurement, made by the command, not an assumption:
+   if the cell still refuses it is recorded as it refuses.
+2. The cardinality difference itself does not disappear and is **not** absolved
+   by being pinned. The shipped engine evaluates `k + 2nk` defaults and the
+   candidate `k + nk`; the persisted primary keys of nested creates therefore
+   differ between the engines for this shape. That remains an **observable
+   public-outcome difference** and a decision Arnaud has taken (D-8) about how
+   the benchmark records it — not evidence that the two engines agree. The
+   proposal reports it as an adoption-relevant behavioral change, with the
+   diagnosis in
+   [`relation-series-2-classification.md`](relation-series-2-classification.md).
+3. Because the ledger is selected by the observed admission count, a cell that
+   *passes* proves the candidate matched **its own** recorded ledger — not the
+   shipped one. The two ledgers are printed side by side in the proposal.
+
+### 9.6 Quiet machine
+
+The series does not start until the integrator's qualification campaign has
+finished — `g4/qualified/RUNS-COMPLETE` exists — and no `run-raptor3`, `vitest`
+or benchmark process remains. The worktree keeps its own
+`TMPDIR=/private/tmp/viborm-g4-cutover-tmp` (§6.1), so it never contends for the
+main tree's lock. **No lock file is removed**: a held lock is waited on (30 s)
+and retried, up to 20 attempts per command.
+
+### 9.7 Deviations recorded before the run
+
+1. **Eight stale harness files were re-synced** (commit `0db0377f`). The
+   prompt's re-sync list is `src/` plus three files, and stage 2b deliberately
+   left `tests/` stale; at identity 3 that is no longer typecheck-clean, because
+   the performance-pass safe fixes introduce
+   `DeferredFailure = () => Error` (`src/query-engine/raptor3/commands/selection.ts:29`)
+   and two stale core-structure tests still pass `Error` instances. Exactly the
+   eight test files that exist on both sides and differ in content were copied
+   from the main tree. No file that exists only in the main tree was added.
+2. **The declared baseline source commit moves** from `0cc61e61` to `e67b511b`
+   (§9.2), because the compare script requires the overlay to be one direct
+   commit above the declared source.
+3. **`src/` was re-synced wholesale, not file-by-file.** The prompt names the
+   paths `git status` lists; those turned out to be exactly the eight files that
+   differed after resetting to `cacb2827`, verified by `diff -rq`, which now
+   reports the worktree's `src/` and `scripts/` byte-identical to the main
+   tree's.
+4. **792 empty directories were removed from the candidate worktree.** A
+   stage-2b copy loop split its path list on newlines and left a nested tree of
+   empty directories under `src/adapters/` and `scripts/` whose names embed a
+   newline. They contain **no files**, are invisible to Git, and are ignored by
+   `captureRaptor3Identity` (which fingerprints files, not directories) — which
+   is why identity 2 verified equal in spite of them. Inventory kept at
+   [`receipts-stage2c/stray-empty-dirs-removed.json`](receipts-stage2c/stray-empty-dirs-removed.json).

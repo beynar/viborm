@@ -4,7 +4,12 @@
  * The decision: the bare `Error: Raptor 3 update expression publication
  * requires an integer field` becomes a registered `QueryEngineError` naming the
  * model, the field and the operation, with `meta { model, operation, field }`,
- * raised at the same point — before any statement is dispatched.
+ * raised at the same point — before any statement is dispatched. Arnaud
+ * answered R-D3-class on 2026-09-16: the class is `UnsupportedOperationError`
+ * (V8003 UNSUPPORTED_OPERATION), the `QueryEngineError` subclass that names a
+ * deliberate capability boundary rather than a crash; the sentence, the `meta`
+ * and the raise point are unchanged, so every assertion below still holds with
+ * the answer's class name updated.
  *
  * The author's two cells measure ONE domain (`number`) and one operation
  * (`upsert`). This probe asks the questions they do not:
@@ -23,7 +28,7 @@ import type {
   QueryResult,
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, UnsupportedOperationError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -164,7 +169,12 @@ describe("G4-02 decisions review — R-D3's identity across the non-int domains"
       );
       assert.equal(
         candidate.answer,
-        `QueryEngineError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
+        `UnsupportedOperationError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
+        name
+      );
+      assert.equal(
+        candidate.raised instanceof UnsupportedOperationError,
+        true,
         name
       );
       assert.equal(candidate.raised instanceof QueryEngineError, true, name);

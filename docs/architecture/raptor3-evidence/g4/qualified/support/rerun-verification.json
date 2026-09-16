@@ -1,0 +1,64 @@
+{
+  "formatVersion": 1,
+  "milestone": "g4",
+  "purpose": "Prove the two gap-closure re-runs were taken on the frozen bytes: the CLI self-test in the main tree, the source-cost census in lane 5, both against g4/freeze/identity.json",
+  "frozenIdentity": {
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+  },
+  "laneFiveIdentity": {
+    "receipt": "support/rerun-lane5-identity.json",
+    "capturedAt": "2026-09-16T14:26:00.004Z",
+    "equalToFreeze": true
+  },
+  "mainTreeIdentity": {
+    "receipt": "support/rerun-main-tree-identity.json",
+    "capturedAt": "2026-09-16T14:26:19.729Z",
+    "equalToFreeze": true
+  },
+  "cliSelfTest": {
+    "receipt": "support/cli-selftest.log",
+    "pass": 10,
+    "fail": 0,
+    "keptFirstAttempt": "support/cli-selftest.attempt1-red.log"
+  },
+  "sourceCost": {
+    "receipt": "support/source-cost.json",
+    "sha256": "eeebfccb2d80124fddbd620a43393377d9300c912ad5208f0290aef8d12a4cea",
+    "status": "source-accounted-bundle-pending",
+    "sourceCommit": "0f25637bcd73b3f402c0bb41aadbb70e67a0a964",
+    "sourceClean": false,
+    "charged": {
+      "files": 171,
+      "bytes": 2518074,
+      "physicalLines": 71146,
+      "tokenLines": 53890
+    },
+    "navigationSubtotal": {
+      "files": 147,
+      "bytes": 2201864,
+      "physicalLines": 62274,
+      "tokenLines": 47710
+    },
+    "censusOwner": "scripts/query-engine-structure.mjs",
+    "censusFunctionSha256": "15889231a22297fcf001ae22ca01e6e8c9cd7489dd635c60529dfdc0ac06461e",
+    "keptFirstAttempt": "support/source-cost.attempt1-enobufs.log",
+    "censusReadFrozenBytes": {
+      "label": "source-cost.json#files (the token-line census)",
+      "files": 581,
+      "outsideIdentity": [],
+      "differingFromFreeze": []
+    },
+    "toolSourceAttestation": {
+      "label": "source-cost.json#source.sourceIdentity.files (the tool's own source attestation)",
+      "files": 658,
+      "outsideIdentity": [
+        "biome.jsonc",
+        "tsdown.config.ts"
+      ],
+      "differingFromFreeze": []
+    },
+    "filesOutsideIdentityAreConfigOnly": "captureRaptor3Identity does not hash biome.jsonc or tsdown.config.ts; they are the only files the tool's own attestation covers and the identity does not"
+  },
+  "verdict": "both re-runs are on the frozen identity and green"
+}

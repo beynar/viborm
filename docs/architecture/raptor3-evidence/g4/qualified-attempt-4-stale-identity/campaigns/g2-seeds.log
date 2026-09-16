@@ -1,0 +1,47 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-5
+
+ ❯ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test | 1 failed) 85ms
+   × completes the exact admitted SQLite transition seed batch 84ms
+     → G2 seed 2000, sqlite-interactive, commands failed
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-campaign.test.ts > completes the exact admitted SQLite transition seed batch
+Error: G2 seed 2000, sqlite-interactive, commands failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ runGeneratedBatch tests/raptor3/generation/campaign.ts:170:20
+ ❯ tests/raptor3/g2-campaign.test.ts:19:20
+
+Caused by: AssertionError: Missing semantic cut transition-actors-overlapped; observed outcome: {"kind":"failure","failure":{"name":"TypeError","message":"(intermediate value).execute is not a function"}}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:417:13
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:53:24
+ ❯ runGeneratedBatch tests/raptor3/generation/campaign.ts:170:20
+ ❯ tests/raptor3/g2-campaign.test.ts:19:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  12:31:40
+   Duration  2.70s (transform 1.47s, setup 10ms, collect 2.15s, tests 85ms, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-x5CN9c/vitest.json
+Vitest resources: 5.50s wall, 563.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-5/viborm-raptor3-g0-x5CN9c

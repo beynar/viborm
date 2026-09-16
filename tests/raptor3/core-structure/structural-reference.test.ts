@@ -222,7 +222,7 @@ function priorityCommands(
   const located = commands.lookup(
     schema.shelf,
     { kind: "query", where: admitted.where! },
-    new NotFoundError("shelf", "update")
+    () => new NotFoundError("shelf", "update")
   );
   const root = commands.update(located, admitted.data, raw.data);
   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
@@ -548,10 +548,11 @@ async function executeReconciliationPublication(
       where: record(consumerMember.where),
       membership: { edge, parent: root.fields },
     },
-    new NestedWriteError(
-      "Cannot update relation 'kids': target record was not found for this parent.",
-      "kids"
-    )
+    () =>
+      new NestedWriteError(
+        "Cannot update relation 'kids': target record was not found for this parent.",
+        "kids"
+      )
   );
   const origin = commands.createOrigin("kids", "updateMany");
   selection.origin = origin;

@@ -3,8 +3,8 @@
   "purpose": "Complete per-file manifest of the exact captureRaptor3Identity production and harness inputs at the G4 freeze",
   "milestone": "g4",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
     "runtime": {
       "node": "v24.21.0",
       "platform": "darwin",
@@ -19,7 +19,7 @@
     "fileCount": 587
   },
   "harness": {
-    "fileCount": 493
+    "fileCount": 498
   },
   "files": [
     {
@@ -123,8 +123,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 10092,
-      "sha256": "fdcf60dce6834882571ce5c6c10310d707719d62d98dd2e0bb6746977468b1b6"
+      "bytes": 14253,
+      "sha256": "eb66478647dfc20c361380fbd887465ba4095db728211589487e527e4e4644d9"
     },
     {
       "file": "benchmarks/operation-pipeline-evidence.mjs",
@@ -509,8 +509,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 50600,
-      "sha256": "d3f67f4a95af57038a1c5567a6ea868d6939592c0c5607643ded519e3ee9e938"
+      "bytes": 50669,
+      "sha256": "afe6bd955460b7dbf187b137a00849ff79e5161037aa5f59316a0bb4cfc1b5f2"
     },
     {
       "file": "scripts/relation-state.ts",
@@ -3093,16 +3093,16 @@
       "roles": [
         "production"
       ],
-      "bytes": 46751,
-      "sha256": "7843d0dc4deb5eddbf0b8fbfa7d4112a6e34c893e69de36451c72e234f1394a1"
+      "bytes": 46817,
+      "sha256": "d8715a92fc97d4aa884f58ae9a5540db12d4f7a448f755e1823e683618835b09"
     },
     {
       "file": "src/query-engine/raptor3/commands/execution.ts",
       "roles": [
         "production"
       ],
-      "bytes": 25846,
-      "sha256": "54646ed4cb597ac1dfecd4e05a4899997801205a1386fcbc807a263cb496c8c2"
+      "bytes": 25921,
+      "sha256": "5a750db85488523c45a1af19959b92e47a88c58dbff94bf89802ece0f6acef10"
     },
     {
       "file": "src/query-engine/raptor3/commands/index.ts",
@@ -3117,16 +3117,16 @@
       "roles": [
         "production"
       ],
-      "bytes": 32238,
-      "sha256": "61af50d82a5c3479b6484dd615ff211186f054b06916329bb0eb447679c2b5d9"
+      "bytes": 32420,
+      "sha256": "e3f6e9e9b96a20c03c4876d5dfd9d367e22cfe65c6f40402c2d9d3e5f5648ff6"
     },
     {
       "file": "src/query-engine/raptor3/commands/selection.ts",
       "roles": [
         "production"
       ],
-      "bytes": 6505,
-      "sha256": "84aa0c448e375713bca8791c591a28015dec97ace0afb635df51df716d189ace"
+      "bytes": 7254,
+      "sha256": "f1cc0aab555694bd5649391a42ed7e4181015afd8362772f8af3e9beea8aad31"
     },
     {
       "file": "src/query-engine/raptor3/program/index.ts",
@@ -3157,24 +3157,24 @@
       "roles": [
         "production"
       ],
-      "bytes": 84054,
-      "sha256": "58e89525d5968db1bb635d202db806b15df816682b63ce2ce8c9c59613507cc5"
+      "bytes": 85925,
+      "sha256": "53acb07c45ebd4efdd67435071a34d6335f697eb5026cd885cc8797149f12277"
     },
     {
       "file": "src/query-engine/raptor3/shared/query.ts",
       "roles": [
         "production"
       ],
-      "bytes": 139660,
-      "sha256": "38328088e4f3a5cea13723ff5dd0e3855ef7af5438b420d7818fa59816ef7bd6"
+      "bytes": 141465,
+      "sha256": "4ad5c091adb371963160048ebca54fe0e0ab4ece02c0340d05e6afcc410c9982"
     },
     {
       "file": "src/query-engine/raptor3/shared/schema.ts",
       "roles": [
         "production"
       ],
-      "bytes": 19305,
-      "sha256": "b3f237a172ff9355b46d96c0b759530f7ee8169048c32b73eeca9b49faa77b86"
+      "bytes": 19845,
+      "sha256": "fdb384ea07271d7db3d8c01de10b8cd3e5e20b31efbbeaf5515f1240cd033b01"
     },
     {
       "file": "src/query-engine/raptor3/shared/storage.ts",
@@ -5349,8 +5349,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 38570,
-      "sha256": "b37113fb7221ee2c8c4785a3a5e4087b8672d4e961510804d8d24e8f029dda0b"
+      "bytes": 38596,
+      "sha256": "1e8bdfa3e023e15998bb159c8a916cbd99093f8189db76d5f27812db65adbccf"
     },
     {
       "file": "tests/raptor3/core-structure/measurement/extension-a-scenario.ts",
@@ -5485,8 +5485,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 21529,
-      "sha256": "b099370fd6405df4c09956f7b6d3362d302a781be8d6515b339edf3091088355"
+      "bytes": 21553,
+      "sha256": "9154f1f6afa96c14ff0a40b57320949d9c2f2337ef239b9793c854f7f8c57a82"
     },
     {
       "file": "tests/raptor3/expanded/associations.ts",
@@ -6257,6 +6257,38 @@
       "sha256": "a5aee9fc6bf1a6376e5ccdcb30b714bd2dff390332731964f9676a372cdfb090"
     },
     {
+      "file": "tests/raptor3/g4/review/perf/alias-scope.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 13230,
+      "sha256": "68fa378658a33155a10227ced373502338db95ac882e3f5a6e526bbefbc9786b"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 13264,
+      "sha256": "8a8f6d547f6437e413956fa73440562e72bccf71dd2a6dca4633e918855425fb"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf/perf-review.workspace.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 753,
+      "sha256": "57664eb9661dbcbba133d8388ae8db570dd2253c8bb1cd967a4e12af69e81f63"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 7418,
+      "sha256": "142224efd19b617dd26db6ecfecefbb3577f13d518b40539aa216e1200dcaa66"
+    },
+    {
       "file": "tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts",
       "roles": [
         "harness"
@@ -6621,8 +6653,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 7284,
-      "sha256": "bf9faecb8630c1cec486078f9bedd0b704331ee28808f672ff2f7b5fe3d4d0c3"
+      "bytes": 7800,
+      "sha256": "dc76f769993d07ecf33ce2432466d9f0324783e5d5250e1247997d1dfdf6d8b9"
     },
     {
       "file": "tests/raptor3/g4/review/unit02-decisions/junction-delete-mechanism.review.test.ts",
@@ -7429,8 +7461,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 21782,
-      "sha256": "11cb6d904894e01cecf7af1c997a77307bdd829768961a1baca1b17b1ed577d6"
+      "bytes": 22365,
+      "sha256": "59b533f49abc47e2b70459cfdd9f8e8aa76d38aac54d9eb3225caab4c85a96c1"
     },
     {
       "file": "tests/raptor3/g4/unit02/lone-statement-transport.test.ts",
@@ -7509,8 +7541,16 @@
       "roles": [
         "harness"
       ],
-      "bytes": 6321,
-      "sha256": "cad8642c4692674fe90343a0886b5b1c419ef226d646f42a954c1ac3f3117c04"
+      "bytes": 8042,
+      "sha256": "ff504bb8005e9001ab28eb2556a27e7dd2d2a498a916cfc6ae51c6218c26d2d0"
+    },
+    {
+      "file": "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 6143,
+      "sha256": "4f30df0625544ad06f40b0e7f5bc9fd58781ec31afc84902bebf4f8701d7b59e"
     },
     {
       "file": "tests/raptor3/g4/unit02/recursive-codec-fit.test.ts",

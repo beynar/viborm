@@ -1,14 +1,14 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 734ms
-   ✓ replays the saved corpus against its exact executed-source identity  734ms
+ ✓ |raptor3| tests/raptor3/gate.test.ts (1 test) 723ms
+   ✓ replays the saved corpus against its exact executed-source identity  723ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  03:07:53
-   Duration  2.61s (transform 1.12s, setup 8ms, collect 1.66s, tests 734ms, environment 0ms, prepare 27ms)
+   Start at  14:05:54
+   Duration  2.66s (transform 1.20s, setup 8ms, collect 1.80s, tests 723ms, environment 0ms, prepare 24ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-zORv1X/vitest.json
-Vitest resources: 4.57s wall, 752.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-zORv1X
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-g0xfA9/vitest.json
+Vitest resources: 4.80s wall, 757.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-g0xfA9

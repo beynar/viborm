@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 800ms
+ ✓ |raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 41ms
+
+ Test Files  2 passed (2)
+      Tests  52 passed (52)
+   Start at  12:21:21
+   Duration  3.34s (transform 1.45s, setup 11ms, collect 2.32s, tests 842ms, environment 0ms, prepare 42ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-qejC4x/vitest.json
+Vitest resources: 5.76s wall, 729.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-generated contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-qejC4x

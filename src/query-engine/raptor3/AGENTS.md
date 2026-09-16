@@ -411,7 +411,16 @@ write and for every relation-free `createMany`/`updateMany`/`deleteMany` alike â
 and with the envelope gone that whole family of candidate-only meta disappears,
 at the price he accepted: a folded root single-record write rejected on a
 batch-only transport publishes the shipped raw error, with no segment progress
-and no `mayHaveCommittedSegment` at all.
+and no `mayHaveCommittedSegment` at all. The converse is the same price read
+from the other side and is equally the contract (**D-7.1**, Arnaud 2026-09-16,
+"accept the difference"): a root `update` or `delete` rejected before dispatch
+on a batch-only driver publishes NO `statementIndex` where the shipped engine
+publishes `0`, because the shipped fold is two statements (presence guard plus
+mutation, a real batch) and this engine's is ONE statement with a JavaScript
+postcondition, so the driver seam has no batch to index. It is a recorded
+diagnostic-meta difference, pinned as row 7 of
+`tests/raptor3/g4/unit02/lone-statement-transport.test.ts`; do not add a
+per-verb branch or a second statement to manufacture the index.
 
 A packaged operation has no JavaScript postcondition available, so its
 single-row premise becomes a STATEMENT: one `assertions.exists` over the same

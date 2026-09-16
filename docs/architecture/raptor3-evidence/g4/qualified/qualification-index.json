@@ -2,10 +2,10 @@
   "formatVersion": 1,
   "milestone": "g4",
   "status": "author-qualification-evidence-complete-independent-and-root-acceptance-pending",
-  "baselineCommit": "0cc61e61f372945026b0b564fa643de67168c08e",
+  "baselineCommit": "0f25637bcd73b3f402c0bb41aadbb70e67a0a964",
   "frozenIdentity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56",
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
     "runtime": {
       "node": "v24.21.0",
       "platform": "darwin",
@@ -490,8 +490,8 @@
     {
       "mode": "g4-unit02-author",
       "receipt": "fixed/g4-unit02-author.receipt",
-      "testFiles": 50,
-      "tests": 127,
+      "testFiles": 52,
+      "tests": 131,
       "failedTests": 0,
       "status": "passed"
     },
@@ -1182,7 +1182,8 @@
       ],
       "evidence": "support/typecheck.log"
     },
-    "queryEngineStructure": "support/query-engine-structure.log"
+    "queryEngineStructure": "support/query-engine-structure.log",
+    "providerPorts": "support/provider-ports.json"
   },
   "structure": {
     "cases": 28,
@@ -1190,7 +1191,7 @@
     "skipped": 0,
     "alternative": "shared-occurrence-candidate",
     "instrumentationRestored": true,
-    "evidence": "structural-measurement/receipt/verified.json"
+    "evidence": "structure/receipt/verified.json"
   },
   "source": {
     "cost": "support/source-cost.json",
@@ -1222,8 +1223,8 @@
     "packaging": "support/corpus-packaging.json",
     "retentionMap": "support/corpus-retention.json",
     "retainedCorpora": 1320,
-    "archiveBytes": 1054375465,
-    "originalBytes": 53996673706,
+    "archiveBytes": 1049645275,
+    "originalBytes": 53981235232,
     "perCampaign": [
       {
         "campaign": "g4-seeds",
@@ -1231,7 +1232,7 @@
         "count": 250,
         "firstSeed": 20000,
         "lastSeed": 44900,
-        "archiveBytes": 2848067,
+        "archiveBytes": 2848730,
         "originalBytes": 82232810
       },
       {
@@ -1240,7 +1241,7 @@
         "count": 250,
         "firstSeed": 50000,
         "lastSeed": 74900,
-        "archiveBytes": 2846893,
+        "archiveBytes": 2847548,
         "originalBytes": 82338366
       },
       {
@@ -1249,8 +1250,8 @@
         "count": 250,
         "firstSeed": 75000,
         "lastSeed": 99900,
-        "archiveBytes": 339696458,
-        "originalBytes": 18055416620
+        "archiveBytes": 338182038,
+        "originalBytes": 18044854292
       },
       {
         "campaign": "g4-write-transport-seeds",
@@ -1258,7 +1259,7 @@
         "count": 250,
         "firstSeed": 100000,
         "lastSeed": 124900,
-        "archiveBytes": 395168829,
+        "archiveBytes": 393584462,
         "originalBytes": 19937950653
       },
       {
@@ -1267,8 +1268,8 @@
         "count": 100,
         "firstSeed": 8000,
         "lastSeed": 17900,
-        "archiveBytes": 134249144,
-        "originalBytes": 7135845594
+        "archiveBytes": 133646716,
+        "originalBytes": 7131744672
       },
       {
         "campaign": "g3-transport-seeds",
@@ -1276,7 +1277,7 @@
         "count": 100,
         "firstSeed": 8000,
         "lastSeed": 17900,
-        "archiveBytes": 159346875,
+        "archiveBytes": 158719001,
         "originalBytes": 7994691613
       },
       {
@@ -1285,8 +1286,8 @@
         "count": 50,
         "firstSeed": 2000,
         "lastSeed": 6900,
-        "archiveBytes": 14463082,
-        "originalBytes": 430586409
+        "archiveBytes": 14149895,
+        "originalBytes": 429948399
       },
       {
         "campaign": "g2-transport-seeds",
@@ -1294,7 +1295,7 @@
         "count": 50,
         "firstSeed": 2000,
         "lastSeed": 6900,
-        "archiveBytes": 4261137,
+        "archiveBytes": 4252489,
         "originalBytes": 217867237
       },
       {
@@ -1303,8 +1304,8 @@
         "count": 10,
         "firstSeed": 1000,
         "lastSeed": 1900,
-        "archiveBytes": 944284,
-        "originalBytes": 38423377
+        "archiveBytes": 876961,
+        "originalBytes": 38349019
       },
       {
         "campaign": "g1-transport-seeds",
@@ -1312,8 +1313,8 @@
         "count": 10,
         "firstSeed": 1000,
         "lastSeed": 1900,
-        "archiveBytes": 550696,
-        "originalBytes": 21321027
+        "archiveBytes": 537435,
+        "originalBytes": 21258171
       }
     ],
     "compact": [
@@ -1330,12 +1331,12 @@
           {
             "file": "verified.json",
             "bytes": 472,
-            "sha256": "f8ede55071befac0c1008a38d554cb8a412577660ef3f9e5d1ec011be074962f"
+            "sha256": "d2472c1c1acbdd5b24b1f571a29e50dc00f6bbcac90d49b75da34a235ee82038"
           },
           {
             "file": "vitest.json",
-            "bytes": 896,
-            "sha256": "fee1414910d8399ebd5c7511d82c87b41e41dc3c6135667824715172112be564"
+            "bytes": 903,
+            "sha256": "13047b24818d148329bd0f263986fbe6dcef12d68b12fef0f5293a51ee331d89"
           },
           {
             "file": "generated-campaign.json",
@@ -1357,12 +1358,12 @@
           {
             "file": "verified.json",
             "bytes": 482,
-            "sha256": "e9a78dfea68778d078d023e2368b2c7b92daa30edbce752a1a368c59a22328e1"
+            "sha256": "c851877f3e079e81391c027115a5edcde246c1eb4fdb9966c83e6769726f2267"
           },
           {
             "file": "vitest.json",
             "bytes": 894,
-            "sha256": "93b729aa12414622b5ed0a5f00b5f783c6477431c8b87253b62e3739e00bfc89"
+            "sha256": "a00397546e489b1b0da574e16874108868c09c4c3dd1b92e74a5ea12a4bcf79c"
           },
           {
             "file": "generated-campaign.json",
@@ -1394,7 +1395,7 @@
     "taskCommitAllowlist": "task-commit-allowlist.json"
   },
   "evidenceBoundaries": {
-    "nativeSuites": "Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (PostgreSQL 127.0.0.1:65504, MySQL 127.0.0.1:65515); no claim about any other provider build or deployment",
+    "nativeSuites": "Current-source PostgreSQL and MySQL modes on the task-owned loopback containers (PostgreSQL 127.0.0.1:55729, MySQL 127.0.0.1:55730, recorded in support/provider-ports.json); no claim about any other provider build or deployment",
     "readCampaignProfiles": "The four G4 read profiles are distinguished by the transport model each cell actually exhibits, checked per child; profile names alone are not the claim",
     "writeCampaign": "g4-write-seeds and g4-write-transport-seeds are the accepted G3 write generator on fresh disjoint seed ranges; they are new inputs, not a new generator",
     "acceptance": "Independent and root review attestations are external to this sealed author tree"
@@ -1402,7 +1403,7 @@
   "gaps": [],
   "totals": {
     "fixedModes": 65,
-    "fixedTestExecutions": 1742,
+    "fixedTestExecutions": 1746,
     "fixedModesNotPassed": 0,
     "laneFixedModes": 1,
     "laneFixedTestExecutions": 33,

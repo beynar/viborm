@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 96ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 162ms
 
  Test Files  1 passed (1)
       Tests  14 passed (14)
-   Start at  02:14:49
-   Duration  4.55s (transform 1.52s, setup 12ms, collect 2.23s, tests 96ms, environment 0ms, prepare 42ms)
+   Start at  13:06:56
+   Duration  5.77s (transform 1.99s, setup 17ms, collect 3.00s, tests 162ms, environment 0ms, prepare 54ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-G6H5jB/vitest.json
-Vitest resources: 10.40s wall, 505.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g29-member-dependency contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-G6H5jB
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DSpXQr/vitest.json
+Vitest resources: 12.37s wall, 478.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-member-dependency contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-DSpXQr

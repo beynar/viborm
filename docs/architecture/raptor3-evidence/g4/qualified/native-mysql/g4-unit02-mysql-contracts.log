@@ -1,16 +1,16 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 1154ms
-   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  637ms
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 121ms
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 160ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 916ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  530ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 109ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 159ms
 
  Test Files  3 passed (3)
       Tests  17 passed (17)
-   Start at  02:26:02
-   Duration  6.05s (transform 1.63s, setup 17ms, collect 2.70s, tests 1.43s, environment 0ms, prepare 38ms)
+   Start at  13:18:04
+   Duration  7.78s (transform 2.19s, setup 13ms, collect 3.69s, tests 1.18s, environment 0ms, prepare 33ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UKY61h/vitest.json
-Vitest resources: 12.94s wall, 563.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-UKY61h
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HsInnq/vitest.json
+Vitest resources: 13.25s wall, 697.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HsInnq

@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-09-16T10:07:20.919Z",
+  "note": "harness fingerprint recomputed with the round-1 reviewer's own probe files excluded, for comparability with the round-1 value 239c40dc…",
+  "excluded": [
+    "tests/raptor3/g4/review/perf/alias-scope.review.test.ts",
+    "tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts",
+    "tests/raptor3/g4/review/perf/perf-review.workspace.ts",
+    "tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts"
+  ],
+  "harnessExcludingReviewerProbes": "05040249b9550adadb546fe74f85d546ab47e51fe8d3e25fd4056d482f68f9d4",
+  "harnessIncludingEverything": "e8436e5e2aeb75b8d75ec6c251b310a6acb3ae375fb2bd0b61bef26a8cd991f7"
+}

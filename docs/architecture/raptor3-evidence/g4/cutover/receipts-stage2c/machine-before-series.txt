@@ -1,0 +1,23 @@
+# Machine state recorded BEFORE the stage-2c 20-cell series
+date: 2026-09-16T13:11:03Z (UTC)  /  2026-09-16 15:11:03 CEST (local)
+host cores: 14  physical: 14
+
+## uptime
+15:11  up 16 days, 14:51, 3 users, load averages: 5.79 6.59 6.51
+
+## top five CPU processes (ps -Ao pcpu,pid,comm -r | head -6)
+ %CPU   PID COMM
+100.7 16423 /Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Renderer).app/Contents/MacOS/Cursor Helper (Renderer)
+100.0 97416 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 93.5  7644 Raycast Beta Backend
+ 48.8   421 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 47.8 54051 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Renderer).app/Contents/MacOS/Devin Helper (Renderer)
+
+## viborm verification processes (vitest / run-raptor3 / operation-pipeline)
+(none)
+
+## lock files under TMPDIR=/private/tmp/viborm-g4-cutover-tmp
+(no lock file present)
+
+## integrator marker
+-rw-r--r--@ 1 arnaud  staff  0 Sep 16 14:06 /Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/RUNS-COMPLETE

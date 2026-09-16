@@ -1,0 +1,9 @@
+## recorded BETWEEN pass 1 and pass 2 (the one permitted repeat)
+date: 2026-09-16T13:22:37Z (UTC)  /  15:22:37 CEST (local)
+15:22  up 16 days, 15:02, 3 users, load averages: 11.91 11.25 9.01
+ %CPU   PID COMM
+100.2 16423 /Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Renderer).app/Contents/MacOS/Cursor Helper (Renderer)
+100.0 97416 /Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin/node
+ 45.6   421 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 28.7 22117 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper
+ 22.8 21828 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/152.0.7977.83/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)

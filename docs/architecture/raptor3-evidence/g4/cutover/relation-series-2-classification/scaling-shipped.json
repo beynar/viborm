@@ -1,0 +1,245 @@
+{
+ "root": "/private/tmp/viborm-g4-perf-baseline",
+ "report": [
+  {
+   "case": "roots-2-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 2
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3",
+    "series_child_4",
+    "series_child_5"
+   ],
+   "defaultCount": 5,
+   "statementCount": 7,
+   "inserts": [
+    [
+     "series_child_3",
+     5000,
+     "s"
+    ],
+    [
+     "series_child_5",
+     6000,
+     "s"
+    ]
+   ],
+   "selects": [
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?, ?) :: [5000,6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_3",
+     "parentId": 5000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_5",
+     "parentId": 6000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-3-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 3
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3",
+    "series_child_4",
+    "series_child_5",
+    "series_child_6",
+    "series_child_7"
+   ],
+   "defaultCount": 7,
+   "statementCount": 10,
+   "inserts": [
+    [
+     "series_child_3",
+     5000,
+     "s"
+    ],
+    [
+     "series_child_5",
+     6000,
+     "s"
+    ],
+    [
+     "series_child_7",
+     10000,
+     "s"
+    ]
+   ],
+   "selects": [
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?, ?, ?) :: [5000,6000,10000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [10000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [10000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_3",
+     "parentId": 5000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_5",
+     "parentId": 6000,
+     "label": "s"
+    },
+    {
+     "id": "series_child_7",
+     "parentId": 10000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-2-array-2",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 2
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3",
+    "series_child_4",
+    "series_child_5",
+    "series_child_6",
+    "series_child_7",
+    "series_child_8",
+    "series_child_9",
+    "series_child_10"
+   ],
+   "defaultCount": 10,
+   "statementCount": 9,
+   "inserts": [
+    [
+     "series_child_5",
+     5000,
+     "a"
+    ],
+    [
+     "series_child_6",
+     5000,
+     "b"
+    ],
+    [
+     "series_child_9",
+     6000,
+     "a"
+    ],
+    [
+     "series_child_10",
+     6000,
+     "b"
+    ]
+   ],
+   "selects": [
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?, ?) :: [5000,6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [6000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_5",
+     "parentId": 5000,
+     "label": "a"
+    },
+    {
+     "id": "series_child_6",
+     "parentId": 5000,
+     "label": "b"
+    },
+    {
+     "id": "series_child_10",
+     "parentId": 6000,
+     "label": "b"
+    },
+    {
+     "id": "series_child_9",
+     "parentId": 6000,
+     "label": "a"
+    }
+   ]
+  },
+  {
+   "case": "roots-1-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 1
+    }
+   },
+   "defaults": [
+    "series_child_1",
+    "series_child_2",
+    "series_child_3"
+   ],
+   "defaultCount": 3,
+   "statementCount": 4,
+   "inserts": [
+    [
+     "series_child_3",
+     5000,
+     "s"
+    ]
+   ],
+   "selects": [
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?) :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]",
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1 :: [5000]"
+   ],
+   "persisted": [
+    {
+     "id": "series_child_3",
+     "parentId": 5000,
+     "label": "s"
+    }
+   ]
+  },
+  {
+   "case": "roots-0-single",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "count": 0
+    }
+   },
+   "defaults": [
+    "series_child_1"
+   ],
+   "defaultCount": 1,
+   "statementCount": 1,
+   "inserts": [],
+   "selects": [
+    "SELECT \"t0\".\"id\" AS \"id\" FROM \"bench_generated_parents\" AS \"t0\" WHERE \"t0\".\"id\" IN (?) :: [1]"
+   ],
+   "persisted": []
+  }
+ ]
+}

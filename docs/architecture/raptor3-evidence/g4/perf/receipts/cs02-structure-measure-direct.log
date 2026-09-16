@@ -1,0 +1,14 @@
+       |          ^
+    1046|     captured.semanticInventory,
+    1047|     canonicalInventory(recipe.semanticInventory)
+ ❯ tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts:1097:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed (2)
+   Start at  11:04:05
+   Duration  4.30s (transform 2.53s, setup 15ms, collect 3.84s, tests 43ms, environment 0ms, prepare 52ms)
+
+Vitest resources: 6.57s wall, 604.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

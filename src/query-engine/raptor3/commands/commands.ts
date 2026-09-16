@@ -22,6 +22,7 @@ import { CommandExecution } from "./execution";
 import { RelationBody } from "./relation-body";
 import {
   type BoundMembership,
+  type DeferredFailure,
   Selection,
   type SelectionSource,
 } from "./selection";
@@ -78,7 +79,7 @@ export interface RecordSeriesCommand {
 export interface MembershipRequirement {
   readonly selection: Selection;
   readonly membership: BoundMembership;
-  readonly failure: Error;
+  readonly failure: DeferredFailure;
 }
 export interface JunctionCapture {
   readonly kind: "junction";
@@ -92,7 +93,7 @@ export interface AbsenceRequirement {
   readonly model: AnyModel;
   readonly membership: BoundMembership;
   readonly excluding: Assignments[];
-  readonly failure: Error;
+  readonly failure: DeferredFailure;
 }
 export interface Condition {
   readonly lookup: Selection;
@@ -989,7 +990,7 @@ export class Commands {
   lookup(
     model: AnyModel,
     source: SelectionSource,
-    required?: Error,
+    required?: DeferredFailure,
     facts?: SelectorFacts
   ): Selection {
     return new Selection(this.execution, model, source, required, facts);
@@ -1255,7 +1256,7 @@ export class Commands {
               this.lookup(
                 model,
                 { kind: "query", where: args.where!, unique: true },
-                new NotFoundError(model["~"].names.ts!, "update")
+                () => new NotFoundError(model["~"].names.ts!, "update")
               ),
               args.data,
               raw.data
@@ -1284,7 +1285,7 @@ export class Commands {
     const selection = this.lookup(
       model,
       { kind: "query", where: args.where },
-      new NotFoundError(model["~"].names.ts!, "update")
+      () => new NotFoundError(model["~"].names.ts!, "update")
     );
     const analysis = this.update(selection, updateData, raw.data, true);
     const series: SelectedSeries = {

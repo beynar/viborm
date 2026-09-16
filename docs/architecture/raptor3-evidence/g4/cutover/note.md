@@ -688,3 +688,389 @@ exist. No lock belonging to a live process was removed (see B8.1).
 7. **`benchmarks/baseline.json` was copied but is used by nothing** under
    `benchmarks/` or `scripts/` (checked by grep); it is carried only because it
    is part of `captureRaptor3Identity`'s harness fingerprint.
+
+---
+
+# Stage 2c — measurement against the THIRD frozen identity (performance pass)
+
+Identity 2 was superseded by the performance-pass safe fixes and by Arnaud's
+D-8 benchmark decision. Everything sections B0–B9 and `protocol.md` §§1–8
+recorded is retained as a receipt of *identity 2* and is **not** a result for
+this one. The protocol for this stage is `protocol.md` §9, written by the
+previous author **before** the series.
+
+Frozen identity 3 (`g4/freeze/identity.json`):
+
+```
+production 2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975
+harness    31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a
+```
+
+`/Users/arnaud/code/viborm` was **not** modified outside
+`docs/architecture/raptor3-evidence/g4/cutover/` and `g4/cutover-proposal.md`.
+Nothing there was committed, staged, reset, stashed or deleted. **No commit was
+added to either measurement worktree**: both are exactly as the previous author
+left them.
+
+## C0. What was verified rather than redone
+
+This session resumed after the previous author's was cut off while polling for
+`g4/qualified/RUNS-COMPLETE`. Everything below was checked read-only before the
+series; none of it was rebuilt.
+
+| Claim | How it was checked | Result |
+| --- | --- | --- |
+| both worktrees clean | `git status --porcelain` | empty on both |
+| candidate tip | `git log` | `90d4bb47` on `g4-perf-measurement`, over `c22cb59e` → `0db0377f` → `59c44d3c` → `a9a482e1` → `cacb2827` |
+| baseline tip | `git log` | `e532bbec` on `g4-perf-baseline-overlay`, one commit above `e67b511b`, itself one above `0cc61e61` |
+| the 24 `PROTOCOL_PATHS` are the same bytes on both sides | `cmp` per file, plus `protocolIdentity()` in both trees | all 24 identical; `sha256 = f23e0aace9f0a8de55a1218d054870c1353a8456ec441f91d8bc5e437e0af22a` in **both**, equal to the value §9.2 predeclared |
+| `benchmarks/` trees identical | `diff -rq` | identical except the git-ignored `benchmarks/baseline.json` (candidate only; not a `PROTOCOL_PATHS` member) |
+| both overlays touch only protocol paths | `git show --stat` on `e67b511b`, `e532bbec`, `c22cb59e`, `90d4bb47` | adapter 5 files +226/−56, D-8 1 file +106/−20; every path is in `PROTOCOL_PATHS`; `e532bbec`'s parent **is** `e67b511b` |
+| the candidate measured the frozen production | `git archive a9a482e1` into a scratch tree, then `captureRaptor3Identity()` on it — **independent of the predecessor's receipt** | `production = 2e92354b…a1975`, byte-equal to the freeze |
+| the main tree still holds the freeze | `captureRaptor3Identity("/Users/arnaud/code/viborm")` at 15:12 local, after the integrator's campaign finished | `production` **and** `harness` both byte-equal to `g4/freeze/identity.json` |
+| the cutover receipt is the cutover | `cmp` of `receipts-stage2c/cutover-identity3.patch` against `git diff a9a482e1 59c44d3c` | byte-identical; 239 `diff --git` entries, the **same 239 files** as `receipts-stage2b/cutover-identity2.patch` |
+| typecheck and build | `receipts-stage2c/typecheck-identity3-{cutover,tip}.txt`, `package-build-identity3.txt` | exactly the two permitted `pattern/pack.ts` TS2345 diagnostics at both commits; build exit 0, 181 files, `dist/index.mjs` produced |
+| bundles | `bundles-identity3.json`, `bundle-ratios-identity3.json` | engine gzip ratio 0.2377 (≤ 0.75), `pg-simple` 0.6984 and `pg-relations` 0.6986 (≤ 1.00) |
+
+The candidate's `harness` fingerprint is **not** equal to the freeze and cannot
+be, for the reason B1 recorded. Only `production` is claimed equal.
+
+## C1. Machine state, recorded rather than claimed
+
+The integrator's `g4/qualified/RUNS-COMPLETE` was written at 14:06 local; no
+`vitest`, `run-raptor3` or benchmark process existed at any point during this
+stage's runs. The machine's owner nevertheless runs Cursor, Codex/ChatGPT,
+Devin, Raycast, Dia and Claude, which is outside this unit's control.
+
+| Moment | 1-min load | Receipt |
+| --- | ---: | --- |
+| before the series (15:11) | **5.79** | [`machine-before-series.txt`](receipts-stage2c/machine-before-series.txt) |
+| end of pass 1 (15:22) | 11.91 | same file's notes |
+| pass-2 attempt 1, aborted (15:22–15:44) | **11.9 → 143** | [`cells/aborted-pass2-attempt1/`](receipts-stage2c/cells/aborted-pass2-attempt1/) |
+| start of pass 2, the recorded repeat (15:54) | **9.14** | [`machine-pass2-start.txt`](receipts-stage2c/machine-pass2-start.txt) |
+| across all 40 pass-2 commands | 8.69–13.14 | sampled per command |
+| after the series (16:04) | 12.39 | [`machine-after-series.txt`](receipts-stage2c/machine-after-series.txt) |
+
+### C1.1 One aborted attempt at the repeat, kept and not relabelled
+
+The first attempt at pass 2 was **aborted after 9 of its 40 commands**, on the
+machine state and **before any of its numbers were aggregated or read**.
+`pass2__scalar-find-unique__execute__retained` had failed after 1,014 s with
+`Error: baseline package build failed: Node command exceeded its 300 second
+wall limit` — `buildCheckout`
+(`benchmarks/operation-pipeline-compare.mjs:290`), an infrastructure failure of
+the harness's own build step, not a cell refusal. At that moment the 1-minute
+load average was 43 and rising (it peaked at 143), with `fseventsd` at 155 %
+and `syspolicyd`, `PerfPowerServices` and `WindowServer` all heavy; per-command
+wall time had gone from ~10 s to 24–56 s.
+
+Running the one permitted repeat under a system-level storm that had already
+broken a 300 s build limit would have produced a pass whose MADs describe the
+machine. The attempt was stopped, everything it produced was moved intact to
+[`cells/aborted-pass2-attempt1/`](receipts-stage2c/cells/aborted-pass2-attempt1/)
+with a README stating exactly this, and the repeat was re-run 10 minutes later
+once the 1-minute load was back to 7.98 — comparable to pass 1's 5.79 start and
+to stage 2b's 7.6–8.8.
+
+Two consequences, both recorded rather than smoothed:
+
+1. **A stale lock was created and was NOT removed.** Terminating the driver
+   killed the compare process it had spawned, which left
+   `/private/tmp/viborm-g4-cutover-tmp/viborm-test-c33ebb4c906dfea8.lock`
+   (`{"pid":81219,…}`; PID confirmed absent from the process table). This unit
+   removes no lock file. A copy is kept as
+   `cells/aborted-pass2-attempt1/stale-lock-left-in-place.json` and the file is
+   still in place; `scripts/test-run-lock.mjs:223` prints the instruction for
+   clearing it.
+2. **Pass 2 therefore ran with `TMPDIR=/private/tmp/viborm-g4-cutover-tmp2`**, a
+   sibling directory, because the lock path is derived from `tmpdir()`. This is
+   **measurement-neutral and was checked, not assumed**: the only two uses of
+   `tmpdir()` across the protocol files are the lock path
+   (`scripts/test-run-lock.mjs:52`) and a `--calibrate`-only scratch directory
+   (`operation-pipeline-compare.mjs:864`), and every sqlite3 fixture in this
+   series is `:memory:` (`operation-pipeline-fixtures.mjs:164`). Same machine,
+   same filesystem, same commands, same counts.
+
+## C2. The series as run
+
+Two full series, 40 commands each — one cell in one mode per command, five
+alternating fresh-process pairs per side — from the baseline overlay worktree as
+coordinator, exactly the command `protocol.md` §9.4 predeclared.
+
+| | pass 1 | pass 2 (the one permitted repeat) |
+| --- | --- | --- |
+| window (UTC) | 13:12:10 – 13:21:21 | 13:55:03 – 14:03:44 |
+| summed command wall | 9 min 21 s | 8 min 53 s |
+| commands | 40 | 40 |
+| evidence reports written | 34 | 34 |
+| commands that refused | 6 | the same 6 |
+| journal | [`cells/pass1-journal.txt`](receipts-stage2c/cells/pass1-journal.txt) | [`cells/pass2-journal.txt`](receipts-stage2c/cells/pass2-journal.txt) |
+
+Every measured cell reports `measurementProtocolValid: true` with **5 baseline
+and 5 candidate replicates in both modes**, and the counts are the frozen
+matrix's: 5,000/1,000 cpu and 500/100 retained for the default workloads,
+1,000/200 and 100/20 for `bulk-update-returning-100`, and 1,000/200 cpu with the
+catalog's own 20/10 retained for `fixed-collection-rowref-1000` (§8.4).
+
+Per-cell reports (`gzip -9`) and logs are in
+[`cells/`](receipts-stage2c/cells/) (41 MB); the driver is
+[`series-driver.mjs`](receipts-stage2c/series-driver.mjs) and the aggregator
+[`aggregate.mjs`](receipts-stage2c/aggregate.mjs). The aggregate of both passes
+is [`performance-identity3.json`](performance-identity3.json); the first series
+alone is retained as
+[`performance-identity3-pass1.json`](performance-identity3-pass1.json).
+`performance.json` (identity 2) is untouched.
+
+## C3. Verdicts
+
+| Verdict | Cells |
+| --- | ---: |
+| pass | **6** |
+| blocks adoption (resolved, over budget) | **4** |
+| inconclusive after the one permitted repeat — blocks adoption | **7** |
+| not measurable comparably — end-to-end evidence retained | **2** |
+| blocks adoption — required contract divergence | **1** |
+
+`B`, `N`, both MADs, `E = 2 × max(MAD)`, the budget, the signed delta,
+`(N − B) + E`, every raw sample, the preparation seam and statement count each
+side used and the prepared SQL are in `performance-identity3.json`, per cell and
+per pass. Verdict rules are `protocol.md` §5's, unchanged, and the cell verdict
+is **the worse of the two series** — the same rule that produced the identity-2
+record.
+
+| Cell | pass 1 | pass 2 | final | CPU N/B (p1 / p2) | wall N/B | RSS N/B |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| `scalar-find-unique/cold-prepare` | inconclusive | pass | **inconclusive — blocks adoption** | 1.059 / 1.025 | 1.092 / 0.999 | 0.991 / 0.996 |
+| `scalar-find-unique/prepare` | blocks | blocks | **blocks adoption** | 1.480 / 1.454 | 1.427 / 1.374 | 0.991 / 0.987 |
+| `scalar-find-unique/execute` | pass | pass | **pass** | 1.002 / 0.985 | 1.006 / 0.983 | 0.977 / 0.983 |
+| `scalar-find-unique/full` | inconclusive | inconclusive | **inconclusive — blocks adoption** | 1.018 / 1.030 | 1.036 / 1.066 | 0.965 / 0.968 |
+| `flat-scalar-update/prepare` | refused | refused | **not measurable comparably** | — | — | — |
+| `flat-scalar-update/execute` | refused | refused | **not measurable comparably** | — | — | — |
+| `flat-scalar-update/full` | pass | pass | **pass** | 0.771 / 0.757 | 0.907 / 0.870 | 0.948 / 0.954 |
+| `fixed-collection-rowref-20/prepare` | blocks | inconclusive | **blocks adoption** | 1.051 / 0.927 | 1.202 / 1.085 | 0.978 / 0.980 |
+| `fixed-collection-rowref-20/execute` | pass | pass | **pass** | 1.028 / 1.022 | 1.028 / 1.021 | 0.977 / 0.986 |
+| `fixed-collection-rowref-20/full` | inconclusive | pass | **inconclusive — blocks adoption** | 0.947 / 0.951 | 1.021 / 1.020 | 0.930 / 0.930 |
+| `nested-conditional-found/full` | pass | inconclusive | **inconclusive — blocks adoption** | 0.807 / 0.893 | 0.905 / 0.978 | 0.912 / 0.915 |
+| `nested-conditional-missing/full` | pass | pass | **pass** | 0.798 / 0.801 | 0.911 / 0.927 | 0.917 / 0.912 |
+| `key-transition-cascade/full` | inconclusive | inconclusive | **inconclusive — blocks adoption** | 0.915 / 0.901 | 1.046 / 1.024 | 0.791 / 0.796 |
+| `bulk-update-returning-100/prepare` | blocks | blocks | **blocks adoption** | 1.457 / 1.484 | 1.263 / 1.256 | 0.975 / 0.975 |
+| `bulk-update-returning-100/full` | pass | pass | **pass** | 0.861 / 0.829 | 0.975 / 0.966 | 0.982 / 0.979 |
+| `relation-series-2/full` | refused | refused | **blocks adoption — required contract divergence** | — | — | — |
+| `fixed-collection-rowref-1000/prepare` | blocks | blocks | **blocks adoption** | 1.414 / 1.401 | 1.212 / 1.215 | 0.955 / 0.951 |
+| `fixed-collection-rowref-1000/execute` | pass | pass | **pass** | 0.985 / 0.969 | 0.984 / 0.967 | 0.954 / 0.954 |
+| `fixed-collection-rowref-1000/parse` | inconclusive | inconclusive | **inconclusive — blocks adoption** | 1.002 / 1.035 | 1.042 / 1.075 | 0.948 / 0.949 |
+| `fixed-collection-rowref-1000/full` | inconclusive | inconclusive | **inconclusive — blocks adoption** | 1.053 / 1.015 | 1.093 / 1.010 | 1.034 / 1.034 |
+
+## C4. What moved since identity 2, cell by cell
+
+Comparison script:
+[`compare-identity2-identity3.mjs`](receipts-stage2c/compare-identity2-identity3.mjs).
+The protocol identity changed with D-8 (§9.2), so the two series are **not**
+comparable command-for-command; the ratios below are each series' own N/B and
+are comparable as ratios.
+
+| Cell | identity 2 | identity 3 | CPU N/B | wall N/B |
+| --- | --- | --- | ---: | ---: |
+| `scalar-find-unique/cold-prepare` | blocks | inconclusive | 1.100 → **1.025** | 1.143 → **0.999** |
+| `scalar-find-unique/prepare` | blocks | blocks | 2.152 → **1.454** | 2.672 → **1.374** |
+| `scalar-find-unique/execute` | pass | **pass** | 0.969 → 0.985 | 0.969 → 0.983 |
+| `scalar-find-unique/full` | blocks | inconclusive | 1.345 → **1.030** | 1.618 → **1.066** |
+| `flat-scalar-update/prepare` | not measurable | not measurable | — | — |
+| `flat-scalar-update/execute` | not measurable | not measurable | — | — |
+| `flat-scalar-update/full` | blocks | **pass** | 1.012 → **0.757** | 1.323 → **0.870** |
+| `fixed-collection-rowref-20/prepare` | blocks | blocks | 1.403 → **0.927** | 1.890 → **1.085** |
+| `fixed-collection-rowref-20/execute` | pass | **pass** | 1.006 → 1.022 | 1.007 → 1.021 |
+| `fixed-collection-rowref-20/full` | blocks | inconclusive | 1.108 → **0.951** | 1.203 → **1.020** |
+| `nested-conditional-found/full` | blocks | inconclusive | 0.874 → 0.893 | 1.145 → **0.978** |
+| `nested-conditional-missing/full` | blocks | **pass** | 0.886 → **0.801** | 1.184 → **0.927** |
+| `key-transition-cascade/full` | blocks | inconclusive | 1.185 → **0.901** | 1.447 → **1.024** |
+| `bulk-update-returning-100/prepare` | blocks | blocks | 1.607 → **1.484** | 1.530 → **1.256** |
+| `bulk-update-returning-100/full` | inconclusive | **pass** | 0.925 → **0.829** | 1.059 → **0.966** |
+| `relation-series-2/full` | contract divergence | contract divergence | — | — |
+| `fixed-collection-rowref-1000/prepare` | blocks | blocks | 1.616 → **1.401** | 1.545 → **1.215** |
+| `fixed-collection-rowref-1000/execute` | pass | **pass** | 1.007 → 0.969 | 1.003 → 0.967 |
+| `fixed-collection-rowref-1000/parse` | inconclusive | inconclusive | 1.007 → 1.035 | 1.043 → 1.075 |
+| `fixed-collection-rowref-1000/full` | inconclusive | inconclusive | 1.042 → 1.015 | 1.047 → 1.010 |
+
+Four things this table says, and one it does not.
+
+1. **The performance pass did what the diagnosis predicted.** The worst
+   preparation cell falls from **2.152×** to **1.454×** CPU (13.13 → 28.26 µs/op
+   at identity 2; 13.65 → 19.85 µs/op here), and `fixed-collection-rowref-20`'s
+   preparation goes from 1.403× to **0.927×** — under parity. Preparation is
+   still the regression, but it is roughly half of what it was.
+2. **The wall-above-CPU signature on the writes is gone.** Every cell that
+   showed it at identity 2 — the two `nested-conditional-*`,
+   `key-transition-cascade` and `flat-scalar-update/full` — is now at or below
+   parity in wall time (0.870–1.024, from 1.145–1.447). `flat-scalar-update/full`
+   moves from a resolved regression to **0.757× CPU / 0.870× wall**, a pass.
+3. **Peak RSS still passes every measurable cell** and is still a large win on
+   `key-transition-cascade` (0.79) and the nested writes (0.91). The two
+   `nested-conditional-*` cells are less far ahead than at identity 2 (0.91–0.92
+   against 0.76): the candidate did not get worse — both sides' whole-worker
+   peak moved — but the improvement claim is smaller and is reported as measured.
+4. **Six cells pass, against three at identity 2**, and **no cell regressed in
+   verdict**: every change of verdict is toward "pass", or from "blocks" to
+   "inconclusive".
+5. What it does **not** say is that the gate is met. Eleven cells still block
+   adoption, one of them for a reason that is not a number at all (C6).
+
+## C5. The honest limit of this series: E is larger than the budget on most cells
+
+This is the finding that most constrains what may be claimed. `E = 2 × max(MAD)`
+is the protocol's own uncertainty, and on **13 of the 17 measurable cells** `E`
+exceeded the 5 % budget on at least one metric in at least one pass. Where that
+happens, `(N − B) + E ≤ 0.05 × B` is **arithmetically unreachable even if
+N = B exactly**, so "pass" is not an available answer for that cell in that pass
+and "inconclusive" is the only outcome a well-behaved candidate can obtain.
+
+Representative `E/B` (CPU, pass 1 / pass 2; the identity-2 series' pass-2 value
+for scale):
+
+| Cell | id3 p1 | id3 p2 | id2 p2 |
+| --- | ---: | ---: | ---: |
+| `nested-conditional-found/full` | 7.9 % | **23.2 %** | 8.7 % |
+| `fixed-collection-rowref-1000/parse` | **10.3 %** | 6.6 % | 0.5 % |
+| `fixed-collection-rowref-1000/full` | **11.8 %** | 5.2 % | 1.1 % |
+| `scalar-find-unique/full` | 9.3 % | 8.6 % | 2.4 % |
+| `fixed-collection-rowref-20/prepare` | 2.3 % | **10.6 %** | 2.4 % |
+| `scalar-find-unique/execute` | 3.1 % | 4.8 % | 4.1 % |
+
+The wall-time `E/B` reaches **42 %** on `fixed-collection-rowref-1000/parse` in
+pass 1. For scale on the same four preparation cells, the identity-2 series'
+CPU `E/B` was **2.4–6.0 %** against **2.3–10.6 %** here, and on six of the seven
+cells that are inconclusive here it was **under 2.5 %** (the exception is
+`nested-conditional-found/full`, 8.7 % there and 23.2 % here). This series was
+taken between and around a system-level storm, at a 1-minute load of 5.8–13.1
+on a 14-core machine that was never idle.
+
+The consequence is stated plainly rather than argued away: **seven cells are
+inconclusive because the measurement was not precise enough on this machine, not
+because the candidate was measured over budget.** Under plan §7 an inconclusive
+cell blocks adoption after the one permitted repeat, and that rule is applied
+here without exception. But the diagnosis differs from identity 2's: there,
+eleven cells were *resolved regressions*; here, four are resolved regressions
+and seven are unresolved. A series on a quiet machine is what would settle them,
+and this unit did not get one.
+
+Two facts limit how far that reading can be pushed, and both are in the data:
+
+- Three of the four cells that **block** do so on both passes, at CPU ratios of
+  **1.401–1.484** with CPU `E/B` between 2.9 % and 9.2 % — far outside any
+  plausible noise. They are regressions, not noise. (The fourth,
+  `fixed-collection-rowref-20/prepare`, blocks on pass 1 only and is discussed
+  in the proposal §10.2.)
+- The six cells that **pass** do so on both passes. Nothing here depends on a
+  single lucky series.
+
+## C6. `relation-series-2` at identity 3: D-8 worked, and the cell still refuses
+
+D-8 changed what the cell can do, and the change is visible first-hand.
+
+- **At identity 2** the workload's own contract assertion threw *inside the
+  observed driver call*; the engine re-wrapped it and the harness surfaced
+  `QueryError: Query execution failed`. No replicate completed on the candidate
+  side.
+- **At identity 3** every replicate completes on both sides — `replicate 1/5`
+  through `5/5`, baseline and candidate, are in the log — because
+  `seriesLedger(defaults.length)` now selects each engine's **own** recorded
+  ledger. The within-engine contract observation passes on both sides.
+
+The cell then refuses at the **between-engine** comparison:
+
+```
+AssertionError [ERR_ASSERTION]: ["sqlite3","relation-series-2"] changed final
++ actual  - expected
+  { id: 'series_child_2' ... }   -   { id: 'series_child_3' ... }   parentId 5000
+  { id: 'series_child_3' ... }   -   { id: 'series_child_5' ... }   parentId 6000
+```
+
+`assertEquivalentRunObservations` (`benchmarks/operation-pipeline-semantics.mjs:74`,
+via `verifyRewriteBenchmarkEvidence:113`) compares the two engines' authoritative
+final state, which is exactly what plan §7 requires of the semantic mode
+("compare public outcomes, authoritative state and causal contracts **between**
+engines"). The persisted primary keys differ, so the comparison refuses and no
+evidence report is written. The log is the receipt:
+`cells/pass1__relation-series-2__full__cpu.log` and its three siblings.
+
+This is the same underlying divergence
+([`relation-series-2-classification.md`](relation-series-2-classification.md)):
+the shipped engine evaluates `k + 2nk` generated defaults and the candidate
+`k + nk`, so a counter default yields different ids. D-8 pinned each engine's
+ledger inside the workload; it did not, and was not meant to, make the two
+engines agree about what ends up in the table. The verdict is unchanged —
+**blocks adoption — required contract divergence** — but the reason is now
+sharper and better localized: it is one assertion, in the cross-engine
+comparator, about two primary keys.
+
+## C7. Deviations and judgements recorded for stage 2c
+
+1. **The pass-2 attempt that was aborted** (C1.1), with all its receipts kept in
+   `cells/aborted-pass2-attempt1/` and never relabelled. The decision was taken
+   on the recorded machine state and a 300 s build timeout, before any of that
+   attempt's numbers were aggregated.
+2. **`TMPDIR=/private/tmp/viborm-g4-cutover-tmp2` for pass 2 only** (C1.1),
+   because a stale lock from the aborted attempt was left in place. Shown
+   measurement-neutral, not assumed.
+3. **No lock file was removed**, including the stale one this unit itself
+   created. It is still at
+   `/private/tmp/viborm-g4-cutover-tmp/viborm-test-c33ebb4c906dfea8.lock`.
+4. **The predecessor's aggregation helper was not used.** A helper at
+   `…/scratchpad/aggregate.mjs` was left for this stage; read against the
+   identity-2 record it produced, it changed four load-bearing rules: the
+   straddle test (`δ ≤ budget` instead of `δ − E ≤ budget`), a **last-pass**
+   instead of a **worst-pass** roll-up, a differing preparation seam overriding
+   a *measured* `full` cell to "not measurable comparably" (which would have
+   flipped `flat-scalar-update/full`), and an **empty** metric set scoring
+   "pass". This stage instead adapted `aggregate2.mjs`, the program that
+   produced `performance.json`, changing only the input directory, the gzip
+   read, the output path and the commit metadata — plus two additions recorded
+   here: `protocol.protocolIdentity` / `protocol.raptor3WorkloadVersion` (the
+   D-8 overlay moved the protocol identity), a `passesAgree` boolean per cell,
+   and a `shortError` branch for the cross-engine `AssertionError` shape, which
+   is new at this identity. Copy: `receipts-stage2c/aggregate.mjs`.
+5. **The series driver's lock classification was corrected.** The driver left
+   for this stage matched `/lock|another verification|is already running/i`,
+   which matches the *stale*-lock refusal but not the two refusals
+   `scripts/test-run-lock.mjs` actually emits when a lock is **held**
+   (`… already owns this workspace`, `workspace verification PID N is still
+   active`). It would therefore have retried where retrying is wrong and given
+   up where `protocol.md` §9.6 says to wait. The corrected driver waits 30 s and
+   retries up to 20 times on a held lock and stops the series on a stale one.
+   No command in either pass ever waited on a lock (`attempts=1` throughout).
+   Copy: `receipts-stage2c/series-driver.mjs`.
+6. **One mode per command for all 20 cells**, `fixed-collection-rowref-1000`'s
+   cpu override, and the `retained` count split — all as §§8.3, 8.4 and 9.4
+   predeclared. Unchanged from stage 2b.
+
+## C8. Unverified claims (stage 2c)
+
+1. **SQLite only.** Every number here is better-sqlite3 against `:memory:`
+   fixtures. Nothing ran against native PostgreSQL or MySQL; the `g4.md`
+   environment blocker stands.
+2. **No mode, suite or typecheck was run by this stage.** The typecheck, build,
+   bundle and registered-mode receipts are the previous author's, verified
+   read-only as files (C0), not re-executed.
+3. **The falsifiers were not re-run for identity 3.** The adapter's
+   old-versus-old calibration, the changed-SQL / wrong-result specimens and the
+   unchanged benchmark suites (`protocol.md` §3) were established against the
+   baseline overlay at stage 2a. The D-8 overlay sits above that adapter and
+   changes one contract workload's assertions; its effect on this cell was
+   observed directly (C6) but no new falsifier was established for it. The
+   cross-engine comparator's ability to refuse **was** demonstrated in this
+   series — it refused `relation-series-2` — which is a live wrong-state
+   falsifier, but it is not the full §3 set.
+4. **The E/B reading in C5 is arithmetic, not an attribution.** That `E`
+   exceeded the budget on 14 cells is computed from the saved MADs; that the
+   ambient desktop load *caused* it is an inference supported by the recorded
+   load and by the identity-2 series' smaller `E`, not a controlled experiment.
+5. **The improvement claims in C4 are ratio comparisons across two different
+   protocol identities.** D-8 changed a `PROTOCOL_PATHS` file, so identity 2's
+   and identity 3's commands are not comparable command-for-command; only the
+   within-series N/B ratios are compared, and both series' raw samples are
+   retained.
+6. **Nothing was re-measured about the shipped engine's own behavior.** The
+   baseline implementation is still exactly `0cc61e61`'s (`e67b511b` and
+   `e532bbec` contain no `src/` change, verified by `git show --stat`).
+7. **The aborted attempt's 7 evidence reports were never aggregated or read.**
+   They are kept as files only.

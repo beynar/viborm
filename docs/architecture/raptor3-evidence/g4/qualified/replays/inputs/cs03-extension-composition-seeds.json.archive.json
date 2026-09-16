@@ -3,13 +3,13 @@
   "source": "cs03-extension-composition-seeds.json",
   "file": "cs03-extension-composition-seeds.json.gz",
   "encoding": "gzip",
-  "originalBytes": 7520290,
-  "originalSha256": "ff34ea5f54bc7788660d5a2a0a47de20a69b18c284abccae78512b88180e403a",
-  "archiveBytes": 352212,
-  "archiveSha256": "ee9ec00a826fca697d59eea6eb926c138bf965a538794c5feac507e5afa0312e",
+  "originalBytes": 7463488,
+  "originalSha256": "6a2284b0ca5a1c597687bee7b8504ef287f352085565ba8e3e5e1ecfdd578d9d",
+  "archiveBytes": 284814,
+  "archiveSha256": "a4a73e02f7f78c1b7e6820d8ec0c142c254af43d29b89e0b25e0d8397a99452d",
   "identity": {
-    "production": "fce8ec0cd32c839c5517a383d92f003e090e72cb8110b8ec0e08e1f7664d6904",
-    "harness": "d9b7c1653a76234a000ff49cc79cd530bd752e9adb2f0977d30bbe74d0c8ff56"
+    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
+    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

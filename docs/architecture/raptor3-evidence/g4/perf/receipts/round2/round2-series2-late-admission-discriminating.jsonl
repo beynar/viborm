@@ -1,0 +1,4 @@
+{"arm":"round-2 contract + late admission","engine":"shipped","status":"contract FAILED","error":"series effects started before every member was admitted\n\n4 !== 5\n"}
+{"arm":"round-2 contract + late admission","engine":"candidate","status":"contract FAILED","error":"series effects started before every member was admitted\n\n2 !== 3\n"}
+{"arm":"round-1 contract + the SAME late admission","engine":"shipped","status":"contract verified"}
+{"arm":"round-1 contract + the SAME late admission","engine":"candidate","status":"contract verified"}

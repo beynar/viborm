@@ -215,10 +215,11 @@ export class RelationBody {
               unique: nestedTargetAddressesConstraint(edge, verb),
               membership: { edge, parent: parent.located!.fields },
             },
-            new NestedWriteError(
-              `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
-              edge.name
-            )
+            () =>
+              new NestedWriteError(
+                `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
+                edge.name
+              )
           );
           outgoing.origin = origin;
           this.membershipSource(edge, parent.located!.fields);
@@ -448,19 +449,21 @@ export class RelationBody {
             edge.target,
             selectionSource,
             verb === "connect" || verb === "update"
-              ? new NestedWriteError(
-                  `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
-                  edge.name
-                )
+              ? () =>
+                  new NestedWriteError(
+                    `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
+                    edge.name
+                  )
               : undefined,
             facts
           );
           lookup.origin = origin;
           if (verb === "connectOrCreate")
-            lookup.retained = new NestedWriteError(
-              "Record was replaced by another transaction during nested connectOrCreate",
-              edge.name
-            );
+            lookup.retained = () =>
+              new NestedWriteError(
+                "Record was replaced by another transaction during nested connectOrCreate",
+                edge.name
+              );
           lookup.membershipOnly =
             verb === "connect" &&
             !(edge.kind === "reference" && edge.owner === "source");
@@ -476,10 +479,11 @@ export class RelationBody {
             foundMembership && {
               selection: lookup,
               membership: foundMembership,
-              failure: new NestedWriteError(
-                `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
-                edge.name
-              ),
+              failure: () =>
+                new NestedWriteError(
+                  `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
+                  edge.name
+                ),
             };
           const target: Choose = {
             kind: "choose",
@@ -558,10 +562,11 @@ export class RelationBody {
               where,
               membership: { edge, parent: parent.fields },
             },
-            new NestedWriteError(
-              `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
-              edge.name
-            )
+            () =>
+              new NestedWriteError(
+                `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
+                edge.name
+              )
           );
           selection.origin = origin;
           const mutation: SelectedSeries["mutation"] =
@@ -636,10 +641,11 @@ export class RelationBody {
           where,
           unique: nestedTargetAddressesConstraint(edge, "set"),
         },
-        new NestedWriteError(
-          `Cannot set relation '${edge.name}': target record was not found.`,
-          edge.name
-        )
+        () =>
+          new NestedWriteError(
+            `Cannot set relation '${edge.name}': target record was not found.`,
+            edge.name
+          )
       );
       lookup.origin = this.commands.createOrigin(edge.name, "set");
       this.requireLookup(lookup);
@@ -675,10 +681,11 @@ export class RelationBody {
           model: edge.target,
           membership: { edge, parent: parent.located!.fields },
           excluding: targets.map((target) => target.lookup.fields),
-          failure: new NestedWriteError(
-            `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
-            edge.name
-          ),
+          failure: () =>
+            new NestedWriteError(
+              `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
+              edge.name
+            ),
         };
         this.commands.place(
           parent,

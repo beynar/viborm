@@ -1,0 +1,34 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (10 tests) 91ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests) 86ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 129ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 47ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 47ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 25ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 31ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 25ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/prepared-operation.test.ts (6 tests) 22ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 17ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 21ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 5ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 24ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 2ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 4ms
+
+ Test Files  19 passed (19)
+      Tests  128 passed (128)
+   Start at  12:20:55
+   Duration  6.19s (transform 1.92s, setup 23ms, collect 5.24s, tests 626ms, environment 0ms, prepare 44ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yNH0FB/vitest.json
+Vitest resources: 8.77s wall, 703.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Missing candidate/profile/scenario cell in tests/raptor3/g4/unit02/prepared-operation.test.ts
+
+6 !== 5
+

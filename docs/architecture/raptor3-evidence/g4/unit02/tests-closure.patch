@@ -24,7 +24,7 @@
  import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
  import { createClient } from "@client/client";
  import { SQLite3Driver } from "@drivers/sqlite3";
-+import { QueryEngineError } from "@errors";
++import { QueryEngineError, UnsupportedOperationError } from "@errors";
  import { createCommandEngine } from "@query-engine/raptor3/commands";
  import { Queries } from "@query-engine/raptor3/shared/query";
  import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -233,7 +233,7 @@
    it("refuses to name an exact decimal under multiply, with its registered identity", () => {
      const queries = new Queries(
        new EngineSchema(keySchema),
-@@ -425,3 +477,105 @@
+@@ -425,3 +477,115 @@
      }
    });
  });
@@ -246,8 +246,12 @@
 +   * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
 +   * "give it a public identity now" (R-D3). The refusal is raised at the same
 +   * point it always was — before any statement of the update is dispatched — and
-+   * is now a registered `QueryEngineError` naming the model, the field and the
-+   * operation, with `meta` `{ model, operation, field }`.
++   * is now a registered `UnsupportedOperationError` naming the model, the field
++   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
++   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
++   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
++   * can tell this deliberate capability boundary from a crash (V9001
++   * INTERNAL_ERROR) without reading the sentence.
 +   *
 +   * The divergence from the shipped row answer is the recorded, accepted half of
 +   * the decision: the shipped engine computes the value in JavaScript and
@@ -300,11 +304,17 @@
 +      // The accepted divergence, recorded: the shipped engine computes the
 +      // value in JavaScript and answers the row.
 +      assert.equal(shipped.answer, shippedAnswer);
-+      // The decided identity: a registered QueryEngineError, naming the model,
-+      // the field and the operation, raised before any statement is dispatched.
++      // The decided identity: a registered UnsupportedOperationError (R-D3
++      // plus R-D3-class), naming the model, the field and the operation, raised
++      // before any statement is dispatched. It is still a QueryEngineError —
++      // the class narrows the code, it does not leave the family.
 +      assert.equal(
 +        candidate.answer,
-+        "QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
++        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
++      );
++      assert.equal(
++        candidate.raised instanceof UnsupportedOperationError,
++        true
 +      );
 +      assert.equal(candidate.raised instanceof QueryEngineError, true);
 +      assert.deepEqual(
@@ -688,7 +698,7 @@
 +    }
    });
  });
---- /dev/null
+--- a/tests/raptor3/g4/unit02/unique-discriminator.test.ts
 +++ b/tests/raptor3/g4/unit02/unique-discriminator.test.ts
 @@ -0,0 +1,1038 @@
 +/**
@@ -1917,7 +1927,7 @@
    });
  
    test("LX-13 statement transforms see the same statements on both routes", async () => {
---- /dev/null
+--- a/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
 +++ b/tests/raptor3/g4/unit02/nested-key-refusal.test.ts
 @@ -0,0 +1,327 @@
 +/**
@@ -2247,7 +2257,7 @@
 +    );
 +  });
 +});
---- /dev/null
+--- a/tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
 +++ b/tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts
 @@ -0,0 +1,198 @@
 +/**
@@ -2448,9 +2458,9 @@
 +    }
 +  }
 +);
---- /dev/null
+--- a/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
 +++ b/tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts
-@@ -0,0 +1,699 @@
+@@ -0,0 +1,705 @@
 +/**
 + * G4-02 author check — an UNCERTAIN outcome is not a record series, and the
 + * cache still hears about it.
@@ -3124,6 +3134,12 @@
 +      },
 +      `the excluded divergence, pinned in place: ${diagnostic}`
 +    );
++    assert.equal(
++      (shipped.failure as { cause?: { meta?: Record<string, unknown> } })
++        .cause?.meta?.recordSeriesProgress,
++      undefined,
++      `the shipped side publishes no progress here: ${diagnostic}`
++    );
 +    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
 +    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
 +  });
@@ -3150,7 +3166,7 @@
 +    assert.deepEqual(candidate.rows, [], diagnostic);
 +  });
 +});
---- /dev/null
+--- a/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
 +++ b/tests/raptor3/g4/unit02/lone-statement-transport.test.ts
 @@ -0,0 +1,472 @@
 +/**
@@ -3623,6 +3639,166 @@
 +      await client.$disconnect();
 +      database.close();
 +    }
++  });
++});
+--- a/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
++++ b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
+@@ -0,0 +1,157 @@
++/**
++ * G4 performance pass, item 3 — a statement's aliases are a fact of that
++ * statement, not of the engine's history.
++ *
++ * `Queries` used to mint table aliases from an instance-lifetime counter, and
++ * `commands/index.ts` keeps ONE engine-lifetime `Queries` for the prepared
++ * read, so the same `findUnique` published `q0`, then `q1`, … `q10000`: its
++ * statement TEXT was unique per call. The cutover protocol recorded that as a
++ * measurement obstacle (`g4/cutover/protocol.md` §7.2,
++ * `receipts-stage2/prepared-sql-alias-drift.json`), and any transport that
++ * caches by statement text — PostgreSQL named prepared statements, `mysql2`'s
++ * prepare cache, D1/PlanetScale/Neon — would miss every time while growing a
++ * per-connection cache keyed on a counter that never repeats.
++ *
++ * `Queries.rootAlias` is the fix: the six owners that assemble a COMPLETE
++ * statement open its alias scope, and nothing else does. These cells pin both
++ * halves of that rule — the same query always emits the same text, and the
++ * subqueries INSIDE one statement keep sharing its scope, which is what makes
++ * the aliases unique where it matters.
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` by this unit (the pass edits
++ * no manifest); the count is reported to the integrator for `g4-unit02-author`.
++ */
++
++import assert from "node:assert/strict";
++import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { afterEach, describe, it } from "vitest";
++import { createWorld, worldSchema, type World } from "./world";
++
++let world: World | undefined;
++
++afterEach(async () => {
++  await world?.close();
++  world = undefined;
++});
++
++/** The statement texts one prepared operation publishes, in order. */
++async function preparedSql(
++  engine: ReturnType<typeof createCommandEngine>,
++  model: string,
++  operation: string,
++  args: unknown
++): Promise<string[]> {
++  const prepared = await engine.prepareBatch(
++    model,
++    operation as Parameters<typeof engine.prepareBatch>[1],
++    args
++  );
++  assert.ok(prepared, `${model}.${operation} did not package statically`);
++  return prepared.queries.map((query) => query.sql);
++}
++
++describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
++  it("publishes byte-identical SQL for two successive identical findUnique calls", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    const args = { where: { id: 1 }, select: { id: true, name: true } };
++    const first = await preparedSql(engine, "author", "findUnique", args);
++    const second = await preparedSql(engine, "author", "findUnique", args);
++    assert.deepEqual(second, first);
++    assert.equal(first.length, 1);
++    // Every statement starts at `q0`, so the text is a function of the query.
++    assert.match(first[0]!, /"q0"/);
++    assert.doesNotMatch(first[0]!, /"q1"/);
++
++    // …and it stays that text after twenty more of the same call, and after
++    // OTHER operations have minted aliases on the same engine in between.
++    for (let index = 0; index < 20; index++) {
++      assert.deepEqual(
++        await preparedSql(engine, "author", "findUnique", args),
++        first
++      );
++      assert.deepEqual(
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        }),
++        await preparedSql(engine, "post", "findMany", {
++          where: { rank: { gt: 0 } },
++          select: { id: true },
++        })
++      );
++    }
++    assert.deepEqual(
++      await preparedSql(engine, "author", "findUnique", args),
++      first
++    );
++  });
++
++  it("keeps one statement's nested scopes inside that statement's alias scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A nested to-many projection is a correlated subquery of the SAME
++    // statement: it must continue the statement's counter, never restart it,
++    // or the subquery would address the root's own alias.
++    const [nested] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.ok(nested);
++    const declared = [...nested.matchAll(/AS "(q\d+)"/g)].map(
++      (match) => match[1]!
++    );
++    assert.deepEqual(
++      [...new Set(declared)].length,
++      declared.length,
++      `one statement declared an alias twice: ${nested}`
++    );
++    assert(
++      declared.length > 1,
++      "the nested projection declared no second alias"
++    );
++    // One contiguous run from `q0`: the subquery continued the statement's own
++    // scope instead of opening a second one that would collide with the root.
++    const used = [...new Set([...nested.matchAll(/"(q\d+)"/g)].map((m) => m[1]!))]
++      .map((alias) => Number(alias.slice(1)))
++      .sort((left, right) => left - right);
++    assert.deepEqual(
++      used,
++      used.map((_, index) => index),
++      `one statement's aliases are not one run from q0: ${nested}`
++    );
++
++    // The same statement, again: still byte-identical.
++    const [again] = await preparedSql(engine, "author", "findMany", {
++      select: { id: true, posts: { select: { id: true, title: true } } },
++    });
++    assert.equal(again, nested);
++  });
++
++  it("gives every statement of one multi-statement operation its own scope", async () => {
++    world = await createWorld();
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: world.driver,
++    });
++    // A bulk delete with a limit is one mutation statement whose predicate
++    // carries a capped subquery: the fragment and the mutation share ONE scope,
++    // so the capped select's alias is the statement's own first alias.
++    const [capped] = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.ok(capped);
++    assert.match(capped, /"q0"/);
++    const repeated = await preparedSql(engine, "post", "deleteMany", {
++      where: { rank: { gt: 0 } },
++      limit: 1,
++    });
++    assert.equal(repeated[0], capped);
 +  });
 +});
 --- a/tests/raptor3/post-prep/g29-result-progress.test.ts

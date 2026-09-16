@@ -1,0 +1,13 @@
+=== 12:31:31 g3-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g3-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-bbDkoS
+=== 12:31:37 g2-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g2-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-01cr5k
+=== 12:31:44 g1-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g1-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3VR9IB
+=== 12:31:50 g3p06-transport-seeds (/private/tmp/viborm-g4-lane-6) ===
+g3p06-transport-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-nUUjbw
+=== 12:31:56 cs03-extension-b-seeds (/private/tmp/viborm-g4-lane-6) ===
+cs03-extension-b-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-AsLLkF
+=== 12:32:02 cs03-extension-composition-seeds (/private/tmp/viborm-g4-lane-6) ===
+cs03-extension-composition-seeds exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-u8h6Qy
+=== 12:32:09 lane done ===

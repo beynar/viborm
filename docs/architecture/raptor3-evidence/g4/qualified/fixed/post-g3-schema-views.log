@@ -5,9 +5,9 @@
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:13:42
-   Duration  3.88s (transform 613ms, setup 13ms, collect 961ms, tests 5ms, environment 0ms, prepare 47ms)
+   Start at  13:05:47
+   Duration  3.02s (transform 408ms, setup 13ms, collect 629ms, tests 5ms, environment 0ms, prepare 29ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mqU195/vitest.json
-Vitest resources: 9.71s wall, 416.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 post-g3-schema-views contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-mqU195
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-OeGSj8/vitest.json
+Vitest resources: 8.58s wall, 366.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-schema-views contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-OeGSj8

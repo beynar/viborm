@@ -1,241 +1,31 @@
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1350ms
-   ✓ completes the exact admitted transport seed batch  1349ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1696ms
+   ✓ completes the exact admitted transport seed batch  1696ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:31:49
-   Duration  6.16s (transform 1.44s, setup 9ms, collect 2.16s, tests 1.35s, environment 0ms, prepare 38ms)
+   Start at  13:24:01
+   Duration  7.40s (transform 1.88s, setup 11ms, collect 2.78s, tests 1.70s, environment 0ms, prepare 44ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-iytFXa/vitest.json
-Vitest resources: 13.20s wall, 713.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-iytFXa
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6GoKGP/vitest.json
+Vitest resources: 17.08s wall, 708.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6GoKGP
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1409ms
-   ✓ completes the exact admitted transport seed batch  1409ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1730ms
+   ✓ completes the exact admitted transport seed batch  1729ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:32:05
-   Duration  5.48s (transform 1.46s, setup 11ms, collect 2.14s, tests 1.41s, environment 0ms, prepare 36ms)
+   Start at  13:24:21
+   Duration  6.74s (transform 1.69s, setup 11ms, collect 2.52s, tests 1.73s, environment 0ms, prepare 34ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-FkdFqD/vitest.json
-Vitest resources: 12.24s wall, 727.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-FkdFqD
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1368ms
-   ✓ completes the exact admitted transport seed batch  1367ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:32:19
-   Duration  6.57s (transform 1.42s, setup 10ms, collect 2.12s, tests 1.37s, environment 0ms, prepare 36ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-2JBhJP/vitest.json
-Vitest resources: 13.50s wall, 727.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-2JBhJP
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1462ms
-   ✓ completes the exact admitted transport seed batch  1461ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:32:36
-   Duration  6.99s (transform 1.57s, setup 9ms, collect 2.29s, tests 1.46s, environment 0ms, prepare 34ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wETCQK/vitest.json
-Vitest resources: 13.52s wall, 685.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wETCQK
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1280ms
-   ✓ completes the exact admitted transport seed batch  1280ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:32:54
-   Duration  6.28s (transform 1.55s, setup 9ms, collect 2.29s, tests 1.28s, environment 0ms, prepare 38ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-w3vLkm/vitest.json
-Vitest resources: 13.49s wall, 704.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-w3vLkm
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1572ms
-   ✓ completes the exact admitted transport seed batch  1571ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:33:11
-   Duration  8.55s (transform 2.03s, setup 11ms, collect 3.02s, tests 1.57s, environment 0ms, prepare 40ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-p8oUds/vitest.json
-Vitest resources: 16.40s wall, 665.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-p8oUds
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 2951ms
-   ✓ completes the exact admitted transport seed batch  2950ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:33:30
-   Duration  10.52s (transform 2.95s, setup 11ms, collect 4.67s, tests 2.95s, environment 0ms, prepare 41ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-47H8eT/vitest.json
-Vitest resources: 16.67s wall, 591.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-47H8eT
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1613ms
-   ✓ completes the exact admitted transport seed batch  1612ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:33:51
-   Duration  6.56s (transform 1.64s, setup 9ms, collect 2.44s, tests 1.61s, environment 0ms, prepare 39ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-bo4qzH/vitest.json
-Vitest resources: 12.30s wall, 717.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-bo4qzH
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1419ms
-   ✓ completes the exact admitted transport seed batch  1418ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:34:05
-   Duration  6.53s (transform 1.36s, setup 13ms, collect 2.02s, tests 1.42s, environment 0ms, prepare 36ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6POm9X/vitest.json
-Vitest resources: 12.22s wall, 713.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-6POm9X
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1262ms
-   ✓ completes the exact admitted transport seed batch  1262ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:34:21
-   Duration  7.17s (transform 1.77s, setup 13ms, collect 2.65s, tests 1.26s, environment 0ms, prepare 34ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-VgJ3Mt/vitest.json
-Vitest resources: 12.74s wall, 706.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-VgJ3Mt
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1476ms
-   ✓ completes the exact admitted transport seed batch  1475ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:34:39
-   Duration  6.11s (transform 1.64s, setup 11ms, collect 2.41s, tests 1.48s, environment 0ms, prepare 33ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-joYofP/vitest.json
-Vitest resources: 13.06s wall, 723.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-joYofP
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1094ms
-   ✓ completes the exact admitted transport seed batch  1094ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:34:55
-   Duration  5.57s (transform 1.49s, setup 10ms, collect 2.23s, tests 1.09s, environment 0ms, prepare 35ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YSOLwF/vitest.json
-Vitest resources: 11.20s wall, 712.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YSOLwF
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1307ms
-   ✓ completes the exact admitted transport seed batch  1306ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:35:10
-   Duration  6.59s (transform 1.87s, setup 10ms, collect 2.77s, tests 1.31s, environment 0ms, prepare 46ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-r7pnop/vitest.json
-Vitest resources: 12.69s wall, 696.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-r7pnop
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1250ms
-   ✓ completes the exact admitted transport seed batch  1250ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:35:27
-   Duration  6.03s (transform 1.60s, setup 12ms, collect 2.41s, tests 1.25s, environment 0ms, prepare 42ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-WiZiCG/vitest.json
-Vitest resources: 12.66s wall, 715.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-WiZiCG
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1272ms
-   ✓ completes the exact admitted transport seed batch  1272ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:35:41
-   Duration  7.36s (transform 1.93s, setup 12ms, collect 2.86s, tests 1.27s, environment 0ms, prepare 43ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-rnxd7P/vitest.json
-Vitest resources: 12.66s wall, 684.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-rnxd7P
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1303ms
-   ✓ completes the exact admitted transport seed batch  1303ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:35:58
-   Duration  6.73s (transform 1.80s, setup 11ms, collect 2.69s, tests 1.30s, environment 0ms, prepare 44ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pOaU58/vitest.json
-Vitest resources: 12.87s wall, 705.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pOaU58
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1340ms
-   ✓ completes the exact admitted transport seed batch  1339ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:36:14
-   Duration  7.59s (transform 2.12s, setup 16ms, collect 3.30s, tests 1.34s, environment 0ms, prepare 47ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-aec7aU/vitest.json
-Vitest resources: 14.42s wall, 705.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-aec7aU
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ozM6aD/vitest.json
+Vitest resources: 14.47s wall, 705.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ozM6aD
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
@@ -244,458 +34,668 @@ Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:36:30
-   Duration  7.69s (transform 2.31s, setup 14ms, collect 3.47s, tests 1.27s, environment 0ms, prepare 51ms)
+   Start at  13:24:38
+   Duration  5.05s (transform 1.41s, setup 9ms, collect 2.08s, tests 1.27s, environment 0ms, prepare 35ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mtb2p4/vitest.json
-Vitest resources: 13.09s wall, 670.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mtb2p4
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Q7KuwB/vitest.json
+Vitest resources: 11.68s wall, 714.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Q7KuwB
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1415ms
-   ✓ completes the exact admitted transport seed batch  1414ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1506ms
+   ✓ completes the exact admitted transport seed batch  1505ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:36:47
-   Duration  6.92s (transform 1.83s, setup 11ms, collect 2.78s, tests 1.41s, environment 0ms, prepare 40ms)
+   Start at  13:24:54
+   Duration  7.39s (transform 1.72s, setup 10ms, collect 2.53s, tests 1.51s, environment 0ms, prepare 40ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-amTZsC/vitest.json
-Vitest resources: 13.24s wall, 711.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-amTZsC
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-azh1iS/vitest.json
+Vitest resources: 14.80s wall, 717.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-azh1iS
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1614ms
-   ✓ completes the exact admitted transport seed batch  1613ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1642ms
+   ✓ completes the exact admitted transport seed batch  1642ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:37:03
-   Duration  6.92s (transform 1.83s, setup 10ms, collect 2.76s, tests 1.61s, environment 0ms, prepare 41ms)
+   Start at  13:25:13
+   Duration  7.58s (transform 1.77s, setup 10ms, collect 2.61s, tests 1.64s, environment 0ms, prepare 39ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JM9U5Y/vitest.json
-Vitest resources: 12.70s wall, 742.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JM9U5Y
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3JVysH/vitest.json
+Vitest resources: 14.86s wall, 696.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3JVysH
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1417ms
-   ✓ completes the exact admitted transport seed batch  1417ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1770ms
+   ✓ completes the exact admitted transport seed batch  1769ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:37:19
-   Duration  6.40s (transform 1.89s, setup 13ms, collect 2.82s, tests 1.42s, environment 0ms, prepare 44ms)
+   Start at  13:25:33
+   Duration  8.65s (transform 2.12s, setup 16ms, collect 3.13s, tests 1.77s, environment 0ms, prepare 66ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-crXm2N/vitest.json
-Vitest resources: 12.51s wall, 720.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-crXm2N
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yuBCvv/vitest.json
+Vitest resources: 17.55s wall, 678.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yuBCvv
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1400ms
-   ✓ completes the exact admitted transport seed batch  1400ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1331ms
+   ✓ completes the exact admitted transport seed batch  1330ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:37:32
-   Duration  6.27s (transform 1.50s, setup 9ms, collect 2.25s, tests 1.40s, environment 0ms, prepare 38ms)
+   Start at  13:25:55
+   Duration  9.40s (transform 2.59s, setup 16ms, collect 3.92s, tests 1.33s, environment 0ms, prepare 68ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-sVAKY7/vitest.json
-Vitest resources: 11.47s wall, 705.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-sVAKY7
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mSGcM2/vitest.json
+Vitest resources: 17.19s wall, 656.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mSGcM2
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1387ms
-   ✓ completes the exact admitted transport seed batch  1386ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1729ms
+   ✓ completes the exact admitted transport seed batch  1728ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:37:47
-   Duration  6.21s (transform 1.73s, setup 11ms, collect 2.57s, tests 1.39s, environment 0ms, prepare 44ms)
+   Start at  13:26:17
+   Duration  9.30s (transform 2.53s, setup 22ms, collect 4.06s, tests 1.73s, environment 0ms, prepare 63ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-H7NGnO/vitest.json
-Vitest resources: 11.37s wall, 706.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-H7NGnO
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-xCnjwV/vitest.json
+Vitest resources: 18.74s wall, 690.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-xCnjwV
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1282ms
-   ✓ completes the exact admitted transport seed batch  1282ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1451ms
+   ✓ completes the exact admitted transport seed batch  1450ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:38:01
-   Duration  6.05s (transform 1.79s, setup 13ms, collect 2.66s, tests 1.28s, environment 0ms, prepare 40ms)
+   Start at  13:26:34
+   Duration  6.47s (transform 1.54s, setup 10ms, collect 2.27s, tests 1.45s, environment 0ms, prepare 27ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-5Y3nNf/vitest.json
-Vitest resources: 11.53s wall, 723.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-5Y3nNf
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-tBy15K/vitest.json
+Vitest resources: 12.27s wall, 722.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-tBy15K
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1507ms
-   ✓ completes the exact admitted transport seed batch  1506ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1256ms
+   ✓ completes the exact admitted transport seed batch  1255ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:38:15
-   Duration  6.42s (transform 1.77s, setup 10ms, collect 2.63s, tests 1.51s, environment 0ms, prepare 43ms)
+   Start at  13:26:49
+   Duration  7.02s (transform 1.79s, setup 17ms, collect 2.71s, tests 1.26s, environment 0ms, prepare 51ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-SgOA9Z/vitest.json
-Vitest resources: 11.57s wall, 711.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-SgOA9Z
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Ka4iS2/vitest.json
+Vitest resources: 12.27s wall, 705.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Ka4iS2
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1464ms
-   ✓ completes the exact admitted transport seed batch  1464ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1720ms
+   ✓ completes the exact admitted transport seed batch  1719ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:38:30
-   Duration  5.49s (transform 1.57s, setup 9ms, collect 2.32s, tests 1.46s, environment 0ms, prepare 38ms)
+   Start at  13:27:07
+   Duration  7.39s (transform 1.81s, setup 12ms, collect 2.71s, tests 1.72s, environment 0ms, prepare 31ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jKVo0V/vitest.json
-Vitest resources: 11.24s wall, 715.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-jKVo0V
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yMAmj0/vitest.json
+Vitest resources: 14.62s wall, 703.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yMAmj0
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1199ms
-   ✓ completes the exact admitted transport seed batch  1199ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1226ms
+   ✓ completes the exact admitted transport seed batch  1226ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:38:43
-   Duration  6.16s (transform 1.71s, setup 11ms, collect 2.63s, tests 1.20s, environment 0ms, prepare 43ms)
+   Start at  13:27:24
+   Duration  5.76s (transform 1.64s, setup 11ms, collect 2.45s, tests 1.23s, environment 0ms, prepare 32ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3srLfW/vitest.json
-Vitest resources: 11.42s wall, 718.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3srLfW
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-hJ6Hvp/vitest.json
+Vitest resources: 11.86s wall, 712.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-hJ6Hvp
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1411ms
-   ✓ completes the exact admitted transport seed batch  1410ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 2098ms
+   ✓ completes the exact admitted transport seed batch  2094ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:38:58
-   Duration  6.05s (transform 1.61s, setup 10ms, collect 2.43s, tests 1.41s, environment 0ms, prepare 38ms)
+   Start at  13:27:40
+   Duration  8.27s (transform 2.54s, setup 12ms, collect 3.87s, tests 2.10s, environment 0ms, prepare 31ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-IHIjtU/vitest.json
-Vitest resources: 11.80s wall, 723.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-IHIjtU
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Ogt6b8/vitest.json
+Vitest resources: 14.67s wall, 718.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Ogt6b8
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1382ms
-   ✓ completes the exact admitted transport seed batch  1381ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1653ms
+   ✓ completes the exact admitted transport seed batch  1653ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:39:12
-   Duration  6.05s (transform 1.73s, setup 11ms, collect 2.57s, tests 1.38s, environment 0ms, prepare 50ms)
+   Start at  13:27:59
+   Duration  6.83s (transform 1.89s, setup 14ms, collect 2.78s, tests 1.65s, environment 0ms, prepare 33ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wx1lPf/vitest.json
-Vitest resources: 11.59s wall, 703.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wx1lPf
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-0wy6sr/vitest.json
+Vitest resources: 14.72s wall, 701.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-0wy6sr
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1330ms
-   ✓ completes the exact admitted transport seed batch  1329ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1667ms
+   ✓ completes the exact admitted transport seed batch  1666ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:39:26
-   Duration  6.23s (transform 1.74s, setup 13ms, collect 2.60s, tests 1.33s, environment 0ms, prepare 53ms)
+   Start at  13:28:17
+   Duration  7.45s (transform 1.87s, setup 14ms, collect 2.77s, tests 1.67s, environment 0ms, prepare 45ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-CADcYB/vitest.json
-Vitest resources: 12.01s wall, 715.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-CADcYB
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-QJ6VXu/vitest.json
+Vitest resources: 14.95s wall, 678.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-QJ6VXu
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1531ms
-   ✓ completes the exact admitted transport seed batch  1531ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1669ms
+   ✓ completes the exact admitted transport seed batch  1668ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:39:40
-   Duration  6.90s (transform 1.86s, setup 17ms, collect 2.80s, tests 1.53s, environment 0ms, prepare 50ms)
+   Start at  13:28:35
+   Duration  6.82s (transform 1.88s, setup 13ms, collect 2.86s, tests 1.67s, environment 0ms, prepare 41ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wfKbLz/vitest.json
-Vitest resources: 12.56s wall, 712.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wfKbLz
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-nkzL7R/vitest.json
+Vitest resources: 14.82s wall, 710.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-nkzL7R
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1572ms
-   ✓ completes the exact admitted transport seed batch  1571ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1952ms
+   ✓ completes the exact admitted transport seed batch  1951ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:39:54
-   Duration  6.32s (transform 1.67s, setup 15ms, collect 2.49s, tests 1.57s, environment 0ms, prepare 33ms)
+   Start at  13:28:54
+   Duration  7.46s (transform 2.04s, setup 12ms, collect 3.06s, tests 1.95s, environment 0ms, prepare 44ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-u9KSkl/vitest.json
-Vitest resources: 11.50s wall, 713.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-u9KSkl
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-fyemlJ/vitest.json
+Vitest resources: 15.76s wall, 706.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-fyemlJ
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1614ms
-   ✓ completes the exact admitted transport seed batch  1614ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 2301ms
+   ✓ completes the exact admitted transport seed batch  2300ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:40:08
-   Duration  5.54s (transform 1.49s, setup 13ms, collect 2.20s, tests 1.61s, environment 0ms, prepare 33ms)
+   Start at  13:29:11
+   Duration  8.61s (transform 1.87s, setup 15ms, collect 2.76s, tests 2.30s, environment 0ms, prepare 55ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-lRDxcO/vitest.json
-Vitest resources: 11.68s wall, 700.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-lRDxcO
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-crAqqX/vitest.json
+Vitest resources: 15.78s wall, 712.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-crAqqX
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1456ms
-   ✓ completes the exact admitted transport seed batch  1455ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1579ms
+   ✓ completes the exact admitted transport seed batch  1579ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:40:22
-   Duration  5.76s (transform 1.49s, setup 12ms, collect 2.20s, tests 1.46s, environment 0ms, prepare 38ms)
+   Start at  13:29:31
+   Duration  6.72s (transform 1.68s, setup 12ms, collect 2.45s, tests 1.58s, environment 0ms, prepare 46ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-N8h70F/vitest.json
-Vitest resources: 11.50s wall, 696.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-N8h70F
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-lL2ijx/vitest.json
+Vitest resources: 14.76s wall, 719.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-lL2ijx
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1317ms
-   ✓ completes the exact admitted transport seed batch  1316ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1493ms
+   ✓ completes the exact admitted transport seed batch  1493ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:40:36
-   Duration  5.47s (transform 1.61s, setup 15ms, collect 2.45s, tests 1.32s, environment 0ms, prepare 43ms)
+   Start at  13:29:48
+   Duration  7.00s (transform 1.84s, setup 10ms, collect 2.76s, tests 1.49s, environment 0ms, prepare 32ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-zZVy3J/vitest.json
-Vitest resources: 11.41s wall, 701.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-zZVy3J
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1391ms
-   ✓ completes the exact admitted transport seed batch  1391ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:40:50
-   Duration  5.97s (transform 1.71s, setup 11ms, collect 2.56s, tests 1.39s, environment 0ms, prepare 42ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OipkNM/vitest.json
-Vitest resources: 11.46s wall, 708.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OipkNM
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yNAGZk/vitest.json
+Vitest resources: 13.83s wall, 716.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-yNAGZk
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1486ms
-   ✓ completes the exact admitted transport seed batch  1485ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:41:05
-   Duration  5.08s (transform 1.47s, setup 9ms, collect 2.19s, tests 1.49s, environment 0ms, prepare 40ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-LMTmqt/vitest.json
-Vitest resources: 12.14s wall, 717.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-LMTmqt
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1207ms
-   ✓ completes the exact admitted transport seed batch  1206ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:41:19
-   Duration  5.62s (transform 1.52s, setup 10ms, collect 2.31s, tests 1.21s, environment 0ms, prepare 47ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-WeBw8R/vitest.json
-Vitest resources: 11.47s wall, 720.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-WeBw8R
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1516ms
-   ✓ completes the exact admitted transport seed batch  1516ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:41:33
-   Duration  5.80s (transform 1.45s, setup 13ms, collect 2.20s, tests 1.52s, environment 0ms, prepare 39ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-XDmsCv/vitest.json
-Vitest resources: 12.13s wall, 711.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-XDmsCv
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1262ms
-   ✓ completes the exact admitted transport seed batch  1261ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:41:47
-   Duration  6.44s (transform 1.64s, setup 25ms, collect 2.46s, tests 1.26s, environment 0ms, prepare 86ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-UxibKH/vitest.json
-Vitest resources: 12.02s wall, 673.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-UxibKH
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1509ms
-   ✓ completes the exact admitted transport seed batch  1508ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:42:01
-   Duration  6.61s (transform 1.72s, setup 11ms, collect 2.53s, tests 1.51s, environment 0ms, prepare 44ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-64TMQD/vitest.json
-Vitest resources: 12.11s wall, 703.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-64TMQD
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1558ms
-   ✓ completes the exact admitted transport seed batch  1557ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:42:14
-   Duration  6.60s (transform 1.68s, setup 16ms, collect 2.52s, tests 1.56s, environment 0ms, prepare 52ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JCS5X9/vitest.json
-Vitest resources: 11.54s wall, 721.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-JCS5X9
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1385ms
-   ✓ completes the exact admitted transport seed batch  1385ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:42:28
-   Duration  6.27s (transform 1.76s, setup 13ms, collect 2.64s, tests 1.39s, environment 0ms, prepare 44ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-gIe4nF/vitest.json
-Vitest resources: 11.73s wall, 730.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-gIe4nF
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 2370ms
-   ✓ completes the exact admitted transport seed batch  2370ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:42:48
-   Duration  7.59s (transform 1.71s, setup 12ms, collect 2.62s, tests 2.37s, environment 0ms, prepare 49ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Zwaa06/vitest.json
-Vitest resources: 16.34s wall, 719.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Zwaa06
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1432ms
-   ✓ completes the exact admitted transport seed batch  1432ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:43:07
-   Duration  6.63s (transform 1.92s, setup 13ms, collect 2.93s, tests 1.43s, environment 0ms, prepare 46ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9Y7DnM/vitest.json
-Vitest resources: 11.56s wall, 706.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9Y7DnM
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1293ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1294ms
    ✓ completes the exact admitted transport seed batch  1293ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:43:22
-   Duration  5.43s (transform 1.58s, setup 9ms, collect 2.39s, tests 1.29s, environment 0ms, prepare 29ms)
+   Start at  13:30:03
+   Duration  6.16s (transform 1.62s, setup 11ms, collect 2.36s, tests 1.29s, environment 0ms, prepare 47ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Gae57p/vitest.json
-Vitest resources: 10.76s wall, 726.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Gae57p
-
- RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
-
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1435ms
-   ✓ completes the exact admitted transport seed batch  1434ms
-
- Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  02:43:36
-   Duration  5.63s (transform 1.61s, setup 9ms, collect 2.39s, tests 1.43s, environment 0ms, prepare 29ms)
-
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9MdALb/vitest.json
-Vitest resources: 11.37s wall, 710.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9MdALb
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pLgXZv/vitest.json
+Vitest resources: 11.81s wall, 726.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pLgXZv
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1972ms
-   ✓ completes the exact admitted transport seed batch  1971ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1433ms
+   ✓ completes the exact admitted transport seed batch  1433ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:43:50
-   Duration  6.74s (transform 1.85s, setup 9ms, collect 2.76s, tests 1.97s, environment 0ms, prepare 30ms)
+   Start at  13:30:16
+   Duration  6.16s (transform 1.55s, setup 12ms, collect 2.29s, tests 1.43s, environment 0ms, prepare 49ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-HMPSpl/vitest.json
-Vitest resources: 13.26s wall, 661.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-HMPSpl
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pPL1UF/vitest.json
+Vitest resources: 11.41s wall, 696.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pPL1UF
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1562ms
-   ✓ completes the exact admitted transport seed batch  1561ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1480ms
+   ✓ completes the exact admitted transport seed batch  1479ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:44:05
-   Duration  6.01s (transform 1.56s, setup 10ms, collect 2.32s, tests 1.56s, environment 0ms, prepare 34ms)
+   Start at  13:30:30
+   Duration  6.04s (transform 1.53s, setup 13ms, collect 2.25s, tests 1.48s, environment 0ms, prepare 48ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-4g96u4/vitest.json
-Vitest resources: 11.90s wall, 707.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-4g96u4
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-f5Ww7C/vitest.json
+Vitest resources: 10.81s wall, 694.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-f5Ww7C
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1799ms
-   ✓ completes the exact admitted transport seed batch  1799ms
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1215ms
+   ✓ completes the exact admitted transport seed batch  1215ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  02:44:19
-   Duration  5.94s (transform 1.53s, setup 9ms, collect 2.30s, tests 1.80s, environment 0ms, prepare 30ms)
+   Start at  13:30:43
+   Duration  5.37s (transform 1.47s, setup 11ms, collect 2.16s, tests 1.22s, environment 1ms, prepare 42ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-acA9S7/vitest.json
-Vitest resources: 12.19s wall, 715.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-acA9S7
-Raptor 3 g2-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g2-transport-seeds-aMAJLP
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9iaBUb/vitest.json
+Vitest resources: 10.74s wall, 706.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-9iaBUb
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1167ms
+   ✓ completes the exact admitted transport seed batch  1167ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:30:55
+   Duration  5.93s (transform 1.66s, setup 11ms, collect 2.47s, tests 1.17s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-GgcPCd/vitest.json
+Vitest resources: 9.64s wall, 714.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-GgcPCd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1349ms
+   ✓ completes the exact admitted transport seed batch  1349ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:31:08
+   Duration  6.32s (transform 1.69s, setup 10ms, collect 3.19s, tests 1.35s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ENiBYb/vitest.json
+Vitest resources: 11.59s wall, 716.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ENiBYb
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1296ms
+   ✓ completes the exact admitted transport seed batch  1295ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:31:22
+   Duration  6.02s (transform 1.89s, setup 10ms, collect 2.82s, tests 1.30s, environment 0ms, prepare 51ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-0IOm7g/vitest.json
+Vitest resources: 10.65s wall, 717.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-0IOm7g
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1170ms
+   ✓ completes the exact admitted transport seed batch  1170ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:31:36
+   Duration  5.60s (transform 1.63s, setup 11ms, collect 2.45s, tests 1.17s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mmfCEg/vitest.json
+Vitest resources: 11.49s wall, 724.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-mmfCEg
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1173ms
+   ✓ completes the exact admitted transport seed batch  1172ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:31:49
+   Duration  4.73s (transform 1.34s, setup 8ms, collect 1.97s, tests 1.17s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Nlnm3L/vitest.json
+Vitest resources: 9.96s wall, 716.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Nlnm3L
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1151ms
+   ✓ completes the exact admitted transport seed batch  1150ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:32:02
+   Duration  5.00s (transform 1.50s, setup 11ms, collect 2.19s, tests 1.15s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pRQblT/vitest.json
+Vitest resources: 9.83s wall, 711.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-pRQblT
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1180ms
+   ✓ completes the exact admitted transport seed batch  1179ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:32:14
+   Duration  4.88s (transform 1.46s, setup 9ms, collect 2.17s, tests 1.18s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-sOgUFG/vitest.json
+Vitest resources: 10.20s wall, 697.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-sOgUFG
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1297ms
+   ✓ completes the exact admitted transport seed batch  1296ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:32:25
+   Duration  5.46s (transform 1.49s, setup 10ms, collect 2.21s, tests 1.30s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ToHVHl/vitest.json
+Vitest resources: 10.12s wall, 717.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ToHVHl
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1160ms
+   ✓ completes the exact admitted transport seed batch  1159ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:32:37
+   Duration  4.46s (transform 1.30s, setup 8ms, collect 1.91s, tests 1.16s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-i9j7vB/vitest.json
+Vitest resources: 9.50s wall, 698.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-i9j7vB
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 2581ms
+   ✓ completes the exact admitted transport seed batch  2579ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:32:50
+   Duration  8.72s (transform 2.63s, setup 17ms, collect 4.08s, tests 2.58s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-l69rSN/vitest.json
+Vitest resources: 14.81s wall, 703.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-l69rSN
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1101ms
+   ✓ completes the exact admitted transport seed batch  1100ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:33:05
+   Duration  4.12s (transform 1.18s, setup 8ms, collect 1.71s, tests 1.10s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-dSxPpn/vitest.json
+Vitest resources: 8.97s wall, 716.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-dSxPpn
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1188ms
+   ✓ completes the exact admitted transport seed batch  1187ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:33:16
+   Duration  5.23s (transform 1.40s, setup 10ms, collect 2.11s, tests 1.19s, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YC8Oye/vitest.json
+Vitest resources: 9.10s wall, 717.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-YC8Oye
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1077ms
+   ✓ completes the exact admitted transport seed batch  1076ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:33:29
+   Duration  4.28s (transform 1.26s, setup 8ms, collect 1.84s, tests 1.08s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-IBGyL3/vitest.json
+Vitest resources: 9.41s wall, 708.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-IBGyL3
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1079ms
+   ✓ completes the exact admitted transport seed batch  1078ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:33:39
+   Duration  4.67s (transform 1.27s, setup 8ms, collect 1.84s, tests 1.08s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-5UrOtY/vitest.json
+Vitest resources: 8.80s wall, 719.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-5UrOtY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1084ms
+   ✓ completes the exact admitted transport seed batch  1084ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:33:51
+   Duration  4.13s (transform 1.18s, setup 8ms, collect 1.70s, tests 1.08s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3hOMd0/vitest.json
+Vitest resources: 9.12s wall, 724.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-3hOMd0
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1196ms
+   ✓ completes the exact admitted transport seed batch  1196ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:34:04
+   Duration  5.01s (transform 1.30s, setup 8ms, collect 1.90s, tests 1.20s, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-cZzKHd/vitest.json
+Vitest resources: 10.02s wall, 716.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-cZzKHd
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1218ms
+   ✓ completes the exact admitted transport seed batch  1218ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:34:17
+   Duration  6.04s (transform 1.98s, setup 10ms, collect 2.91s, tests 1.22s, environment 0ms, prepare 42ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-N5iZ4w/vitest.json
+Vitest resources: 12.17s wall, 697.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-N5iZ4w
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1074ms
+   ✓ completes the exact admitted transport seed batch  1073ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:34:30
+   Duration  5.13s (transform 1.42s, setup 10ms, collect 2.12s, tests 1.07s, environment 0ms, prepare 37ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Z2dk2b/vitest.json
+Vitest resources: 9.69s wall, 709.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-Z2dk2b
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1061ms
+   ✓ completes the exact admitted transport seed batch  1060ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:34:42
+   Duration  5.01s (transform 1.35s, setup 9ms, collect 1.98s, tests 1.06s, environment 0ms, prepare 33ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ADFkaO/vitest.json
+Vitest resources: 10.06s wall, 733.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ADFkaO
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1161ms
+   ✓ completes the exact admitted transport seed batch  1160ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:34:54
+   Duration  5.45s (transform 1.45s, setup 9ms, collect 2.11s, tests 1.16s, environment 0ms, prepare 29ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-UCswJk/vitest.json
+Vitest resources: 10.44s wall, 710.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-UCswJk
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1150ms
+   ✓ completes the exact admitted transport seed batch  1150ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:35:05
+   Duration  5.45s (transform 1.57s, setup 9ms, collect 2.33s, tests 1.15s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wibGfX/vitest.json
+Vitest resources: 9.89s wall, 740.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-wibGfX
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1112ms
+   ✓ completes the exact admitted transport seed batch  1112ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:35:17
+   Duration  4.62s (transform 1.37s, setup 10ms, collect 1.98s, tests 1.11s, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-X6UQmN/vitest.json
+Vitest resources: 9.71s wall, 724.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-X6UQmN
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1240ms
+   ✓ completes the exact admitted transport seed batch  1239ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:35:29
+   Duration  4.81s (transform 1.27s, setup 8ms, collect 1.85s, tests 1.24s, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ZB2TSn/vitest.json
+Vitest resources: 10.00s wall, 712.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-ZB2TSn
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1167ms
+   ✓ completes the exact admitted transport seed batch  1166ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:35:41
+   Duration  4.98s (transform 1.40s, setup 10ms, collect 2.05s, tests 1.17s, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-DDvtkY/vitest.json
+Vitest resources: 9.73s wall, 719.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-DDvtkY
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1068ms
+   ✓ completes the exact admitted transport seed batch  1067ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:35:52
+   Duration  5.20s (transform 1.53s, setup 9ms, collect 2.25s, tests 1.07s, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-w42vJX/vitest.json
+Vitest resources: 9.69s wall, 710.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-w42vJX
+
+ RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
+
+ ✓ |raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 1114ms
+   ✓ completes the exact admitted transport seed batch  1113ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:36:05
+   Duration  4.69s (transform 1.34s, setup 9ms, collect 1.96s, tests 1.11s, environment 0ms, prepare 24ms)
+
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-vXow0O/vitest.json
+Vitest resources: 9.69s wall, 722.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-transport-seed-batch contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-vXow0O
+Raptor 3 g2-transport-seeds campaign verified (not the full milestone). Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g2-transport-seeds-Wmi7Ca

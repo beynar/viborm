@@ -9,6 +9,70 @@ const orderedChildren = (rows) =>
     left.id < right.id ? -1 : left.id > right.id ? 1 : 0
   );
 
+/** The parents `relation-series-2` locates, in the order it locates them. */
+const SERIES_2_ROOTS = Object.freeze([5000, 6000]);
+
+/**
+ * D-8 (Arnaud, 2026-09-16): ONE LEDGER PER ENGINE for `relation-series-2`.
+ *
+ * `generatedChild.id` is a counter, and the 2026-09-08 admission adjudication
+ * (plan §2.3, "one evaluation per admitted input") makes the two engines call
+ * it a different number of times for one `updateMany` with a nested create:
+ * `k + 2nk` on the shipped engine, which parses each captured member's `data`
+ * twice (`UpdateOperation.ts:132` and `:164`, the second one persisted), and
+ * `k + nk` on the candidate, which keeps the first parse and drops the second.
+ * The value a counter returns is a function of how many times it has been
+ * called, so the persisted ids shift; nothing else does. Arnaud confirmed the
+ * cardinality and directed the benchmark to pin both ledgers rather than one
+ * comparator carrying the shipped count, which §2.3 forbids. Diagnosis and
+ * scaling law: `docs/architecture/raptor3-evidence/g4/cutover/relation-series-2-classification.md`.
+ *
+ * The engine is identified by its OWN recorded per-member admission count, and
+ * by nothing else: exactly one of these two rows must explain the ledger, and a
+ * third answer — a member skipped, a default evaluated twice on the candidate,
+ * a replayed nested create — matches neither and fails here rather than
+ * silently borrowing the other engine's numbers.
+ */
+const RELATION_SERIES_2_LEDGERS = Object.freeze([
+  Object.freeze({
+    engine: "shipped",
+    admissionsPerMember: 2,
+    statements: 7,
+    children: Object.freeze([
+      Object.freeze({ id: "series_child_3", parentId: 5000 }),
+      Object.freeze({ id: "series_child_5", parentId: 6000 }),
+    ]),
+  }),
+  Object.freeze({
+    engine: "candidate",
+    admissionsPerMember: 1,
+    statements: 3,
+    children: Object.freeze([
+      Object.freeze({ id: "series_child_2", parentId: 5000 }),
+      Object.freeze({ id: "series_child_3", parentId: 6000 }),
+    ]),
+  }),
+]);
+
+/** One public admission, then this engine's own admissions per located root. */
+const seriesAdmissions = (ledger) =>
+  1 + SERIES_2_ROOTS.length * ledger.admissionsPerMember;
+
+/** The one recorded ledger that explains an observed admission count. */
+function seriesLedger(admissions) {
+  const matched = RELATION_SERIES_2_LEDGERS.filter(
+    (ledger) => seriesAdmissions(ledger) === admissions
+  );
+  assert.equal(
+    matched.length,
+    1,
+    `relation-series-2 evaluated the generated default ${admissions} times, which is neither recorded engine ledger (${RELATION_SERIES_2_LEDGERS.map(
+      (ledger) => `${ledger.engine}=${seriesAdmissions(ledger)}`
+    ).join(", ")})`
+  );
+  return matched[0];
+}
+
 export async function buildContractWorkload(name, fixture, semanticFixture) {
   if (
     name === "nested-conditional-found" ||
@@ -201,6 +265,8 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
     );
   }
   if (name === "relation-series-2") {
+    let statements = 0;
+    let admissionsBeforeFirstEffect;
     const invocation = (world) => (cold) => {
       const client = cold ? world.createColdClient() : world.client;
       return client.generatedParent.updateMany({
@@ -214,10 +280,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
       invocation,
       (value) => value.count,
       ({ outcome, initial, final, defaults, reachedCuts }) => {
-        assert.deepEqual(outcome, { kind: "success", value: { count: 2 } });
+        // Engine-independent, asserted the same way on both sides.
+        assert.deepEqual(outcome, {
+          kind: "success",
+          value: { count: SERIES_2_ROOTS.length },
+        });
+        // The engine's OWN ledger, selected by its own recorded admission
+        // count — never one ledger carrying the other engine's number.
+        const ledger = seriesLedger(defaults.length);
         assert.deepEqual(
           defaults,
-          Array.from({ length: 5 }, (_, index) => ({
+          Array.from({ length: seriesAdmissions(ledger) }, (_, index) => ({
             name: "generatedChild.id",
             value: `series_child_${index + 1}`,
           }))
@@ -226,10 +299,23 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
           ...initial,
           bench_generated_children: orderedChildren([
             ...initial.bench_generated_children,
-            { id: "series_child_3", parentId: 5000, label: "series-child" },
-            { id: "series_child_5", parentId: 6000, label: "series-child" },
+            ...ledger.children.map((child) => ({
+              ...child,
+              label: "series-child",
+            })),
           ]),
         });
+        assert.equal(statements, ledger.statements);
+        // Every member was admitted before the first effect. The count is
+        // recorded ONCE, at the statement where the first child became
+        // visible, and compared here with the FINAL ledger this engine's own
+        // total selects: an admission that happened after an effect leaves the
+        // recorded count short and fails. Neither engine's constant appears.
+        assert.equal(
+          admissionsBeforeFirstEffect,
+          seriesAdmissions(seriesLedger(defaults.length)),
+          "series effects started before every member was admitted"
+        );
         assert.deepEqual(reachedCuts, [
           "selected-roots-captured",
           "first-member-visible",
@@ -237,13 +323,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
         ]);
       },
       (database, rows, defaults) => {
+        statements++;
         const cuts = [];
         // Stock SQLite typed results retain INTEGER keys as bigint until parsing.
         if (
-          rows.length === 2 &&
-          rows.some((row) => row?.id === 5000n) &&
-          rows.some((row) => row?.id === 6000n)
+          rows.length === SERIES_2_ROOTS.length &&
+          SERIES_2_ROOTS.every((id) =>
+            rows.some((row) => row?.id === BigInt(id))
+          )
         ) {
+          // Engine-independent: the roots are captured before ANY member is
+          // admitted, so only the operation's own public admission has run.
           assert.equal(
             defaults.length,
             1,
@@ -257,22 +347,18 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
           )
           .all();
         if (children.length > 0) {
-          assert.equal(
-            defaults.length,
-            5,
-            "series effects started before every member was admitted"
-          );
-          assert.deepEqual(children[0], {
-            id: "series_child_3",
-            parentId: 5000,
-          });
+          // `seriesLedger` carries the real cut here: an admission count that
+          // explains neither engine fails inside it. The count itself is
+          // recorded once and adjudicated against the final ledger in
+          // `verify`, where a late admission is still visible.
+          const ledger = seriesLedger(defaults.length);
+          admissionsBeforeFirstEffect ??= defaults.length;
+          assert.deepEqual(children[0], ledger.children[0]);
           cuts.push("first-member-visible");
         }
         if (children.length > 1) {
-          assert.deepEqual(children[1], {
-            id: "series_child_5",
-            parentId: 6000,
-          });
+          const ledger = seriesLedger(defaults.length);
+          assert.deepEqual(children[1], ledger.children[1]);
           cuts.push("second-member-visible");
         }
         return cuts;

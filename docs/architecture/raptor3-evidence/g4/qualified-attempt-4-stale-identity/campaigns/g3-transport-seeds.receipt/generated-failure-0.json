@@ -1,0 +1,68 @@
+{
+  "identity": {
+    "production": "5bc430bba17b3a2a765ad51ebd290a47199a6c7b41f0da113ffbe07988bc3edc",
+    "harness": "88289cbaa424f4034ed565273b01a3d566b1d4776ec9068431b984b090b70cfd",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "firstSeed": 8000,
+  "completed": [],
+  "failingCell": {
+    "recipe": {
+      "seed": 8000,
+      "actors": 2,
+      "operations": 4,
+      "fault": "none",
+      "contract": "C08",
+      "verb": "deleteMany",
+      "presentation": "count",
+      "rowCount": 6,
+      "limit": 1
+    },
+    "profile": "scripted-returning-weak"
+  },
+  "failure": "AssertionError [ERR_ASSERTION]: g3-transport:reply-consumption; Unconsumed explicit replies: g3-c08-8000-0\n\nundefined !== 1\n\n    at ScriptedTransport.finish (/private/tmp/viborm-g4-lane-6/tests/raptor3/transport/driver.ts:331:14)\n    at /private/tmp/viborm-g4-lane-6/tests/raptor3/g3/generation/transport-scenario.ts:81:14\n    at Recorder.control (/private/tmp/viborm-g4-lane-6/tests/raptor3/harness/recorder.ts:156:14)\n    at runG3TransportWorld (/private/tmp/viborm-g4-lane-6/tests/raptor3/g3/generation/transport-scenario.ts:43:3)\n    at verifyG3TransportCell (/private/tmp/viborm-g4-lane-6/tests/raptor3/g3/generation/transport-campaign.ts:20:17)\n    at runG3TransportBatch (/private/tmp/viborm-g4-lane-6/tests/raptor3/g3/generation/transport-campaign.ts:109:22)\n    at /private/tmp/viborm-g4-lane-6/tests/raptor3/g3/generation/transport-campaign.test.ts:17:23\n    at file:///private/tmp/viborm-g4-lane-6/node_modules/.pnpm/@vitest+runner@3.1.4/node_modules/@vitest/runner/dist/index.js:596:20",
+  "records": [
+    "array",
+    []
+  ],
+  "minimization": {
+    "status": "minimized",
+    "identity": {
+      "contract": "C08",
+      "profile": "scripted-returning-weak",
+      "property": "g3-transport:reply-consumption",
+      "name": "AssertionError",
+      "code": "ERR_ASSERTION"
+    },
+    "original": {
+      "seed": 8000,
+      "actors": 2,
+      "operations": 4,
+      "fault": "none",
+      "contract": "C08",
+      "verb": "deleteMany",
+      "presentation": "count",
+      "rowCount": 6,
+      "limit": 1
+    },
+    "reduced": {
+      "seed": 8000,
+      "actors": 1,
+      "operations": 1,
+      "fault": "none",
+      "contract": "C08",
+      "verb": "deleteMany",
+      "presentation": "count",
+      "rowCount": 1,
+      "limit": 1
+    },
+    "attempts": 5,
+    "replays": 0
+  }
+}

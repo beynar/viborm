@@ -1,0 +1,85 @@
+{
+ "root": "/private/tmp/viborm-g4-perf-candidate",
+ "report": [
+  {
+   "case": "update-single-nested-create",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "id": 5000
+    }
+   },
+   "defaults": [
+    "series_child_1"
+   ],
+   "defaultCount": 1,
+   "statementCount": 3,
+   "persisted": [
+    {
+     "id": "series_child_1",
+     "parentId": 5000,
+     "label": "u"
+    }
+   ]
+  },
+  {
+   "case": "create-parent-nested-create",
+   "outcome": {
+    "kind": "success",
+    "value": {
+     "id": 10001
+    }
+   },
+   "defaults": [
+    "series_child_1"
+   ],
+   "defaultCount": 1,
+   "statementCount": 3,
+   "persisted": [
+    {
+     "id": "series_child_1",
+     "parentId": 10001,
+     "label": "c"
+    }
+   ]
+  },
+  {
+   "case": "updateMany-nested-create-malformed",
+   "outcome": {
+    "kind": "failure",
+    "name": "ValidationError",
+    "message": "Validation failed for updateMany: Value did not match any union member: Expected string, Expected array",
+    "issues": [
+     {
+      "path": "data.children.create",
+      "message": "Value did not match any union member: Expected string, Expected array"
+     }
+    ]
+   },
+   "defaults": [
+    "series_child_1"
+   ],
+   "defaultCount": 1,
+   "statementCount": 0,
+   "persisted": []
+  },
+  {
+   "case": "updateMany-nested-create-unknown-key",
+   "outcome": {
+    "kind": "failure",
+    "name": "ValidationError",
+    "message": "Validation failed for updateMany: Value did not match any union member: Unknown key: nope, Expected array",
+    "issues": [
+     {
+      "path": "data.children.create",
+      "message": "Value did not match any union member: Unknown key: nope, Expected array"
+     }
+    ]
+   },
+   "defaults": [],
+   "defaultCount": 0,
+   "statementCount": 0,
+   "persisted": []
+  }
+ ]
+}

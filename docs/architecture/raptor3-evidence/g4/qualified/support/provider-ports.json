@@ -1,0 +1,56 @@
+{
+  "formatVersion": 1,
+  "purpose": "Host ports and container identity of the two task-owned provider containers during this qualification",
+  "milestone": "g4",
+  "capturedAt": "2026-09-16T11:14:51.848Z",
+  "observedBy": "packaging unit (docker inspect, read-only)",
+  "note": "Docker Desktop was found stopped at 12:24 and answered again after a forced relaunch; both containers had exited (255) and were started again at 12:58 local time (startedAt below) with re-initialised tmpfs data and new ephemeral host ports. The driver reads the ports with docker port at each group launch and passes them as VIBORM_RAPTOR3_PROVIDER_PORT; no credential is recorded here.",
+  "containers": [
+    {
+      "name": "viborm-raptor3-g3-pg-20260914",
+      "image": "postgres:16",
+      "imageId": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+      "state": "running",
+      "startedAt": "2026-09-16T10:58:24.755747001Z",
+      "restartCount": 0,
+      "oomKilled": false,
+      "ports": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55729"
+          }
+        ]
+      },
+      "memoryBytes": 1073741824,
+      "nanoCpus": 2000000000,
+      "tmpfs": {
+        "/var/lib/postgresql/data": "rw,size=512m"
+      },
+      "binds": null
+    },
+    {
+      "name": "viborm-raptor3-g3-mysql-20260914",
+      "image": "mysql:8",
+      "imageId": "sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb",
+      "state": "running",
+      "startedAt": "2026-09-16T10:58:24.935166417Z",
+      "restartCount": 0,
+      "oomKilled": false,
+      "ports": {
+        "3306/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55730"
+          }
+        ]
+      },
+      "memoryBytes": 1073741824,
+      "nanoCpus": 2000000000,
+      "tmpfs": {
+        "/var/lib/mysql": "rw,size=512m"
+      },
+      "binds": null
+    }
+  ]
+}

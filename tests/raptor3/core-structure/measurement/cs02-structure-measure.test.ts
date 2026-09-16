@@ -361,10 +361,11 @@ function overlapCommands(
         where: selector,
         membership: { edge, parent: root.fields },
       },
-      new NestedWriteError(
-        "Cannot update relation 'kids': target record was not found for this parent.",
-        "kids"
-      )
+      () =>
+        new NestedWriteError(
+          "Cannot update relation 'kids': target record was not found for this parent.",
+          "kids"
+        )
     );
     selection.membershipOnly = true;
     selection.origin = origin;
@@ -845,7 +846,7 @@ function seriesCommands(
   const located = commands.lookup(
     schema.shelf,
     { kind: "query", where: admitted.where! },
-    new NotFoundError("shelf", "update")
+    () => new NotFoundError("shelf", "update")
   );
   const root = commands.update(located, admitted.data, raw.data);
   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
