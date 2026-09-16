@@ -1,0 +1,1 @@
+{"file":"scalar-find-unique-prepare-candidate.gc.json","cpuUsPerOp":15.744,"wallUsPerOp":7.531,"iterations":20000,"scavenges":23,"scavengeMs":29.97,"majorCount":2,"majorMs":3.84,"totalGcMs":33.81,"gcUsPerOp":1.69,"steadyScavengeMsMedian":1.83,"steadyCapMB":102.6,"steadyBeforeMB":69.4,"steadyAfterMB":48}

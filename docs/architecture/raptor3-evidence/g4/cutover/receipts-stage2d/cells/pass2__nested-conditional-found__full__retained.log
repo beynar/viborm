@@ -1,0 +1,12 @@
+Building baseline checkout...
+Building candidate checkout...
+sqlite3/nested-conditional-found/full/retained replicate 1/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 1/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 2/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 2/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 3/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 3/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 4/5: candidate
+sqlite3/nested-conditional-found/full/retained replicate 4/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 5/5: baseline
+sqlite3/nested-conditional-found/full/retained replicate 5/5: candidate

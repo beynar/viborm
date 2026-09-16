@@ -1,0 +1,32 @@
+# Stage 2d — machine state AFTER the series (both passes)
+
+captured: 2026-09-16 20:26:52 CEST
+
+20:26  up 16 days, 20:07, 2 users, load averages: 8.81 10.80 10.83
+1-minute load: 8.81
+
+## top CPU processes (command truncated to 110 chars)
+arnaud           52966 104.1  6.0 466820960 3042944   ??  R     8:26PM   0:35.25 node /Users/arnaud/code/ai2/n
+arnaud           97416  98.9  0.2 470259456  89408   ??  Rs    2:53PM 303:53.13 /Users/arnaud/.vite-plus/js_ru
+arnaud            7644  73.3  0.3 468713760 167744   ??  R    31Aug26 1478:23.52 Raycast Beta Backend  
+_windowserver      421  62.1  0.3 438255504 151664   ??  Rs   31Aug26 11604:47.83 /System/Library/PrivateFrame
+arnaud           21828  26.7  4.0 1949531488 2029040   ??  S    10:02AM 130:43.59 /Applications/ChatGPT.app/Co
+arnaud           21774  23.5  0.2 487340976  87104   ??  S    10:02AM  66:10.64 /Applications/ChatGPT.app/Cont
+arnaud           22117  14.4  0.2 486844256  77872   ??  R    10:02AM 105:23.07 /Applications/Claude.app/Conte
+arnaud           22339   9.9  0.3 1949189008 136896   ??  S    10:02AM   0:32.39 /Applications/Claude.app/Cont
+arnaud           84452   9.0  0.3 493550384 137008   ??  S     3:50PM  32:05.57 /Applications/Dia.app/Contents
+arnaud           22190   8.8  1.8 1965222800 911472   ??  S    10:02AM  54:05.36 /Applications/Claude.app/Cont
+arnaud           21819   6.6  0.8 438383328 412752   ??  S    10:02AM  29:41.79 /Applications/ChatGPT.app/Cont
+arnaud           35252   6.5  0.8 443767920 383936   ??  Ss   12:54PM  18:48.51 /System/Library/Frameworks/Vir
+
+## benchmark/vitest/raptor3 processes
+
+## lock files under the TMPDIR (none is ever removed by this unit)
+(none)
+
+## series windows (UTC, from the journals)
+pass 1: 2026-09-16T18:09:50.908Z -> 2026-09-16T18:17:47.538Z
+pass 2: 2026-09-16T18:18:45.961Z -> 2026-09-16T18:26:34.601Z
+commands: pass1       40, pass2       40
+refusals: pass1 6, pass2 6
+lock waits: pass1 0, pass2 0

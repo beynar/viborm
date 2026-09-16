@@ -3,13 +3,13 @@
   "source": "g4-write-transport-seeds-100000.json",
   "file": "g4-write-transport-seeds-100000.json.gz",
   "encoding": "gzip",
-  "originalBytes": 64104776,
-  "originalSha256": "95501e8063972a31a698967da0130c964c86b6481b271cdd9a41cc03d9f2fbda",
-  "archiveBytes": 1313884,
-  "archiveSha256": "cc79ac374bb7ae09d2be12ab5f829c2531c31aa88c360b0e752769fcd7291a62",
+  "originalBytes": 64091456,
+  "originalSha256": "924e9acd4eda70447deb8e3e0268f54913bbe2ad76e70c12104f79eb15a7be10",
+  "archiveBytes": 1313383,
+  "archiveSha256": "5b637bad7e71cb50b514d5394a2f75849aea8c61ad5334d38c30f0909ccb75eb",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

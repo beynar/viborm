@@ -4,7 +4,7 @@
   "file": "generated-corpus.json.gz",
   "encoding": "gzip",
   "originalBytes": 324167,
-  "originalSha256": "e18c20cfbeefc17bfcc8a0040e1d2b3a23d3ae0ce826595cfd4c42a4a74c5998",
+  "originalSha256": "af4468f7827e7393fb224f4aaf03be43a567f08fff823d9dc11c7249fd23ad05",
   "archiveBytes": 11261,
   "receipt": "generated-corpus.archive.json",
   "restoreWorkingDirectory": "the directory containing generated-corpus.archive.json",

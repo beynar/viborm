@@ -1,14 +1,14 @@
 
  RUN  v3.1.4 /private/tmp/viborm-g4-lane-6
 
- ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts (1 test) 2561ms
-   ✓ completes one exact admitted CS-03 extension seed batch  2560ms
+ ✓ |raptor3| tests/raptor3/core-structure/measurement/extension-campaign.test.ts (1 test) 2866ms
+   ✓ completes one exact admitted CS-03 extension seed batch  2865ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  13:38:50
-   Duration  7.04s (transform 1.58s, setup 12ms, collect 2.35s, tests 2.56s, environment 0ms, prepare 32ms)
+   Start at  19:40:12
+   Duration  6.87s (transform 1.43s, setup 10ms, collect 2.11s, tests 2.87s, environment 0ms, prepare 30ms)
 
-JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OfHyqt/vitest.json
-Vitest resources: 11.86s wall, 777.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 cs03-extension-composition-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-OfHyqt
+JSON report written to /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-MaOCHw/vitest.json
+Vitest resources: 12.41s wall, 779.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs03-extension-composition-seeds contract gate verified. Evidence: /private/tmp/viborm-g4-lane-tmp-6/viborm-raptor3-g0-MaOCHw

@@ -6,21 +6,21 @@ import path from "node:path";
 
 const finalRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const repositoryRoot = path.resolve(finalRoot, "../../../../..");
-const baselineCommit = "0f25637bcd73b3f402c0bb41aadbb70e67a0a964";
+const baselineCommit = "ff5e77ca5f37e747d45460b588b573b72790f1b8";
 
 /**
- * The exact task file set of this package (the performance pass on top of the
- * committed G4 tree `0f25637b`).
+ * The exact task file set of this package (performance pass 2 on top of the
+ * committed pass-1 tree `ff5e77ca`).
  *
  * Scope is a path list, not a judgement: everything dirty under these paths is
- * task source. `benchmarks/` is inside the frozen harness identity and carries
- * the D-8 benchmark-contract pin, so it is task source here; it was not in the
- * previous package's scope because nothing under it had changed.
+ * task source. The list is unchanged from the previous package so that the two
+ * attempts are comparable; `benchmarks/` and `vitest.workspace.ts` are in it
+ * and are simply clean this time, which the counts show rather than hide.
  *
  * Evidence lives under `docs/` and is never patched here: the evidence tree is
- * 9,791 deletions of the previous package plus the receipts this run writes,
- * which reconstruct nothing and would make the patch unusable. The evidence
- * scope is summarised below and enumerated, path by path, in
+ * the deletions of the moved-out attempt-5 package plus the receipts this run
+ * writes, which reconstruct nothing and would make the patch unusable. The
+ * evidence scope is summarised below and enumerated, path by path, in
  * `task-commit-allowlist.json` — that file, not this patch, is what the
  * integrator's commit stages.
  */
@@ -50,6 +50,14 @@ const identityScope = [
   "vitest.workspace.ts",
   "vitest.d1.config.ts",
 ];
+/**
+ * Unrelated dirty work, named so that it is excluded on purpose rather than by
+ * a path accident. Only `tests/pattern/pack/program-dump.ts` is a tracked
+ * modification inside the identity scope, so it is the one entry the equality
+ * below has to subtract; `tests/pattern/match/decode-malformed.core.test.ts` is
+ * untracked at this baseline, so it never reaches that comparison, and it is
+ * listed here because it is dirty and excluded, not because it is subtracted.
+ */
 const excludedDirty = [
   "CONTEXT.md",
   "memory.md",
@@ -58,9 +66,10 @@ const excludedDirty = [
 ];
 /** Untracked dirty work outside every scope above, named so it is excluded on purpose. */
 const excludedUntracked = [
-  "exa-results/",
+  "exa-results/ (2 untracked files)",
   "the eight untracked transport-*-corpus.json files at the repository root",
-  "the pre-G4 untracked evidence archives at docs/architecture/raptor3-evidence/*.gz and *.json",
+  "the pre-G4 untracked evidence archives at docs/architecture/raptor3-evidence/*.gz, *.tar.gz, *.sha256 and *.json, and the g3/ and g3-prep-*/ milestone trees",
+  "docs/architecture/raptor3-g4-claude-handoff.md",
 ];
 
 function git(args, encoding = "utf8") {
@@ -113,6 +122,16 @@ assert.deepEqual(
   tracked,
   "tracked identity-scope changes equal the G4 task file set",
 );
+// Every named exclusion must actually be dirty; a stale name here would be a claim about nothing.
+const repositoryDirty = new Set(
+  git(["status", "--porcelain=v1", "-uall"])
+    .split("\n")
+    .filter((line) => line.length > 3)
+    .map((line) => line.slice(3)),
+);
+for (const file of excludedDirty) {
+  assert(repositoryDirty.has(file), `${file} is listed as excluded dirty work but git reports it clean`);
+}
 for (const file of excludedDirty) {
   assert(!tracked.includes(file), `${file} is excluded unrelated dirty work`);
   assert(!untracked.includes(file), `${file} is excluded unrelated dirty work`);
@@ -194,13 +213,13 @@ const report = {
   baselineCommit,
   frozenIdentity: { production: identity.production, harness: identity.harness },
   scope:
-    "Exact performance-pass production, harness registration/tests, benchmark-contract and private architecture-guide changes on top of the committed G4 tree, under scripts/, src/, tests/raptor3/, tests/types/raptor3/, benchmarks/ and vitest.workspace.ts. Qualification documentation and evidence under docs/ are excluded from the patch, as are the unrelated dirty CONTEXT.md, memory.md, Pattern files, exa-results/, the eight untracked root transport-*-corpus.json files and the pre-G4 untracked evidence archives.",
+    "Exact performance-pass-2 production, harness registration, falsifier/review tests and private architecture-guide changes on top of the committed pass-1 tree ff5e77ca, under scripts/, src/, tests/raptor3/, tests/types/raptor3/, benchmarks/ and vitest.workspace.ts. Qualification documentation and evidence under docs/ are excluded from the patch, as are the unrelated dirty CONTEXT.md, memory.md, the two tests/pattern/ files, exa-results/, the eight untracked root transport-*-corpus.json files and the pre-G4 untracked evidence archives.",
   evidence: {
     scopes: evidenceScopes,
     status: evidenceStatus,
     patched: false,
     boundary:
-      "The evidence half of the task file set is listed path by path in task-commit-allowlist.json, not in source.patch: it is the removal of the previous sealed package plus the receipts this qualification wrote, which reconstruct no source.",
+      "The evidence half of the task file set is listed path by path in task-commit-allowlist.json, not in source.patch: it is the removal of the moved-out attempt-5 package plus the receipts this qualification wrote, which reconstruct no source.",
     countedWhen:
       "Snapshot taken when this report was written; the package's own sealing files are added afterwards. task-commit-allowlist.json, written last by seal-author-package.mjs, is the authoritative enumeration.",
     excludedStaleAttempts:

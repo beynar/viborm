@@ -50,6 +50,7 @@ import {
   type Arguments,
   type EngineSchema,
   type Input,
+  type QueryViews,
   type ReadOperation,
   record,
   entries,
@@ -477,10 +478,13 @@ export function wholeValue(
 /** Query scopes and output shapes share no record-identity requirement. */
 export class Queries {
   private nextAlias = 0;
+  private readonly views: QueryViews;
   constructor(
     readonly schema: EngineSchema,
     readonly adapter: DatabaseAdapter,
-  ) {}
+  ) {
+    this.views = schema.queryViews(adapter);
+  }
   alias(): string {
     return `q${this.nextAlias++}`;
   }
@@ -692,9 +696,29 @@ export class Queries {
       return this.adapter.expressions.blobToHex(expression);
     return expression;
   }
+  /**
+   * One field's decoded leaf, resolved once per (adapter, model, field).
+   *
+   * The answer is the field's declared scalar, its nullability and the
+   * adapter's representation of it — schema and dialect only — so rebuilding a
+   * fresh frozen object (and a fresh enum `Set`) on every projection of every
+   * operation was pure repetition (rule 1). Nothing consumes a leaf by
+   * identity: the decoder, the cache codec and the shape readers all read its
+   * fields.
+   */
   private scalarShape(model: AnyModel, field: string): Leaf {
-    const physical = physicalField(this.schema, model, field);
-    return this.leaf(physical.scalar, physical.nullable);
+    let leaves = this.views.leaves.get(model);
+    if (leaves === undefined) {
+      leaves = new Map();
+      this.views.leaves.set(model, leaves);
+    }
+    let shape = leaves.get(field);
+    if (shape === undefined) {
+      const physical = physicalField(this.schema, model, field);
+      shape = this.leaf(physical.scalar, physical.nullable);
+      leaves.set(field, shape);
+    }
+    return shape;
   }
   private leaf(scalar: Scalar, nullable: boolean): Leaf {
     const state = scalar["~"].state;
@@ -1241,7 +1265,7 @@ export class Queries {
     const operand = () =>
       owner
         ? this.prepareOperand(owner, value)
-        : Object.freeze<PreparedOperand>({ kind: "value", value });
+        : { kind: "value" as const, value };
     switch (operator) {
       case "in":
       case "notIn":
@@ -1253,7 +1277,7 @@ export class Queries {
             (value as unknown[]).map((member) =>
               owner
                 ? this.prepareOperand(owner, member)
-                : Object.freeze<PreparedOperand>({ kind: "value", value: member }),
+                : { kind: "value" as const, value: member },
             ),
           ),
           insensitive,
@@ -1284,12 +1308,25 @@ export class Queries {
         });
     }
   }
+  /**
+   * One admitted filter member, resolved to the value it binds or the column it
+   * names.
+   *
+   * The operand is NOT frozen and the structure that holds it is: the prepared
+   * predicate ({@link prepareOperation}) and, for `in`/`notIn`, its operand
+   * list. One owner builds an operand and one owner reads it
+   * ({@link lowerOperation}), both in this file, so freezing each box restated
+   * the same immutability the enclosing predicate already carries — and
+   * restated it PER MEMBER: `Object.freeze` transitions a fresh object's map on
+   * every call, measured at 1.98–2.20 µs for the 100 members of one
+   * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
+   * (`g4/perf2/receipts/micro-in-list.json`).
+   */
   private prepareOperand(
     owner: PreparedScalar,
     value: unknown,
   ): PreparedOperand {
-    if (!isFieldRef(value))
-      return Object.freeze({ kind: "value", value });
+    if (!isFieldRef(value)) return { kind: "value", value };
     const { model } = owner;
     const payload = fieldRefPayload(value);
     const scope = model["~"].names.ts ?? "unknown";
@@ -1308,14 +1345,14 @@ export class Queries {
       throw new QueryEngineError(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
       );
-    return Object.freeze({
+    return {
       kind: "field",
       scalar: Object.freeze({
         model,
         field: payload.field,
         physical: physicalField(this.schema, model, payload.field),
       }),
-    });
+    };
   }
   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
   private prepareSlotPredicate(
@@ -3005,10 +3042,24 @@ export class Queries {
       },
     };
   }
+  /**
+   * One immutable alias-free projection description and decoder shape.
+   *
+   * An operation that names NEITHER `select` NOR `include` asks for the model's
+   * DEFAULT projection, which is a fact of the model and the dialect and of
+   * nothing else, so it is resolved once per (adapter, model) and shared
+   * ({@link QueryViews}). Every other operation prepares per operation exactly
+   * as before, reusing only the per-field leaves.
+   */
   prepareProjection(
     model: AnyModel,
     args: Partial<Arguments>,
   ): PreparedProjection {
+    const shared = args.select === undefined && args.include === undefined;
+    if (shared) {
+      const resolved = this.views.defaultProjections.get(model);
+      if (resolved !== undefined) return resolved;
+    }
     // `omit` is desugared into `select` at admission; an explicit selection and
     // an include can therefore both be present and both belong to the result.
     const selected = {
@@ -3115,11 +3166,13 @@ export class Queries {
       fields[name] = this.relationShape(nested);
       prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
     }
-    return Object.freeze({
+    const projection: PreparedProjection = Object.freeze({
       model,
       fields: Object.freeze(prepared),
       shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
     });
+    if (shared) this.views.defaultProjections.set(model, projection);
+    return projection;
   }
   /**
    * A to-many node's decoded shape. A negative `take` runs the reversed window

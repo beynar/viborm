@@ -4,12 +4,12 @@
   "file": "corpus.json.gz",
   "encoding": "gzip",
   "originalBytes": 2117875,
-  "originalSha256": "f6d5f77575017a3a80aa5454de1639f0197431e41331a6ba4c40d23dbfc84856",
-  "archiveBytes": 53517,
-  "archiveSha256": "794e26b2e303cf75daa33a5bb653811b89524609b34fdd36feb3314b362af049",
+  "originalSha256": "59470d8b27233f601ac1a0a50c88c18aec3d7f21b0ce7b8b05260760d3fbc567",
+  "archiveBytes": 53460,
+  "archiveSha256": "0a99084e75e92acc0bdfa12ffaf0f7037da0ed982955288bbc65a9a6f021da02",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "campaign": "g1-transport-seeds",
   "firstSeed": 1200,

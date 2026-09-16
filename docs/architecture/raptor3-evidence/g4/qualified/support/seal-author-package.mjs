@@ -10,7 +10,7 @@ const repositoryRoot = path.resolve(finalRoot, "../../../../..");
 const retainedManifestFile = path.join(finalRoot, "retained-files.json");
 const checksumFile = path.join(finalRoot, "SHA256SUMS");
 const commitAllowlistFile = path.join(finalRoot, "task-commit-allowlist.json");
-const baselineCommit = "0f25637bcd73b3f402c0bb41aadbb70e67a0a964";
+const baselineCommit = "ff5e77ca5f37e747d45460b588b573b72790f1b8";
 const identity = JSON.parse(
   await readFile(path.join(finalRoot, "support", "final-identity.json"), "utf8"),
 );
@@ -49,14 +49,14 @@ const sourceFiles = sourceAllowlist.files.map((record) => record.file);
  * therefore absent by construction, not by a filter.
  *
  * Nothing under `g4/` is filtered out any more, and the superseded attempts
- * fall out of that one rule instead of a name match: attempts 1 and 2 are
- * committed in `0f25637b` and unchanged, so git reports nothing for them (this
- * script asserts that rather than assuming it); attempt 4's untracked
- * tooling-only receipts are reported, and the integrator's decision is to commit
- * them, because the ledger references them as the launch abort's evidence.
- * Attempt 3 is the package this one replaces: it is committed in `0f25637b` and
- * its files were moved out of the tree, so what remains of it here is the
- * deletions below.
+ * fall out of that one rule instead of a name match: attempts 1, 2 and 4 are
+ * committed — 1 and 2 in `0f25637b`, 4 in the pass-1 commit `ff5e77ca` — and
+ * unchanged, so git reports nothing for them and they are not listed (this
+ * script asserts that rather than assuming it). Attempt 3 was moved out before
+ * attempt 5 and is committed. Attempt 5 is the package this one replaces: it is
+ * committed in `ff5e77ca` and the integrator moved its files out of the tree
+ * before the freeze, so most of its paths are written again here as ordinary
+ * modifications and what remains of it is the deletions below.
  */
 const evidencePathspec = [
   "docs/architecture/raptor3-evidence/g4.md",
@@ -92,14 +92,14 @@ if (unexpectedCodes.length > 0) {
   throw new Error(`unexpected git status codes in the evidence tree: ${unexpectedCodes.join(", ")}`);
 }
 
-/** Attempts 1 and 2 must be committed and unchanged; a dirty one is a decision, not a default. */
-const committedStaleAttempts = /(^|\/)qualified-attempt-[12]-stale-identity\//;
+/** Attempts 1, 2 and 4 must be committed and unchanged; a dirty one is a decision, not a default. */
+const committedStaleAttempts = /(^|\/)qualified-attempt-[124]-stale-identity\//;
 const dirtyCommittedAttempts = evidenceStatus.filter((entry) =>
   committedStaleAttempts.test(entry.file),
 );
 if (dirtyCommittedAttempts.length > 0) {
   throw new Error(
-    `qualification attempts 1-2 are expected committed and unchanged, but git reports ${dirtyCommittedAttempts.length} dirty paths under them`,
+    `qualification attempts 1, 2 and 4 are expected committed and unchanged, but git reports ${dirtyCommittedAttempts.length} dirty paths under them`,
   );
 }
 
@@ -109,9 +109,10 @@ const evidenceFiles = evidenceStatus
   .sort();
 
 /**
- * The previous sealed package (attempt 3, committed in `0f25637b`) was moved
- * out of the tree by the integrator. Its paths are deletions the commit must
- * stage, so they belong in the allowlist even though no file is there to walk.
+ * The previous sealed package (attempt 5, committed in `ff5e77ca`) was moved
+ * out of the tree by the integrator at the freeze. Its paths are deletions the
+ * commit must stage, so they belong in the allowlist even though no file is
+ * there to walk.
  */
 const deletedEvidenceFiles = evidenceStatus
   .filter((entry) => entry.code === " D")
@@ -138,11 +139,11 @@ const commitAllowlist = {
   approvalStatus: "root-approval-pending-do-not-stage-or-commit",
   scope: {
     source:
-      "Everything dirty under scripts/, src/, tests/raptor3/, tests/types/raptor3/, benchmarks/ and vitest.workspace.ts, as listed by source-allowlist.json",
+      "Everything dirty or untracked under scripts/, src/, tests/raptor3/, tests/types/raptor3/, benchmarks/ and vitest.workspace.ts, as listed by source-allowlist.json",
     evidence:
-      "Everything dirty or untracked under docs/architecture/raptor3-evidence/g4.md and the docs/architecture/raptor3-evidence/g4/ tree, exactly as git status --porcelain=v1 -uall reports it: the qualified/ package, the finished cutover stage-2c receipts under g4/cutover/, g4/final-report.md, and — integrator decision — the untracked tooling-only receipts of the aborted attempt 4 under g4/qualified-attempt-4-stale-identity/. Attempts 1 and 2 are committed in 0f25637b and unchanged, so git reports nothing for them and they are not listed; this script fails if that stops being true. Committed, unchanged files elsewhere under g4/ are likewise absent: a commit has nothing to stage for them.",
+      "Everything dirty or untracked under docs/architecture/raptor3-evidence/g4.md and the docs/architecture/raptor3-evidence/g4/ tree, exactly as git status --porcelain=v1 -uall reports it: the qualified/ package, performance pass 2's own evidence under g4/perf2/ with g4/perf2-review.md and g4/perf2-review-followup.md, the cutover stage-2d receipts and the proposal under g4/cutover/, g4/final-report.md and the ledger g4.md. Attempts 1, 2 and 4 are committed and unchanged, so git reports nothing for them and they are not listed; this script fails if that stops being true. Committed, unchanged files elsewhere under g4/ are likewise absent: a commit has nothing to stage for them.",
     deletions:
-      "The previous sealed package (qualification attempt 3, committed in 0f25637b) was moved out of the tree by the integrator before this attempt. Most of its paths are written again by this attempt and appear above as ordinary modified files; what remains here is what attempt 3 had and this package does not — the structural-measurement/ directory, which this attempt's driver writes as structure/. Every one of these deleted paths is in the list so that the commit records the replacement rather than leaving the superseded package half-present.",
+      "The previous sealed package (qualification attempt 5, committed in ff5e77ca) was moved out of the tree by the integrator at the freeze. Most of its paths are written again by this attempt and appear above as ordinary modified files; what remains here is what attempt 5 had and this package does not. Every one of these deleted paths is in the list so that the commit records the replacement rather than leaving the superseded package half-present.",
   },
   counts: {
     source: sourceFiles.length,
@@ -159,13 +160,13 @@ const commitAllowlist = {
     "CONTEXT.md",
     "memory.md",
     "tests/pattern/pack/program-dump.ts",
-    "tests/pattern/match/decode-malformed.core.test.ts",
+    "tests/pattern/match/decode-malformed.core.test.ts (untracked)",
     "exa-results/ (2 untracked files)",
     "the eight untracked transport-*-corpus.json files at the repository root",
     "docs/architecture/raptor3-g4-claude-handoff.md",
     "the pre-G4 evidence archives at docs/architecture/raptor3-evidence/*.gz, *.tar.gz, *.sha256 and *.json",
     "every docs/architecture/raptor3-evidence path outside g4.md and g4/ — the g3/ and g3-prep-*/ milestone trees above all",
-    "docs/architecture/raptor3-evidence/g4/qualified-attempt-{1,2}-stale-identity/ — committed in 0f25637b and unchanged, so there is nothing to stage; kept whole on disk either way",
+    "docs/architecture/raptor3-evidence/g4/qualified-attempt-{1,2,4}-stale-identity/ — committed and unchanged, so there is nothing to stage; kept whole on disk either way",
   ],
   verification:
     "Every path in files[] is reported dirty or untracked by git status --porcelain=v1 -uall, and every path git reports under the two evidence pathspecs is in files[]; checked in both directions at seal time.",
@@ -197,7 +198,7 @@ const retainedManifest = {
   pathRoot: path.relative(repositoryRoot, finalRoot),
   frozenIdentity: { production: identity.production, harness: identity.harness },
   policy:
-    "Retain every current author-package file: raw reports and logs, every mode and campaign parent receipt, every retained compressed child receipt of the four G4 and the inherited campaigns, the G3P06 compact children, the selected replay receipts and the stale-identity refusal logs. Review attestations remain outside this sealed tree.",
+    "Retain every current author-package file: raw reports and logs, every mode and campaign parent receipt, every retained compressed child receipt of the four G4 and the inherited campaigns, the G3P06 compact children, the selected replay receipts, the two G4 read-child reproductions and the stale-identity refusal logs, plus every support receipt including the kept red first attempts. Review attestations remain outside this sealed tree.",
   checksumFile: "SHA256SUMS",
   manifestSelfEntry:
     "SHA256SUMS contains retained-files.json; this manifest does not contain itself, which avoids a circular digest.",

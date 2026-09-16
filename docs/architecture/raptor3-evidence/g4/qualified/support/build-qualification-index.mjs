@@ -9,7 +9,7 @@ const finalRoot = path.resolve(new URL("..", import.meta.url).pathname);
 const outputFile = path.join(finalRoot, "qualification-index.json");
 const identity = await readJson("support/final-identity.json");
 const deriveOnly = process.argv.includes("--derive");
-const baselineCommit = "0f25637bcd73b3f402c0bb41aadbb70e67a0a964";
+const baselineCommit = "ff5e77ca5f37e747d45460b588b573b72790f1b8";
 
 /**
  * Totals pinned after the qualification runs finished, derived from the
@@ -20,10 +20,21 @@ const baselineCommit = "0f25637bcd73b3f402c0bb41aadbb70e67a0a964";
  * `readChildReproductions` counts the two G4 read-child re-runs, which the
  * generic replay loop deliberately skips so that each receipt is counted once,
  * in the list that describes what it is.
+ *
+ * Attempt 6 started unpinned: the previous attempt's numbers are a different
+ * identity's, and asserting them here would have been a claim about receipts
+ * this script had not read. The pin below was written back from this attempt's
+ * own `--derive` output at 20:31 on 2026-09-16, after every run was complete,
+ * and every run since asserts it.
+ *
+ * Three totals differ from attempt 5's, all for stated reasons and none of them
+ * a qualifying-scope change: `fixedTestExecutions` 1,746 -> 1,751, the five
+ * cells of performance pass 2's new pin `prepared-projection-reuse.test.ts`
+ * registered into `g4-unit02-author`; everything else is identical.
  */
 const PINNED_TOTALS = {
   fixedModes: 65,
-  fixedTestExecutions: 1746,
+  fixedTestExecutions: 1751,
   fixedModesNotPassed: 0,
   laneFixedModes: 1,
   laneFixedTestExecutions: 33,
@@ -514,9 +525,22 @@ if (existsSync(structureReceipt)) {
   structure = { status: "pending", evidence: null };
 }
 
+/**
+ * The source-cost census is measured in the lane-5 worktree, not in the main
+ * tree: `scripts/measure-raptor3-baseline.mjs` calls
+ * `execFileSync("git", ["status", "--porcelain"])` with Node's default 1 MiB
+ * `maxBuffer`, and the main tree's status output is far past that while the
+ * moved-out previous package shows as thousands of deletions. Attempt 5 hit
+ * that as a gap and closed it by re-running in lane 5; this attempt's driver
+ * measures there in the first place. Measuring elsewhere is only sound if the
+ * bytes read are the frozen bytes, so the lane's own identity companion is
+ * required here and the census file list is re-checked against the frozen
+ * manifest by `support/verify-support-receipts.mjs`.
+ */
 const sourceCostFile = await supportFile("support/source-cost.json");
 await supportFile("support/query-engine-structure.log");
 let sourceCost;
+let sourceCostLaneIdentity = null;
 if (sourceCostFile) {
   const cost = await readJson("support/source-cost.json");
   if (cost.source?.commit !== baselineCommit) {
@@ -526,6 +550,24 @@ if (sourceCostFile) {
       commit: cost.source?.commit,
       expected: baselineCommit,
     });
+  }
+  const laneIdentityFile = "support/source-cost-lane5-identity.json";
+  if (existsSync(path.join(finalRoot, laneIdentityFile))) {
+    const laneIdentity = await readJson(laneIdentityFile);
+    const equalToFreeze = identityMatches(laneIdentity);
+    if (!equalToFreeze) {
+      gaps.push({ kind: "identity-mismatch", subject: laneIdentityFile });
+    }
+    sourceCostLaneIdentity = {
+      receipt: laneIdentityFile,
+      capturedAt: laneIdentity.capturedAt ?? null,
+      equalToFreeze,
+      measuredIn: "lane-5 worktree (/private/tmp/viborm-g4-lane-5)",
+      reason:
+        "scripts/measure-raptor3-baseline.mjs reads git status --porcelain with Node's default 1 MiB maxBuffer; the main tree's status output exceeds it, so the unmodified tool is run in a worktree whose own status output is small",
+    };
+  } else {
+    gaps.push({ kind: "missing-support-evidence", subject: laneIdentityFile });
   }
   sourceCost = {
     charged: cost.accounting?.charged,
@@ -723,7 +765,14 @@ const index = {
         }
       : { status: "missing" },
     receiptSelftests: receiptSelftests ?? { status: "missing" },
-    cli: cliSelftests ?? { status: "missing" },
+    cli: {
+      ...(cliSelftests ?? { status: "missing" }),
+      // A support check run twice keeps both receipts: the counted run under the
+      // plain name, the first attempt beside it with an explicit red suffix.
+      keptFirstAttempt: existsSync(path.join(finalRoot, "support/cli-selftest.attempt1-red.log"))
+        ? "support/cli-selftest.attempt1-red.log"
+        : null,
+    },
     typecheck: {
       exitCode: 1,
       historicalDiagnosticsOnly:
@@ -738,6 +787,7 @@ const index = {
   structure,
   source: {
     cost: "support/source-cost.json",
+    costLaneIdentity: sourceCostLaneIdentity,
     current: sourceCost ?? { status: "missing" },
     parserTokenCensus,
     frozenIdentityManifest: "support/frozen-identity-manifest.json",

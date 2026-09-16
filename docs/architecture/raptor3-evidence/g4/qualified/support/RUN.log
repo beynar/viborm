@@ -2,8 +2,9 @@ receipts-selftest exit=0
 cli-selftest exit=1
 typecheck exit=1
 structure exit=0
-source-cost exit=1
+source-cost exit=0 (measured in lane 5: the main tree's git status exceeds the tool's buffer)
 driver-integration exit=0
 credential-free-fixed exit=0
 credential-free-provider exit=0
-=== 13:30:06 group support finished ===
+=== 19:32:05 group support finished ===
+cli-selftest exit=0 (re-run alone after the campaigns; the first attempt is kept as cli-selftest.attempt1-red.log)

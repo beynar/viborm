@@ -2,10 +2,10 @@
   "version": 1,
   "status": "source-accounted-bundle-pending",
   "source": {
-    "commit": "0f25637bcd73b3f402c0bb41aadbb70e67a0a964",
+    "commit": "ff5e77ca5f37e747d45460b588b573b72790f1b8",
     "clean": false,
     "sourceIdentity": {
-      "sha256": "2e2e868f8e609c0914d6a0019847bea50e84dfd50994f0f3fa73932805379b87",
+      "sha256": "ec5d003e1181902b2c8abdcca1fed42194377805d5bebafd214ef08aa3a29f44",
       "includeBuild": false,
       "files": [
         {
@@ -254,7 +254,7 @@
         },
         {
           "file": "scripts/raptor3-manifest.mjs",
-          "sha256": "afe6bd955460b7dbf187b137a00849ff79e5161037aa5f59316a0bb4cfc1b5f2"
+          "sha256": "a2d29f534be552d34802eea1f5da850d8970afe6ff373588535a44c932272ca8"
         },
         {
           "file": "scripts/relation-state.ts",
@@ -1578,15 +1578,15 @@
         },
         {
           "file": "src/query-engine/raptor3/shared/operation-context.ts",
-          "sha256": "53acb07c45ebd4efdd67435071a34d6335f697eb5026cd885cc8797149f12277"
+          "sha256": "bc791617ea8aceea888f5a69fea65c8077edf0a5037fbd86837d6a62cdffc637"
         },
         {
           "file": "src/query-engine/raptor3/shared/query.ts",
-          "sha256": "4ad5c091adb371963160048ebca54fe0e0ab4ece02c0340d05e6afcc410c9982"
+          "sha256": "c52ec048d7ed7d0343034b79589d8c27b11201210fac0c68c60555906811c3a8"
         },
         {
           "file": "src/query-engine/raptor3/shared/schema.ts",
-          "sha256": "fdb384ea07271d7db3d8c01de10b8cd3e5e20b31efbbeaf5515f1240cd033b01"
+          "sha256": "bc6d3cc1ef8ad7d6db4ee09b0238103adca1308d8d8022f7f7f220b3f31cd6a9"
         },
         {
           "file": "src/query-engine/raptor3/shared/storage.ts",
@@ -1594,7 +1594,7 @@
         },
         {
           "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
-          "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643"
+          "sha256": "a5fbb08037ca3a5daa5e273b462a52d8c3cbcdec8f5f0bb5f6f9a18d5f7dab2e"
         },
         {
           "file": "src/query-engine/relation-key-legality.ts",
@@ -2643,14 +2643,10 @@
       ]
     },
     "includedProductionWorkingTreeChanges": [
-      "src/query-engine/raptor3/AGENTS.md",
-      "src/query-engine/raptor3/commands/commands.ts",
-      "src/query-engine/raptor3/commands/execution.ts",
-      "src/query-engine/raptor3/commands/relation-body.ts",
-      "src/query-engine/raptor3/commands/selection.ts",
       "src/query-engine/raptor3/shared/operation-context.ts",
       "src/query-engine/raptor3/shared/query.ts",
-      "src/query-engine/raptor3/shared/schema.ts"
+      "src/query-engine/raptor3/shared/schema.ts",
+      "src/query-engine/raptor3/shared/transport-attempt.ts"
     ],
     "workingTreeQualification": "All executable source/protocol file contents, including uncommitted and untracked files, are attested by sourceIdentity; the production-only diff list is not a clean-checkout claim"
   },
@@ -2704,9 +2700,9 @@
       },
       "excluded-experiment": {
         "files": 35,
-        "bytes": 906651,
-        "physicalLines": 26290,
-        "tokenLines": 22522
+        "bytes": 915694,
+        "physicalLines": 26491,
+        "tokenLines": 22610
       }
     },
     "mixedOwners": [
@@ -3047,9 +3043,9 @@
         },
         "shared": {
           "files": 5,
-          "bytes": 254860,
-          "physicalLines": 7019,
-          "tokenLines": 6112
+          "bytes": 263903,
+          "physicalLines": 7220,
+          "tokenLines": 6200
         },
         "retained": {
           "files": 18,
@@ -3059,9 +3055,9 @@
         },
         "total": {
           "files": 30,
-          "bytes": 653431,
-          "physicalLines": 18212,
-          "tokenLines": 14467
+          "bytes": 662474,
+          "physicalLines": 18413,
+          "tokenLines": 14555
         },
         "files": [
           "src/query-engine/raptor3/commands/assignments.ts",
@@ -3105,9 +3101,9 @@
         },
         "shared": {
           "files": 5,
-          "bytes": 254860,
-          "physicalLines": 7019,
-          "tokenLines": 6112
+          "bytes": 263903,
+          "physicalLines": 7220,
+          "tokenLines": 6200
         },
         "retained": {
           "files": 18,
@@ -3117,9 +3113,9 @@
         },
         "total": {
           "files": 25,
-          "bytes": 546031,
-          "physicalLines": 15161,
-          "tokenLines": 11665
+          "bytes": 555074,
+          "physicalLines": 15362,
+          "tokenLines": 11753
         },
         "files": [
           "src/query-engine/raptor3/program/index.ts",
@@ -3152,9 +3148,9 @@
     },
     "combinedNewProduction": {
       "files": 15,
-      "bytes": 419897,
-      "physicalLines": 11742,
-      "tokenLines": 10422
+      "bytes": 428940,
+      "physicalLines": 11943,
+      "tokenLines": 10510
     },
     "retainedOwnerRule": "Whole admission, engine type, and every shared schema/adapter/driver/current-engine owner changed by G3 preparation are charged once per candidate without a proportional monolith discount. Unchanged schema/validation/Sql/driver/error boundaries remain excluded symmetrically with G0.",
     "declarationDebt": "The retained types.ts contains unused declarations importing OperationFragment and its legacy series type closure. The consumed Operation union does not use that language. types.ts is charged whole, but those dormant implementation owners are not credited as candidate functionality. Candidate-only declaration independence is unproven and requires decoupling the shared operation-name leaf before adoption."
@@ -4049,6 +4045,41 @@
       "physicalLines": 189,
       "tokenLines": 147,
       "sha256": "142224efd19b617dd26db6ecfecefbb3577f13d518b40539aa216e1200dcaa66"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/digest.test.ts",
+      "bytes": 15557,
+      "physicalLines": 449,
+      "tokenLines": 421,
+      "sha256": "962cc5c2d9ef63966ee24c1e5de66ee1c5f5b893ed31df1ddffbe616eb1d05a1"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts",
+      "bytes": 11159,
+      "physicalLines": 316,
+      "tokenLines": 260,
+      "sha256": "c254edbf9a6b02e3b2fab1084d368eab5081143a37e9a64203ac065c327cac15"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts",
+      "bytes": 7135,
+      "physicalLines": 184,
+      "tokenLines": 139,
+      "sha256": "fc8f3ed6561d2456359eed51b5ac4215a61199c4c5faa2897ecefbe6fd7df3bd"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/resolution-check.review.test.ts",
+      "bytes": 2400,
+      "physicalLines": 61,
+      "tokenLines": 46,
+      "sha256": "8d4754285877884a1752a5356778420d48a381a05edc2c3a0b659e161118dcad"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/review.workspace.ts",
+      "bytes": 574,
+      "physicalLines": 20,
+      "tokenLines": 10,
+      "sha256": "bf254a9af962eefaf2683ed080d35fc1f52f54134d99e9e88363fe0bd5558122"
     },
     {
       "file": "tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts",
@@ -5150,6 +5181,13 @@
       "sha256": "ff504bb8005e9001ab28eb2556a27e7dd2d2a498a916cfc6ae51c6218c26d2d0"
     },
     {
+      "file": "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts",
+      "bytes": 10441,
+      "physicalLines": 256,
+      "tokenLines": 183,
+      "sha256": "2ea28627453dfb1626e8c1147a5e680a5e8df81ed08a25554ae669255088c0e7"
+    },
+    {
       "file": "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts",
       "bytes": 6143,
       "physicalLines": 157,
@@ -6243,10 +6281,10 @@
     },
     {
       "file": "scripts/raptor3-manifest.mjs",
-      "bytes": 50669,
-      "physicalLines": 1344,
-      "tokenLines": 1267,
-      "sha256": "afe6bd955460b7dbf187b137a00849ff79e5161037aa5f59316a0bb4cfc1b5f2"
+      "bytes": 50735,
+      "physicalLines": 1345,
+      "tokenLines": 1268,
+      "sha256": "a2d29f534be552d34802eea1f5da850d8970afe6ff373588535a44c932272ca8"
     },
     {
       "file": "scripts/run-raptor3.mjs",
@@ -17823,10 +17861,10 @@
       "file": "src/query-engine/raptor3/shared/operation-context.ts",
       "classification": "excluded-experiment",
       "reason": "Private G1 candidates, separately accounted below; not the public operation route",
-      "sha256": "53acb07c45ebd4efdd67435071a34d6335f697eb5026cd885cc8797149f12277",
-      "bytes": 85925,
-      "physicalLines": 2261,
-      "tokenLines": 1898,
+      "sha256": "bc791617ea8aceea888f5a69fea65c8077edf0a5037fbd86837d6a62cdffc637",
+      "bytes": 87903,
+      "physicalLines": 2308,
+      "tokenLines": 1919,
       "imports": [
         {
           "module": "@adapters/adapter-internals",
@@ -17890,10 +17928,10 @@
       "file": "src/query-engine/raptor3/shared/query.ts",
       "classification": "excluded-experiment",
       "reason": "Private G1 candidates, separately accounted below; not the public operation route",
-      "sha256": "4ad5c091adb371963160048ebca54fe0e0ab4ece02c0340d05e6afcc410c9982",
-      "bytes": 141465,
-      "physicalLines": 3970,
-      "tokenLines": 3572,
+      "sha256": "c52ec048d7ed7d0343034b79589d8c27b11201210fac0c68c60555906811c3a8",
+      "bytes": 143816,
+      "physicalLines": 4023,
+      "tokenLines": 3592,
       "imports": [
         {
           "module": "@adapters/adapter-core-types",
@@ -17973,11 +18011,15 @@
       "file": "src/query-engine/raptor3/shared/schema.ts",
       "classification": "excluded-experiment",
       "reason": "Private G1 candidates, separately accounted below; not the public operation route",
-      "sha256": "fdb384ea07271d7db3d8c01de10b8cd3e5e20b31efbbeaf5515f1240cd033b01",
-      "bytes": 19845,
-      "physicalLines": 537,
-      "tokenLines": 411,
+      "sha256": "bc6d3cc1ef8ad7d6db4ee09b0238103adca1308d8d8022f7f7f220b3f31cd6a9",
+      "bytes": 22459,
+      "physicalLines": 594,
+      "tokenLines": 433,
       "imports": [
+        {
+          "module": "@adapters/database-adapter",
+          "typeOnly": true
+        },
         {
           "module": "@drivers",
           "typeOnly": true
@@ -18017,6 +18059,10 @@
         {
           "module": "../../write-engine/parse-boundary",
           "typeOnly": false
+        },
+        {
+          "module": "./query",
+          "typeOnly": true
         },
         {
           "module": "./storage",
@@ -18063,10 +18109,10 @@
       "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
       "classification": "excluded-experiment",
       "reason": "Private G1 candidates, separately accounted below; not the public operation route",
-      "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643",
-      "bytes": 689,
-      "physicalLines": 18,
-      "tokenLines": 16,
+      "sha256": "a5fbb08037ca3a5daa5e273b462a52d8c3cbcdec8f5f0bb5f6f9a18d5f7dab2e",
+      "bytes": 2789,
+      "physicalLines": 62,
+      "tokenLines": 41,
       "imports": [
         {
           "module": "@drivers/types",
@@ -28045,9 +28091,9 @@
     }
   ],
   "evidenceFootprintTotals": {
-    "files": 442,
-    "bytes": 3620298,
-    "physicalLines": 107809,
-    "tokenLines": 96957
+    "files": 448,
+    "bytes": 3667630,
+    "physicalLines": 109096,
+    "tokenLines": 98017
   }
 }

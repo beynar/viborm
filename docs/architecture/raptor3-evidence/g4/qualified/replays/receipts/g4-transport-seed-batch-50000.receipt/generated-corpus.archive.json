@@ -4,12 +4,12 @@
   "file": "generated-corpus.json.gz",
   "encoding": "gzip",
   "originalBytes": 324201,
-  "originalSha256": "202325d185603cd2e1e6d54846aa733a6ac917843d53ebc3a26e255ac8be09cd",
-  "archiveBytes": 10911,
-  "archiveSha256": "3c56ce9e898529e0b6b7e0d96086fee92b7170c5248f62d07bed83d44947d5f1",
+  "originalSha256": "9bfdc729b9d886b9b3a69ce0536410caae6753c61b36587cc21cc6e6caf1e938",
+  "archiveBytes": 10908,
+  "archiveSha256": "bcebc79872bd3756bebd9298c2f9b155ca7cb6bd34b90014ad9cf708d726fd9b",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "G4 read child reproduction",
   "campaign": "g4-transport-seeds",

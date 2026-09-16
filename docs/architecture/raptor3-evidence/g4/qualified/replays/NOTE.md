@@ -1,4 +1,4 @@
-# Replay lane note (packaging, qualification attempt 5)
+# Replay lane note (packaging, qualification attempt 6)
 
 The two entries `g4-seeds-20000.not-a-replay-input.*` and
 `g4-transport-seeds-50000.not-a-replay-input.*` are NOT failures of the
@@ -15,7 +15,7 @@ That is also what those children's own archive descriptors name as their
 The sequencer ran them under their plain names and recorded both as failures in
 `FAILURES.log`, which is the driver's own record and is kept exactly as it was
 written. The packaging step renamed the two receipts and logs to
-`.not-a-replay-input` — the previous package's spelling — and
+`.not-a-replay-input` — the previous two packages' spelling — and
 `support/build-qualification-index.mjs` classifies them from the gate's own
 `unrecognized_keys` / `subject` sentence rather than from the file name, so a
 receipt that does not carry that sentence would stay a red.
@@ -31,3 +31,11 @@ The write families and the G3/CS-03 corpora replay through `replay` as before
 (seven green); the nine G3-era inputs are the expected stale refusals
 (`*-stale.log`, exit 1, "Stale Raptor 3 evidence: executed source or runtime
 changed").
+
+`inputs/` holds the restored corpora the seven green replays consumed, kept
+compressed with a descriptor beside each one (`package-corpora.mjs` proves each
+restores to its exact bytes before the raw copy is unlinked). Each is a copy of
+a corpus this package already retains compressed under
+`campaigns/<family>/seed-<first>.receipt/`; the two G4 read inputs are kept for
+the same reason even though the gate refused them, because they are what the
+sequencer actually fed it.

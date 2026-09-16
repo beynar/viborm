@@ -1,0 +1,12 @@
+{
+ "workload": "nested-conditional-found",
+ "stage": "full",
+ "engine": "shipped",
+ "checks": [
+  1,
+  1,
+  1,
+  1
+ ],
+ "preparation": null
+}

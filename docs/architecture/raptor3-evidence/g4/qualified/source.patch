@@ -1,1273 +1,807 @@
-diff --git a/benchmarks/operation-pipeline-contract-workloads.mjs b/benchmarks/operation-pipeline-contract-workloads.mjs
-index 9e9bfe6f..a8b4c6c3 100644
---- a/benchmarks/operation-pipeline-contract-workloads.mjs
-+++ b/benchmarks/operation-pipeline-contract-workloads.mjs
-@@ -9,6 +9,70 @@ const orderedChildren = (rows) =>
-     left.id < right.id ? -1 : left.id > right.id ? 1 : 0
-   );
- 
-+/** The parents `relation-series-2` locates, in the order it locates them. */
-+const SERIES_2_ROOTS = Object.freeze([5000, 6000]);
-+
-+/**
-+ * D-8 (Arnaud, 2026-09-16): ONE LEDGER PER ENGINE for `relation-series-2`.
-+ *
-+ * `generatedChild.id` is a counter, and the 2026-09-08 admission adjudication
-+ * (plan §2.3, "one evaluation per admitted input") makes the two engines call
-+ * it a different number of times for one `updateMany` with a nested create:
-+ * `k + 2nk` on the shipped engine, which parses each captured member's `data`
-+ * twice (`UpdateOperation.ts:132` and `:164`, the second one persisted), and
-+ * `k + nk` on the candidate, which keeps the first parse and drops the second.
-+ * The value a counter returns is a function of how many times it has been
-+ * called, so the persisted ids shift; nothing else does. Arnaud confirmed the
-+ * cardinality and directed the benchmark to pin both ledgers rather than one
-+ * comparator carrying the shipped count, which §2.3 forbids. Diagnosis and
-+ * scaling law: `docs/architecture/raptor3-evidence/g4/cutover/relation-series-2-classification.md`.
-+ *
-+ * The engine is identified by its OWN recorded per-member admission count, and
-+ * by nothing else: exactly one of these two rows must explain the ledger, and a
-+ * third answer — a member skipped, a default evaluated twice on the candidate,
-+ * a replayed nested create — matches neither and fails here rather than
-+ * silently borrowing the other engine's numbers.
-+ */
-+const RELATION_SERIES_2_LEDGERS = Object.freeze([
-+  Object.freeze({
-+    engine: "shipped",
-+    admissionsPerMember: 2,
-+    statements: 7,
-+    children: Object.freeze([
-+      Object.freeze({ id: "series_child_3", parentId: 5000 }),
-+      Object.freeze({ id: "series_child_5", parentId: 6000 }),
-+    ]),
-+  }),
-+  Object.freeze({
-+    engine: "candidate",
-+    admissionsPerMember: 1,
-+    statements: 3,
-+    children: Object.freeze([
-+      Object.freeze({ id: "series_child_2", parentId: 5000 }),
-+      Object.freeze({ id: "series_child_3", parentId: 6000 }),
-+    ]),
-+  }),
-+]);
-+
-+/** One public admission, then this engine's own admissions per located root. */
-+const seriesAdmissions = (ledger) =>
-+  1 + SERIES_2_ROOTS.length * ledger.admissionsPerMember;
-+
-+/** The one recorded ledger that explains an observed admission count. */
-+function seriesLedger(admissions) {
-+  const matched = RELATION_SERIES_2_LEDGERS.filter(
-+    (ledger) => seriesAdmissions(ledger) === admissions
-+  );
-+  assert.equal(
-+    matched.length,
-+    1,
-+    `relation-series-2 evaluated the generated default ${admissions} times, which is neither recorded engine ledger (${RELATION_SERIES_2_LEDGERS.map(
-+      (ledger) => `${ledger.engine}=${seriesAdmissions(ledger)}`
-+    ).join(", ")})`
-+  );
-+  return matched[0];
-+}
-+
- export async function buildContractWorkload(name, fixture, semanticFixture) {
-   if (
-     name === "nested-conditional-found" ||
-@@ -201,6 +265,8 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
-     );
-   }
-   if (name === "relation-series-2") {
-+    let statements = 0;
-+    let admissionsBeforeFirstEffect;
-     const invocation = (world) => (cold) => {
-       const client = cold ? world.createColdClient() : world.client;
-       return client.generatedParent.updateMany({
-@@ -214,10 +280,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
-       invocation,
-       (value) => value.count,
-       ({ outcome, initial, final, defaults, reachedCuts }) => {
--        assert.deepEqual(outcome, { kind: "success", value: { count: 2 } });
-+        // Engine-independent, asserted the same way on both sides.
-+        assert.deepEqual(outcome, {
-+          kind: "success",
-+          value: { count: SERIES_2_ROOTS.length },
-+        });
-+        // The engine's OWN ledger, selected by its own recorded admission
-+        // count — never one ledger carrying the other engine's number.
-+        const ledger = seriesLedger(defaults.length);
-         assert.deepEqual(
-           defaults,
--          Array.from({ length: 5 }, (_, index) => ({
-+          Array.from({ length: seriesAdmissions(ledger) }, (_, index) => ({
-             name: "generatedChild.id",
-             value: `series_child_${index + 1}`,
-           }))
-@@ -226,10 +299,23 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
-           ...initial,
-           bench_generated_children: orderedChildren([
-             ...initial.bench_generated_children,
--            { id: "series_child_3", parentId: 5000, label: "series-child" },
--            { id: "series_child_5", parentId: 6000, label: "series-child" },
-+            ...ledger.children.map((child) => ({
-+              ...child,
-+              label: "series-child",
-+            })),
-           ]),
-         });
-+        assert.equal(statements, ledger.statements);
-+        // Every member was admitted before the first effect. The count is
-+        // recorded ONCE, at the statement where the first child became
-+        // visible, and compared here with the FINAL ledger this engine's own
-+        // total selects: an admission that happened after an effect leaves the
-+        // recorded count short and fails. Neither engine's constant appears.
-+        assert.equal(
-+          admissionsBeforeFirstEffect,
-+          seriesAdmissions(seriesLedger(defaults.length)),
-+          "series effects started before every member was admitted"
-+        );
-         assert.deepEqual(reachedCuts, [
-           "selected-roots-captured",
-           "first-member-visible",
-@@ -237,13 +323,17 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
-         ]);
-       },
-       (database, rows, defaults) => {
-+        statements++;
-         const cuts = [];
-         // Stock SQLite typed results retain INTEGER keys as bigint until parsing.
-         if (
--          rows.length === 2 &&
--          rows.some((row) => row?.id === 5000n) &&
--          rows.some((row) => row?.id === 6000n)
-+          rows.length === SERIES_2_ROOTS.length &&
-+          SERIES_2_ROOTS.every((id) =>
-+            rows.some((row) => row?.id === BigInt(id))
-+          )
-         ) {
-+          // Engine-independent: the roots are captured before ANY member is
-+          // admitted, so only the operation's own public admission has run.
-           assert.equal(
-             defaults.length,
-             1,
-@@ -257,22 +347,18 @@ export async function buildContractWorkload(name, fixture, semanticFixture) {
-           )
-           .all();
-         if (children.length > 0) {
--          assert.equal(
--            defaults.length,
--            5,
--            "series effects started before every member was admitted"
--          );
--          assert.deepEqual(children[0], {
--            id: "series_child_3",
--            parentId: 5000,
--          });
-+          // `seriesLedger` carries the real cut here: an admission count that
-+          // explains neither engine fails inside it. The count itself is
-+          // recorded once and adjudicated against the final ledger in
-+          // `verify`, where a late admission is still visible.
-+          const ledger = seriesLedger(defaults.length);
-+          admissionsBeforeFirstEffect ??= defaults.length;
-+          assert.deepEqual(children[0], ledger.children[0]);
-           cuts.push("first-member-visible");
-         }
-         if (children.length > 1) {
--          assert.deepEqual(children[1], {
--            id: "series_child_5",
--            parentId: 6000,
--          });
-+          const ledger = seriesLedger(defaults.length);
-+          assert.deepEqual(children[1], ledger.children[1]);
-           cuts.push("second-member-visible");
-         }
-         return cuts;
 diff --git a/scripts/raptor3-manifest.mjs b/scripts/raptor3-manifest.mjs
-index 74b97530..f059b7b7 100644
+index f059b7b74..88544b829 100644
 --- a/scripts/raptor3-manifest.mjs
 +++ b/scripts/raptor3-manifest.mjs
-@@ -598,7 +598,8 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
-   "tests/raptor3/g4/unit02/packaged-array.test.ts": 5,
+@@ -599,6 +599,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
    "tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts": 7,
    "tests/raptor3/g4/unit02/physical-envelope.test.ts": 10,
--  "tests/raptor3/g4/unit02/prepared-operation.test.ts": 5,
-+  "tests/raptor3/g4/unit02/prepared-operation.test.ts": 6,
-+  "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts": 3,
+   "tests/raptor3/g4/unit02/prepared-operation.test.ts": 6,
++  "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts": 5,
+   "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts": 3,
    "tests/raptor3/g4/unit02/recursive-codec-fit.test.ts": 3,
    "tests/raptor3/g4/unit02/returning-safety-gate.test.ts": 5,
-   "tests/raptor3/g4/unit02/root-delete.test.ts": 6,
 diff --git a/src/query-engine/raptor3/AGENTS.md b/src/query-engine/raptor3/AGENTS.md
-index fba21c72..b6e0c8c9 100644
+index b6e0c8c9c..f3231cd25 100644
 --- a/src/query-engine/raptor3/AGENTS.md
 +++ b/src/query-engine/raptor3/AGENTS.md
-@@ -411,7 +411,16 @@ write and for every relation-free `createMany`/`updateMany`/`deleteMany` alike 
- and with the envelope gone that whole family of candidate-only meta disappears,
- at the price he accepted: a folded root single-record write rejected on a
- batch-only transport publishes the shipped raw error, with no segment progress
--and no `mayHaveCommittedSegment` at all.
-+and no `mayHaveCommittedSegment` at all. The converse is the same price read
-+from the other side and is equally the contract (**D-7.1**, Arnaud 2026-09-16,
-+"accept the difference"): a root `update` or `delete` rejected before dispatch
-+on a batch-only driver publishes NO `statementIndex` where the shipped engine
-+publishes `0`, because the shipped fold is two statements (presence guard plus
-+mutation, a real batch) and this engine's is ONE statement with a JavaScript
-+postcondition, so the driver seam has no batch to index. It is a recorded
-+diagnostic-meta difference, pinned as row 7 of
-+`tests/raptor3/g4/unit02/lone-statement-transport.test.ts`; do not add a
-+per-verb branch or a second statement to manufacture the index.
+@@ -53,7 +53,8 @@ Do not reconstruct clearability from scalar nullability in the engine.
  
- A packaged operation has no JavaScript postcondition available, so its
- single-row premise becomes a STATEMENT: one `assertions.exists` over the same
-diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
-index f5034ede..984b7afb 100644
---- a/src/query-engine/raptor3/commands/commands.ts
-+++ b/src/query-engine/raptor3/commands/commands.ts
-@@ -22,6 +22,7 @@ import { CommandExecution } from "./execution";
- import { RelationBody } from "./relation-body";
- import {
-   type BoundMembership,
-+  type DeferredFailure,
-   Selection,
-   type SelectionSource,
- } from "./selection";
-@@ -78,7 +79,7 @@ export interface RecordSeriesCommand {
- export interface MembershipRequirement {
-   readonly selection: Selection;
-   readonly membership: BoundMembership;
--  readonly failure: Error;
-+  readonly failure: DeferredFailure;
- }
- export interface JunctionCapture {
-   readonly kind: "junction";
-@@ -92,7 +93,7 @@ export interface AbsenceRequirement {
-   readonly model: AnyModel;
-   readonly membership: BoundMembership;
-   readonly excluding: Assignments[];
--  readonly failure: Error;
-+  readonly failure: DeferredFailure;
- }
- export interface Condition {
-   readonly lookup: Selection;
-@@ -989,7 +990,7 @@ export class Commands {
-   lookup(
-     model: AnyModel,
-     source: SelectionSource,
--    required?: Error,
-+    required?: DeferredFailure,
-     facts?: SelectorFacts
-   ): Selection {
-     return new Selection(this.execution, model, source, required, facts);
-@@ -1255,7 +1256,7 @@ export class Commands {
-               this.lookup(
-                 model,
-                 { kind: "query", where: args.where!, unique: true },
--                new NotFoundError(model["~"].names.ts!, "update")
-+                () => new NotFoundError(model["~"].names.ts!, "update")
-               ),
-               args.data,
-               raw.data
-@@ -1284,7 +1285,7 @@ export class Commands {
-     const selection = this.lookup(
-       model,
-       { kind: "query", where: args.where },
--      new NotFoundError(model["~"].names.ts!, "update")
-+      () => new NotFoundError(model["~"].names.ts!, "update")
-     );
-     const analysis = this.update(selection, updateData, raw.data, true);
-     const series: SelectedSeries = {
-diff --git a/src/query-engine/raptor3/commands/execution.ts b/src/query-engine/raptor3/commands/execution.ts
-index afdd3125..1b888ba5 100644
---- a/src/query-engine/raptor3/commands/execution.ts
-+++ b/src/query-engine/raptor3/commands/execution.ts
-@@ -239,13 +239,13 @@ export class CommandExecution {
-     );
-     const found = rows[0];
-     if (!found) {
--      if (selection.required) throw selection.required;
-+      if (selection.required) throw selection.required();
-       return;
-     }
-     attempt.rows.set(selection, found);
-     attempt.bind(selection.fields, found);
-     if (this.context.usesBatch && selection.retained)
--      this.context.requirePresent(selection.captured(), selection.retained);
-+      this.context.requirePresent(selection.captured(), selection.retained());
-   }
-   async run(
-     occurrence: CommandOccurrence,
-@@ -266,15 +266,17 @@ export class CommandExecution {
-           !command.located.retained &&
-           !attempt.retained.has(command.located)
-         ) {
-+          const missingRow =
-+            command.requirement?.failure ?? command.located.required;
-           ctx.requirePresent(
-             command.located.captured(
-               undefined,
-               command.requirement?.membership ?? command.located.membership(),
-               1
-             ),
--            command.requirement?.failure ??
--              command.located.required ??
--              new NotFoundError(command.model["~"].names.ts!, "update")
-+            missingRow
-+              ? missingRow()
-+              : new NotFoundError(command.model["~"].names.ts!, "update")
-           );
-         }
-         await this.requireTransitions(command);
-@@ -354,7 +356,7 @@ export class CommandExecution {
-                 : undefined,
-             }
-           ),
--          command.failure
-+          command.failure()
-         );
-         return;
-       }
-@@ -424,7 +426,7 @@ export class CommandExecution {
-               false,
-               requirement.selection.model
-             );
--            if (!rows[0]) throw requirement.failure;
-+            if (!rows[0]) throw requirement.failure();
-           }
-           if (found) {
-             if (ctx.usesBatch && supplied) {
-diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
-index 06195a47..a7e7658f 100644
---- a/src/query-engine/raptor3/commands/relation-body.ts
-+++ b/src/query-engine/raptor3/commands/relation-body.ts
-@@ -215,10 +215,11 @@ export class RelationBody {
-               unique: nestedTargetAddressesConstraint(edge, verb),
-               membership: { edge, parent: parent.located!.fields },
-             },
--            new NestedWriteError(
--              `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
--              edge.name
--            )
-+            () =>
-+              new NestedWriteError(
-+                `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
-+                edge.name
-+              )
-           );
-           outgoing.origin = origin;
-           this.membershipSource(edge, parent.located!.fields);
-@@ -448,19 +449,21 @@ export class RelationBody {
-             edge.target,
-             selectionSource,
-             verb === "connect" || verb === "update"
--              ? new NestedWriteError(
--                  `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
--                  edge.name
--                )
-+              ? () =>
-+                  new NestedWriteError(
-+                    `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
-+                    edge.name
-+                  )
-               : undefined,
-             facts
-           );
-           lookup.origin = origin;
-           if (verb === "connectOrCreate")
--            lookup.retained = new NestedWriteError(
--              "Record was replaced by another transaction during nested connectOrCreate",
--              edge.name
--            );
-+            lookup.retained = () =>
-+              new NestedWriteError(
-+                "Record was replaced by another transaction during nested connectOrCreate",
-+                edge.name
-+              );
-           lookup.membershipOnly =
-             verb === "connect" &&
-             !(edge.kind === "reference" && edge.owner === "source");
-@@ -476,10 +479,11 @@ export class RelationBody {
-             foundMembership && {
-               selection: lookup,
-               membership: foundMembership,
--              failure: new NestedWriteError(
--                `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
--                edge.name
--              ),
-+              failure: () =>
-+                new NestedWriteError(
-+                  `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
-+                  edge.name
-+                ),
-             };
-           const target: Choose = {
-             kind: "choose",
-@@ -558,10 +562,11 @@ export class RelationBody {
-               where,
-               membership: { edge, parent: parent.fields },
-             },
--            new NestedWriteError(
--              `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
--              edge.name
--            )
-+            () =>
-+              new NestedWriteError(
-+                `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
-+                edge.name
-+              )
-           );
-           selection.origin = origin;
-           const mutation: SelectedSeries["mutation"] =
-@@ -636,10 +641,11 @@ export class RelationBody {
-           where,
-           unique: nestedTargetAddressesConstraint(edge, "set"),
-         },
--        new NestedWriteError(
--          `Cannot set relation '${edge.name}': target record was not found.`,
--          edge.name
--        )
-+        () =>
-+          new NestedWriteError(
-+            `Cannot set relation '${edge.name}': target record was not found.`,
-+            edge.name
-+          )
-       );
-       lookup.origin = this.commands.createOrigin(edge.name, "set");
-       this.requireLookup(lookup);
-@@ -675,10 +681,11 @@ export class RelationBody {
-           model: edge.target,
-           membership: { edge, parent: parent.located!.fields },
-           excluding: targets.map((target) => target.lookup.fields),
--          failure: new NestedWriteError(
--            `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
--            edge.name
--          ),
-+          failure: () =>
-+            new NestedWriteError(
-+              `Cannot set relation '${edge.name}' because foreign key field(s) ${required.join(", ")} are required: rows removed from the set cannot be disconnected. Delete them instead.`,
-+              edge.name
-+            ),
-         };
-         this.commands.place(
-           parent,
-diff --git a/src/query-engine/raptor3/commands/selection.ts b/src/query-engine/raptor3/commands/selection.ts
-index 95ec4676..b22173e1 100644
---- a/src/query-engine/raptor3/commands/selection.ts
-+++ b/src/query-engine/raptor3/commands/selection.ts
-@@ -14,6 +14,19 @@ export interface BoundMembership {
-   readonly edge: Membership;
-   readonly parent: Assignments;
- }
-+/**
-+ * A failure a PLAN knows how to build, not one it owns.
-+ *
-+ * Every one of these sentences is a pure function of construction-time facts —
-+ * the verb and the relation name — so the plan carries the recipe and the one
-+ * site that actually raises it builds it. Constructing them while nothing has
-+ * failed ran the whole `VibORMError` constructor (two stack captures, two
-+ * metadata sanitisations) on the success path of every nested write, which the
-+ * G4 cutover diagnosis measured (`g4/cutover/perf-diagnosis.md` §4.1, cause
-+ * 1b). The thunk is called EXACTLY where the old value was raised or handed to
-+ * an assertion, so the error a caller sees is byte-identical.
-+ */
-+export type DeferredFailure = () => Error;
- export type SelectionSource =
-   | {
-       readonly kind: "query";
-@@ -101,14 +114,14 @@ export class Selection {
-   private readonly rowProjection: PreparedProjection;
-   private readonly identityProjection: PreparedProjection;
-   origin?: Origin;
--  retained?: Error;
-+  retained?: DeferredFailure;
-   membershipOnly?: boolean;
- 
-   constructor(
-     private readonly execution: CommandExecution,
-     readonly model: AnyModel,
-     readonly source: SelectionSource,
--    readonly required?: Error,
-+    readonly required?: DeferredFailure,
-     facts?: SelectorFacts
-   ) {
-     const queries = execution.context.queries;
+ `EngineSchema` owns lazy immutable factory-lifetime views for physical field
+ descriptors, ordered stored fields, exact model/slot/variant membership
+-orientation, and slot clearability. Reuse original resolved descriptors,
++orientation, slot clearability, and the query owner's per-adapter views
++(the scalar leaves and the default projection). Reuse original resolved descriptors,
+ topology, edges, and members; freeze only the newly owned wrappers and arrays.
+ These caches contain no aliases, operation demands, origins, refusals,
+ assignments, scratch references, or attempt values.
 diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
-index 4f30e007..0e0b56ec 100644
+index 0e0b56ec4..fc36a2a54 100644
 --- a/src/query-engine/raptor3/shared/operation-context.ts
 +++ b/src/query-engine/raptor3/shared/operation-context.ts
-@@ -155,9 +155,27 @@ export class OperationContext {
-    */
-   private heldOutcomeFailure?: { readonly failure: unknown };
-   private atomicAssertionRejection?: unknown;
--  private readonly incompletePreparation = new Error(
--    "Raptor 3 operation requires dynamic execution"
--  );
-+  private incompletePreparationSentinel?: Error;
+@@ -107,6 +107,19 @@ type ExecutionOwnership =
+   | "borrowed-transaction"
+   | "batch-preparation";
+ 
++/** One member's place in its record series, as a failure reports it. */
++type MemberAttribution = {
++  readonly path: readonly number[];
++  readonly totalMembers: number;
++};
++
++/** What an operation that has queued nothing has queued. */
++const NO_QUEUED_STATEMENTS: readonly BatchQuery[] = Object.freeze([]);
++
++/** What an operation that declared no generated-output continuation has. */
++const NO_CONTINUATIONS: readonly { query: Query; model: AnyModel }[] =
++  Object.freeze([]);
++
+ /** One operation owns its SQL scopes, transport binding, and batch scratch lifetime. */
+ export class OperationContext {
+   readonly queries: Queries;
+@@ -120,13 +133,31 @@ export class OperationContext {
+   /** True only while the operation's OWN region is the current transport. */
+   private ownRegionOpen = false;
+   private transport: AnyDriver;
+-  private attempt = new TransportAttempt();
+-  private readonly committedMembers = new Set<Member>();
+-  private readonly memberAttribution = new WeakMap<
+-    Member,
+-    { readonly path: readonly number[]; readonly totalMembers: number }
+-  >();
+-  private readonly continuations: { query: Query; model: AnyModel }[] = [];
++  private attemptStore?: TransportAttempt;
 +  /**
-+   * The preparation sentinel, built on its FIRST use and never before.
++   * The operation's disposable transport attempt, built on its FIRST use.
 +   *
-+   * It is a control-flow value, not a diagnostic: it is compared by identity
-+   * ({@link isIncompletePreparation}) and thrown by the four preparation-only
-+   * refusals, and no caller ever sees it — `prepareBatch`
-+   * (`commands/index.ts:204`) turns it into `undefined`. Constructing it in the
-+   * field block cost a full V8 stack capture on EVERY operation, prepared or
-+   * not, which the G4 cutover diagnosis measured as the dominant share of the
-+   * preparation regression (`g4/cutover/perf-diagnosis.md` §4.1). It stays an
-+   * `Error` — a branded object would lose the `cause` link
-+   * `attachRecordSeriesProgress` attaches only to an `Error`
-+   * (`src/errors/record-series-progress.ts:26-28`) on the one path that wraps
-+   * it (a batch-preparation prefix flush, `commands/execution.ts:382`).
++   * A read that executes queues nothing — it dispatches its one statement
++   * directly ({@link read}) — so it never has an attempt at all, and the write
++   * machinery below is the same story field by field: rule 7, a pure read
++   * allocates none of it. Every reader that only asks whether this operation
++   * has queued anything reads {@link queued}, which answers an empty list
++   * without creating an attempt, so no reader can tell absent from empty.
 +   */
-+  private get incompletePreparation(): Error {
-+    return (this.incompletePreparationSentinel ??= new Error(
-+      "Raptor 3 operation requires dynamic execution"
-+    ));
++  private get attempt(): TransportAttempt {
++    return (this.attemptStore ??= new TransportAttempt());
 +  }
++  /** The statements queued on this operation's attempt; empty until one is. */
++  private get queued(): readonly BatchQuery[] {
++    return this.attemptStore?.pending ?? NO_QUEUED_STATEMENTS;
++  }
++  private committedMemberSet?: Set<Member>;
++  private memberAttributionMap?: WeakMap<Member, MemberAttribution>;
++  private continuationList?: { query: Query; model: AnyModel }[];
++  /** Generated-output continuations declared so far; none until one is. */
++  private get continuationCount(): number {
++    return this.continuationList?.length ?? 0;
++  }
+   private committedSegments = 0;
+   private mayHaveCommittedSegment: true | undefined;
+   private completedMembers = 0;
+@@ -177,7 +208,7 @@ export class OperationContext {
+     ));
+   }
    private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
-   private readonly preparedGuards: PreparedBatchGuard[] = [];
+-  private readonly preparedGuards: PreparedBatchGuard[] = [];
++  private preparedGuardList?: PreparedBatchGuard[];
    /**
-@@ -180,9 +198,19 @@ export class OperationContext {
+    * Failures this operation has ALREADY ANSWERED with, which {@link failure}
+    * returns unchanged: the premise it raised about the world (see `published`),
+@@ -188,8 +219,19 @@ export class OperationContext {
+    * progress-bearing aggregate of its PROGRESSIVE path is a different failure
+    * that is attributed (`:1037-1046`) and is not marked here.
     */
-   private envelope: "open" | "deferred" | "statement" = "open";
-   private performed = 0;
--  private readonly requiresEnvelope = new Error(
--    "Raptor 3 operation requires its physical envelope"
--  );
-+  private requiresEnvelopeSentinel?: Error;
+-  private readonly answeredFailures = new WeakSet<object>();
+-  private readonly correlationId = crypto.randomUUID();
++  private answeredFailureSet?: WeakSet<object>;
++  private correlationIdValue?: string;
 +  /**
-+   * The envelope sentinel, built on its FIRST use and never before — the same
-+   * control-flow value as {@link incompletePreparation} and for the same
-+   * reason. It is raised by {@link dispatch} and caught by its one reader
-+   * ({@link run}), which compares it by identity; a successful operation never
-+   * materialises it, and an operation that does pays for exactly one.
++   * This operation's correlation id, minted on its FIRST read and then stable
++   * for the operation's life. The client route always hands its own trusted
++   * execution context down ({@link attribution}), so a minted id is read only
++   * by an error's `meta` and by a statement context the caller did not supply —
++   * paying `crypto.randomUUID()` in the field block spent it on every operation
++   * for the ones that never ask (rule 7).
 +   */
-+  private get requiresEnvelope(): Error {
-+    return (this.requiresEnvelopeSentinel ??= new Error(
-+      "Raptor 3 operation requires its physical envelope"
-+    ));
++  private get correlationId(): string {
++    return (this.correlationIdValue ??= crypto.randomUUID());
 +  }
-   constructor(
-     readonly schema: EngineSchema,
-     factoryDriver: AnyDriver,
-@@ -1824,7 +1852,12 @@ export class OperationContext {
-           .state;
-         // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
-         // publication gap, raised where it always was — before any statement of
--        // this update is dispatched, so nothing is written. On a driver with no
-+        // this update is dispatched, so nothing is written. The class is
-+        // `UnsupportedOperationError` (V8003 UNSUPPORTED_OPERATION, Arnaud
-+        // 2026-09-16, R-D3-class): a consumer can tell this deliberate
-+        // capability boundary from a crash by class, which the base
-+        // `QueryEngineError` (V9001 INTERNAL_ERROR) did not allow. The sentence
-+        // and the `meta` are unchanged. On a driver with no
-         // interactive transaction the evaluated value has to travel through the
-         // adapter's batch scratch, which is read back with an integer cast
-         // (below), so an `int` field is the only domain a dependent can demand
-@@ -1832,7 +1865,7 @@ export class OperationContext {
-         // (and an answer to the decimal rounding question `Queries.updateValue`
-         // refuses), which is a capability change, not an identity.
-         if (state.type !== "int")
--          throw new QueryEngineError(
-+          throw new UnsupportedOperationError(
-             `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
-             {
-               meta: {
+   /**
+    * The operation's physical envelope. `deferred` is the only state in which the
+    * envelope has not been decided yet: it becomes `statement` when the operation
+@@ -314,7 +356,7 @@ export class OperationContext {
+       context
+     };
+     this.attempt.pending.push(query);
+-    if (member) this.attempt.pendingMembers.add(member);
++    if (member) this.attempt.recordMember(member);
+     return query;
+   }
+   prepareMembers<T extends Member>(prepare: () => T[], parent?: Member): T[] {
+@@ -322,10 +364,11 @@ export class OperationContext {
+     try {
+       const members = prepare();
+       const path = parent
+-        ? (this.memberAttribution.get(parent)?.path ?? [])
++        ? (this.memberAttributionMap?.get(parent)?.path ?? [])
+         : [];
++      const attribution = (this.memberAttributionMap ??= new WeakMap());
+       for (const [index, member] of members.entries())
+-        this.memberAttribution.set(member, {
++        attribution.set(member, {
+           path: [...path, index],
+           totalMembers: members.length,
+         });
+@@ -416,7 +459,11 @@ export class OperationContext {
+     phase: RecordSeriesProgress["phase"],
+     member?: Member
+   ): unknown {
+-    if (typeof error === "object" && error !== null && this.answeredFailures.has(error))
++    if (
++      typeof error === "object" &&
++      error !== null &&
++      this.answeredFailureSet?.has(error)
++    )
+       return error;
+     let failure = error;
+     if (error instanceof InvalidScalarResult) {
+@@ -428,7 +475,9 @@ export class OperationContext {
+         { meta: { driver, operation, scalarType } }
+       );
+     }
+-    const attribution = member ? this.memberAttribution.get(member) : undefined;
++    const attribution = member
++      ? this.memberAttributionMap?.get(member)
++      : undefined;
+     // A failure carries record-series progress only when it BELONGS to a record
+     // series. A committed segment and a prefix phase are the series the
+     // operation already has; an UNCERTAIN outcome is not one on its own, so a
+@@ -453,7 +502,7 @@ export class OperationContext {
+           atomicity: "segment",
+           phase,
+           committedSegments: this.committedSegments,
+-          committedWriteMembers: this.committedMembers.size,
++          committedWriteMembers: this.committedMemberSet?.size ?? 0,
+           completedMembers: this.completedMembers,
+           ...(attribution?.path.length ? { memberPath: attribution.path } : {}),
+           ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
+@@ -558,7 +607,7 @@ export class OperationContext {
+       if (
+         error instanceof InvalidScalarResult ||
+         (this.usesBatch &&
+-          (this.continuations.length || this.committedSegments > 0))
++          (this.continuationCount || this.committedSegments > 0))
+       )
+         throw this.failure(
+           error,
+@@ -587,8 +636,8 @@ export class OperationContext {
+   }
+   /** Discard the un-executed plan so the body can be constructed again. */
+   private restart(): void {
+-    this.attempt = new TransportAttempt();
+-    this.continuations.length = 0;
++    this.attemptStore = new TransportAttempt();
++    this.continuationList = undefined;
+     this.memberAdmissionStarted = false;
+     this.envelope = "open";
+   }
+@@ -629,7 +678,7 @@ export class OperationContext {
+     };
+     if (this.ownership !== "batch-preparation")
+       return decide(await this.read(read.query, false, true));
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     this.queue(read.query.sql);
+     this.preparedParser = (results) => {
+       const response = results[resultIndex];
+@@ -670,9 +719,9 @@ export class OperationContext {
+         rows.push(await this.read(projection, true));
+       return Array.isArray(query) ? rows : (rows[0] ?? []);
+     }
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     for (const projection of projections) this.queue(projection.sql);
+-    if (this.attempt.pending.length === 0) return [];
++    if (this.queued.length === 0) return [];
+     const responses = await this.submit(false, member);
+     return this.settleSubmitted(() => {
+       try {
+@@ -691,7 +740,7 @@ export class OperationContext {
+   }
+   async requireAbsent(query: Query, failure: Error): Promise<void> {
+     if (this.usesBatch) {
+-      this.attempt.assertionFailures.set(
++      this.attempt.assertPremise(
+         this.queue(this.driver.adapter.assertions.notExists(query.sql)),
+         { query, present: false, failure }
+       );
+@@ -700,7 +749,7 @@ export class OperationContext {
+     if ((await this.read(query, true)).length) throw failure;
+   }
+   requirePresent(query: Query, failure: Error): void {
+-    this.attempt.assertionFailures.set(
++    this.attempt.assertPremise(
+       this.queue(this.driver.adapter.assertions.exists(query.sql)),
+       { query, present: true, failure }
+     );
+@@ -713,7 +762,8 @@ export class OperationContext {
+     this.atomicAssertionRejection = undefined;
+     attempt.rejectedInsert = undefined;
+     const precedingSegments = this.committedSegments;
+-    const guards = this.continuations.map(({ query, model }) => {
++    const continuations = this.continuationList ?? NO_CONTINUATIONS;
++    const guards = continuations.map(({ query, model }) => {
+       const context = this.statementContext(model, this.operation);
+       return {
+         ...this.transport._prepare(
+@@ -724,25 +774,23 @@ export class OperationContext {
+       };
+     });
+     const statements = [...guards, ...attempt.pending.splice(0)];
+-    const insertProducers = new Map(attempt.insertProducers);
+-    attempt.insertProducers.clear();
+-    const assertionFailures = new Map(attempt.assertionFailures);
+-    attempt.assertionFailures.clear();
++    const insertProducers = attempt.drainInsertProducers();
++    const assertionFailures = attempt.drainAssertedPremises();
+     for (const [index, guard] of guards.entries())
+       assertionFailures.set(guard, {
+-        query: this.continuations[index]!.query,
++        query: continuations[index]!.query,
+         present: true,
+         failure: new TransactionError(
+-          `Created record '${this.continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
++          `Created record '${continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+           { meta: { model: this.modelName, operation: this.operation } }
+         )
+       });
+-    const members = [...attempt.pendingMembers];
+-    attempt.pendingMembers.clear();
++    const members = attempt.drainMembers();
+     const acknowledged = async () => {
+       if (members.length === 0) return;
+       this.committedSegments++;
+-      for (const member of members) this.committedMembers.add(member);
++      const committed = (this.committedMemberSet ??= new Set());
++      for (const member of members) committed.add(member);
+       // This transport acknowledges before it has decoded anything, so the
+       // listener's failure is HELD rather than thrown: the operation's own
+       // answer is still to come, and it stays primary if it fails too
+@@ -849,7 +897,7 @@ export class OperationContext {
+             this.atomicAssertionRejection = failure;
+         }
+       }
+-      throw publishingGeneratedOutput || this.continuations.length > 0
++      throw publishingGeneratedOutput || this.continuationCount > 0
+         ? this.failure(
+             attributedError,
+             this.committedSegments > precedingSegments ? "result" : "member",
+@@ -889,10 +937,8 @@ export class OperationContext {
+     return value;
+   }
+   rejectedProducer(error: unknown): object | undefined {
+-    return this.attempt.rejectedInsert &&
+-      this.attempt.rejectedInsert.error === error
+-      ? this.attempt.rejectedInsert.producer
+-      : undefined;
++    const rejected = this.attemptStore?.rejectedInsert;
++    return rejected && rejected.error === error ? rejected.producer : undefined;
+   }
+   recoveryRejection(
+     error: unknown
+@@ -909,7 +955,7 @@ export class OperationContext {
+     return this.attempt;
+   }
+   restartRejectedInsert(attempt: TransportAttempt): void {
+-    this.attempt = attempt;
++    this.attemptStore = attempt;
+     this.atomicAssertionRejection = undefined;
+   }
+   /**
+@@ -965,8 +1011,8 @@ export class OperationContext {
+       undefined,
+       { selector }
+     );
+-    this.preparedGuards.push({
+-      queryIndex: this.attempt.pending.length,
++    (this.preparedGuardList ??= []).push({
++      queryIndex: this.queued.length,
+       premise: "exists",
+       probe: probe.sql,
+       failure: {
+@@ -1063,20 +1109,19 @@ export class OperationContext {
+         );
+       return result(output);
+     }
+-    const resultIndex = this.attempt.pending.length;
++    const resultIndex = this.queued.length;
+     for (const terminal of queries) this.queue(terminal.sql);
+-    if (this.attempt.scratchId)
++    const scratchId = this.attemptStore?.scratchId;
++    if (scratchId)
+       this.queue(
+-        getAdapterInternals(this.driver.adapter).batchRefs.cleanup(
+-          this.attempt.scratchId
+-        )
++        getAdapterInternals(this.driver.adapter).batchRefs.cleanup(scratchId)
+       );
+     if (this.ownership === "batch-preparation") {
+       this.preparedParser = (results) =>
+         result(this.decodeTerminalResults(queries, results, resultIndex));
+       return result([]);
+     }
+-    if (this.attempt.pending.length === 0) return result([]);
++    if (this.queued.length === 0) return result([]);
+     const responses = await this.submit();
+     return this.settleSubmitted(() => {
+       try {
+@@ -1093,14 +1138,16 @@ export class OperationContext {
+   }
+   preparedBatch(): PreparedBatchOperation<unknown> | undefined {
+     if (this.preparedParser === undefined) return undefined;
+-    if (this.attempt.assertionFailures.size > 0) return undefined;
++    if (this.attemptStore?.hasAssertedPremises) return undefined;
+     return {
+-      queries: this.attempt.pending.map((query) => ({
++      queries: this.queued.map((query) => ({
+         sql: query.sql,
+         params: query.params ?? [],
+         context: query.context ?? this.attribution
+       })),
+-      ...(this.preparedGuards.length ? { guards: this.preparedGuards } : {}),
++      ...(this.preparedGuardList?.length
++        ? { guards: this.preparedGuardList }
++        : {}),
+       parseResult: this.preparedParser
+     };
+   }
+@@ -1127,7 +1174,7 @@ export class OperationContext {
+     parse: (results: readonly QueryResult<unknown>[]) => unknown
+   ): Promise<unknown> {
+     if (this.ownership === "batch-preparation") {
+-      const firstResult = this.attempt.pending.length;
++      const firstResult = this.queued.length;
+       for (const statement of statements)
+         this.queue(statement.sql, statement.context);
+       this.preparedParser = (results) => {
+@@ -1168,8 +1215,8 @@ export class OperationContext {
+     // inside one atomic unit ({@link submit}).
+     const lone =
+       statements.length === 1 &&
+-      this.attempt.pending.length === 0 &&
+-      this.continuations.length === 0;
++      this.queued.length === 0 &&
++      this.continuationCount === 0;
+     if (this.usesBatch && !lone) {
+       const windowMember: Member = {};
+       this.setWindow = windowMember;
+@@ -1275,7 +1322,7 @@ export class OperationContext {
+   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
+   private answered<T>(failure: T): T {
+     if (typeof failure === "object" && failure !== null)
+-      this.answeredFailures.add(failure);
++      (this.answeredFailureSet ??= new WeakSet()).add(failure);
+     return failure;
+   }
+   /**
+@@ -1780,7 +1827,7 @@ export class OperationContext {
+           returned.map((field) => [field, true])
+         );
+         const projection = q.prepareProjection(model, { select });
+-        const resultIndex = this.attempt.pending.length;
++        const resultIndex = this.queued.length;
+         const inserted = this.queue(
+           sql`${statement} ${adapter.mutations.returning(
+             sql.join(q.lowerProjection(projection).columns, ", ")
+@@ -1788,7 +1835,7 @@ export class OperationContext {
+           context,
+           member
+         );
+-        if (producer) this.attempt.insertProducers.set(inserted, producer);
++        if (producer) this.attempt.recordInsertProducer(inserted, producer);
+         const responses = await this.submit(true, member);
+         const stored = await this.settleSubmitted(() => {
+           try {
+@@ -1806,7 +1853,7 @@ export class OperationContext {
+             throw this.failure(error, "result", member);
+           }
+         });
+-        this.continuations.push({
++        (this.continuationList ??= []).push({
+           model,
+           query: q.select(model, {}, undefined, {
+             projection,
+@@ -1817,7 +1864,7 @@ export class OperationContext {
+       }
+       const scratchId = this.ensureScratch();
+       const inserted = this.queue(statement, context, member);
+-      if (producer) this.attempt.insertProducers.set(inserted, producer);
++      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+       const key = String(this.attempt.nextField++);
+       this.queue(references.storeLastInsertId(scratchId, key));
+       published[produced[0]!] = adapter.expressions.cast(
+@@ -1826,7 +1873,7 @@ export class OperationContext {
+       );
+     } else {
+       const inserted = this.queue(statement, context, member);
+-      if (producer) this.attempt.insertProducers.set(inserted, producer);
++      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+     }
+     return published;
+   }
 diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
-index 9bbdd44b..8ced3819 100644
+index 8ced3819e..92ccb777b 100644
 --- a/src/query-engine/raptor3/shared/query.ts
 +++ b/src/query-engine/raptor3/shared/query.ts
-@@ -484,6 +484,36 @@ export class Queries {
+@@ -50,6 +50,7 @@ import {
+   type Arguments,
+   type EngineSchema,
+   type Input,
++  type QueryViews,
+   type ReadOperation,
+   record,
+   entries,
+@@ -477,10 +478,13 @@ export function wholeValue(
+ /** Query scopes and output shapes share no record-identity requirement. */
+ export class Queries {
+   private nextAlias = 0;
++  private readonly views: QueryViews;
+   constructor(
+     readonly schema: EngineSchema,
+     readonly adapter: DatabaseAdapter,
+-  ) {}
++  ) {
++    this.views = schema.queryViews(adapter);
++  }
    alias(): string {
      return `q${this.nextAlias++}`;
    }
+@@ -692,9 +696,29 @@ export class Queries {
+       return this.adapter.expressions.blobToHex(expression);
+     return expression;
+   }
 +  /**
-+   * The FIRST alias of one statement, which opens that statement's alias scope.
++   * One field's decoded leaf, resolved once per (adapter, model, field).
 +   *
-+   * An alias is a fact of the statement it names, not of this owner's history,
-+   * so a statement whose first alias is minted by one of the six owners named
-+   * below starts at `q0`, and the same logical query always emits the same
-+   * text. Without it the engine-lifetime read owner
-+   * (`commands/index.ts`) minted `q0, q1, … q10000` for the SAME
-+   * `findUnique`, so its statement text was unique per call — measured as an
-+   * obstacle by the cutover protocol (`g4/cutover/protocol.md` §7.2) and a
-+   * guaranteed miss for any transport that caches by statement text
-+   * (PostgreSQL named statements, `mysql2`'s prepare cache, D1/PlanetScale).
-+   *
-+   * The SIX owners that open a statement are {@link select}, {@link aggregated},
-+   * {@link grouped}, {@link selectSeries}, {@link recursive} and
-+   * {@link junction} — every method here that assembles a complete statement —
-+   * and each calls this before any other alias of that statement. Nothing else
-+   * may: a `lower…` fragment continues the statement it is part of, because a
-+   * mutation statement is assembled from several of them by the physical owner
-+   * (`OperationContext`'s `lowerMutationLimit` + `lowerProjection` pair) and
-+   * two fragments of ONE statement must not both start at `q0`. For the same
-+   * reason no statement owner may be entered while another statement is being
-+   * built: a nested complete statement is a subquery of its parent and shares
-+   * the parent's scope, which is why the nested relation projection, the
-+   * correlated count and the cursor window mint plain {@link alias}es.
++   * The answer is the field's declared scalar, its nullability and the
++   * adapter's representation of it — schema and dialect only — so rebuilding a
++   * fresh frozen object (and a fresh enum `Set`) on every projection of every
++   * operation was pure repetition (rule 1). Nothing consumes a leaf by
++   * identity: the decoder, the cache codec and the shape readers all read its
++   * fields.
 +   */
-+  private rootAlias(): string {
-+    this.nextAlias = 0;
-+    return this.alias();
-+  }
-   table(model: AnyModel, alias?: string): Sql {
-     return this.adapter.identifiers.table(model["~"].names.sql!, alias);
+   private scalarShape(model: AnyModel, field: string): Leaf {
+-    const physical = physicalField(this.schema, model, field);
+-    return this.leaf(physical.scalar, physical.nullable);
++    let leaves = this.views.leaves.get(model);
++    if (leaves === undefined) {
++      leaves = new Map();
++      this.views.leaves.set(model, leaves);
++    }
++    let shape = leaves.get(field);
++    if (shape === undefined) {
++      const physical = physicalField(this.schema, model, field);
++      shape = this.leaf(physical.scalar, physical.nullable);
++      leaves.set(field, shape);
++    }
++    return shape;
    }
-@@ -718,7 +748,7 @@ export class Queries {
-     forUpdate = false,
-   ): Query {
-     const a = this.adapter;
--    const alias = this.alias();
-+    const alias = this.rootAlias();
-     const owner =
-       edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
-     const fields: Record<string, Leaf> = {};
-@@ -2348,7 +2378,7 @@ export class Queries {
-       selector?: PreparedSelector;
-     } = {},
-   ): Query {
--    const alias = this.alias();
-+    const alias = this.rootAlias();
-     // The shipped owner sequence, and the reason it is stated here: when one
-     // call violates two contracts at once, the refusal the caller sees is the
-     // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
-@@ -2548,7 +2578,7 @@ export class Queries {
-     shape: (alias: string) => Extract<Shape, { kind: "object" }>,
-   ): Query {
-     const a = this.adapter;
--    const inner = this.alias();
-+    const inner = this.rootAlias();
-     const page = this.page(model, args, inner);
-     const filter = this.lowerWhere(model, args.where, inner);
-     const window = assembleAdapterSelect(a, {
-@@ -2696,7 +2726,7 @@ export class Queries {
-     operation: "createMany" | "updateMany" = "createMany"
-   ): Query {
-     const model = prepared.model;
--    const alias = this.alias();
-+    const alias = this.rootAlias();
-     const projection = this.lowerProjection(prepared, alias);
-     const predicates = identities.map(
-       (identity) => this.lowerIdentity(model, identity, alias),
-@@ -2752,7 +2782,7 @@ export class Queries {
-         `Raptor 3 recursive traversal relation '${traversal.relation}' is not self-referential`,
+   private leaf(scalar: Scalar, nullable: boolean): Leaf {
+     const state = scalar["~"].state;
+@@ -1241,7 +1265,7 @@ export class Queries {
+     const operand = () =>
+       owner
+         ? this.prepareOperand(owner, value)
+-        : Object.freeze<PreparedOperand>({ kind: "value", value });
++        : { kind: "value" as const, value };
+     switch (operator) {
+       case "in":
+       case "notIn":
+@@ -1253,7 +1277,7 @@ export class Queries {
+             (value as unknown[]).map((member) =>
+               owner
+                 ? this.prepareOperand(owner, member)
+-                : Object.freeze<PreparedOperand>({ kind: "value", value: member }),
++                : { kind: "value" as const, value: member },
+             ),
+           ),
+           insensitive,
+@@ -1284,12 +1308,25 @@ export class Queries {
+         });
+     }
+   }
++  /**
++   * One admitted filter member, resolved to the value it binds or the column it
++   * names.
++   *
++   * The operand is NOT frozen and the structure that holds it is: the prepared
++   * predicate ({@link prepareOperation}) and, for `in`/`notIn`, its operand
++   * list. One owner builds an operand and one owner reads it
++   * ({@link lowerOperation}), both in this file, so freezing each box restated
++   * the same immutability the enclosing predicate already carries — and
++   * restated it PER MEMBER: `Object.freeze` transitions a fresh object's map on
++   * every call, measured at 1.98–2.20 µs for the 100 members of one
++   * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
++   * (`g4/perf2/receipts/micro-in-list.json`).
++   */
+   private prepareOperand(
+     owner: PreparedScalar,
+     value: unknown,
+   ): PreparedOperand {
+-    if (!isFieldRef(value))
+-      return Object.freeze({ kind: "value", value });
++    if (!isFieldRef(value)) return { kind: "value", value };
+     const { model } = owner;
+     const payload = fieldRefPayload(value);
+     const scope = model["~"].names.ts ?? "unknown";
+@@ -1308,14 +1345,14 @@ export class Queries {
+       throw new QueryEngineError(
+         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
        );
-     const a = this.adapter;
--    const cteName = this.alias();
-+    const cteName = this.rootAlias();
-     const occupied = new Set(
-       storedFields(this.schema, model).map((field) =>
-         this.columnName(model, field),
-@@ -3342,7 +3372,7 @@ export class Queries {
+-    return Object.freeze({
++    return {
+       kind: "field",
+       scalar: Object.freeze({
+         model,
+         field: payload.field,
+         physical: physicalField(this.schema, model, payload.field),
+       }),
+-    });
++    };
    }
-   grouped(model: AnyModel, args: Arguments): Query {
-     const a = this.adapter;
--    const alias = this.alias();
-+    const alias = this.rootAlias();
-     const by = args.by!;
-     const aggregates = this.prepareAggregates(model, args);
-     const fields: Record<string, Shape | Leaf> = {};
+   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
+   private prepareSlotPredicate(
+@@ -3005,10 +3042,24 @@ export class Queries {
+       },
+     };
+   }
++  /**
++   * One immutable alias-free projection description and decoder shape.
++   *
++   * An operation that names NEITHER `select` NOR `include` asks for the model's
++   * DEFAULT projection, which is a fact of the model and the dialect and of
++   * nothing else, so it is resolved once per (adapter, model) and shared
++   * ({@link QueryViews}). Every other operation prepares per operation exactly
++   * as before, reusing only the per-field leaves.
++   */
+   prepareProjection(
+     model: AnyModel,
+     args: Partial<Arguments>,
+   ): PreparedProjection {
++    const shared = args.select === undefined && args.include === undefined;
++    if (shared) {
++      const resolved = this.views.defaultProjections.get(model);
++      if (resolved !== undefined) return resolved;
++    }
+     // `omit` is desugared into `select` at admission; an explicit selection and
+     // an include can therefore both be present and both belong to the result.
+     const selected = {
+@@ -3115,11 +3166,13 @@ export class Queries {
+       fields[name] = this.relationShape(nested);
+       prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
+     }
+-    return Object.freeze({
++    const projection: PreparedProjection = Object.freeze({
+       model,
+       fields: Object.freeze(prepared),
+       shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
+     });
++    if (shared) this.views.defaultProjections.set(model, projection);
++    return projection;
+   }
+   /**
+    * A to-many node's decoded shape. A negative `take` runs the reversed window
 diff --git a/src/query-engine/raptor3/shared/schema.ts b/src/query-engine/raptor3/shared/schema.ts
-index fe21b52f..8bfc956d 100644
+index 8bfc956dc..6d70b8d33 100644
 --- a/src/query-engine/raptor3/shared/schema.ts
 +++ b/src/query-engine/raptor3/shared/schema.ts
-@@ -516,11 +516,22 @@ export class EngineSchema {
+@@ -1,3 +1,4 @@
++import type { DatabaseAdapter } from "@adapters/database-adapter";
+ import type { AnyDriver } from "@drivers";
+ import { QueryEngineError } from "@errors";
+ import { hydrateSchemaNames, type Schema } from "@schema/hydration";
+@@ -14,6 +15,7 @@ import {
+   parseValidated,
+   upsertEnvelopeSchema,
+ } from "../../write-engine/parse-boundary";
++import type { Leaf, PreparedProjection } from "./query";
+ import {
+   buildMembershipView,
+   buildPhysicalFieldView,
+@@ -125,6 +127,31 @@ export function entries(value: unknown): Input[] {
+   return Array.isArray(value) ? value : [record(value)];
+ }
+ 
++/**
++ * What this engine resolves once per (adapter, model) and never again.
++ *
++ * Both members are a pure function of the schema and the dialect, which is why
++ * they may be shared at all (rule 1): a scalar leaf is the field's declared
++ * type, nullability and the adapter's own `dateTime` representation; the
++ * DEFAULT projection is `scalarFieldNames` minus the model's own `omit`, and an
++ * operation-level `omit` never reaches the projection owner — admission
++ * desugars it into `select`, which takes the per-operation path. Nothing
++ * admitted and nothing a provider answered is stored (rule 5).
++ *
++ * The two member types are the query owner's, imported for their names only:
++ * `import type` adds no runtime edge, so `shared/query.ts` keeps its one
++ * runtime import of this file and this file keeps none of it.
++ */
++export type QueryViews = {
++  readonly leaves: WeakMap<AnyModel, Map<string, Leaf>>;
++  readonly defaultProjections: WeakMap<AnyModel, PreparedProjection>;
++};
++
++const createQueryViews = (): QueryViews => ({
++  leaves: new WeakMap(),
++  defaultProjections: new WeakMap(),
++});
++
+ export class EngineSchema {
+   readonly index;
+   readonly registry;
+@@ -508,6 +535,36 @@ export class EngineSchema {
      }
-     return fields;
+     return descriptor;
    }
 +  /**
-+   * The admitted payload's scalar fields, in the model's own scalar order.
++   * One adapter's {@link QueryViews}, created on its first use.
 +   *
-+   * One pass into one object. The model's scalar order is already memoised by
-+   * the model itself (`schema/model/model.ts`, `_scalarFieldNames ??=`), so the
-+   * only per-call cost left was the three intermediates
-+   * `Object.fromEntries(names.filter(…).map(…))` built — on a normalization
-+   * every row of every `createMany` crosses (`g4/cutover/perf-diagnosis.md`
-+   * §4.2). Same keys, same order, same values.
++   * `EngineSchema` already owns the lazy immutable per-model views this engine
++   * resolves from the schema alone, but these two are also a fact of the
++   * DIALECT — a scalar leaf carries the adapter's own `dateTime`
++   * representation — and a `Queries` instance is per-operation for writes, so
++   * neither owner alone can hold them. The adapter is the second key and it is
++   * held weakly, so a view store lives exactly as long as the adapter it
++   * describes. What it may hold is what every view here may hold: facts
++   * derived from the schema and the dialect, never an admitted input, an
++   * alias, an operation demand or a provider row (rule 5).
++   *
++   * The accessor names its one fact, like every other view on this class, so
++   * the store cannot be reached for a second shape: an anonymous
++   * `scope(adapter, create)` would hand a second caller the first caller's
++   * object under the second caller's type, and the cast would hide it.
 +   */
-   scalars(model: AnyModel, admitted: Input): Input {
--    return Object.fromEntries(
--      model["~"].scalarFieldNames
--        .filter((field) => admitted[field] !== undefined)
--        .map((field) => [field, admitted[field]])
--    );
-+    const values: Input = {};
-+    for (const field of model["~"].scalarFieldNames) {
-+      const value = admitted[field];
-+      if (value !== undefined) values[field] = value;
++  private readonly queryViewsByAdapter = new WeakMap<
++    DatabaseAdapter,
++    QueryViews
++  >();
++  queryViews(adapter: DatabaseAdapter): QueryViews {
++    let views = this.queryViewsByAdapter.get(adapter);
++    if (views === undefined) {
++      views = createQueryViews();
++      this.queryViewsByAdapter.set(adapter, views);
 +    }
-+    return values;
-   }
- }
-diff --git a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
-index be550f4c..2d1f529c 100644
---- a/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
-+++ b/tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
-@@ -361,10 +361,11 @@ function overlapCommands(
-         where: selector,
-         membership: { edge, parent: root.fields },
-       },
--      new NestedWriteError(
--        "Cannot update relation 'kids': target record was not found for this parent.",
--        "kids"
--      )
-+      () =>
-+        new NestedWriteError(
-+          "Cannot update relation 'kids': target record was not found for this parent.",
-+          "kids"
-+        )
-     );
-     selection.membershipOnly = true;
-     selection.origin = origin;
-@@ -845,7 +846,7 @@ function seriesCommands(
-   const located = commands.lookup(
-     schema.shelf,
-     { kind: "query", where: admitted.where! },
--    new NotFoundError("shelf", "update")
-+    () => new NotFoundError("shelf", "update")
-   );
-   const root = commands.update(located, admitted.data, raw.data);
-   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
-diff --git a/tests/raptor3/core-structure/structural-reference.test.ts b/tests/raptor3/core-structure/structural-reference.test.ts
-index b954c597..0253d433 100644
---- a/tests/raptor3/core-structure/structural-reference.test.ts
-+++ b/tests/raptor3/core-structure/structural-reference.test.ts
-@@ -222,7 +222,7 @@ function priorityCommands(
-   const located = commands.lookup(
-     schema.shelf,
-     { kind: "query", where: admitted.where! },
--    new NotFoundError("shelf", "update")
-+    () => new NotFoundError("shelf", "update")
-   );
-   const root = commands.update(located, admitted.data, raw.data);
-   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
-@@ -548,10 +548,11 @@ async function executeReconciliationPublication(
-       where: record(consumerMember.where),
-       membership: { edge, parent: root.fields },
-     },
--    new NestedWriteError(
--      "Cannot update relation 'kids': target record was not found for this parent.",
--      "kids"
--    )
-+    () =>
-+      new NestedWriteError(
-+        "Cannot update relation 'kids': target record was not found for this parent.",
-+        "kids"
-+      )
-   );
-   const origin = commands.createOrigin("kids", "updateMany");
-   selection.origin = origin;
-diff --git a/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts b/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
-index daca8761..cf7db3cb 100644
---- a/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
-+++ b/tests/raptor3/g4/review/unit02-decisions/batch-publication-identity.review.test.ts
-@@ -4,7 +4,12 @@
-  * The decision: the bare `Error: Raptor 3 update expression publication
-  * requires an integer field` becomes a registered `QueryEngineError` naming the
-  * model, the field and the operation, with `meta { model, operation, field }`,
-- * raised at the same point — before any statement is dispatched.
-+ * raised at the same point — before any statement is dispatched. Arnaud
-+ * answered R-D3-class on 2026-09-16: the class is `UnsupportedOperationError`
-+ * (V8003 UNSUPPORTED_OPERATION), the `QueryEngineError` subclass that names a
-+ * deliberate capability boundary rather than a crash; the sentence, the `meta`
-+ * and the raise point are unchanged, so every assertion below still holds with
-+ * the answer's class name updated.
-  *
-  * The author's two cells measure ONE domain (`number`) and one operation
-  * (`upsert`). This probe asks the questions they do not:
-@@ -23,7 +28,7 @@ import type {
-   QueryResult,
- } from "@drivers";
- import { SQLite3Driver } from "@drivers/sqlite3";
--import { QueryEngineError } from "@errors";
-+import { QueryEngineError, UnsupportedOperationError } from "@errors";
- import { createCommandEngine } from "@query-engine/raptor3/commands";
- import { s } from "@schema";
- import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-@@ -164,7 +169,12 @@ describe("G4-02 decisions review — R-D3's identity across the non-int domains"
-       );
-       assert.equal(
-         candidate.answer,
--        `QueryEngineError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
-+        `UnsupportedOperationError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
-+        name
-+      );
-+      assert.equal(
-+        candidate.raised instanceof UnsupportedOperationError,
-+        true,
-         name
-       );
-       assert.equal(candidate.raised instanceof QueryEngineError, true, name);
-diff --git a/tests/raptor3/g4/unit02/key-arithmetic.test.ts b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
-index 209320cc..372f9fe0 100644
---- a/tests/raptor3/g4/unit02/key-arithmetic.test.ts
-+++ b/tests/raptor3/g4/unit02/key-arithmetic.test.ts
-@@ -42,7 +42,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
- import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
- import { createClient } from "@client/client";
- import { SQLite3Driver } from "@drivers/sqlite3";
--import { QueryEngineError } from "@errors";
-+import { QueryEngineError, UnsupportedOperationError } from "@errors";
- import { createCommandEngine } from "@query-engine/raptor3/commands";
- import { Queries } from "@query-engine/raptor3/shared/query";
- import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-@@ -486,8 +486,12 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
-    * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
-    * "give it a public identity now" (R-D3). The refusal is raised at the same
-    * point it always was — before any statement of the update is dispatched — and
--   * is now a registered `QueryEngineError` naming the model, the field and the
--   * operation, with `meta` `{ model, operation, field }`.
-+   * is now a registered `UnsupportedOperationError` naming the model, the field
-+   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
-+   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
-+   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
-+   * can tell this deliberate capability boundary from a crash (V9001
-+   * INTERNAL_ERROR) without reading the sentence.
-    *
-    * The divergence from the shipped row answer is the recorded, accepted half of
-    * the decision: the shipped engine computes the value in JavaScript and
-@@ -540,11 +544,17 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
-       // The accepted divergence, recorded: the shipped engine computes the
-       // value in JavaScript and answers the row.
-       assert.equal(shipped.answer, shippedAnswer);
--      // The decided identity: a registered QueryEngineError, naming the model,
--      // the field and the operation, raised before any statement is dispatched.
-+      // The decided identity: a registered UnsupportedOperationError (R-D3
-+      // plus R-D3-class), naming the model, the field and the operation, raised
-+      // before any statement is dispatched. It is still a QueryEngineError —
-+      // the class narrows the code, it does not leave the family.
-       assert.equal(
-         candidate.answer,
--        "QueryEngineError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
-+        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
-+      );
-+      assert.equal(
-+        candidate.raised instanceof UnsupportedOperationError,
-+        true
-       );
-       assert.equal(candidate.raised instanceof QueryEngineError, true);
-       assert.deepEqual(
-diff --git a/tests/raptor3/g4/unit02/prepared-operation.test.ts b/tests/raptor3/g4/unit02/prepared-operation.test.ts
-index 68b8171f..73481d0a 100644
---- a/tests/raptor3/g4/unit02/prepared-operation.test.ts
-+++ b/tests/raptor3/g4/unit02/prepared-operation.test.ts
-@@ -171,4 +171,43 @@ describe("G4-02 prepared operation boundary", () => {
-     const rows = await world.driver._executeBatch(packaged.queries);
-     assert.throws(() => packaged.parseResult(rows), NotFoundError);
-   });
++    return views;
++  }
+   storedFields(model: AnyModel): readonly string[] {
+     let fields = this.storedFieldLists.get(model);
+     if (!fields) {
+diff --git a/src/query-engine/raptor3/shared/transport-attempt.ts b/src/query-engine/raptor3/shared/transport-attempt.ts
+index 6c1068241..ee39e530d 100644
+--- a/src/query-engine/raptor3/shared/transport-attempt.ts
++++ b/src/query-engine/raptor3/shared/transport-attempt.ts
+@@ -3,16 +3,60 @@ import type { UniqueConstraintError } from "@errors";
+ import type { Member } from "./operation-context";
+ import type { Query } from "./query";
+ 
+-/** Disposable batch construction and rejection evidence; never committed progress. */
++/** One assertion this attempt raises if its statement disagrees with the world. */
++type AssertedPremise = { query: Query; present: boolean; failure: Error };
 +
-+  it("answers undefined for an operation that cannot be packaged, every time", async () => {
-+    world = await createWorld();
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: world.driver,
-+    });
-+    // The incomplete-preparation sentinel is control flow, and `prepareBatch`
-+    // recognises it by IDENTITY inside its own `catch`. The sentinel is built
-+    // on first use and memoised, so a sentinel that were not the same object
-+    // on a second read would make this boundary either swallow a real refusal
-+    // or leak its own control-flow sentence to the caller — both silent, and
-+    // neither visible to any other registered cell. A nested write whose plan
-+    // needs a row it has not read yet is the shape that raises it.
-+    for (let repeat = 0; repeat < 4; repeat++) {
-+      const prepared = await engine.prepareBatch("author", "update", {
-+        where: { id: 1 },
-+        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
-+      });
-+      assert.equal(
-+        prepared,
-+        undefined,
-+        "a dynamic operation packaged statically"
-+      );
-+    }
-+    // …while a statically packageable operation still packages on the same
-+    // engine, interleaved with the sentinel path so neither masks the other.
-+    for (let repeat = 0; repeat < 4; repeat++) {
-+      const packaged = await engine.prepareBatch("author", "findUnique", {
-+        where: { id: 1 },
-+        select: { id: true },
-+      });
-+      assert.ok(packaged, "a static read did not package");
-+      await engine.prepareBatch("author", "update", {
-+        where: { id: 1 },
-+        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
-+      });
-+    }
-+  });
- });
-diff --git a/tests/raptor3/g4/review/perf/alias-scope.review.test.ts b/tests/raptor3/g4/review/perf/alias-scope.review.test.ts
-new file mode 100644
-index 00000000..7b69994f
---- /dev/null
-+++ b/tests/raptor3/g4/review/perf/alias-scope.review.test.ts
-@@ -0,0 +1,423 @@
 +/**
-+ * Independent review probe — G4 performance pass, item 3 (statement-scoped
-+ * SQL aliases).
++ * Disposable batch construction and rejection evidence; never committed progress.
 + *
-+ * `Queries.rootAlias()` RESETS the instance counter to zero, so the safety of
-+ * the whole item rests on one unproven sentence in the author's note (§11
-+ * unverified claim 4): *"no statement owner is entered while another statement
-+ * is being built"*. If that is ever false, one statement declares `q0` twice
-+ * and the SQL is silently wrong — a correlated subquery would address the
-+ * root's own alias. The author established it by reading callers; this probe
-+ * measures it.
++ * Only {@link pending} belongs to every attempt. The three evidence collections
++ * exist from the first fact each one records, because an operation that records
++ * none — every read, prepared or executed — would otherwise pay two `Map`s and a
++ * `Set` per operation for collections nothing ever reads (rule 7,
++ * `g4/perf2/note.md` §2). An absent collection IS empty: the drain accessors
++ * below answer an empty copy, and {@link hasAssertedPremises} answers `false`,
++ * so no reader can tell absent from empty.
++ */
+ export class TransportAttempt {
+   readonly pending: BatchQuery[] = [];
+-  readonly insertProducers = new Map<BatchQuery, object>();
+   rejectedInsert?: { error: UniqueConstraintError; producer: object };
+-  readonly assertionFailures = new Map<
+-    BatchQuery,
+-    { query: Query; present: boolean; failure: Error }
+-  >();
+-  readonly pendingMembers = new Set<Member>();
+   scratchId?: string;
+   nextField = 0;
++  private producers?: Map<BatchQuery, object>;
++  private premises?: Map<BatchQuery, AssertedPremise>;
++  private members?: Set<Member>;
++  /** Attribute one queued INSERT to the producer whose row it writes. */
++  recordInsertProducer(insert: BatchQuery, producer: object): void {
++    (this.producers ??= new Map()).set(insert, producer);
++  }
++  /** Record the failure one queued assertion raises when it disagrees. */
++  assertPremise(assertion: BatchQuery, premise: AssertedPremise): void {
++    (this.premises ??= new Map()).set(assertion, premise);
++  }
++  /** Declare one queued statement as belonging to a record-series member. */
++  recordMember(member: Member): void {
++    (this.members ??= new Set()).add(member);
++  }
++  /** Whether any assertion has been recorded, without creating the map. */
++  get hasAssertedPremises(): boolean {
++    return this.premises !== undefined && this.premises.size > 0;
++  }
++  /** The producers recorded so far; this attempt keeps none of them. */
++  drainInsertProducers(): Map<BatchQuery, object> {
++    const producers = this.producers ?? new Map<BatchQuery, object>();
++    this.producers = undefined;
++    return producers;
++  }
++  /** The assertions recorded so far; this attempt keeps none of them. */
++  drainAssertedPremises(): Map<BatchQuery, AssertedPremise> {
++    const premises = this.premises ?? new Map<BatchQuery, AssertedPremise>();
++    this.premises = undefined;
++    return premises;
++  }
++  /** The members declared so far; this attempt keeps none of them. */
++  drainMembers(): Member[] {
++    const members = this.members ? [...this.members] : [];
++    this.members = undefined;
++    return members;
++  }
+ }
+diff --git a/tests/raptor3/g4/review/perf2/digest.test.ts b/tests/raptor3/g4/review/perf2/digest.test.ts
+new file mode 100644
+index 000000000..523582f9d
+--- /dev/null
++++ b/tests/raptor3/g4/review/perf2/digest.test.ts
+@@ -0,0 +1,449 @@
++/**
++ * INDEPENDENT REVIEW — cross-tree behaviour digest for G4 perf pass 2.
 + *
-+ * Three questions the author's pin (`tests/raptor3/g4/unit02/prepared-statement-stability.test.ts`,
-+ * one `findUnique`, one nested `findMany`, one capped `deleteMany` on a
-+ * two-model world) does not ask:
-+ *
-+ * 1. is a statement owner ever RE-ENTERED across the whole shape battery —
-+ *    compound mapped keys, a junction, a variant collection, a self-relation,
-+ *    every read verb, and writes that assemble one statement from several
-+ *    `Queries` fragments?
-+ * 2. does any single published statement declare the same alias twice?
-+ * 3. is every published statement byte-stable across repeated identical calls
-+ *    on ONE engine, including the batch-preparation route where a presence
-+ *    guard is queued ahead of the mutation on the same `Queries`?
++ * Runs the same scenarios under `ff5e77ca` and under the pass, dumping every
++ * statement, parameter list, published value, refusal class, sentence and meta.
++ * The two dumps must be byte-identical. Placed in both trees by the reviewer;
++ * the output path comes from VIBORM_REVIEW_DIGEST.
 + */
 +
-+import assert from "node:assert/strict";
++import { writeFileSync } from "node:fs";
++import { createClient } from "@client/client";
 +import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 +import { SQLite3Driver } from "@drivers/sqlite3";
 +import { createCommandEngine } from "@query-engine/raptor3/commands";
-+import { Queries } from "@query-engine/raptor3/shared/query";
-+import type Database from "better-sqlite3";
-+import { afterAll, afterEach, beforeAll, describe, it } from "vitest";
-+import {
-+  relationWorldSchema,
-+  seedJunctions,
-+  seedRelationWorld,
-+} from "../../read-schema";
-+import { createWitnessWorld, type WitnessWorld } from "../../witness-world";
++import { s } from "@schema";
++import { syncLiveSchema } from "@tests/fixtures/sync-schema";
++import Database from "better-sqlite3";
++import { describe, it } from "vitest";
 +
-+/** The six methods of `Queries` that open a statement's alias scope. */
-+const STATEMENT_OWNERS = [
-+  "select",
-+  "aggregated",
-+  "grouped",
-+  "selectSeries",
-+  "recursive",
-+  "junction",
-+] as const;
-+
-+type OwnerName = (typeof STATEMENT_OWNERS)[number];
-+type AnyFunction = (...args: never[]) => unknown;
-+
-+const entered: string[] = [];
-+let depth = 0;
-+let maxDepth = 0;
-+const originals = new Map<OwnerName, AnyFunction>();
-+
-+beforeAll(() => {
-+  const prototype = Queries.prototype as unknown as Record<string, AnyFunction>;
-+  for (const owner of STATEMENT_OWNERS) {
-+    const original = prototype[owner];
-+    assert.equal(
-+      typeof original,
-+      "function",
-+      `Queries.${owner} is not a method — the probe's owner list is stale`
-+    );
-+    originals.set(owner, original!);
-+    prototype[owner] = function instrumented(
-+      this: unknown,
-+      ...args: never[]
-+    ): unknown {
-+      depth++;
-+      if (depth > maxDepth) maxDepth = depth;
-+      if (depth > 1) entered.push(owner);
-+      try {
-+        return original!.apply(this, args);
-+      } finally {
-+        depth--;
-+      }
-+    } as AnyFunction;
-+  }
-+});
-+
-+afterAll(() => {
-+  const prototype = Queries.prototype as unknown as Record<string, AnyFunction>;
-+  for (const [owner, original] of originals) prototype[owner] = original;
-+});
-+
-+/** Every `"qN"` an alias is DECLARED under in one statement. */
-+function declaredAliases(sql: string): string[] {
-+  return [...sql.matchAll(/AS "(q\d+)"/g)].map((match) => match[1]!);
-+}
-+
-+function assertNoDuplicateAlias(label: string, sql: string): void {
-+  const declared = declaredAliases(sql);
-+  assert.deepEqual(
-+    [...new Set(declared)].length,
-+    declared.length,
-+    `${label} declared one alias twice: ${sql}`
-+  );
-+}
-+
-+type Engine = ReturnType<typeof createCommandEngine>;
-+type EngineOperation = Parameters<Engine["execute"]>[1];
-+
-+interface Call {
-+  readonly label: string;
-+  readonly model: string;
-+  readonly operation: EngineOperation;
-+  readonly args: unknown;
-+}
-+
-+/** Reads and writes that reach every alias minter the read world can reach. */
-+const BATTERY: Call[] = [
-+  {
-+    label: "findUnique compound mapped key",
-+    model: "author",
-+    operation: "findUnique",
-+    args: { where: { tenant_handle: { tenant: "acme", handle: "ada" } } },
-+  },
-+  {
-+    label: "findMany nested to-many + to-one + counts",
-+    model: "author",
-+    operation: "findMany",
-+    args: {
-+      orderBy: { handle: "asc" },
-+      select: {
-+        handle: true,
-+        posts: { orderBy: { id: "asc" }, select: { id: true } },
-+        profile: { select: { headline: true } },
-+        _count: { select: { posts: true, tags: true } },
-+      },
-+    },
-+  },
-+  {
-+    label: "findMany junction collection",
-+    model: "author",
-+    operation: "findMany",
-+    args: {
-+      orderBy: { handle: "asc" },
-+      select: { handle: true, tags: { orderBy: { id: "asc" } } },
-+    },
-+  },
-+  {
-+    label: "findMany self-relation both directions",
-+    model: "author",
-+    operation: "findMany",
-+    args: {
-+      orderBy: { handle: "asc" },
-+      select: {
-+        handle: true,
-+        mentor: { select: { handle: true } },
-+        mentees: { orderBy: { handle: "asc" }, select: { handle: true } },
-+      },
-+    },
-+  },
-+  {
-+    label: "findMany variant collection",
-+    model: "board",
-+    operation: "findMany",
-+    args: { orderBy: { id: "asc" }, select: { id: true, items: true } },
-+  },
-+  {
-+    label: "findMany with a relation filter and a relation order term",
-+    model: "post",
-+    operation: "findMany",
-+    args: {
-+      where: { author: { is: { rank: { gt: 0 } } } },
-+      orderBy: { author: { rank: "asc" } },
-+    },
-+  },
-+  {
-+    label: "findMany cursor window",
-+    model: "post",
-+    operation: "findMany",
-+    args: {
-+      where: { views: { gte: 0 } },
-+      orderBy: { id: "asc" },
-+      cursor: { id: 2 },
-+      skip: 1,
-+      take: 2,
-+    },
-+  },
-+  {
-+    label: "findFirst with a to-many quantifier",
-+    model: "author",
-+    operation: "findFirst",
-+    args: {
-+      where: { posts: { some: { views: { gt: 5 } } } },
-+      orderBy: { handle: "asc" },
-+    },
-+  },
-+  {
-+    label: "count with a selection",
-+    model: "post",
-+    operation: "count",
-+    args: { select: { _all: true, id: true } },
-+  },
-+  {
-+    label: "count plain",
-+    model: "post",
-+    operation: "count",
-+    args: { where: { views: { gt: 1 } } },
-+  },
-+  {
-+    label: "aggregate",
-+    model: "post",
-+    operation: "aggregate",
-+    args: { _count: true, _sum: { views: true }, _max: { views: true } },
-+  },
-+  {
-+    label: "groupBy with having",
-+    model: "post",
-+    operation: "groupBy",
-+    args: {
-+      by: ["authorTenant"],
-+      _count: { id: true },
-+      orderBy: { authorTenant: "asc" },
-+    },
-+  },
-+  {
-+    label: "findMany paginated nested collection (two parents, one child set)",
-+    model: "author",
-+    operation: "findMany",
-+    args: {
-+      orderBy: { handle: "asc" },
-+      select: {
-+        handle: true,
-+        posts: { orderBy: { id: "asc" }, take: 1, skip: 0, select: { id: true } },
-+      },
-+    },
-+  },
-+];
-+
-+/** Writes: several `Queries` fragments assemble ONE statement here. */
-+const WRITE_BATTERY: Call[] = [
-+  {
-+    label: "updateMany with a limit (capped subquery fragment + mutation)",
-+    model: "post",
-+    operation: "updateMany",
-+    args: { where: { views: { gt: 0 } }, data: { title: "x" }, limit: 1 },
-+  },
-+  {
-+    label: "deleteMany with a limit",
-+    model: "post",
-+    operation: "deleteMany",
-+    args: { where: { views: { lt: 0 } }, limit: 1 },
-+  },
-+  {
-+    label: "update with a nested junction set",
-+    model: "author",
-+    operation: "update",
-+    args: {
-+      where: { tenant_handle: { tenant: "acme", handle: "ada" } },
-+      data: { tags: { set: [{ id: 3 }] } },
-+    },
-+  },
-+  {
-+    label: "update with a nested to-many update",
-+    model: "author",
-+    operation: "update",
-+    args: {
-+      where: { tenant_handle: { tenant: "acme", handle: "ada" } },
-+      data: { posts: { update: [{ where: { id: 1 }, data: { views: 11 } }] } },
-+    },
-+  },
-+  {
-+    label: "createMany",
-+    model: "post",
-+    operation: "createMany",
-+    args: {
-+      data: [
-+        { id: 90, slug: "p-90", title: "Ninety", views: 1 },
-+        { id: 91, slug: "p-91", title: "Ninety one", views: 2 },
-+      ],
-+    },
-+  },
-+];
-+
-+describe("G4 perf review — statement-scoped aliases never collide", () => {
-+  let world: WitnessWorld | undefined;
-+
-+  afterEach(async () => {
-+    await world?.close();
-+    world = undefined;
-+  });
-+
-+  it("never re-enters a statement owner, and no statement declares an alias twice", async () => {
-+    const open = await createWitnessWorld(relationWorldSchema(), {
-+      foreignKeys: false,
-+      seed(database) {
-+        seedRelationWorld(database);
-+        seedJunctions(database);
-+      },
-+    });
-+    world = open;
-+    entered.length = 0;
-+    maxDepth = 0;
-+    const observed = new Map<string, string[]>();
-+    for (const call of [...BATTERY, ...WRITE_BATTERY]) {
-+      open.reset();
-+      await open.candidate.execute(call.model, call.operation, call.args);
-+      const sql = open.statements.map((statement) => statement.sql);
-+      assert.ok(sql.length > 0, `${call.label} dispatched no statement`);
-+      for (const statement of sql) assertNoDuplicateAlias(call.label, statement);
-+      observed.set(call.label, sql);
-+    }
-+    assert.deepEqual(
-+      entered,
-+      [],
-+      `a statement owner was entered while another statement was being built: ${entered.join(", ")}`
-+    );
-+    assert.equal(maxDepth, 1, "no statement owner ran at all");
-+    // The battery really does exercise nested scopes, or cell (2) is vacuous.
-+    const nested = observed.get("findMany nested to-many + to-one + counts")![0]!;
-+    assert.ok(
-+      declaredAliases(nested).length > 2,
-+      `the nested projection declared ${declaredAliases(nested).length} aliases: ${nested}`
-+    );
-+  });
-+
-+  it("publishes byte-identical SQL for repeated identical calls on one engine", async () => {
-+    const open = await createWitnessWorld(relationWorldSchema(), {
-+      foreignKeys: false,
-+      seed(database) {
-+        seedRelationWorld(database);
-+        seedJunctions(database);
-+      },
-+    });
-+    world = open;
-+    const first = new Map<string, string[]>();
-+    for (const call of BATTERY) {
-+      open.reset();
-+      await open.candidate.execute(call.model, call.operation, call.args);
-+      first.set(
-+        call.label,
-+        open.statements.map((statement) => statement.sql)
-+      );
-+    }
-+    // Two full passes, so every call has other operations minting aliases
-+    // between its two observations.
-+    for (let pass = 0; pass < 2; pass++) {
-+      for (const call of BATTERY) {
-+        open.reset();
-+        await open.candidate.execute(call.model, call.operation, call.args);
-+        assert.deepEqual(
-+          open.statements.map((statement) => statement.sql),
-+          first.get(call.label),
-+          `${call.label} published different SQL on pass ${pass + 2}`
-+        );
-+      }
-+    }
-+  });
-+});
-+
-+/** A D1-shaped batch-only driver: the batch-preparation route, recorded. */
-+class BatchOnlyDriver extends SQLite3Driver {
-+  override readonly supportsTransactions = false;
-+  override readonly supportsBatch = true;
-+  readonly statements: string[] = [];
++class Recorder extends SQLite3Driver {
++  readonly statements: { sql: string; params: unknown[] }[] = [];
++  readonly control: string[] = [];
++  transactionCalls = 0;
++  batchCalls = 0;
 +  reset(): void {
 +    this.statements.length = 0;
++    this.control.length = 0;
++    this.transactionCalls = 0;
++    this.batchCalls = 0;
 +  }
 +  protected override async execute<T>(
 +    client: Database.Database,
 +    statement: string,
-+    parameters: unknown[]
++    parameters: unknown[],
++    context?: QueryExecutionContext
 +  ): Promise<QueryResult<T>> {
-+    this.statements.push(statement);
++    this.statements.push({ sql: statement, params: parameters });
++    void context;
 +    return super.execute<T>(client, statement, parameters);
 +  }
 +  protected override async executeBatch<T>(
@@ -1275,516 +809,461 @@ index 00000000..7b69994f
 +    queries: BatchQuery[],
 +    context?: QueryExecutionContext
 +  ): Promise<QueryResult<T>[]> {
-+    for (const query of queries) this.statements.push(query.sql);
++    this.batchCalls++;
++    for (const query of queries)
++      this.statements.push({ sql: query.sql, params: query.params ?? [] });
 +    return super.executeBatch<T>(client, queries, context);
 +  }
-+}
-+
-+describe("G4 perf review — the packaged route shares one alias owner", () => {
-+  let world: WitnessWorld | undefined;
-+
-+  afterEach(async () => {
-+    await world?.close();
-+    world = undefined;
-+  });
-+
-+  it("queues a presence guard and its mutation without colliding aliases, twice identically", async () => {
-+    const schema = relationWorldSchema();
-+    const open = await createWitnessWorld(schema, {
-+      foreignKeys: false,
-+      seed(database) {
-+        seedRelationWorld(database);
-+        seedJunctions(database);
-+      },
-+    });
-+    world = open;
-+    const driver = new BatchOnlyDriver({ client: open.database });
-+    const engine = createCommandEngine({ schema, driver });
-+    entered.length = 0;
-+    const runs: string[][] = [];
-+    for (let pass = 0; pass < 3; pass++) {
-+      driver.reset();
-+      await engine.execute("post", "update", {
-+        where: { id: 1 },
-+        data: { views: 10 + pass },
-+      });
-+      // The guard and the mutation are two statements of ONE operation, built
-+      // by one `Queries`: each must be internally consistent…
-+      for (const statement of driver.statements)
-+        assertNoDuplicateAlias("packaged root update", statement);
-+      runs.push([...driver.statements]);
-+    }
-+    assert.ok(runs[0]!.length >= 1, "the packaged route dispatched nothing");
-+    // …and the whole operation's text must not drift between calls.
-+    assert.deepEqual(runs[1], runs[0]);
-+    assert.deepEqual(runs[2], runs[0]);
-+    assert.deepEqual(entered, []);
-+  });
-+});
-diff --git a/tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts b/tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts
-new file mode 100644
-index 00000000..f9b3bd6f
---- /dev/null
-+++ b/tests/raptor3/g4/review/perf/deferred-failure-identity.review.test.ts
-@@ -0,0 +1,396 @@
-+/**
-+ * Independent review probe — G4 performance pass, item 2 (plan-time
-+ * `NestedWriteError`s become `() => Error` thunks).
-+ *
-+ * The seven constructors in `commands/relation-body.ts` moved inside closures
-+ * that capture `verb`, `edge` and (at `:681`) the `required` field list. Two
-+ * things can go wrong that no green suite necessarily catches: a captured
-+ * binding that is not the one the eager construction saw, and a raise site that
-+ * now builds a DIFFERENT object than the one the plan used to carry.
-+ *
-+ * So this probe rebuilds each expected failure from its own constructor, in the
-+ * test, and compares the raised error against it field by field — class, code,
-+ * sentence and `meta` — for every nested verb the two-model world can reach,
-+ * and it runs the SAME shapes through the shipped engine on the same driver as
-+ * a differential oracle. It also asserts the three facts the thunk makes
-+ * newly possible to get wrong: two raises of one plan produce EQUAL (not
-+ * identical) errors, a `capture()`-derived selection carries the same recipe,
-+ * and nothing downstream compares a plan-time failure by identity.
-+ */
-+
-+import assert from "node:assert/strict";
-+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
-+import { SQLite3Driver } from "@drivers/sqlite3";
-+import { NestedWriteError, NotFoundError } from "@errors";
-+import { createCommandEngine } from "@query-engine/raptor3/commands";
-+import { s } from "@schema";
-+import type Database from "better-sqlite3";
-+import { afterEach, describe, it } from "vitest";
-+import { createWitnessWorld, type WitnessWorld } from "../../witness-world";
-+
-+/** A D1-shaped batch-only driver: the route where `retained` is raised. */
-+class BatchOnlyDriver extends SQLite3Driver {
-+  override readonly supportsTransactions = false;
-+  override readonly supportsBatch = true;
-+  protected override async executeBatch<T>(
++  protected override async executeRaw<T>(
 +    client: Database.Database,
-+    queries: BatchQuery[],
++    statement: string,
++    parameters?: unknown[]
++  ): Promise<QueryResult<T>> {
++    this.control.push(statement);
++    return super.executeRaw<T>(client, statement, parameters);
++  }
++  protected override async transaction<T>(
++    client: Database.Database,
++    body: (transaction: Database.Database) => Promise<T>,
 +    context?: QueryExecutionContext
-+  ): Promise<QueryResult<T>[]> {
-+    return super.executeBatch<T>(client, queries, context);
++  ): Promise<T> {
++    this.transactionCalls++;
++    return super.transaction(client, body, context);
 +  }
 +}
 +
-+const OWNER_TABLE = "g4pr_owners";
-+const KID_TABLE = "g4pr_kids";
-+const LOOSE_TABLE = "g4pr_loose";
++const account = s
++  .model({
++    id: s.int().id(),
++    email: s.string().unique(),
++    name: s.string(),
++    age: s.int().nullable(),
++    posts: s.toMany(() => entry),
++  })
++  .map("g4rp2_accounts");
 +
-+function world() {
-+  const owner = s
-+    .model({
-+      id: s.int().id(),
-+      name: s.string(),
-+      kids: s.toMany(() => kid),
-+      loose: s.toMany(() => loose),
-+    })
-+    .map(OWNER_TABLE);
-+  /** A REQUIRED foreign key: a `set` that removes a row cannot disconnect it. */
-+  const kid = s
-+    .model({
-+      id: s.int().id(),
-+      label: s.string(),
-+      ownerId: s.int(),
-+      owner: s.toOne(() => owner).fields("ownerId").references("id"),
-+    })
-+    .map(KID_TABLE);
-+  const loose = s
-+    .model({
-+      id: s.int().id(),
-+      label: s.string(),
-+      ownerId: s.int().nullable(),
-+      owner: s.toOne(() => owner).fields("ownerId").references("id"),
-+    })
-+    .map(LOOSE_TABLE);
-+  return { owner, kid, loose };
++const entry = s
++  .model({
++    id: s.int().id(),
++    title: s.string(),
++    rank: s.int(),
++    accountId: s.int().nullable(),
++    account: s.toOne(() => account).fields("accountId").references("id"),
++  })
++  .map("g4rp2_entries");
++
++const schema = { account, entry };
++
++const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
++
++function scrub(value: unknown): unknown {
++  if (typeof value === "string") return value.replace(UUID, "<uuid>");
++  if (Array.isArray(value)) return value.map(scrub);
++  if (value && typeof value === "object") {
++    const out: Record<string, unknown> = {};
++    for (const key of Object.keys(value as Record<string, unknown>).sort())
++      out[key] = scrub((value as Record<string, unknown>)[key]);
++    return out;
++  }
++  if (typeof value === "bigint") return `${value}n`;
++  return value;
 +}
 +
-+const SEED = `
-+  INSERT INTO ${OWNER_TABLE} (id,name) VALUES (1,'one'),(2,'two');
-+  INSERT INTO ${KID_TABLE} (id,label,ownerId) VALUES (10,'k10',1),(11,'k11',1);
-+  INSERT INTO ${LOOSE_TABLE} (id,label,ownerId) VALUES (20,'l20',1),(21,'l21',NULL);
-+`;
-+
-+async function open(): Promise<WitnessWorld> {
-+  return createWitnessWorld(world(), {
-+    foreignKeys: false,
-+    seed(database) {
-+      database.exec(SEED);
-+    },
-+  });
-+}
-+
-+interface Raised {
-+  readonly name: string;
-+  readonly message: string;
-+  readonly code: unknown;
-+  readonly meta: unknown;
-+}
-+
-+function describeError(error: unknown): Raised {
-+  assert.ok(error instanceof Error, `not an Error: ${String(error)}`);
-+  const carrier = error as Error & { code?: unknown; meta?: unknown };
++function describeError(error: unknown): unknown {
++  if (!(error instanceof Error)) return { thrown: scrub(error) };
++  const meta = (error as { meta?: unknown }).meta;
 +  return {
-+    name: carrier.name,
-+    message: carrier.message,
-+    code: carrier.code,
-+    meta: carrier.meta,
++    class: error.constructor.name,
++    message: scrub(error.message),
++    meta: meta === undefined ? undefined : scrub(meta),
++    cause:
++      error.cause instanceof Error
++        ? { class: error.cause.constructor.name, message: scrub(error.cause.message) }
++        : undefined,
 +  };
 +}
 +
-+async function raise(
-+  run: () => Promise<unknown>
-+): Promise<{ raised: unknown; described: Raised }> {
-+  try {
-+    await run();
-+  } catch (error) {
-+    return { raised: error, described: describeError(error) };
-+  }
-+  throw new Error("the shape did not refuse");
-+}
++describe("review digest", () => {
++  it("dumps every scenario", async () => {
++    const target = process.env.VIBORM_REVIEW_DIGEST;
++    if (!target) return;
++    const database = new Database(":memory:");
++    const driver = new Recorder({ client: database });
++    const client = createClient({ schema, driver });
++    const migration = await syncLiveSchema(client);
++    if (!migration.applied) throw new Error("schema did not apply");
++    await client.account.createMany({
++      data: [
++        { id: 1, email: "ada@x", name: "Ada", age: 36 },
++        { id: 2, email: "bo@x", name: "Bo", age: null },
++      ],
++    });
++    await client.entry.createMany({
++      data: [
++        { id: 10, title: "one", rank: 1, accountId: 1 },
++        { id: 11, title: "two", rank: 2, accountId: 1 },
++        { id: 12, title: "three", rank: 3, accountId: 2 },
++      ],
++    });
 +
-+/** The exact object the PLAN used to carry, rebuilt here from its own class. */
-+const EXPECTED: {
-+  readonly label: string;
-+  readonly model: string;
-+  readonly operation: string;
-+  readonly args: unknown;
-+  readonly expected: () => Error;
-+}[] = [
-+  {
-+    label: "relation-body.ts:218 — nested disconnect, no such target",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 1 }, data: { loose: { disconnect: [{ id: 999 }] } } },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot disconnect relation 'loose': target record was not found for this parent.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label: "relation-body.ts:218 — nested delete, no such target",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 1 }, data: { loose: { delete: [{ id: 999 }] } } },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot delete relation 'loose': target record was not found for this parent.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label: "relation-body.ts:451 — nested connect, no such target",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 1 }, data: { loose: { connect: [{ id: 999 }] } } },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot connect relation 'loose': target record was not found.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label: "relation-body.ts:451 — nested update, no such target for this parent",
-+    model: "owner",
-+    operation: "update",
-+    args: {
-+      where: { id: 1 },
-+      data: {
-+        loose: { update: [{ where: { id: 999 }, data: { label: "x" } }] },
-+      },
-+    },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot update relation 'loose': target record was not found for this parent.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label: "relation-body.ts:451 — nested update of a row owned by ANOTHER parent",
-+    model: "owner",
-+    operation: "update",
-+    args: {
-+      where: { id: 2 },
-+      data: { loose: { update: [{ where: { id: 20 }, data: { label: "x" } }] } },
-+    },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot update relation 'loose': target record was not found for this parent.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label: "relation-body.ts:639 — nested set, no such target",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 1 }, data: { loose: { set: [{ id: 999 }] } } },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot set relation 'loose': target record was not found.",
-+        "loose"
-+      ),
-+  },
-+  {
-+    label:
-+      "relation-body.ts:681 — a set that would orphan a row behind a REQUIRED key",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 1 }, data: { kids: { set: [{ id: 10 }] } } },
-+    expected: () =>
-+      new NestedWriteError(
-+        "Cannot set relation 'kids' because foreign key field(s) ownerId are required: rows removed from the set cannot be disconnected. Delete them instead.",
-+        "kids"
-+      ),
-+  },
-+  {
-+    label: "commands.ts:1285 — the root lookup's own NotFoundError",
-+    model: "owner",
-+    operation: "update",
-+    args: { where: { id: 999 }, data: { name: "x" } },
-+    expected: () => new NotFoundError("owner", "update"),
-+  },
-+];
-+
-+describe("G4 perf review — a deferred failure is the failure it replaced", () => {
-+  let live: WitnessWorld | undefined;
-+
-+  afterEach(async () => {
-+    await live?.close();
-+    live = undefined;
-+  });
-+
-+  it("raises the byte-identical class, sentence, code and meta at every thunked site", async () => {
-+    for (const shape of EXPECTED) {
-+      const open_ = await open();
-+      live = open_;
-+      const { described } = await raise(() =>
-+        open_.candidate.execute(
-+          shape.model,
-+          shape.operation as Parameters<
-+            typeof open_.candidate.execute
-+          >[1],
-+          shape.args
-+        )
-+      );
-+      assert.deepEqual(described, describeError(shape.expected()), shape.label);
-+      await open_.close();
-+      live = undefined;
-+    }
-+  });
-+
-+  it("agrees with the shipped engine on the same shapes and the same driver", async () => {
-+    const disagreements: string[] = [];
-+    for (const shape of EXPECTED) {
-+      const open_ = await open();
-+      live = open_;
-+      const candidate = await raise(() =>
-+        open_.candidate.execute(
-+          shape.model,
-+          shape.operation as Parameters<typeof open_.candidate.execute>[1],
-+          shape.args
-+        )
-+      );
-+      const shipped = await raise(() =>
-+        open_.shipped[shape.model]![shape.operation]!(shape.args)
-+      );
-+      if (
-+        candidate.described.name !== shipped.described.name ||
-+        candidate.described.message !== shipped.described.message
-+      ) {
-+        disagreements.push(
-+          `${shape.label}\n  candidate: ${candidate.described.name}: ${candidate.described.message}\n  shipped:   ${shipped.described.name}: ${shipped.described.message}`
-+        );
++    const dump: Record<string, unknown> = {};
++    const run = async (name: string, body: () => PromiseLike<unknown>) => {
++      driver.reset();
++      let value: unknown;
++      let failure: unknown;
++      try {
++        value = await body();
++      } catch (error) {
++        failure = describeError(error);
 +      }
-+      await open_.close();
-+      live = undefined;
-+    }
-+    assert.deepEqual(disagreements, [], disagreements.join("\n"));
-+  });
++      dump[name] = scrub({
++        value,
++        failure,
++        statements: driver.statements,
++        control: driver.control,
++        transactions: driver.transactionCalls,
++        batches: driver.batchCalls,
++      });
++    };
 +
-+  it("builds an EQUAL failure every time the same plan raises, and never reuses one object", async () => {
-+    const open_ = await open();
-+    live = open_;
-+    const first = await raise(() =>
-+      open_.candidate.execute("owner", "update", {
-+        where: { id: 1 },
-+        data: { loose: { connect: [{ id: 999 }] } },
++    await run("read.default", () => client.account.findUnique({ where: { id: 1 } }));
++    await run("read.default.again", () =>
++      client.account.findUnique({ where: { id: 1 } })
++    );
++    await run("read.default.other", () =>
++      client.account.findUnique({ where: { id: 2 } })
++    );
++    await run("read.select", () =>
++      client.account.findUnique({ where: { id: 1 }, select: { id: true, name: true } })
++    );
++    await run("read.omit", () =>
++      client.account.findUnique({ where: { id: 1 }, omit: { age: true } })
++    );
++    await run("read.default.after.omit", () =>
++      client.account.findUnique({ where: { id: 1 } })
++    );
++    await run("read.include", () =>
++      client.account.findMany({
++        where: { name: { startsWith: "A" } },
++        include: { posts: true },
++        orderBy: { id: "asc" },
 +      })
 +    );
-+    const second = await raise(() =>
-+      open_.candidate.execute("owner", "update", {
-+        where: { id: 1 },
-+        data: { loose: { connect: [{ id: 999 }] } },
++    await run("read.nested.select", () =>
++      client.account.findMany({
++        select: { id: true, posts: { select: { title: true }, take: 2 } },
++        orderBy: { id: "asc" },
 +      })
 +    );
-+    assert.deepEqual(first.described, second.described);
-+    // Two raises are two objects: nothing downstream may key on identity.
-+    assert.equal(first.raised === second.raised, false);
-+  });
-+
-+  it("keeps the nested refusal when a SECOND relation in the same payload also fails", async () => {
-+    const open_ = await open();
-+    live = open_;
-+    // Two nested failures in one payload: the refusal a caller sees is the one
-+    // whose owner runs first, and it must still be the exact sentence.
-+    const { described } = await raise(() =>
-+      open_.candidate.execute("owner", "update", {
-+        where: { id: 1 },
++    await run("read.orThrow.missing", () =>
++      client.account.findUniqueOrThrow({ where: { id: 99 } })
++    );
++    await run("read.count", () => client.entry.count({ where: { rank: { gte: 2 } } }));
++    await run("read.aggregate", () =>
++      client.entry.aggregate({ _sum: { rank: true }, _count: true })
++    );
++    await run("read.groupBy", () =>
++      client.entry.groupBy({ by: ["accountId"], _count: { id: true }, orderBy: { accountId: "asc" } })
++    );
++    await run("write.update", () =>
++      client.account.update({ where: { id: 1 }, data: { name: "Ada2" } })
++    );
++    await run("write.updateMany.in", () =>
++      client.entry.updateMany({
++        where: { id: { in: [10, 11, 12] } },
++        data: { rank: { increment: 1 } },
++      })
++    );
++    await run("write.update.missing", () =>
++      client.account.update({ where: { id: 99 }, data: { name: "x" } })
++    );
++    await run("write.delete.missing", () =>
++      client.account.delete({ where: { id: 99 } })
++    );
++    await run("write.create.unique.conflict", () =>
++      client.account.create({ data: { id: 3, email: "ada@x", name: "Dup" } })
++    );
++    await run("write.create.nested", () =>
++      client.account.create({
 +        data: {
-+          loose: { connect: [{ id: 999 }] },
-+          kids: { set: [{ id: 998 }] },
++          id: 4,
++          email: "cy@x",
++          name: "Cy",
++          posts: { create: [{ id: 20, title: "n1", rank: 1 }, { id: 21, title: "n2", rank: 2 }] },
 +        },
 +      })
 +    );
-+    assert.equal(described.name, "NestedWriteError");
-+    assert.match(
-+      described.message,
-+      /^Cannot (connect relation 'loose'|set relation 'kids'): target record was not found\.$/
++    await run("write.create.nested.conflict", () =>
++      client.account.create({
++        data: {
++          id: 5,
++          email: "dee@x",
++          name: "Dee",
++          posts: { create: [{ id: 30, title: "ok", rank: 1 }, { id: 20, title: "clash", rank: 2 }] },
++        },
++      })
 +    );
-+  });
++    await run("write.upsert.update", () =>
++      client.account.upsert({
++        where: { id: 1 },
++        create: { id: 1, email: "ada@x", name: "AdaC" },
++        update: { name: "AdaU" },
++      })
++    );
++    await run("write.upsert.create", () =>
++      client.account.upsert({
++        where: { id: 7 },
++        create: { id: 7, email: "eve@x", name: "Eve" },
++        update: { name: "EveU" },
++      })
++    );
++    await run("write.createMany", () =>
++      client.entry.createMany({
++        data: [
++          { id: 40, title: "a", rank: 1, accountId: 1 },
++          { id: 41, title: "b", rank: 2, accountId: 2 },
++        ],
++      })
++    );
++    await run("write.deleteMany", () =>
++      client.entry.deleteMany({ where: { id: { in: [40, 41] } } })
++    );
++    await run("write.transaction", () =>
++      client.$transaction(async (tx) => {
++        await tx.entry.update({ where: { id: 10 }, data: { title: "tx" } });
++        return tx.entry.findUnique({ where: { id: 10 } });
++      })
++    );
 +
-+  it("still succeeds, and writes, on the shapes that do NOT fail", async () => {
-+    const open_ = await open();
-+    live = open_;
-+    const engine = createCommandEngine({ schema: world(), driver: open_.driver });
-+    await engine.execute("owner", "update", {
-+      where: { id: 1 },
-+      data: { loose: { connect: [{ id: 21 }] } },
++    // The prepared/packaged seam, through the engine directly.
++    const engine = createCommandEngine({ schema, driver });
++    const packaged = async (
++      name: string,
++      model: string,
++      operation: string,
++      args: unknown
++    ) => {
++      driver.reset();
++      let value: unknown;
++      let failure: unknown;
++      try {
++        const prepared = await engine.prepareBatch(
++          model,
++          operation as Parameters<typeof engine.prepareBatch>[1],
++          args
++        );
++        value = prepared
++          ? {
++              queries: prepared.queries.map((query) => ({
++                sql: query.sql,
++                params: query.params,
++              })),
++              guards: prepared.guards?.map((guard) => ({
++                queryIndex: guard.queryIndex,
++                premise: guard.premise,
++                model: guard.model,
++                operation: guard.operation,
++                failure: guard.failure,
++              })),
++            }
++          : undefined;
++      } catch (error) {
++        failure = describeError(error);
++      }
++      dump[name] = scrub({ value, failure });
++    };
++
++    await packaged("pkg.findUnique", "account", "findUnique", { where: { id: 1 } });
++    await packaged("pkg.findUnique.again", "account", "findUnique", { where: { id: 1 } });
++    await packaged("pkg.findUnique.value", "account", "findUnique", { where: { id: 2 } });
++    await packaged("pkg.findMany.select", "account", "findMany", {
++      select: { id: true, posts: { select: { title: true } } },
++      orderBy: { id: "asc" },
++      take: 5,
 +    });
-+    const rows = open_.database
-+      .prepare(`SELECT id, ownerId FROM ${LOOSE_TABLE} ORDER BY id`)
-+      .all();
-+    assert.deepEqual(rows, [
-+      { id: 20, ownerId: 1 },
-+      { id: 21, ownerId: 1 },
-+    ]);
-+  });
++    await packaged("pkg.delete", "account", "delete", { where: { id: 2 } });
++    await packaged("pkg.updateMany", "entry", "updateMany", {
++      where: { id: { in: [10, 11] } },
++      data: { rank: { increment: 1 } },
++    });
 +
-+  it("raises the same sentences on the BATCH-ONLY route, where `retained` lives", async () => {
-+    const open_ = await open();
-+    live = open_;
-+    const batch = new BatchOnlyDriver({ client: open_.database });
-+    const engine = createCommandEngine({ schema: world(), driver: batch });
-+    const shapes: { label: string; args: unknown; expected: () => Error }[] = [
-+      {
-+        label: "batch nested connect, no such target",
-+        args: { where: { id: 1 }, data: { loose: { connect: [{ id: 999 }] } } },
-+        expected: () =>
-+          new NestedWriteError(
-+            "Cannot connect relation 'loose': target record was not found.",
-+            "loose"
-+          ),
-+      },
-+      {
-+        label: "batch nested update, no such target for this parent",
-+        args: {
-+          where: { id: 1 },
-+          data: {
-+            loose: { update: [{ where: { id: 999 }, data: { label: "x" } }] },
-+          },
-+        },
-+        expected: () =>
-+          new NestedWriteError(
-+            "Cannot update relation 'loose': target record was not found for this parent.",
-+            "loose"
-+          ),
-+      },
-+      {
-+        label: "batch root lookup miss",
-+        args: { where: { id: 999 }, data: { name: "x" } },
-+        expected: () => new NotFoundError("owner", "update"),
-+      },
-+    ];
-+    for (const shape of shapes) {
-+      const { described } = await raise(() =>
-+        engine.execute("owner", "update", shape.args)
-+      );
-+      assert.deepEqual(described, describeError(shape.expected()), shape.label);
-+    }
-+    // `connectOrCreate` carries the `retained` thunk on this route: it must
-+    // still succeed, and the thunk must not be raised when nothing is missing.
-+    await engine.execute("owner", "update", {
++    // Every scenario again, this time THROUGH THE CANDIDATE: the client above
++    // routes to the shipped engine by default, so that half is a control.
++    const direct = async (name: string, model: string, operation: string, args: unknown) => {
++      driver.reset();
++      let value: unknown;
++      let failure: unknown;
++      try {
++        value = await engine.execute(
++          model,
++          operation as Parameters<typeof engine.execute>[1],
++          args
++        );
++      } catch (error) {
++        failure = describeError(error);
++      }
++      dump[`r3.${name}`] = scrub({
++        value,
++        failure,
++        statements: driver.statements,
++        control: driver.control,
++        transactions: driver.transactionCalls,
++        batches: driver.batchCalls,
++      });
++    };
++
++    await direct("read.default", "account", "findUnique", { where: { id: 1 } });
++    await direct("read.default.again", "account", "findUnique", { where: { id: 1 } });
++    await direct("read.default.other", "account", "findUnique", { where: { id: 2 } });
++    await direct("read.select", "account", "findUnique", {
 +      where: { id: 1 },
++      select: { id: true, name: true },
++    });
++    await direct("read.omit", "account", "findUnique", {
++      where: { id: 1 },
++      omit: { age: true },
++    });
++    await direct("read.default.after.omit", "account", "findUnique", { where: { id: 1 } });
++    await direct("read.include", "account", "findMany", {
++      where: { name: { startsWith: "A" } },
++      include: { posts: true },
++      orderBy: { id: "asc" },
++    });
++    await direct("read.nested.select", "account", "findMany", {
++      select: { id: true, posts: { select: { title: true }, take: 2 } },
++      orderBy: { id: "asc" },
++    });
++    await direct("read.orThrow.missing", "account", "findUniqueOrThrow", { where: { id: 99 } });
++    await direct("read.findFirst.desc", "entry", "findFirst", {
++      where: { rank: { gte: 1 } },
++      orderBy: { rank: "desc" },
++    });
++    await direct("read.count", "entry", "count", { where: { rank: { gte: 2 } } });
++    await direct("read.aggregate", "entry", "aggregate", { _sum: { rank: true }, _count: true });
++    await direct("read.groupBy", "entry", "groupBy", {
++      by: ["accountId"],
++      _count: { id: true },
++      orderBy: { accountId: "asc" },
++    });
++    await direct("write.update", "account", "update", {
++      where: { id: 2 },
++      data: { name: "BoR3" },
++    });
++    await direct("write.updateMany.in", "entry", "updateMany", {
++      where: { id: { in: [10, 11, 12] } },
++      data: { rank: { increment: 1 } },
++    });
++    await direct("write.update.missing", "account", "update", {
++      where: { id: 99 },
++      data: { name: "x" },
++    });
++    await direct("write.delete.missing", "account", "delete", { where: { id: 99 } });
++    await direct("write.create.unique.conflict", "account", "create", {
++      data: { id: 60, email: "ada@x", name: "DupR3" },
++    });
++    await direct("write.create.nested", "account", "create", {
 +      data: {
-+        loose: {
-+          connectOrCreate: [
-+            { where: { id: 21 }, create: { id: 21, label: "l21" } },
-+          ],
-+        },
++        id: 61,
++        email: "r3a@x",
++        name: "R3a",
++        posts: { create: [{ id: 70, title: "n1", rank: 1 }, { id: 71, title: "n2", rank: 2 }] },
 +      },
 +    });
-+    const rows = open_.database
-+      .prepare(`SELECT id, ownerId FROM ${LOOSE_TABLE} WHERE id = 21`)
-+      .all();
-+    assert.deepEqual(rows, [{ id: 21, ownerId: 1 }]);
++    await direct("write.create.nested.conflict", "account", "create", {
++      data: {
++        id: 62,
++        email: "r3b@x",
++        name: "R3b",
++        posts: { create: [{ id: 72, title: "ok", rank: 1 }, { id: 70, title: "clash", rank: 2 }] },
++      },
++    });
++    await direct("write.upsert.update", "account", "upsert", {
++      where: { id: 1 },
++      create: { id: 1, email: "ada@x", name: "AdaC" },
++      update: { name: "AdaU3" },
++    });
++    await direct("write.upsert.create", "account", "upsert", {
++      where: { id: 63 },
++      create: { id: 63, email: "r3c@x", name: "R3c" },
++      update: { name: "R3cU" },
++    });
++    await direct("write.createMany", "entry", "createMany", {
++      data: [
++        { id: 80, title: "a", rank: 1, accountId: 1 },
++        { id: 81, title: "b", rank: 2, accountId: 2 },
++      ],
++    });
++    await direct("write.deleteMany", "entry", "deleteMany", { where: { id: { in: [80, 81] } } });
++    await direct("write.connect", "account", "update", {
++      where: { id: 1 },
++      data: { posts: { connect: [{ id: 12 }] } },
++    });
++    await direct("write.nested.update", "account", "update", {
++      where: { id: 1 },
++      data: { posts: { update: [{ where: { id: 10 }, data: { title: "nested" } }] } },
++    });
++    await direct("write.nested.update.missing", "account", "update", {
++      where: { id: 1 },
++      data: { posts: { update: [{ where: { id: 999 }, data: { title: "nope" } }] } },
++    });
++
++    await client.$disconnect();
++    database.close();
++
++    writeFileSync(target, `${JSON.stringify(dump, null, 2)}\n`);
 +  });
 +});
-diff --git a/tests/raptor3/g4/review/perf/perf-review.workspace.ts b/tests/raptor3/g4/review/perf/perf-review.workspace.ts
+diff --git a/tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts b/tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts
 new file mode 100644
-index 00000000..9a66937c
+index 000000000..4e2b69389
 --- /dev/null
-+++ b/tests/raptor3/g4/review/perf/perf-review.workspace.ts
-@@ -0,0 +1,23 @@
++++ b/tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts
+@@ -0,0 +1,316 @@
 +/**
-+ * Runner for the independent review probes of the G4 performance pass.
++ * INDEPENDENT REVIEW — G4 performance pass 2, items 1 and 4.
 + *
-+ * `scripts/credential-free-test-manifest.mjs` excludes `tests/raptor3/g4/review/**`
-+ * from every registered lane, so these probes belong to no project. This
-+ * workspace exists only so they run through the ordinary bounded runner and the
-+ * workspace lock:
++ * Item 1 turned eight per-operation fields of `OperationContext` and three
++ * evidence collections of `TransportAttempt` into first-use accessors. The
++ * failure mode is not slowness: it is a reader that can tell ABSENT from EMPTY.
++ * The author proved the claim by breaking two readers; these probes assert the
++ * positive side from outside — that the machinery really is absent on a pure
++ * read, present the moment a writer needs it, and that every published fact an
++ * operation carries (guards, correlation id, statement text, parameters) is
++ * what it was.
 + *
-+ *   node scripts/run-vitest-safe.mjs run \
-+ *     --workspace=tests/raptor3/g4/review/perf/perf-review.workspace.ts \
-+ *     tests/raptor3/g4/review/perf/
-+ */
-+import { defineWorkspace } from "vitest/config";
-+
-+export default defineWorkspace([
-+  {
-+    extends: "../../../../../vitest.config.ts",
-+    test: {
-+      name: "g4-perf-review",
-+      include: ["tests/raptor3/g4/review/perf/*.test.ts"],
-+    },
-+  },
-+]);
-diff --git a/tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts b/tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts
-new file mode 100644
-index 00000000..cf3e3af8
---- /dev/null
-+++ b/tests/raptor3/g4/review/perf/sentinel-and-scalars.review.test.ts
-@@ -0,0 +1,189 @@
-+/**
-+ * Independent review probe — G4 performance pass, items 1 (lazy control-flow
-+ * sentinels) and 4 (`EngineSchema.scalars` trim).
-+ *
-+ * Item 1 turned two `readonly` fields into first-use getters. The failure mode
-+ * the change introduces is not "the sentinel is slow" but "the sentinel is not
-+ * the same object twice": `isIncompletePreparation(error)` reads the getter
-+ * INSIDE the `catch`, so a getter that forgot to memoise, or one that
-+ * materialised a second sentinel on a second read, would make `prepareBatch`
-+ * either swallow a real error or refuse to recognise its own. Both are silent.
-+ * These cells pin the two halves: the sentinel path answers `undefined`, and a
-+ * real refusal raised on the same path still ESCAPES `prepareBatch`.
-+ *
-+ * Item 4 replaced `Object.fromEntries(names.filter(…).map(…))` with a loop.
-+ * The cells below compare the live implementation against that exact reference
-+ * expression on the same inputs — keys, order, values and prototype — and pin
-+ * the one input class where a loop and `Object.fromEntries` genuinely differ
-+ * (`CreateDataPropertyOrThrow` versus an assignment that can hit a setter).
++ * Item 4 stopped freezing each prepared operand. Freezing is not observable,
++ * so the observable consequence is the only thing worth pinning: the same
++ * admitted list lowers to the same statement and the same parameters however
++ * many times it is lowered, in every mode that re-reads an operand.
 + */
 +
 +import assert from "node:assert/strict";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 +import { createCommandEngine } from "@query-engine/raptor3/commands";
++import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
++import { Queries } from "@query-engine/raptor3/shared/query";
 +import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
 +import { afterEach, describe, it } from "vitest";
-+import { cost, createWorld, worldSchema, type World } from "../../unit02/world";
++import { createWorld, worldSchema, type World } from "../../unit02/world";
 +
-+describe("G4 perf review — the lazy sentinels keep their identity", () => {
++/** The private field block, read by name — this is a white-box falsifier. */
++type ContextInternals = {
++  attemptStore?: unknown;
++  committedMemberSet?: unknown;
++  memberAttributionMap?: unknown;
++  continuationList?: unknown;
++  preparedGuardList?: unknown;
++  answeredFailureSet?: unknown;
++  correlationIdValue?: unknown;
++};
++
++const internals = (context: OperationContext): ContextInternals =>
++  context as unknown as ContextInternals;
++
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
++
++describe("review/perf2 — a pure read allocates no write machinery", () => {
 +  let world: World | undefined;
 +
 +  afterEach(async () => {
@@ -1792,321 +1271,812 @@ index 00000000..cf3e3af8
 +    world = undefined;
 +  });
 +
-+  it("answers undefined for an operation that cannot be packaged, every time", async () => {
++  it("materialises nothing for a findUnique that executes", async () => {
 +    const open = await createWorld();
 +    world = open;
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: open.driver,
++    const schema = new EngineSchema(worldSchema);
++    const context = new OperationContext(
++      schema,
++      open.driver,
++      "author",
++      "findUnique"
++    );
++    const args = schema.admit(worldSchema.author, "findUnique", {
++      where: { id: 1 },
 +    });
-+    // A nested write whose plan needs a row it has not read yet cannot be
-+    // packaged statically: the sentinel is raised and recognised by identity.
-+    for (let repeat = 0; repeat < 4; repeat++) {
-+      const prepared = await engine.prepareBatch("author", "update", {
-+        where: { id: 1 },
-+        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
-+      });
-+      assert.equal(
-+        prepared,
-+        undefined,
-+        "a dynamic operation packaged statically"
-+      );
-+    }
-+    // …while a statically packageable one still packages, on the same engine,
-+    // interleaved with the sentinel path so one cannot mask the other.
-+    for (let repeat = 0; repeat < 4; repeat++) {
-+      const packaged = await engine.prepareBatch("author", "findUnique", {
-+        where: { id: 1 },
-+        select: { id: true },
-+      });
-+      assert.ok(packaged, "a static read did not package");
-+      await engine.prepareBatch("author", "update", {
-+        where: { id: 1 },
-+        data: { posts: { update: [{ where: { id: 10 }, data: { rank: 9 } }] } },
-+      });
-+    }
++    const value = await context.run(() =>
++      context.publish(context.queries.read(worldSchema.author, "findUnique", args))
++    );
++    assert.deepEqual(value, {
++      id: 1,
++      name: "Ada",
++      age: 36,
++      avatar: null,
++    });
++
++    const field = internals(context);
++    assert.equal(field.attemptStore, undefined, "a read built a TransportAttempt");
++    assert.equal(field.committedMemberSet, undefined);
++    assert.equal(field.memberAttributionMap, undefined);
++    assert.equal(field.continuationList, undefined);
++    assert.equal(field.preparedGuardList, undefined);
++    assert.equal(field.answeredFailureSet, undefined);
++    // A context nobody attributed mints ONE id, because the statement it
++    // dispatches needs an execution context of its own — that is the program
++    // specimen's shape, not the client route's.
++    assert.match(field.correlationIdValue as string, UUID);
++    // One statement, no transaction: the read's physical cost is unchanged.
++    assert.equal(open.driver.statements.length, 1);
++    assert.equal(open.driver.transactionCalls, 0);
++
++    // The client route's shape: the caller's own trusted context is handed
++    // down, so the read mints nothing at all. This is the path every measured
++    // cell runs, and the one the pass's `crypto.randomUUID` claim rests on.
++    const caller = {
++      model: "author",
++      operation: "findUnique",
++      correlationId: "review-perf2",
++    };
++    const attributed = new OperationContext(
++      schema,
++      open.driver,
++      "author",
++      "findUnique",
++      undefined,
++      false,
++      caller
++    );
++    await attributed.run(() =>
++      attributed.publish(
++        attributed.queries.read(worldSchema.author, "findUnique", args)
++      )
++    );
++    const attributedFields = internals(attributed);
++    assert.equal(attributedFields.attemptStore, undefined);
++    assert.equal(
++      attributedFields.correlationIdValue,
++      undefined,
++      "an attributed read minted a correlation id nothing reads"
++    );
++    assert.deepEqual(open.driver.statements.at(-1)!.context, caller);
 +  });
 +
-+  it("lets a REAL refusal escape prepareBatch instead of answering undefined", async () => {
++  it("mints one stable correlation id, and only on demand", async () => {
 +    const open = await createWorld();
 +    world = open;
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: open.driver,
-+    });
-+    let raised: unknown;
-+    let escaped = "";
-+    try {
-+      await engine.prepareBatch("author", "findMany", {
-+        // A registered refusal, raised on the same preparation path the
-+        // sentinel travels.
-+        orderBy: { posts: { rank: "asc" } },
-+        cursor: { id: 1 },
-+      });
-+    } catch (error) {
-+      raised = error;
-+    }
-+    assert.ok(
-+      raised instanceof Error,
-+      "prepareBatch swallowed a real refusal as an incomplete preparation"
++    const schema = new EngineSchema(worldSchema);
++    const context = new OperationContext(
++      schema,
++      open.driver,
++      "author",
++      "findUnique"
++    );
++    assert.equal(internals(context).correlationIdValue, undefined);
++    const first = context.attribution.correlationId;
++    const second = context.attribution.correlationId;
++    assert.equal(typeof first, "string");
++    assert.match(first as string, UUID);
++    assert.equal(second, first, "the correlation id is not stable");
++
++    const other = new OperationContext(
++      schema,
++      open.driver,
++      "author",
++      "findUnique"
 +    );
 +    assert.notEqual(
-+      (raised as Error).message,
-+      "Raptor 3 operation requires dynamic execution",
-+      "prepareBatch leaked its own control-flow sentinel to the caller"
++      other.attribution.correlationId,
++      first,
++      "two operations share one correlation id"
 +    );
-+    escaped = `${(raised as Error).name}: ${(raised as Error).message}`;
-+    assert.match(escaped, /Error: .+/);
++
++    // A caller that hands its own trusted context down is still the authority.
++    const caller = { model: "author", operation: "findUnique", correlationId: "given" };
++    const passed = new OperationContext(
++      schema,
++      open.driver,
++      "author",
++      "findUnique",
++      undefined,
++      false,
++      caller
++    );
++    assert.equal(passed.attribution, caller);
++    assert.equal(
++      internals(passed).correlationIdValue,
++      undefined,
++      "a caller-attributed operation minted a correlation id anyway"
++    );
 +  });
 +
-+  it("keeps the envelope sentinel's deferred re-entry, with the frozen physical cost", async () => {
++  it("publishes guards for a packaged unique delete and none for a packaged read", async () => {
 +    const open = await createWorld();
 +    world = open;
 +    const engine = createCommandEngine({
 +      schema: worldSchema,
 +      driver: open.driver,
 +    });
-+    open.driver.reset();
-+    await engine.execute("author", "create", {
-+      data: {
-+        id: 40,
-+        name: "Zed",
-+        age: 20,
-+        posts: { create: [{ id: 40, title: "z", rank: 1 }] },
-+      },
++
++    const read = await engine.prepareBatch("author", "findUnique", {
++      where: { id: 1 },
 +    });
-+    const observed = cost(open.driver);
-+    // The envelope sentinel is raised once, caught by identity in `run`, and
-+    // the operation is replayed inside its physical envelope: one transaction.
-+    assert.equal(observed.transactions, 1);
-+    assert.ok(observed.statements >= 2);
-+    const rows = open.database
-+      .prepare("SELECT id, authorId FROM g4u2_posts WHERE id = 40")
-+      .all();
-+    assert.deepEqual(rows, [{ id: 40, authorId: 40 }]);
++    assert.ok(read, "the read did not package");
++    assert.equal(
++      Object.hasOwn(read, "guards"),
++      false,
++      "a packaged read published a guards key"
++    );
++    assert.equal(read.queries.length, 1);
++
++    const removal = await engine.prepareBatch("author", "delete", {
++      where: { id: 2 },
++    });
++    assert.ok(removal, "the delete did not package");
++    assert.ok(removal.guards, "a packaged unique delete published no guard");
++    assert.equal(removal.guards.length, 1);
++    assert.equal(removal.guards[0]!.premise, "exists");
++    assert.equal(removal.guards[0]!.queryIndex, 0);
 +  });
 +});
 +
-+/** The expression `EngineSchema.scalars` replaced, verbatim. */
-+function referenceScalars(
-+  names: readonly string[],
-+  admitted: Record<string, unknown>
-+): Record<string, unknown> {
-+  return Object.fromEntries(
-+    names
-+      .filter((field) => admitted[field] !== undefined)
-+      .map((field) => [field, admitted[field]])
-+  );
-+}
++describe("review/perf2 — the shared projection publishes the same statement", () => {
++  let world: World | undefined;
 +
-+describe("G4 perf review — the scalars trim is a pure reuse", () => {
-+  it("answers the same keys, order, values and prototype as the expression it replaced", () => {
-+    const schema = new EngineSchema(worldSchema);
-+    const names = worldSchema.author["~"].scalarFieldNames;
-+    assert.ok(names.length > 2, "the world lost its scalars");
-+    const payloads: Record<string, unknown>[] = [
-+      {},
-+      { id: 1 },
-+      { name: "a", id: 2, age: 3 },
-+      { age: 0, name: "", avatar: null },
-+      { id: undefined, name: "kept" },
-+      { id: 1, name: "n", age: 2, avatar: null, posts: [{ id: 1 }] },
-+      { notAField: 9, id: 5 },
-+    ];
-+    for (const payload of payloads) {
-+      const live = schema.scalars(worldSchema.author, payload);
-+      const reference = referenceScalars(names, payload);
-+      assert.deepEqual(live, reference, JSON.stringify(payload));
-+      assert.deepEqual(Object.keys(live), Object.keys(reference));
-+      assert.equal(Object.getPrototypeOf(live), Object.getPrototypeOf(reference));
-+      for (const key of Object.keys(reference))
++  afterEach(async () => {
++    await world?.close();
++    world = undefined;
++  });
++
++  it("repeats one default read byte for byte, and rebinds only its values", async () => {
++    const open = await createWorld();
++    world = open;
++    const engine = createCommandEngine({
++      schema: worldSchema,
++      driver: open.driver,
++    });
++    const publish = async (id: number) => {
++      const prepared = await engine.prepareBatch("author", "findUnique", {
++        where: { id },
++      });
++      assert.ok(prepared);
++      return prepared.queries.map((query) => ({
++        sql: query.sql,
++        params: query.params,
++      }));
++    };
++
++    const first = await publish(1);
++    const second = await publish(1);
++    assert.deepEqual(second, first, "two identical default reads drifted");
++    assert.equal(first.length, 1);
++    // The default projection names every scalar, under the statement's alias.
++    assert.match(first[0]!.sql, /"q0"/);
++    assert.match(first[0]!.sql, /"avatar"/);
++
++    const third = await publish(2);
++    assert.equal(
++      third[0]!.sql,
++      first[0]!.sql,
++      "the same structure with a different value changed the statement"
++    );
++    assert.deepEqual(third[0]!.params, [2]);
++    assert.deepEqual(first[0]!.params, [1]);
++  });
++
++  it("never serves the default projection to an omit, at the client seam", async () => {
++    const open = await createWorld();
++    world = open;
++    // Warm the memo first: the interleaving is what a memo gets wrong.
++    await open.client.author.findUnique({ where: { id: 1 } });
++    const warm = open.driver.statements.at(-1)!.sql;
++    assert.match(warm, /"age"/);
++
++    const hidden = await open.client.author.findUnique({
++      where: { id: 1 },
++      omit: { age: true },
++    });
++    const omitted = open.driver.statements.at(-1)!.sql;
++    assert.equal(
++      /"age"/.test(omitted),
++      false,
++      "an omit received the shared default projection"
++    );
++    assert.equal(Object.hasOwn(hidden ?? {}, "age"), false);
++
++    // …and the default is still the default afterwards.
++    const again = await open.client.author.findUnique({ where: { id: 1 } });
++    assert.match(open.driver.statements.at(-1)!.sql, /"age"/);
++    assert.equal((again as { age?: number }).age, 36);
++  });
++});
++
++describe("review/perf2 — an unfrozen operand still lowers once and the same", () => {
++  it("lowers one admitted list identically in every re-reading mode", () => {
++    const account = s
++      .model({
++        id: s.int().id(),
++        label: s.string(),
++      })
++      .map("g4_review_perf2_operands");
++    const schema = { account };
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const labels = ["Ada", "Bo", "Cy"];
++
++    const cases: Record<string, unknown> = {
++      plain: { label: { in: labels } },
++      negated: { label: { notIn: labels } },
++      insensitive: { label: { in: labels, mode: "insensitive" } },
++      equality: { label: { equals: "Ada", mode: "insensitive" } },
++    };
++
++    for (const [name, where] of Object.entries(cases)) {
++      const selector = queries.prepareSelector(
++        account,
++        where as Record<string, unknown>
++      );
++      const first = queries.lowerSelector(selector, "q0");
++      const second = queries.lowerSelector(selector, "q0");
++      const third = queries.lowerSelector(selector, "q1");
++      assert.ok(first && second && third, `${name} lowered to nothing`);
++      assert.equal(
++        second.toStatement("?"),
++        first.toStatement("?"),
++        `${name} drifted when lowered twice`
++      );
++      assert.deepEqual(second.values, first.values, `${name} rebound values`);
++      assert.deepEqual(third.values, first.values, `${name} lost its values`);
++      // Lowering consumed nothing: the admitted members are still all there.
++      if (name === "plain" || name === "negated" || name === "insensitive")
 +        assert.equal(
-+          Object.is(live[key], reference[key]),
-+          true,
-+          `${key} lost value identity`
++          first.values.length,
++          labels.length,
++          `${name} lost a member`
 +        );
 +    }
 +  });
-+
-+  it("never lets a payload key reach the result's prototype", () => {
-+    const schema = new EngineSchema(worldSchema);
-+    // `values[field] = value` differs from `Object.fromEntries` for exactly one
-+    // key: `__proto__` invokes the inherited setter instead of creating an own
-+    // property. The trim is only safe while no model can declare that field —
-+    // this cell states the precondition, so a schema change that allows it
-+    // fails here rather than silently mutating a prototype.
-+    assert.equal(
-+      worldSchema.author["~"].scalarFieldNames.includes("__proto__"),
-+      false
-+    );
-+    const result = schema.scalars(worldSchema.author, {
-+      id: 1,
-+      __proto__: { poisoned: true },
-+    } as Record<string, unknown>);
-+    assert.equal(Object.getPrototypeOf(result), Object.prototype);
-+    assert.equal("poisoned" in result, false);
-+  });
 +});
-diff --git a/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
+diff --git a/tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts b/tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts
 new file mode 100644
-index 00000000..d4657495
+index 000000000..de527474d
 --- /dev/null
-+++ b/tests/raptor3/g4/unit02/prepared-statement-stability.test.ts
-@@ -0,0 +1,157 @@
++++ b/tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts
+@@ -0,0 +1,184 @@
 +/**
-+ * G4 performance pass, item 3 — a statement's aliases are a fact of that
-+ * statement, not of the engine's history.
++ * INDEPENDENT REVIEW — G4 performance pass 2, item 2 (memoised schema facts).
 + *
-+ * `Queries` used to mint table aliases from an instance-lifetime counter, and
-+ * `commands/index.ts` keeps ONE engine-lifetime `Queries` for the prepared
-+ * read, so the same `findUnique` published `q0`, then `q1`, … `q10000`: its
-+ * statement TEXT was unique per call. The cutover protocol recorded that as a
-+ * measurement obstacle (`g4/cutover/protocol.md` §7.2,
-+ * `receipts-stage2/prepared-sql-alias-drift.json`), and any transport that
-+ * caches by statement text — PostgreSQL named prepared statements, `mysql2`'s
-+ * prepare cache, D1/PlanetScale/Neon — would miss every time while growing a
-+ * per-connection cache keyed on a counter that never repeats.
++ * The author's own cells pin two `Queries` over one `EngineSchema`, a second
++ * ADAPTER, and a query-level `omit`. These probes attack the three keys the
++ * author did NOT separate:
 + *
-+ * `Queries.rootAlias` is the fix: the six owners that assemble a COMPLETE
-+ * statement open its alias scope, and nothing else does. These cells pin both
-+ * halves of that rule — the same query always emits the same text, and the
-+ * subqueries INSIDE one statement keep sharing its scope, which is what makes
-+ * the aliases unique where it matters.
++ *  - a second `EngineSchema` over the SAME model objects and the SAME adapter
++ *    object (two clients over one schema module is the real deployment shape);
++ *  - a second schema whose models carry the same NAMES but different fields —
++ *    the memo must not publish one model's field list for another;
++ *  - a model-level `.omit()`, which is the one omission that never travels in
++ *    the args at all and therefore cannot be desugared into `select`: if the
++ *    memo ever captured a pre-omit field list, a hidden column would ship.
 + *
-+ * Not registered in `scripts/raptor3-manifest.mjs` by this unit (the pass edits
-+ * no manifest); the count is reported to the integrator for `g4-unit02-author`.
++ * And the alias question the sharing raises: the SAME frozen projection is now
++ * lowered by many statements, so lowering must neither mutate it nor leak an
++ * alias into the next statement.
 + */
 +
 +import assert from "node:assert/strict";
-+import { createCommandEngine } from "@query-engine/raptor3/commands";
-+import { afterEach, describe, it } from "vitest";
-+import { createWorld, worldSchema, type World } from "./world";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import type { Sql } from "@sql";
++import { describe, it } from "vitest";
 +
-+let world: World | undefined;
-+
-+afterEach(async () => {
-+  await world?.close();
-+  world = undefined;
-+});
-+
-+/** The statement texts one prepared operation publishes, in order. */
-+async function preparedSql(
-+  engine: ReturnType<typeof createCommandEngine>,
-+  model: string,
-+  operation: string,
-+  args: unknown
-+): Promise<string[]> {
-+  const prepared = await engine.prepareBatch(
-+    model,
-+    operation as Parameters<typeof engine.prepareBatch>[1],
-+    args
-+  );
-+  assert.ok(prepared, `${model}.${operation} did not package statically`);
-+  return prepared.queries.map((query) => query.sql);
++function names(projection: { fields: readonly { name: string }[] }): string[] {
++  return projection.fields.map((field) => field.name);
 +}
 +
-+describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
-+  it("publishes byte-identical SQL for two successive identical findUnique calls", async () => {
-+    world = await createWorld();
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: world.driver,
-+    });
-+    const args = { where: { id: 1 }, select: { id: true, name: true } };
-+    const first = await preparedSql(engine, "author", "findUnique", args);
-+    const second = await preparedSql(engine, "author", "findUnique", args);
-+    assert.deepEqual(second, first);
-+    assert.equal(first.length, 1);
-+    // Every statement starts at `q0`, so the text is a function of the query.
-+    assert.match(first[0]!, /"q0"/);
-+    assert.doesNotMatch(first[0]!, /"q1"/);
++/** Two independent schema modules that share nothing but their model NAMES. */
++function wideSchema() {
++  const account = s
++    .model({
++      id: s.int().id(),
++      email: s.string(),
++      secret: s.string(),
++    })
++    .map("g4_review_perf2_accounts");
++  return { account };
++}
 +
-+    // …and it stays that text after twenty more of the same call, and after
-+    // OTHER operations have minted aliases on the same engine in between.
-+    for (let index = 0; index < 20; index++) {
-+      assert.deepEqual(
-+        await preparedSql(engine, "author", "findUnique", args),
-+        first
-+      );
-+      assert.deepEqual(
-+        await preparedSql(engine, "post", "findMany", {
-+          where: { rank: { gt: 0 } },
-+          select: { id: true },
-+        }),
-+        await preparedSql(engine, "post", "findMany", {
-+          where: { rank: { gt: 0 } },
-+          select: { id: true },
-+        })
-+      );
++function narrowSchema() {
++  const account = s
++    .model({
++      id: s.int().id(),
++      nickname: s.string(),
++    })
++    .map("g4_review_perf2_accounts");
++  return { account };
++}
++
++/** A model whose `.omit()` is SCHEMA truth: it never travels in the args. */
++function hiddenSchema() {
++  const person = s
++    .model({
++      id: s.int().id(),
++      name: s.string(),
++      passwordHash: s.string(),
++    })
++    .omit({ passwordHash: true })
++    .map("g4_review_perf2_people");
++  return { person };
++}
++
++describe("review/perf2 — what the (adapter, model) memo may not share", () => {
++  it("does not let a second EngineSchema read the first one's memo", () => {
++    const schema = wideSchema();
++    // The deployment shape the author did not separate: one adapter object and
++    // one set of model objects, two engines over them.
++    const adapter = new SQLiteAdapter();
++    const first = new Queries(new EngineSchema(schema), adapter);
++    const second = new Queries(new EngineSchema(schema), adapter);
++
++    const mine = first.prepareProjection(schema.account, {});
++    const theirs = second.prepareProjection(schema.account, {});
++    assert.notEqual(
++      mine,
++      theirs,
++      "a second EngineSchema over the same adapter read the first one's memo"
++    );
++    assert.deepEqual(names(mine), names(theirs));
++    assert.deepEqual(names(mine), ["id", "email", "secret"]);
++
++    // Within each engine the memo still holds.
++    assert.equal(first.prepareProjection(schema.account, {}), mine);
++    assert.equal(second.prepareProjection(schema.account, {}), theirs);
++  });
++
++  it("never publishes one schema's field list for a same-named model of another", () => {
++    const wide = wideSchema();
++    const narrow = narrowSchema();
++    const adapter = new SQLiteAdapter();
++    // One EngineSchema per client, as the engine factories build them, but the
++    // WORST case for the memo: the same adapter object for both.
++    const wideQueries = new Queries(new EngineSchema(wide), adapter);
++    const narrowQueries = new Queries(new EngineSchema(narrow), adapter);
++
++    assert.deepEqual(names(wideQueries.prepareProjection(wide.account, {})), [
++      "id",
++      "email",
++      "secret",
++    ]);
++    assert.deepEqual(
++      names(narrowQueries.prepareProjection(narrow.account, {})),
++      ["id", "nickname"]
++    );
++    // …and again, in the other order, after both memos are warm.
++    assert.deepEqual(
++      names(narrowQueries.prepareProjection(narrow.account, {})),
++      ["id", "nickname"]
++    );
++    assert.deepEqual(names(wideQueries.prepareProjection(wide.account, {})), [
++      "id",
++      "email",
++      "secret",
++    ]);
++  });
++
++  it("keeps a model-level .omit() out of the shared default projection", () => {
++    const schema = hiddenSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const first = queries.prepareProjection(schema.person, {});
++    assert.deepEqual(names(first), ["id", "name"]);
++    // The memo must answer the SAME hidden-column-free projection every time.
++    const second = queries.prepareProjection(schema.person, {});
++    assert.equal(second, first);
++    assert.deepEqual(names(second), ["id", "name"]);
++    assert.equal(
++      names(second).includes("passwordHash"),
++      false,
++      "a model-level .omit()-ed column reached the shared default projection"
++    );
++    assert.equal(
++      JSON.stringify(Object.keys(first.shape.fields)),
++      JSON.stringify(["id", "name"])
++    );
++  });
++
++  it("lowers one shared projection under many aliases without mutating it", () => {
++    const schema = wideSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const shared = queries.prepareProjection(schema.account, {});
++    const snapshot = JSON.stringify(names(shared));
++
++    const zero = queries.lowerProjection(shared, "q0");
++    const one = queries.lowerProjection(shared, "q1");
++    const zeroAgain = queries.lowerProjection(shared, "q0");
++
++    const text = (lowered: { readonly columns: readonly Sql[] }) =>
++      lowered.columns.map((column) => column.toStatement("?")).join(", ");
++
++    assert.notEqual(text(zero), text(one), "the alias did not reach the SQL");
++    assert.equal(
++      text(zeroAgain),
++      text(zero),
++      "lowering the shared projection twice under one alias drifted"
++    );
++    assert.match(text(zero), /"q0"/);
++    assert.doesNotMatch(text(zero), /"q1"/);
++    // The shared value itself is untouched, and is still the memo's answer.
++    assert.equal(JSON.stringify(names(shared)), snapshot);
++    assert.equal(queries.prepareProjection(schema.account, {}), shared);
++  });
++
++  it("gives two dialects their own leaf for the same field", () => {
++    const schema = wideSchema();
++    const engine = new EngineSchema(schema);
++    const sqlite = new Queries(engine, new SQLiteAdapter());
++    const postgres = new Queries(engine, new PostgresAdapter());
++    const mine = sqlite.prepareProjection(schema.account, {});
++    const theirs = postgres.prepareProjection(schema.account, {});
++    assert.notEqual(mine, theirs, "two dialects shared one projection");
++    assert.notEqual(
++      mine.shape.fields.email,
++      theirs.shape.fields.email,
++      "two dialects shared one leaf"
++    );
++    assert.deepEqual(names(mine), names(theirs));
++  });
++});
+diff --git a/tests/raptor3/g4/review/perf2/resolution-check.review.test.ts b/tests/raptor3/g4/review/perf2/resolution-check.review.test.ts
+new file mode 100644
+index 000000000..891f819f6
+--- /dev/null
++++ b/tests/raptor3/g4/review/perf2/resolution-check.review.test.ts
+@@ -0,0 +1,61 @@
++/**
++ * INDEPENDENT REVIEW — the exact resolution proposed for finding 1.
++ *
++ * `tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts` imports
++ * `PreparedPredicate` as a named type, which `shared/query.ts` declares
++ * locally and does not export, so the whole-estate typecheck carries a third
++ * diagnostic (TS2459) beyond the two permitted Pattern ones. This cell proves
++ * the replacement alias compiles and names the same type, so the author can
++ * apply it verbatim without touching a production file.
++ */
++
++import assert from "node:assert/strict";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { describe, it } from "vitest";
++
++/** The prepared predicate type, read from the one owner that publishes it. */
++type PreparedPredicate = NonNullable<
++  ReturnType<Queries["prepareSelector"]>["predicate"]
++>;
++
++function findIn(
++  predicate: PreparedPredicate | undefined
++): Extract<PreparedPredicate, { kind: "operation" }> | undefined {
++  if (!predicate) return undefined;
++  if (predicate.kind === "operation")
++    return predicate.operator === "in" ? predicate : undefined;
++  if (predicate.kind === "and" || predicate.kind === "or") {
++    for (const member of predicate.predicates) {
++      const found = findIn(member);
++      if (found) return found;
 +    }
++  }
++  if (predicate.kind === "not") return findIn(predicate.predicate);
++  return undefined;
++}
++
++describe("review/perf2 — the TS2459 resolution", () => {
++  it("names the same predicate type without importing a local declaration", () => {
++    const account = s
++      .model({ id: s.int().id(), label: s.string() })
++      .map("g4_review_perf2_resolution");
++    const queries = new Queries(
++      new EngineSchema({ account }),
++      new SQLiteAdapter()
++    );
++    const selector = queries.prepareSelector(account, { id: { in: [1, 2, 3] } });
++    const operation = findIn(selector.predicate);
++    assert.ok(operation, "the alias did not resolve the `in` operation");
++    assert.equal(Object.isFrozen(operation), true);
++    assert.equal(Object.isFrozen(operation.operands), true);
 +    assert.deepEqual(
-+      await preparedSql(engine, "author", "findUnique", args),
-+      first
++      operation.operands?.map((operand) =>
++        operand.kind === "value" ? operand.value : "field"
++      ),
++      [1, 2, 3]
++    );
++  });
++});
+diff --git a/tests/raptor3/g4/review/perf2/review.workspace.ts b/tests/raptor3/g4/review/perf2/review.workspace.ts
+new file mode 100644
+index 000000000..483612de8
+--- /dev/null
++++ b/tests/raptor3/g4/review/perf2/review.workspace.ts
+@@ -0,0 +1,20 @@
++/**
++ * Runner for the G4 performance pass 2 INDEPENDENT REVIEW probe suite.
++ *
++ *   node scripts/run-vitest-safe.mjs run \
++ *     --workspace=tests/raptor3/g4/review/perf2/review.workspace.ts \
++ *     tests/raptor3/g4/review/perf2/
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` — a review workspace only.
++ */
++import { defineWorkspace } from "vitest/config";
++
++export default defineWorkspace([
++  {
++    extends: "../../../../../vitest.config.ts",
++    test: {
++      name: "g4-review-perf2",
++      include: ["tests/raptor3/g4/review/perf2/*.test.ts"],
++    },
++  },
++]);
+diff --git a/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts b/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts
+new file mode 100644
+index 000000000..ca2b84755
+--- /dev/null
++++ b/tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts
+@@ -0,0 +1,256 @@
++/**
++ * G4 performance pass 2, item 2 — an immutable schema fact is resolved once.
++ *
++ * `Queries.prepareProjection` rebuilt the model's DEFAULT projection on every
++ * read: `Object.fromEntries(scalarFieldNames.filter(…).map(…))`, then a fresh
++ * frozen descriptor and a fresh frozen leaf per field, on an input that names
++ * neither `select` nor `include` and therefore depends on nothing but the model
++ * and the dialect (`g4/perf2/note.md` §0.4, rows 1 and 3). It is now memoised
++ * per (adapter, model), and each scalar leaf per (adapter, model, field).
++ *
++ * A memo is only as good as what it refuses to hold, so these cells pin the
++ * refusals, not the speed:
++ *
++ * - an operation that names `select`, `include` or `omit` still prepares its
++ *   own projection, and never receives — or replaces — the shared one. `omit`
++ *   is the load-bearing case, because the memo's whole safety argument is that
++ *   admission desugars an operation-level `omit` into `select` before the
++ *   projection owner ever sees it (rule 5: capture is not permanent truth);
++ * - a second ADAPTER does not read the first adapter's memo, which is why the
++ *   store is keyed by the adapter at all: a leaf carries the adapter's own
++ *   `dateTime` representation;
++ * - what is shared holds no alias and no `Sql` — a memo that captured a
++ *   statement-local alias would publish one operation's alias in another's SQL.
++ *
++ * Not registered in `scripts/raptor3-manifest.mjs` by this pass (it edits no
++ * manifest); the count is reported to the integrator for `g4-unit02-author`.
++ */
++
++import assert from "node:assert/strict";
++import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
++import { Queries } from "@query-engine/raptor3/shared/query";
++import { EngineSchema } from "@query-engine/raptor3/shared/schema";
++import { s } from "@schema";
++import { Sql } from "@sql";
++import { describe, it } from "vitest";
++
++function reuseSchema() {
++  const author = s
++    .model({
++      id: s.int().id(),
++      name: s.string(),
++      secret: s.string(),
++      posts: s.toMany(() => post).name("authored"),
++    })
++    .map("g4_perf2_reuse_authors");
++  const post = s
++    .model({
++      id: s.int().id(),
++      title: s.string(),
++      authorId: s.int().map("author_id"),
++      author: s
++        .toOne(() => author)
++        .fields("authorId")
++        .references("id")
++        .name("authored"),
++    })
++    .map("g4_perf2_reuse_posts");
++  return { author, post };
++}
++
++/** Every field name the prepared projection publishes, in its own order. */
++function names(projection: { fields: readonly { name: string }[] }): string[] {
++  return projection.fields.map((field) => field.name);
++}
++
++/** Whether any alias or lowered SQL is reachable from a value that is shared. */
++function holdsSql(value: unknown, seen = new WeakSet<object>()): boolean {
++  if (value instanceof Sql) return true;
++  if (value === null || typeof value !== "object" || seen.has(value)) return false;
++  seen.add(value);
++  for (const key of Reflect.ownKeys(value))
++    if (holdsSql(Reflect.get(value, key), seen)) return true;
++  return false;
++}
++
++describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)", () => {
++  it("answers the same projection for every operation that names no selection", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const adapter = new SQLiteAdapter();
++    const first = new Queries(engine, adapter);
++    const second = new Queries(engine, adapter);
++
++    const one = first.prepareProjection(schema.author, {});
++    const two = first.prepareProjection(schema.author, { where: { id: 1 } });
++    const three = second.prepareProjection(schema.author, {});
++
++    assert.equal(one, two, "two default projections of one model differ");
++    assert.equal(
++      one,
++      three,
++      "a second Queries over the same schema and adapter rebuilt the default"
++    );
++    assert.deepEqual(names(one), ["id", "name", "secret"]);
++    assert.equal(Object.isFrozen(one), true);
++    assert.equal(Object.isFrozen(one.fields), true);
++    assert.equal(Object.isFrozen(one.shape), true);
++    assert.equal(holdsSql(one), false, "a shared projection retained lowered SQL");
++
++    // And a different MODEL of the same schema gets its own, not this one.
++    const other = first.prepareProjection(schema.post, {});
++    assert.notEqual(other, one);
++    assert.deepEqual(names(other), ["id", "title", "authorId"]);
++  });
++
++  it("never hands the shared projection to an operation that names a selection", () => {
++    const schema = reuseSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const shared = queries.prepareProjection(schema.author, {});
++
++    const selected = queries.prepareProjection(schema.author, {
++      select: { id: true, name: true },
++    });
++    assert.notEqual(selected, shared);
++    assert.deepEqual(names(selected), ["id", "name"]);
++
++    const included = queries.prepareProjection(schema.author, {
++      include: { posts: true },
++    });
++    assert.notEqual(included, shared);
++    assert.deepEqual(names(included), ["id", "name", "secret", "posts"]);
++
++    // Neither replaced the shared one, and neither is remembered itself.
++    assert.equal(queries.prepareProjection(schema.author, {}), shared);
++    assert.notEqual(
++      queries.prepareProjection(schema.author, {
++        select: { id: true, name: true },
++      }),
++      selected
 +    );
 +  });
 +
-+  it("keeps one statement's nested scopes inside that statement's alias scope", async () => {
-+    world = await createWorld();
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: world.driver,
++  it("refuses the shared projection to an omit, because admission desugared it", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const queries = new Queries(engine, new SQLiteAdapter());
++    const shared = queries.prepareProjection(schema.author, {});
++
++    const admitted = engine.admit(schema.author, "findMany", {
++      omit: { secret: true },
 +    });
-+    // A nested to-many projection is a correlated subquery of the SAME
-+    // statement: it must continue the statement's counter, never restart it,
-+    // or the subquery would address the root's own alias.
-+    const [nested] = await preparedSql(engine, "author", "findMany", {
-+      select: { id: true, posts: { select: { id: true, title: true } } },
-+    });
-+    assert.ok(nested);
-+    const declared = [...nested.matchAll(/AS "(q\d+)"/g)].map(
-+      (match) => match[1]!
-+    );
-+    assert.deepEqual(
-+      [...new Set(declared)].length,
-+      declared.length,
-+      `one statement declared an alias twice: ${nested}`
-+    );
-+    assert(
-+      declared.length > 1,
-+      "the nested projection declared no second alias"
-+    );
-+    // One contiguous run from `q0`: the subquery continued the statement's own
-+    // scope instead of opening a second one that would collide with the root.
-+    const used = [...new Set([...nested.matchAll(/"(q\d+)"/g)].map((m) => m[1]!))]
-+      .map((alias) => Number(alias.slice(1)))
-+      .sort((left, right) => left - right);
-+    assert.deepEqual(
-+      used,
-+      used.map((_, index) => index),
-+      `one statement's aliases are not one run from q0: ${nested}`
++    assert.notEqual(
++      admitted.select,
++      undefined,
++      "admission no longer desugars omit into select, which the memo relies on"
 +    );
 +
-+    // The same statement, again: still byte-identical.
-+    const [again] = await preparedSql(engine, "author", "findMany", {
-+      select: { id: true, posts: { select: { id: true, title: true } } },
-+    });
-+    assert.equal(again, nested);
++    const omitted = queries.prepareProjection(schema.author, admitted);
++    assert.notEqual(omitted, shared, "an omit received the default projection");
++    assert.deepEqual(names(omitted), ["id", "name"]);
++    assert.deepEqual(names(queries.prepareProjection(schema.author, {})), [
++      "id",
++      "name",
++      "secret",
++    ]);
 +  });
 +
-+  it("gives every statement of one multi-statement operation its own scope", async () => {
-+    world = await createWorld();
-+    const engine = createCommandEngine({
-+      schema: worldSchema,
-+      driver: world.driver,
++  it("keys the store by the adapter, and one leaf per (adapter, model, field)", () => {
++    const schema = reuseSchema();
++    const engine = new EngineSchema(schema);
++    const sqlite = new Queries(engine, new SQLiteAdapter());
++    const other = new Queries(engine, new SQLiteAdapter());
++
++    const mine = sqlite.prepareProjection(schema.author, {});
++    const theirs = other.prepareProjection(schema.author, {});
++    assert.notEqual(mine, theirs, "a second adapter read the first one's memo");
++    assert.deepEqual(names(mine), names(theirs));
++
++    // One leaf per field, shared by every projection of that adapter.
++    const selected = sqlite.prepareProjection(schema.author, {
++      select: { name: true },
 +    });
-+    // A bulk delete with a limit is one mutation statement whose predicate
-+    // carries a capped subquery: the fragment and the mutation share ONE scope,
-+    // so the capped select's alias is the statement's own first alias.
-+    const [capped] = await preparedSql(engine, "post", "deleteMany", {
-+      where: { rank: { gt: 0 } },
-+      limit: 1,
++    assert.equal(
++      selected.shape.fields.name,
++      mine.shape.fields.name,
++      "the same field's leaf was rebuilt for a selected projection"
++    );
++    assert.notEqual(
++      theirs.shape.fields.name,
++      mine.shape.fields.name,
++      "two adapters shared one leaf"
++    );
++  });
++});
++
++/**
++ * G4 performance pass 2, item 4 — the prepared predicate is frozen; each of its
++ * operands is not.
++ *
++ * `prepareOperand` froze one box per admitted member, so an
++ * `id: { in: ids₁₀₀ }` paid 100 `Object.freeze` map transitions per operation
++ * — measured at 1.98–2.20 µs against 0.25–0.28 µs for the same 100 boxes
++ * (`g4/perf2/receipts/micro-in-list.json`), which is `prepareOperand`'s whole
++ * measured self time on `bulk-update-returning-100/prepare`. One owner builds
++ * an operand (`Queries.prepareOperations`) and one reads it
++ * (`Queries.lowerOperation`), both inside `shared/query.ts`, and no cell of
++ * this harness ever observed a prepared operand's frozen-ness; the immutability
++ * that IS observable — the predicate and the operand list — stays.
++ */
++/** The prepared predicate type, read from the one owner that publishes it. */
++type PreparedPredicate = NonNullable<
++  ReturnType<Queries["prepareSelector"]>["predicate"]
++>;
++
++/** The one `in` operation of a prepared predicate tree, wherever it sits. */
++function findIn(
++  predicate: PreparedPredicate | undefined
++): Extract<PreparedPredicate, { kind: "operation" }> | undefined {
++  if (!predicate) return undefined;
++  if (predicate.kind === "operation")
++    return predicate.operator === "in" ? predicate : undefined;
++  if (predicate.kind === "and" || predicate.kind === "or") {
++    for (const member of predicate.predicates) {
++      const found = findIn(member);
++      if (found) return found;
++    }
++  }
++  if (predicate.kind === "not") return findIn(predicate.predicate);
++  return undefined;
++}
++
++describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", () => {
++  it("freezes the predicate and its operand list, and binds every member once", () => {
++    const schema = reuseSchema();
++    const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
++    const ids = Array.from({ length: 8 }, (_, index) => index + 1);
++    const selector = queries.prepareSelector(schema.author, {
++      id: { in: ids },
 +    });
-+    assert.ok(capped);
-+    assert.match(capped, /"q0"/);
-+    const repeated = await preparedSql(engine, "post", "deleteMany", {
-+      where: { rank: { gt: 0 } },
-+      limit: 1,
-+    });
-+    assert.equal(repeated[0], capped);
++
++    const conjunction = selector.predicate;
++    assert.ok(conjunction && conjunction.kind === "and");
++    assert.equal(Object.isFrozen(conjunction), true);
++    assert.equal(Object.isFrozen(conjunction.predicates), true);
++    const operation = findIn(conjunction);
++    assert.ok(operation, "the prepared selector carries no `in` operation");
++    assert.equal(Object.isFrozen(operation), true);
++    assert.ok(operation.operands);
++    assert.equal(Object.isFrozen(operation.operands), true);
++    assert.deepEqual(
++      operation.operands.map((operand) =>
++        operand.kind === "value" ? operand.value : "field"
++      ),
++      ids
++    );
++
++    // The one thing a consumer can see: the same selector lowers to the same
++    // statement and the same parameters, twice.
++    const first = queries.lowerSelector(selector, "q0");
++    const second = queries.lowerSelector(selector, "q0");
++    assert.ok(first && second);
++    assert.equal(first.toStatement("?"), second.toStatement("?"));
++    assert.deepEqual(first.values, ids);
++    assert.deepEqual(second.values, ids);
 +  });
 +});

@@ -742,3 +742,271 @@ The stale lock the stage left in `/private/tmp/viborm-g4-cutover-tmp` was
 removed by the integrator at 16:14 after confirming its owner (pid 81219) was
 absent from the process table; record in
 `cutover/receipts-stage2c/cells/aborted-pass2-attempt1/stale-lock-removed-by-integrator.txt`.
+
+---
+
+# Stage 2d — the same 20 cells, re-measured after performance pass 2
+
+Everything above is the identity-2 and identity-3 record and stands as written.
+This section does not revise it; it re-measures it. Measured against the
+**fourth** frozen identity, `g4/freeze/identity.json`
+(`production 312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640`,
+captured 18:44:46 today), which is identity 3 plus **performance pass 2** — four
+files under `src/query-engine/raptor3/shared/` and one new test, declared a
+no-behaviour-change pass. Nothing is pushed, the main tree still contains and
+still uses the legacy engine, and no database was changed.
+
+Working record: [`g4/cutover/note.md`](cutover/note.md) §§D0–D11. Protocol,
+written before the runs: [`protocol.md`](cutover/protocol.md) §10. Aggregate:
+[`performance-identity4.json`](cutover/performance-identity4.json); first series
+alone [`performance-identity4-pass1.json`](cutover/performance-identity4-pass1.json);
+the identity-2 and identity-3 records are untouched. Raw evidence:
+[`receipts-stage2d/cells/`](cutover/receipts-stage2d/cells/) (38 MB).
+
+## 13. The recommendation in one paragraph
+
+**Still do not cut over — and this time the reason is substance, not noise.**
+Size is unchanged and still well past target (engine **23.8 %** of baseline
+gzip, both public PostgreSQL fixtures **70.0 %**, +0.19 % for pass 2). Pass 2
+did what it set out to do: **every** preparation cell improved on **both**
+passes, the worst one from **1.48×** to **1.32×** CPU, and
+`fixed-collection-rowref-20/prepare` went under parity (**0.98×**). The series
+also ran on a much quieter machine than stage 2c's — 1-minute load 7.9–11.1
+throughout, no aborted pass, no lock contention — so the instrument is the best
+of the four series so far. What that better instrument shows is that **three
+preparation cells are still resolved regressions** (1.19–1.40× CPU on both
+passes, over a 5 % budget), that **`relation-series-2` still diverges in
+persisted primary keys** (a hard adoption requirement whose target is zero), and
+that **four more cells are now genuinely 2–7 % above parity with a precise
+measurement** — those four were "inconclusive because the machine was noisy" at
+identity 3 and are "inconclusive because the candidate is slightly slower" here.
+The headline count moves the wrong way (5 passes against 6) while almost every
+number moves the right way; §14.3 explains exactly why, and it is not a
+regression of the candidate.
+
+## 14. Cell by cell, identity 3 → identity 4
+
+Both series are the frozen 20-cell matrix, sqlite3, five alternating
+fresh-process samples per side, `E = 2 × max(MAD)`,
+`(N − B) + E ≤ 0.05 × B` for time and `≤ 0.10 × B` for peak RSS, no outlier
+removal, the worse of two full series. **Unlike identity 2 → identity 3, the
+protocol identity did not move** (`f23e0aac…` both times, workload version 1,
+same baseline commit, same 40 commands), so the two series measure the same work
+with the same instrument. Both passes are shown; nothing is collapsed.
+
+| Verdict | identity 2 | identity 3 | identity 4 |
+| --- | ---: | ---: | ---: |
+| pass | 3 | 6 | **5** |
+| blocks adoption (resolved, over budget) | 11 | 4 | **3** |
+| inconclusive after the one permitted repeat — blocks adoption | 3 | 7 | **9** |
+| not measurable comparably — end-to-end evidence retained | 2 | 2 | 2 |
+| blocks adoption — required contract divergence | 1 | 1 | 1 |
+
+| Cell | id3 | id4 | CPU N/B id3 (p1/p2) | CPU N/B id4 (p1/p2) | wall id4 | RSS id4 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `scalar-find-unique/cold-prepare` | inconclusive | inconclusive | 1.059 / 1.025 | **1.008 / 1.011** | 1.003 / 1.030 | 0.991 |
+| `scalar-find-unique/prepare` | blocks | **blocks** | 1.480 / 1.454 | **1.189 / 1.318** | 1.128 / 1.223 | 0.964 |
+| `scalar-find-unique/execute` | pass | inconclusive | 1.002 / 0.985 | **0.941 / 0.950** | 0.925 / 0.954 | 0.980 |
+| `scalar-find-unique/full` | inconclusive | **pass** | 1.018 / 1.030 | **0.902 / 0.874** | 0.977 / 0.954 | 0.961 |
+| `flat-scalar-update/prepare` | not measurable | not measurable | — | — | — | — |
+| `flat-scalar-update/execute` | not measurable | not measurable | — | — | — | — |
+| `flat-scalar-update/full` | pass | **pass** | 0.771 / 0.757 | **0.698 / 0.702** | 0.832 / 0.838 | 0.953 |
+| `fixed-collection-rowref-20/prepare` | blocks | inconclusive | 1.051 / 0.927 | **0.974 / 0.988** | 1.077 / 1.093 | 0.969 |
+| `fixed-collection-rowref-20/execute` | pass | inconclusive | 1.028 / 1.022 | 1.025 / 1.032 | 1.022 / 1.042 | 0.973 |
+| `fixed-collection-rowref-20/full` | inconclusive | inconclusive | 0.947 / 0.951 | 0.976 / 0.952 | 1.034 / 1.020 | 0.921 |
+| `nested-conditional-found/full` | inconclusive | **pass** | 0.807 / 0.893 | **0.760 / 0.646** | 0.876 / 0.675 | 0.892 |
+| `nested-conditional-missing/full` | pass | **pass** | 0.798 / 0.801 | **0.759 / 0.742** | 0.898 / 0.877 | 0.902 |
+| `key-transition-cascade/full` | inconclusive | inconclusive | 0.915 / 0.901 | 0.896 / 0.888 | 1.008 / 1.017 | **0.787** |
+| `bulk-update-returning-100/prepare` | blocks | **blocks** | 1.457 / 1.484 | **1.310 / 1.397** | 1.091 / 1.191 | 0.973 |
+| `bulk-update-returning-100/full` | pass | **pass** | 0.861 / 0.829 | **0.807 / 0.838** | 0.921 / 0.967 | 0.981 |
+| `relation-series-2/full` | contract divergence | **contract divergence** | — | — | — | — |
+| `fixed-collection-rowref-1000/prepare` | blocks | **blocks** | 1.414 / 1.401 | **1.257 / 1.250** | 1.087 / 1.110 | 0.959 |
+| `fixed-collection-rowref-1000/execute` | pass | inconclusive | 0.985 / 0.969 | 0.996 / 1.022 | 0.991 / 1.022 | 0.960 |
+| `fixed-collection-rowref-1000/parse` | inconclusive | inconclusive | 1.002 / 1.035 | 0.989 / 1.028 | 1.028 / 1.067 | 0.946 |
+| `fixed-collection-rowref-1000/full` | inconclusive | inconclusive | 1.053 / 1.015 | 1.025 / 1.026 | 1.032 / 1.029 | 1.038 |
+
+### 14.1 Which cells are now within budget
+
+Five, each passing on **both** independent series:
+
+- `scalar-find-unique/full` — **new**; 1.030 → **0.874/0.902** CPU, and the only
+  read cell that passes end to end.
+- `flat-scalar-update/full` — 0.757 → **0.698/0.702** CPU, **0.835** wall, the
+  largest single win in the matrix.
+- `nested-conditional-found/full` — **new**; 0.893 → **0.646/0.760** CPU.
+- `nested-conditional-missing/full` — 0.801 → **0.742/0.759** CPU.
+- `bulk-update-returning-100/full` — 0.829 → **0.807/0.838** CPU.
+
+Six cells carry a **defensible improvement claim** — CPU improvement greater
+than `E` on both passes — the five above plus `key-transition-cascade/full`
+(0.888/0.896 CPU, **0.787** peak RSS, held back only by a wall-time straddle).
+At identity 3 that list had five members.
+
+**Peak RSS passes every measurable cell in both passes**, with the wins intact:
+`key-transition-cascade` 0.79, the nested writes 0.89–0.92,
+`fixed-collection-rowref-20/full` 0.92. One cell sits above parity,
+`fixed-collection-rowref-1000/full` at 1.04 — inside the 10 % budget, as at
+identity 3.
+
+### 14.2 Which cells remain over budget
+
+Three, all **preparation**, all resolved on both passes — and all materially
+better than at identity 3:
+
+| Cell | id3 CPU | id4 CPU | id4 wall | absolute CPU µs/op (B → N, id4) |
+| --- | ---: | ---: | ---: | --- |
+| `bulk-update-returning-100/prepare` | 1.457 / 1.484 | **1.310 / 1.397** | 1.091 / 1.191 | 45.2 → 59.3 (p1), 45.7 → 63.8 (p2) |
+| `scalar-find-unique/prepare` | 1.480 / 1.454 | **1.189 / 1.318** | 1.128 / 1.223 | 13.7 → 16.3 (p1), 14.9 → 19.6 (p2) |
+| `fixed-collection-rowref-1000/prepare` | 1.414 / 1.401 | **1.257 / 1.250** | 1.087 / 1.110 | 42.5 → 53.4 (p1), 45.9 → 57.3 (p2) |
+
+Steady-state preparation is still the regression, and it is now roughly a
+quarter to a third above the shipped engine instead of roughly half. The fourth
+identity-3 blocker, `fixed-collection-rowref-20/prepare`, is **no longer over
+budget on CPU** (0.974/0.988) and is held only by wall time (1.077/1.093).
+
+### 14.3 The measurement-precision situation, and why "5 passes" is not a step back
+
+At identity 3, `E` exceeded the 5 % budget on **13 of 17** measurable cells; here
+it is **11 of 17**. The instrument improved, and the composition of the nine
+inconclusive cells is what matters:
+
+| Group | Cells | What would resolve them |
+| --- | --- | --- |
+| **precision** — `E` exceeded the budget in at least one pass | `scalar-find-unique/cold-prepare`, `scalar-find-unique/execute`, `fixed-collection-rowref-20/prepare`, `key-transition-cascade/full`, `fixed-collection-rowref-1000/execute` | a quieter series; four of these five already have a *better* ratio than at identity 3 |
+| **substance** — precise in both passes (`E/B` 2.3–4.2 %), candidate 2–7 % above parity | `fixed-collection-rowref-20/execute`, `fixed-collection-rowref-20/full`, `fixed-collection-rowref-1000/parse`, `fixed-collection-rowref-1000/full` | a faster candidate; **no re-run will turn these into passes** |
+
+That split is the real change since identity 3, and it is why the pass count fell
+from 6 to 5 while 14 of 17 cells improved: `scalar-find-unique/execute` lost its
+"pass" on one imprecise pass (`E/B` 11.8 % cpu / 14.5 % wall) despite a **better**
+ratio (0.941/0.950 against 1.002/0.985), and two `execute` cells lost theirs
+because a precise measurement finally separated a small real regression from
+zero. **No cell's number regressed meaningfully:** the three cells whose CPU
+ratio is not better than identity 3's move by 0.4–3.7 %, inside their own
+pass-to-pass spread.
+
+One signature is worth Arnaud's attention because it is where the remaining cost
+sits. Averaged over both passes, on the write and relation-read cells the
+candidate converts a 15–30 % CPU saving into only a 6–22 % wall saving
+(`flat-scalar-update/full` 0.700 CPU vs 0.835 wall; `nested-conditional-missing`
+0.751 vs 0.888; `key-transition-cascade` 0.892 vs 1.013), while on the three
+blocking preparation cells the CPU penalty is *larger* than the wall penalty
+(`bulk-update-returning-100/prepare` 1.353 CPU vs 1.141 wall). That is consistent
+with the GC-thread accounting pass 2 targeted, but this series does not measure
+the mechanism — it is a hypothesis for the next pass, not a result.
+
+### 14.4 `relation-series-2` — unchanged, and predicted in advance
+
+`protocol.md` §10.4 recorded before the run that this cell should refuse again.
+It did, in all four commands and identically: every replicate completes on both
+sides (D-8's per-engine ledger still works), and the **cross-engine** final-state
+comparison then refuses with the same two persisted ids as at identity 3
+(`series_child_2/3` on the candidate against `series_child_3/5` on the shipped
+engine, parents 5000 and 6000). Pass 2 did not touch how many generated defaults
+each engine evaluates, so the `k + 2nk` versus `k + nk` difference stands. Under
+plan §7 this is a **required contract divergence** whose target is **zero**, and
+it remains the one blocker that no amount of optimization will clear: it is a
+decision about observable behaviour, for Arnaud, with the diagnosis in
+[`relation-series-2-classification.md`](cutover/relation-series-2-classification.md).
+
+## 15. The revised adoption recommendation
+
+**Do not adopt yet. Do not abandon. The candidate is now close enough that the
+remaining list is short, specific, and mostly not about noise.**
+
+What has been demonstrated, on evidence, across four frozen identities:
+
+- **Size**: every plan §7 bundle target met with large margin, stable across
+  three identities.
+- **Memory**: the 10 % peak-RSS gate passes on every measurable cell in every
+  pass, with 8–21 % wins on the write-heavy cells.
+- **End-to-end time**: five of the six `full` cells pass, four of them with a
+  verified improvement greater than `E`; the sixth (`fixed-collection-rowref-20`)
+  straddles by 2–3 % on wall time.
+- **Preparation**: halved as a regression across two passes, still 1.19–1.40×.
+
+What blocks adoption, in the order it should be attacked:
+
+1. **`relation-series-2`'s persisted-id divergence** (hard requirement, target
+   zero). It is a decision, not an optimization: either the nested-create
+   default cardinality is aligned, or the difference is accepted and written
+   into the public contract. Nothing else in this list can compensate for it.
+2. **Three preparation cells at 1.19–1.40× CPU.** A third pass on the same
+   diagnosis is a reasonable bet: the first two passes took the worst cell from
+   2.15× to 1.32×, and the profile in `g4/perf2/note.md` §0.3 still shows the
+   candidate's own planning cheaper than the shipped engine's on all three — the
+   cost is GC and per-operation derivation, not the design.
+3. **Four cells 2–7 % above parity with a precise measurement** (§14.3,
+   "substance"). These are small, they are real, and they are all
+   relation-read cells. They were invisible under identity 3's noise.
+4. **Two cells that cannot be bracketed comparably** (`flat-scalar-update`
+   `prepare`/`execute`) — unchanged since identity 1, with end-to-end evidence
+   retained and the `full` cell passing.
+
+What is **no longer** on the list: "re-run the series on a quiet machine". That
+was identity 3's cheapest lever; this series is that re-run, on a machine at
+load 7.9–11.1 with no storm, and it resolved what it could. Five cells would
+still benefit from a quieter run; four would not.
+
+Two operational notes for whoever picks this up:
+
+- The measurement package is reproducible in one command per cell. Branch
+  `g4-perf-measurement-4` (`e05519c2`) in `/private/tmp/viborm-g4-perf-candidate`
+  and `e532bbec` in `/private/tmp/viborm-g4-perf-baseline` are left in place,
+  both clean, with the protocol bytes identical on both sides.
+- A third performance pass would supersede this identity too. The re-sync,
+  cutover, harness and overlay procedure is now mechanical — this stage applied
+  the cutover with **zero** hunk adjustments — so a fifth identity costs about
+  twenty minutes of setup plus sixteen minutes of series.
+
+## 16. What is NOT done (stage 2d)
+
+- **Nothing is pushed.** No branch left this machine. The five commits of
+  `g4-perf-measurement-4` are local to a throwaway branch in a `/private/tmp`
+  worktree.
+- **The main tree keeps the legacy engine.** `/Users/arnaud/code/viborm` was
+  modified only under `docs/architecture/raptor3-evidence/g4/cutover/` and in
+  this file. Nothing there was committed, staged, reset, stashed or deleted, and
+  no file under `src/`, `tests/`, `benchmarks/` or `scripts/` was touched.
+- **No database was changed.** Every measurement is better-sqlite3 against
+  `:memory:` fixtures; the native PostgreSQL and MySQL blockers in `g4.md` stand.
+- **No production file changed on either side of the measurement.** The only
+  non-`src/` overlay is the `benchmarks/`-only phase adapter plus D-8, identical
+  bytes on both sides, and the cutover itself is a proposal, not a change to the
+  shipped engine.
+- **No registered mode, suite or campaign was run by this stage** beyond the
+  whole-estate typecheck and `pnpm package:build` in the measurement worktree.
+  Correctness at identity 4 is the integrator's attempt-6 campaign, not this
+  unit's.
+- **No lock file was created or removed**, and no pass was aborted or relabelled.
+
+## Integrator addendum to stage 2d (20:40, 2026-09-16) — Arnaud's decisions D-9 and D-10
+
+Stage 2d's §16 recommendation ("do not adopt yet") is the unit's reading of
+plan §7 and is kept as written. It is superseded for this program by two
+decisions recorded in the ledger:
+
+- **D-9 (18:30):** Arnaud accepts the candidate's remaining preparation cost
+  after performance pass 2 ("1.12 is fine for now; we need to ship the new
+  engine; premature optimization is not the correct choice now"). The three
+  preparation cells that resolve over the 5 % budget (1.19–1.40× CPU on this
+  series), the four relation-read cells 2–7 % above parity and the five
+  precision-limited cells are therefore accepted, not repaired. No further
+  performance pass is opened; the prepared-shape cache stays closed.
+- **D-10 (18:32):** the C-01 cutover is performed locally in the main tree as
+  the commit after the pass-2 qualification, exactly as §2–§4 describe:
+  the candidate becomes the only engine behind the unchanged public API, the
+  legacy owners and their 197 tests are removed, the six two-sided modes are
+  retired, `expressions.integerDivide` is the recorded adapter-contract
+  addition, `pattern/` and the optional `route` type stay as follow-ups.
+
+What D-9 and D-10 do NOT settle, and which Arnaud should confirm before the
+cutover commit is pushed: plan §7's hard row "required contract divergences:
+0" is still formally unmet by `relation-series-2`, whose remaining
+divergence is the adjudicated D-8 evaluation-count difference landing on the
+benchmark workload's counter default (persisted ids differ; rows, counts and
+associations do not). After the cutover there is no second engine for the
+benchmark to compare against, so the cell's cross-engine gate ceases to
+exist as such; making the workload's generated ids engine-neutral remains a
+`benchmarks/**` follow-up. The measured sizes stand (public PostgreSQL
+fixtures 0.700); the engine-only fixture no longer measures the candidate
+after the cutover and should be re-pointed in the same follow-up.

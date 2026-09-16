@@ -1,4 +1,8 @@
-=== 16:04:40 package-corpora.mjs ===
+=== df -h before corpus packaging (20:27:20) ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s3s1   460Gi    16Gi    27Gi    37%    459k  288M    0%   /
+/dev/disk3s1     460Gi   384Gi    27Gi    94%    7.9M  288M    3%   /System/Volumes/Data
+=== package-corpora.mjs start 20:27:20 ===
 25/1320 g4-seeds:22400 runner-archived
 50/1320 g4-seeds:24900 runner-archived
 75/1320 g4-seeds:27400 runner-archived
@@ -52,23 +56,21 @@
 1275/1320 g2-transport-seeds:4400 packaged
 1300/1320 g2-transport-seeds:6900 packaged
 1320/1320 g1-transport-seeds:1900 packaged
-replay input cs03-extension-a-seeds.json 5312428 -> 152152
-replay input cs03-extension-b-seeds.json 759326 -> 21048
-replay input cs03-extension-composition-seeds.json 7463488 -> 284814
-replay input g3-seeds-8000.json 76719782 -> 1359060
-replay input g3-transport-seeds-8000.json 83715941 -> 1627857
-replay input g4-seeds-20000.json 338001 -> 11919
-replay input g4-transport-seeds-50000.json 324201 -> 10911
-replay input g4-write-seeds-75000.json 61396812 -> 1179751
-replay input g4-write-transport-seeds-100000.json 64104776 -> 1313884
-{"report":"/Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/support/corpus-packaging.json","targetCount":1320,"originalBytes":53981235232,"archiveBytes":1049645275}
-package-corpora exit=0
-=== 16:06:25 package-corpora done ===
-=== 16:06:53 retain-corpora.mjs --move ===
-Retained 1320 child receipts (1049645275 archive bytes) plus 2 compact receipts.
-retain-corpora exit=0
-=== 16:07:03 retain done ===
-=== 16:07:07 audit-retained-corpora.mjs ===
+replay input cs03-extension-a-seeds.json 5312428 -> 152073
+replay input cs03-extension-b-seeds.json 753446 -> 20070
+replay input cs03-extension-composition-seeds.json 7461528 -> 284721
+replay input g3-seeds-8000.json 76689772 -> 1356785
+replay input g3-transport-seeds-8000.json 83679271 -> 1626005
+replay input g4-seeds-20000.json 338001 -> 11917
+replay input g4-transport-seeds-50000.json 324201 -> 10908
+replay input g4-write-seeds-75000.json 61371797 -> 1177151
+replay input g4-write-transport-seeds-100000.json 64091456 -> 1313383
+{"report":"/Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/support/corpus-packaging.json","targetCount":1320,"originalBytes":53959470288,"archiveBytes":1048570233}
+package-corpora.mjs exit=0 at 20:28:29
+=== retain-corpora.mjs --move start 20:28:37 ===
+Retained 1320 child receipts (1048570233 archive bytes) plus 2 compact receipts.
+retain-corpora.mjs --move exit=0 at 20:28:45
+=== audit-retained-corpora.mjs start 20:28:49 ===
 Audited 50 corpora.
 Audited 100 corpora.
 Audited 150 corpora.
@@ -95,10 +97,13 @@ Audited 1150 corpora.
 Audited 1200 corpora.
 Audited 1250 corpora.
 Audited 1300 corpora.
-Audited 1320 retained corpora (53981235232 restored bytes from 1049645275 archive bytes).
-audit exit=0
-=== 16:08:26 audit done ===
-=== 16:09:13 package-corpora.mjs --reproductions ===
-reproduction g4-seed-batch-20000 338001 -> 11919 (byte-identical)
-reproduction g4-transport-seed-batch-50000 324201 -> 10911 (byte-identical)
-reproductions exit=0
+Audited 1320 retained corpora (53959470288 restored bytes from 1048570233 archive bytes).
+audit-retained-corpora.mjs exit=0 at 20:29:44
+=== package-corpora.mjs --reproductions start 20:30:07 ===
+reproduction g4-seed-batch-20000 338001 -> 11917 (byte-identical)
+reproduction g4-transport-seed-batch-50000 324201 -> 10908 (byte-identical)
+package-corpora.mjs --reproductions exit=0 at 20:30:07
+=== df -h after retention (20:30:07) ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s3s1   460Gi    16Gi    28Gi    37%    459k  293M    0%   /
+/dev/disk3s1     460Gi   383Gi    28Gi    94%    7.9M  293M    3%   /System/Volumes/Data

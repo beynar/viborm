@@ -3,8 +3,8 @@
   "purpose": "Complete per-file manifest of the exact captureRaptor3Identity production and harness inputs at the G4 freeze",
   "milestone": "g4",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
     "runtime": {
       "node": "v24.21.0",
       "platform": "darwin",
@@ -19,7 +19,7 @@
     "fileCount": 587
   },
   "harness": {
-    "fileCount": 498
+    "fileCount": 504
   },
   "files": [
     {
@@ -509,8 +509,8 @@
       "roles": [
         "harness"
       ],
-      "bytes": 50669,
-      "sha256": "afe6bd955460b7dbf187b137a00849ff79e5161037aa5f59316a0bb4cfc1b5f2"
+      "bytes": 50735,
+      "sha256": "a2d29f534be552d34802eea1f5da850d8970afe6ff373588535a44c932272ca8"
     },
     {
       "file": "scripts/relation-state.ts",
@@ -3157,24 +3157,24 @@
       "roles": [
         "production"
       ],
-      "bytes": 85925,
-      "sha256": "53acb07c45ebd4efdd67435071a34d6335f697eb5026cd885cc8797149f12277"
+      "bytes": 87903,
+      "sha256": "bc791617ea8aceea888f5a69fea65c8077edf0a5037fbd86837d6a62cdffc637"
     },
     {
       "file": "src/query-engine/raptor3/shared/query.ts",
       "roles": [
         "production"
       ],
-      "bytes": 141465,
-      "sha256": "4ad5c091adb371963160048ebca54fe0e0ab4ece02c0340d05e6afcc410c9982"
+      "bytes": 143816,
+      "sha256": "c52ec048d7ed7d0343034b79589d8c27b11201210fac0c68c60555906811c3a8"
     },
     {
       "file": "src/query-engine/raptor3/shared/schema.ts",
       "roles": [
         "production"
       ],
-      "bytes": 19845,
-      "sha256": "fdb384ea07271d7db3d8c01de10b8cd3e5e20b31efbbeaf5515f1240cd033b01"
+      "bytes": 22459,
+      "sha256": "bc6d3cc1ef8ad7d6db4ee09b0238103adca1308d8d8022f7f7f220b3f31cd6a9"
     },
     {
       "file": "src/query-engine/raptor3/shared/storage.ts",
@@ -3189,8 +3189,8 @@
       "roles": [
         "production"
       ],
-      "bytes": 689,
-      "sha256": "4d825c77b74cb542b707dec61dfdf5a0a10c070aa263d23472c8b212f1202643"
+      "bytes": 2789,
+      "sha256": "a5fbb08037ca3a5daa5e273b462a52d8c3cbcdec8f5f0bb5f6f9a18d5f7dab2e"
     },
     {
       "file": "src/query-engine/relation-key-legality.ts",
@@ -6289,6 +6289,46 @@
       "sha256": "142224efd19b617dd26db6ecfecefbb3577f13d518b40539aa216e1200dcaa66"
     },
     {
+      "file": "tests/raptor3/g4/review/perf2/digest.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 15557,
+      "sha256": "962cc5c2d9ef63966ee24c1e5de66ee1c5f5b893ed31df1ddffbe616eb1d05a1"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/lazy-machinery.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 11159,
+      "sha256": "c254edbf9a6b02e3b2fab1084d368eab5081143a37e9a64203ac065c327cac15"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/memo-isolation.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 7135,
+      "sha256": "fc8f3ed6561d2456359eed51b5ac4215a61199c4c5faa2897ecefbe6fd7df3bd"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/resolution-check.review.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 2400,
+      "sha256": "8d4754285877884a1752a5356778420d48a381a05edc2c3a0b659e161118dcad"
+    },
+    {
+      "file": "tests/raptor3/g4/review/perf2/review.workspace.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 574,
+      "sha256": "bf254a9af962eefaf2683ed080d35fc1f52f54134d99e9e88363fe0bd5558122"
+    },
+    {
       "file": "tests/raptor3/g4/review/regression/d7-lone-statement.review.test.ts",
       "roles": [
         "harness"
@@ -7543,6 +7583,14 @@
       ],
       "bytes": 8042,
       "sha256": "ff504bb8005e9001ab28eb2556a27e7dd2d2a498a916cfc6ae51c6218c26d2d0"
+    },
+    {
+      "file": "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts",
+      "roles": [
+        "harness"
+      ],
+      "bytes": 10441,
+      "sha256": "2ea28627453dfb1626e8c1147a5e680a5e8df81ed08a25554ae669255088c0e7"
     },
     {
       "file": "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts",

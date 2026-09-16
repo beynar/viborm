@@ -1,0 +1,177 @@
+{
+ "unit": "g4-cutover-measurement (stage 2d, frozen identity 4, performance pass 2)",
+ "generatedAt": "2026-09-16T16:56:31.965Z",
+ "frozenBaseline": "docs/architecture/raptor3-evidence/baseline.json",
+ "candidateReport": "docs/architecture/raptor3-evidence/g4/cutover/bundles-identity4.json",
+ "candidateCommit": "bb2e0965",
+ "measuredAtCommit": "e05519c2",
+ "frozenProductionIdentity": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+ "targets": {
+  "productionTokenRatio": 0.6,
+  "productionPhysicalRatio": 0.7,
+  "engineGzipRatio": 0.75,
+  "everyPublicPostgresGzipRatio": 1,
+  "qualification": "Size targets require review on a miss, not automatic abandonment"
+ },
+ "fixtures": [
+  {
+   "fixture": "engine",
+   "baselineRuntimeBytes": 603586,
+   "candidateRuntimeBytes": 123093,
+   "baselineGzipBytes": 156771,
+   "candidateGzipBytes": 37260,
+   "gzipRatio": 0.2377,
+   "runtimeRatio": 0.2039,
+   "target": 0.75,
+   "meetsTarget": true,
+   "baselineModules": 241,
+   "candidateModules": 93,
+   "externalPackagesIdentical": true,
+   "raptor3ModulesInFixture": 1,
+   "identity3GzipBytes": 37260,
+   "identity3RuntimeBytes": 123093,
+   "gzipDeltaVsIdentity3": 0,
+   "runtimeDeltaVsIdentity3": 0,
+   "gzipGrowthVsIdentity3Percent": 0,
+   "byteIdenticalToIdentity3": true,
+   "moduleSetIdenticalToIdentity3": true,
+   "modulesWhoseRenderedLengthChangedVsIdentity3": [],
+   "candidateSha256": "b4bbee47d91b75a7b5a9fd3b3af897c51c5672ff86f0a8b084bd3752a261a5e9"
+  },
+  {
+   "fixture": "pg-simple",
+   "baselineRuntimeBytes": 953377,
+   "candidateRuntimeBytes": 623999,
+   "baselineGzipBytes": 262658,
+   "candidateGzipBytes": 183791,
+   "gzipRatio": 0.6997,
+   "runtimeRatio": 0.6545,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true,
+   "raptor3ModulesInFixture": 14,
+   "identity3GzipBytes": 183443,
+   "identity3RuntimeBytes": 622992,
+   "gzipDeltaVsIdentity3": 348,
+   "runtimeDeltaVsIdentity3": 1007,
+   "gzipGrowthVsIdentity3Percent": 0.1897,
+   "byteIdenticalToIdentity3": false,
+   "moduleSetIdenticalToIdentity3": true,
+   "modulesWhoseRenderedLengthChangedVsIdentity3": [
+    {
+     "file": "src/query-engine/raptor3/shared/schema.ts",
+     "identity3RenderedLength": 14532,
+     "identity4RenderedLength": 15924,
+     "delta": 1392
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/query.ts",
+     "identity3RenderedLength": 98641,
+     "identity4RenderedLength": 100827,
+     "delta": 2186
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+     "identity3RenderedLength": 396,
+     "identity4RenderedLength": 2124,
+     "delta": 1728
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/operation-context.ts",
+     "identity3RenderedLength": 58694,
+     "identity4RenderedLength": 60308,
+     "delta": 1614
+    }
+   ],
+   "candidateSha256": "91acc78c4537232c30824fd2e3c5d2469f9cafa787e78d1d9d9f41f4e569a356"
+  },
+  {
+   "fixture": "pg-relations",
+   "baselineRuntimeBytes": 953658,
+   "candidateRuntimeBytes": 624280,
+   "baselineGzipBytes": 262788,
+   "candidateGzipBytes": 183921,
+   "gzipRatio": 0.6999,
+   "runtimeRatio": 0.6546,
+   "target": 1,
+   "meetsTarget": true,
+   "baselineModules": 427,
+   "candidateModules": 311,
+   "externalPackagesIdentical": true,
+   "raptor3ModulesInFixture": 14,
+   "identity3GzipBytes": 183585,
+   "identity3RuntimeBytes": 623273,
+   "gzipDeltaVsIdentity3": 336,
+   "runtimeDeltaVsIdentity3": 1007,
+   "gzipGrowthVsIdentity3Percent": 0.183,
+   "byteIdenticalToIdentity3": false,
+   "moduleSetIdenticalToIdentity3": true,
+   "modulesWhoseRenderedLengthChangedVsIdentity3": [
+    {
+     "file": "src/query-engine/raptor3/shared/schema.ts",
+     "identity3RenderedLength": 14532,
+     "identity4RenderedLength": 15924,
+     "delta": 1392
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/query.ts",
+     "identity3RenderedLength": 98641,
+     "identity4RenderedLength": 100827,
+     "delta": 2186
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/transport-attempt.ts",
+     "identity3RenderedLength": 396,
+     "identity4RenderedLength": 2124,
+     "delta": 1728
+    },
+    {
+     "file": "src/query-engine/raptor3/shared/operation-context.ts",
+     "identity3RenderedLength": 58694,
+     "identity4RenderedLength": 60308,
+     "delta": 1614
+    }
+   ],
+   "candidateSha256": "a799ab408ed11f40b76696339226cca8754ba296e6e2a44bfe5c2cc193016cc4"
+  }
+ ],
+ "bundleProtocolIdenticalToBaseline": true,
+ "toolVersions": {
+  "baseline": {
+   "node": "v24.20.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "candidate": {
+   "node": "v24.21.0",
+   "v8": "13.6.233.17-node.53",
+   "typescript": "5.9.3",
+   "tsdown": "0.19.0-beta.4",
+   "biome": "2.3.11",
+   "platform": "darwin",
+   "arch": "arm64",
+   "rolldown": "1.0.0-beta.58"
+  },
+  "differences": [
+   {
+    "key": "node",
+    "baseline": "v24.20.0",
+    "candidate": "v24.21.0"
+   }
+  ]
+ },
+ "comparisonToIdentity3": {
+  "report": "docs/architecture/raptor3-evidence/g4/cutover/bundles-identity3.json",
+  "ratios": "docs/architecture/raptor3-evidence/g4/cutover/bundle-ratios-identity3.json",
+  "summary": "engine is byte-identical to identity 3 (same sha256) because the engine fixture contains NO raptor3 module: after the cutover QueryEngine takes the route as a required dependency and the route is constructed by client.ts, which this fixture does not import. Performance pass 2 is therefore invisible in it. Both public PostgreSQL fixtures DO carry the candidate (14 raptor3 modules each, identical module sets) and grew by 1,007 runtime bytes and 348 gzip bytes (+0.19 %), all of it in the four pass-2 files. Every gzip ratio still meets its plan §7 target."
+ },
+ "honestyNote": "The engine fixture measures the engine shell and its boundaries, not the candidate planner; its 0.2377 gzip ratio must not be read as the candidate implementation being 24 % of the shipped engine. The public PostgreSQL fixtures are the ones that contain both implementations end to end.",
+ "note": "Gzip sizes are measured per fixture and are not additive. Same rolldown/tsdown/typescript versions, ESM, tree shaking, minification, one inlined chunk, gzip level 9 and identical externalization on both sides. The only tool difference from the frozen baseline is the Node patch version driving rolldown (v24.20.0 frozen, v24.21.0 here, the pinned measurement runtime); the V8 version is identical."
+}

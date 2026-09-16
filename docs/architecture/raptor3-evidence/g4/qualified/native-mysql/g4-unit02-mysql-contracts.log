@@ -1,16 +1,16 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 916ms
-   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  530ms
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 109ms
- ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 159ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 850ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  481ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 78ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 109ms
 
  Test Files  3 passed (3)
       Tests  17 passed (17)
-   Start at  13:18:04
-   Duration  7.78s (transform 2.19s, setup 13ms, collect 3.69s, tests 1.18s, environment 0ms, prepare 33ms)
+   Start at  19:19:21
+   Duration  6.51s (transform 1.84s, setup 17ms, collect 2.97s, tests 1.04s, environment 0ms, prepare 54ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HsInnq/vitest.json
-Vitest resources: 13.25s wall, 697.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HsInnq
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-wndAzU/vitest.json
+Vitest resources: 12.98s wall, 680.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-wndAzU

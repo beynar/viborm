@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts (5 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  18:14:35
+   Duration  934ms (transform 440ms, setup 11ms, collect 670ms, tests 7ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 3.38s wall, 471.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

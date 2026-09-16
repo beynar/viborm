@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/prep/native-clearability-ownership.test.ts (2 tests) 221ms
+ ✓ |raptor3-live-provider| tests/raptor3/prep/native-clearability-ownership.test.ts (2 tests) 327ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  13:12:47
-   Duration  5.19s (transform 1.57s, setup 15ms, collect 2.38s, tests 221ms, environment 0ms, prepare 36ms)
+   Start at  19:13:10
+   Duration  5.43s (transform 1.64s, setup 10ms, collect 2.50s, tests 327ms, environment 0ms, prepare 36ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d9psY7/vitest.json
-Vitest resources: 10.44s wall, 527.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 post-g3-clearability-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d9psY7
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xU5FJg/vitest.json
+Vitest resources: 12.69s wall, 510.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-clearability-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xU5FJg

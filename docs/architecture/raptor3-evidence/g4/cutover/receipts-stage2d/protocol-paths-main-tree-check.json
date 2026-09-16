@@ -1,0 +1,168 @@
+{
+  "checkedAt": "2026-09-16T16:49:23.813Z",
+  "question": "Has benchmarks/ (the 24 PROTOCOL_PATHS) moved in the main tree since stage 2c?",
+  "literalPromptCheck": "every PROTOCOL_PATHS file byte-identical between the main tree and e532bbec",
+  "literalResult": "5 of 24 differ",
+  "literalCheckIsUnsatisfiableByConstruction": "the phase-adapter overlay e67b511b lives ONLY in the two measurement worktrees; its five files can never equal the main tree, and did not at stage 2c either",
+  "decisiveResult": {
+    "filesDifferingFromE532bbec": [
+      "benchmarks/operation-pipeline-batch-workloads.mjs",
+      "benchmarks/operation-pipeline-catalog.mjs",
+      "benchmarks/operation-pipeline-harness.mjs",
+      "benchmarks/operation-pipeline-mutation-workloads.mjs",
+      "benchmarks/operation-pipeline-worker.mjs"
+    ],
+    "allDifferencesAreExactlyTheAdapterOverlayFiles": true,
+    "adapterFilesEqualPreOverlayBytes": true,
+    "d8FileContractWorkloadsEqualInMainTree": true,
+    "mainTreeProtocolFilesUncommittedChanges": "(none)",
+    "verdict": "the protocol has NOT moved; proceed"
+  },
+  "mainTreeProtocolIdentitySha256": "2e35d9a73c57468f7a840a1ab8251393f489ae3b933db8e511e26a8591d5f087",
+  "perPath": [
+    {
+      "path": "benchmarks/drizzle-memory-cpu.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/drizzle.bench.ts",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/e2e-overhead.bench.ts",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/internal/operation.ts",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-lifecycle.bench.ts",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-batch-workloads.mjs",
+      "touchedByAdapterOverlay": true,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": false
+    },
+    {
+      "path": "benchmarks/operation-pipeline-catalog.mjs",
+      "touchedByAdapterOverlay": true,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": false
+    },
+    {
+      "path": "benchmarks/operation-pipeline-compare.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-contract-workloads.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": false,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-evidence.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-fixtures.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-harness.mjs",
+      "touchedByAdapterOverlay": true,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": false
+    },
+    {
+      "path": "benchmarks/operation-pipeline-mutation-workloads.mjs",
+      "touchedByAdapterOverlay": true,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": false
+    },
+    {
+      "path": "benchmarks/operation-pipeline-provider-fixtures.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-provider-workloads.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-protocol.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-read-workloads.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-report.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-semantics.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/operation-pipeline-worker.mjs",
+      "touchedByAdapterOverlay": true,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": false
+    },
+    {
+      "path": "benchmarks/operation-pipeline-workloads.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/relation-read-memory.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "benchmarks/relation-read-overhead.bench.ts",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    },
+    {
+      "path": "scripts/test-run-lock.mjs",
+      "touchedByAdapterOverlay": false,
+      "mainEqualsPreOverlay0cc61e61": true,
+      "mainEqualsOverlayE532bbec": true
+    }
+  ]
+}

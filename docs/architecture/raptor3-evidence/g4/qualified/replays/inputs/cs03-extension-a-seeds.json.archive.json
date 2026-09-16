@@ -4,12 +4,12 @@
   "file": "cs03-extension-a-seeds.json.gz",
   "encoding": "gzip",
   "originalBytes": 5312428,
-  "originalSha256": "8d963e1d397f27d09f4b2a6efe1ce04644cf3ff5ba2b0cd6bf75db6dc6d15794",
-  "archiveBytes": 152152,
-  "archiveSha256": "153bd220e8cf634b399f59eb41db3d6406633cb0a90d9c7994362542cd645adc",
+  "originalSha256": "aca9fdbd55b359feff0496cb66a205661b279dce1d89765cd69dab821f118991",
+  "archiveBytes": 152073,
+  "archiveSha256": "c7633d960dd05939055d6557ff725937f17286f12b54c5608f72954a927e4455",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

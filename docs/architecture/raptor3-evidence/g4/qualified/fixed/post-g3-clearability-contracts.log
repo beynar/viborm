@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 40ms
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 63ms
 
  Test Files  1 passed (1)
       Tests  4 passed (4)
-   Start at  13:05:30
-   Duration  4.16s (transform 1.32s, setup 9ms, collect 1.95s, tests 40ms, environment 0ms, prepare 29ms)
+   Start at  19:02:09
+   Duration  7.33s (transform 2.36s, setup 19ms, collect 3.55s, tests 63ms, environment 0ms, prepare 77ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yXUZWL/vitest.json
-Vitest resources: 9.18s wall, 508.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 post-g3-clearability-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-yXUZWL
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-u95Cns/vitest.json
+Vitest resources: 15.71s wall, 501.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-clearability-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-u95Cns

@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests) 27ms
+ ✓ |raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests) 37ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  13:04:57
-   Duration  5.00s (transform 1.68s, setup 11ms, collect 2.51s, tests 27ms, environment 0ms, prepare 34ms)
+   Start at  19:01:26
+   Duration  5.20s (transform 2.07s, setup 15ms, collect 3.14s, tests 37ms, environment 0ms, prepare 46ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HjGwFx/vitest.json
-Vitest resources: 10.99s wall, 535.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g3-scope-failure contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-HjGwFx
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JKzRNH/vitest.json
+Vitest resources: 13.25s wall, 531.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-scope-failure contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-JKzRNH

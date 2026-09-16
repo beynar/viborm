@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 32ms
+ ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 22ms
 
  Test Files  1 passed (1)
       Tests  4 passed (4)
-   Start at  13:06:18
-   Duration  5.69s (transform 1.95s, setup 17ms, collect 2.96s, tests 32ms, environment 0ms, prepare 39ms)
+   Start at  19:03:07
+   Duration  7.04s (transform 2.43s, setup 18ms, collect 3.77s, tests 22ms, environment 0ms, prepare 42ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5yKtlM/vitest.json
-Vitest resources: 12.57s wall, 494.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 post-g3-selector-preparation contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-5yKtlM
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6roCDl/vitest.json
+Vitest resources: 15.19s wall, 485.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-selector-preparation contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-6roCDl

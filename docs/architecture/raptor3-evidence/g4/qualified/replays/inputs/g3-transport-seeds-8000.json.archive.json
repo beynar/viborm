@@ -3,13 +3,13 @@
   "source": "g3-transport-seeds-8000.json",
   "file": "g3-transport-seeds-8000.json.gz",
   "encoding": "gzip",
-  "originalBytes": 83715941,
-  "originalSha256": "5f1fcf4e90f68c5a41460cfd6dfaf1b745daadc429c219ddd3708d2fc643d569",
-  "archiveBytes": 1627857,
-  "archiveSha256": "f687e845453b1bfd47b0a8b87869dd9ba85d63affc3a446dd49fd156a8dbcb6c",
+  "originalBytes": 83679271,
+  "originalSha256": "2c7d224231d9b77fd13706311231adcac9bf1740a4aedb47fb823675be557568",
+  "archiveBytes": 1626005,
+  "archiveSha256": "52d0f326bb54f485a3cfacb9ed376739e4cbad49d55543bae2ec0f99361fce62",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

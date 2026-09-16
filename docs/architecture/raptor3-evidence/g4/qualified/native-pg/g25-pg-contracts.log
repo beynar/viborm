@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/polish/recovery-live.test.ts (2 tests) 142ms
+ ✓ |raptor3-live-provider| tests/raptor3/polish/recovery-live.test.ts (2 tests) 167ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  13:10:49
-   Duration  4.55s (transform 1.33s, setup 11ms, collect 2.00s, tests 142ms, environment 0ms, prepare 37ms)
+   Start at  19:10:56
+   Duration  5.23s (transform 1.58s, setup 14ms, collect 2.43s, tests 167ms, environment 0ms, prepare 57ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xM4e4Y/vitest.json
-Vitest resources: 10.27s wall, 529.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g25-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xM4e4Y
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3yAxmv/vitest.json
+Vitest resources: 11.15s wall, 517.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g25-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3yAxmv

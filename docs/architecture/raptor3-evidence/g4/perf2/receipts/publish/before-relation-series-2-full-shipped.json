@@ -1,0 +1,12 @@
+{
+ "workload": "relation-series-2",
+ "stage": "full",
+ "engine": "shipped",
+ "checks": [
+  2,
+  2,
+  2,
+  2
+ ],
+ "preparation": null
+}

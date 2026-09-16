@@ -1,8 +1,8 @@
 {
   "mode": "replay",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a",
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e",
     "runtime": {
       "node": "v24.21.0",
       "platform": "darwin",
@@ -13,7 +13,7 @@
   },
   "replayInput": {
     "path": "/Users/arnaud/code/viborm/docs/architecture/raptor3-evidence/g4/qualified/replays/inputs/cs03-extension-composition-seeds.json",
-    "sha256": "6a2284b0ca5a1c597687bee7b8504ef287f352085565ba8e3e5e1ecfdd578d9d"
+    "sha256": "929ab4c1880d83ca223b49531e3daff7b8f1c4ec0ccad42559c628b652a6ce09"
   },
   "resourceBounds": {
     "heapMb": 768,

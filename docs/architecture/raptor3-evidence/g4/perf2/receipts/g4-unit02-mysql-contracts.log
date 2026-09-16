@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/unique-discriminator.test.ts (9 tests) 728ms
+   ✓ G4-02 native MySQL discriminator scope > addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique  365ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-nested-key-refusal.test.ts (3 tests) 67ms
+ ✓ |raptor3-live-provider| tests/raptor3/g4/unit02/native-key-arithmetic.test.ts (5 tests) 84ms
+
+ Test Files  3 passed (3)
+      Tests  17 passed (17)
+   Start at  17:24:42
+   Duration  3.07s (transform 1.28s, setup 10ms, collect 2.04s, tests 879ms, environment 0ms, prepare 31ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kHvSzG/vitest.json
+Vitest resources: 5.21s wall, 670.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-unit02-mysql-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kHvSzG

@@ -1,9 +1,9 @@
-# G4 qualification reproduction (performance-pass identity)
+# G4 qualification reproduction (performance-pass-2 identity)
 
 Run from `/Users/arnaud/code/viborm` with `source.patch` applied to baseline
-commit `0f25637bcd73b3f402c0bb41aadbb70e67a0a964` — the committed G4 tree. Keep
-validation serial inside each worktree and use the existing resource lock and
-ceilings.
+commit `ff5e77ca5f37e747d45460b588b573b72790f1b8` — the committed pass-1 tree.
+Keep validation serial inside each worktree and use the existing resource lock
+and ceilings.
 
 ```sh
 RAPTOR_NODE_BIN=/Users/arnaud/.vite-plus/js_runtime/node/24.21.0/bin
@@ -14,23 +14,28 @@ NODE="$RAPTOR_NODE_BIN/node"
 The patch is applied as a whole: the tracked half is an ordinary
 `git diff --binary` against the baseline, the untracked half is a sequence of
 `git diff --no-index --binary` new-file diffs, so one `git apply` reproduces
-both. It carries only the performance pass's twenty source and harness files;
-the evidence half of the task file set is listed in `task-commit-allowlist.json`
-and is never patched.
+both. It carries only performance pass 2's twelve source and harness files; the
+evidence half of the task file set is listed in `task-commit-allowlist.json` and
+is never patched.
 
 ```sh
-git checkout 0f25637bcd73b3f402c0bb41aadbb70e67a0a964
+git checkout ff5e77ca5f37e747d45460b588b573b72790f1b8
 git apply source.patch
 ```
 
 Before accepting a receipt, compare its identity with
 `support/final-identity.json` (production
-`2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975`, harness
-`31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a`). Every
+`312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640`, harness
+`1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e`). Every
 receipt in this package was produced on that exact pair; a receipt with any
 other identity is not this qualification's evidence.
 `support/frozen-identity-manifest.json` re-derives both fingerprints from the
-1,079 files `captureRaptor3Identity` hashes.
+1,085 files `captureRaptor3Identity` hashes.
+
+`g4/freeze/identity.json` carries exactly those three keys — `production`,
+`harness`, `runtime`. It must not carry anything else: `cs02-structure-measure`
+parses that file with a strict schema, and an added key makes the structural
+measurement refuse (see "The two runs that were taken twice" below).
 
 ## Modes
 
@@ -42,10 +47,10 @@ $NODE scripts/run-raptor3.mjs <campaign-mode>
 $NODE scripts/run-raptor3.mjs replay <retained-corpus.json>
 ```
 
-The main tree runs, serially, every fixed mode, then the native PostgreSQL and
-MySQL groups (each preceded by the E-1 stale-world drop), then the support
-checks. The replays and the structural measurement run after every lane and the
-main chain have exited.
+The main tree runs, serially, every fixed mode (18:44–19:07), then the native
+PostgreSQL (19:10–19:15) and MySQL (19:15–19:22) groups, each preceded by the
+E-1 stale-world drop, then the support checks (19:22–19:32). The replays and
+the structural measurement run after every lane and the main chain have exited.
 
 ## The six campaign lanes
 
@@ -100,22 +105,26 @@ per campaign and three replays per cell:
 | `g4-write-transport-seeds` | 100000–124999 | `scripted-returning-weak`, `scripted-returning-ack` |
 
 The inherited campaigns rerun their own registered ranges on the frozen
-identity, because the source under them changed.
+identity, because the source under them changed. The lanes ran 18:44–20:02:
+lanes 5 and 6 finished their six-mode chains at 19:41 and 19:40, the four G4
+families at 19:52–20:02.
 
 A lane that finds a stale workspace lock in its own `TMPDIR` refuses rather than
 running. A mode whose log still says `Test command refused` after the refused-mode
 re-runs is recorded as **refused**, not as a failure — it produced no test result
-either way.
+either way. No mode was refused in this attempt (`rerun.log`).
 
 ## Native providers
 
 Native evidence used the task-owned loopback containers on **PostgreSQL
-`127.0.0.1:55729`** and **MySQL `127.0.0.1:55730`**. Both host ports are
-ephemeral and are new for this attempt: Docker Desktop was found stopped at
-12:24 and restarted before the qualification, which re-initialised the tmpfs
-data and reassigned the ports. The container identities, ports, memory, CPU and
-tmpfs limits as observed during this run are in `support/provider-ports.json`.
-The driver reads the port per group and passes it to the runner:
+`127.0.0.1:55729`** and **MySQL `127.0.0.1:55730`**. Both containers have been
+running since 12:58 on 2026-09-16 and were still up when their record was taken,
+so they were up continuously across both native groups; their identities, ports,
+memory, CPU and tmpfs limits are in `support/provider-ports.json`, which the
+packaging step captured from `docker inspect` after the native groups (the
+driver did not write it this time, and the record says so rather than repeating
+the previous package's numbers). The driver reads the port per group and passes
+it to the runner:
 
 ```sh
 PG_PORT=$(docker port viborm-raptor3-g3-pg-20260914 5432 | head -1 | cut -d: -f2)
@@ -135,10 +144,14 @@ server removes it. Left alone, accumulated worlds fill the MySQL container's
 512 MiB tmpfs and every native mode then fails with "disk is full". The
 qualification driver therefore drops every `r3_*` world older than ten minutes
 on both providers immediately before each native group, and only when no
-live-provider run is in flight. The drop is an environment step, not evidence:
-it never runs beside a live native mode, and it never removes a world younger
-than the window, so an in-flight run cannot lose its own schema. E-1 remains
-open for the harness owner; a per-world drop on success is the one-line fix.
+live-provider run is in flight. Each group's `RUN.log` opens with what that drop
+removed and how full the tmpfs then was — 133 stale MySQL worlds and 70
+PostgreSQL schemas before the PostgreSQL group, 84 more schemas before the MySQL
+group, 211 MiB / 512 MiB and 65 MiB / 512 MiB used. The drop is an environment
+step, not evidence: it never runs beside a live native mode, and it never
+removes a world younger than the window, so an in-flight run cannot lose its own
+schema. E-1 remains open for the harness owner; a per-world drop on success is
+the one-line fix.
 
 ## Log-only selectors
 
@@ -160,61 +173,7 @@ $NODE scripts/run-node-safe.mjs --rss-limit-mb=1536 768 120000 scripts/raptor3-c
 $NODE scripts/run-node-safe.mjs --rss-limit-mb=1536 768 600000 scripts/raptor3-cli.test.mjs   # alone, on a quiet machine
 $NODE scripts/run-typecheck.mjs
 $NODE scripts/query-engine-structure.mjs
-$NODE scripts/measure-raptor3-baseline.mjs --output support/source-cost.json                  # ENOBUFS here; see below
 ```
-
-Two of these did not produce the evidence they were asked for on the first pass
-at 13:18–13:26, and both were **re-run at 16:17–16:21 on the unchanged frozen
-tree**, where both are green. Reproduce them the way the re-run did, not the way
-the first attempt did. `support/RERUN.md` is the full account; the red first
-attempts are kept beside the new receipts as
-`support/cli-selftest.attempt1-red.log` and
-`support/source-cost.attempt1-enobufs.log`, and `support/rerun-RUN.log` is the
-integrator's record of the two re-runs with their exit codes and times.
-
-- `scripts/raptor3-cli.test.mjs` was 9 of 10 while all six campaign lanes were
-  live: the watchdog cell "the outer watchdog terminates a public call awaiting a
-  queued provider reply" saw only the Vitest banner after 17.99 s. **Run this file
-  alone, on a quiet machine.** Re-run that way in the main tree it is 10 of 10
-  (`support/cli-selftest.log`, 240.41 s wall, 211.0 MiB peak RSS) and that cell
-  takes 10.46 s. The cell is a watchdog race against a real process reaching its
-  wait, so a loaded machine will fail it again.
-- `scripts/measure-raptor3-baseline.mjs` died before writing
-  `support/source-cost.json`: its
-  `execFileSync("git", ["status", "--porcelain"])` at
-  `scripts/measure-raptor3-baseline.mjs:318` overflows Node's default 1 MiB
-  `maxBuffer` (`spawnSync git ENOBUFS`) whenever the working tree's status output
-  is large — 1,220,616 bytes at 13:26, with the previous sealed package's
-  deletions and this package's own untracked files in it. The value read from
-  that call is only `source.clean`, which is `false` either way. That defect is
-  untouched: the fix is one option on that call (`maxBuffer`), owned by the
-  harness, and the measurement was **not** retaken with a modified tool. Instead
-  run the unmodified tool in a worktree whose own status output is small:
-
-  ```sh
-  cd /private/tmp/viborm-g4-lane-5
-  TMPDIR=/private/tmp/viborm-g4-lane-tmp-5 \
-    $NODE scripts/measure-raptor3-baseline.mjs --output <path>/source-cost.json
-  ```
-
-  That is sound only if the bytes read are the frozen bytes, so check both: the
-  worktree's own `captureRaptor3Identity()` must equal `support/final-identity.json`
-  (`support/rerun-lane5-identity.json`), and every file the census read must
-  appear in `support/frozen-identity-manifest.json` with the identical SHA-256 —
-  581 of 581 do, 0 outside the identity and 0 differing from the freeze.
-  `support/verify-rerun-receipts.mjs` re-derives both checks into
-  `support/rerun-verification.json`:
-
-  ```sh
-  $NODE docs/architecture/raptor3-evidence/g4/qualified/support/verify-rerun-receipts.mjs
-  ```
-
-  The result has status `source-accounted-bundle-pending` — source accounting
-  complete, bundle half not attempted — with the charged perimeter at 171 files /
-  2,518,074 bytes / 71,146 physical lines / 53,890 token-lines.
-  `support/query-engine-structure.log` (the whole-query-engine census, exit 0)
-  and `../root-review-D.md` carry the other structural numbers this attempt
-  has.
 
 Run the two driver-integration files through the `layer-client` workspace
 project with the 1,536 MiB RSS and 768 MiB heap limits, default plus JSON
@@ -222,6 +181,67 @@ reporters:
 
 - `tests/contracts/public-client/statement-transforms-integration.core.test.ts`
 - `tests/contracts/public-client/official-statement-instrumentation.core.test.ts`
+
+### The source-cost census runs in lane 5, not the main tree
+
+`scripts/measure-raptor3-baseline.mjs` calls
+`execFileSync("git", ["status", "--porcelain"])` at line 318 with Node's default
+1 MiB `maxBuffer`. The main tree's status output is far past that — the
+moved-out previous sealed package alone shows as about 9,800 evidence deletions
+— so the unmodified tool dies there with `spawnSync git ENOBUFS`. That is how
+attempt 5 met it, as a gap; attempt 6's driver measures in the lane-5 worktree
+in the first place, whose own status output is small. **The tool is still not
+patched:** the one-option `maxBuffer` fix belongs to the harness owner, and the
+number here is the frozen harness's own unmodified output.
+
+```sh
+cd /private/tmp/viborm-g4-lane-5
+TMPDIR=/private/tmp/viborm-g4-lane-tmp-5 \
+  $NODE scripts/measure-raptor3-baseline.mjs --output <path>/source-cost.json
+```
+
+Measuring elsewhere is sound only if the bytes read are the frozen bytes, so
+check both, as `support/verify-support-receipts.mjs` does:
+
+```sh
+$NODE docs/architecture/raptor3-evidence/g4/qualified/support/verify-support-receipts.mjs
+```
+
+The worktree's own `captureRaptor3Identity()` must equal
+`support/final-identity.json` (`support/source-cost-lane5-identity.json` — it
+does), and every file the census read must appear in
+`support/frozen-identity-manifest.json` with the identical SHA-256 — **581 of
+581 do, 0 outside the identity and 0 differing from the freeze**
+(`support/support-verification.json`). The result has status
+`source-accounted-bundle-pending` — source accounting complete, bundle half not
+attempted — with the charged perimeter at 171 files / 2,518,074 bytes / 71,146
+physical lines / 53,890 token-lines. `support/source-cost.log` is the run's own
+stdout and is empty by design: on success the tool writes its JSON to `--output`
+and prints nothing.
+
+## The two runs that were taken twice
+
+Neither was a candidate failure, and both first attempts are kept whole,
+unrelabelled, beside the counted runs.
+
+**1. The CLI self-test.** Run under the six live campaign lanes it is 9 of 10:
+the cell "the outer watchdog terminates a public call awaiting a queued provider
+reply" is a watchdog race against a real process reaching its wait, and it saw
+only the Vitest banner after 18.46 s (`support/cli-selftest.attempt1-red.log`,
+494.1 s of test time). The sequencer re-ran the file **alone** after the
+campaigns and it is 10 of 10 (`support/cli-selftest.log`, 234.63 s wall,
+213.8 MiB peak sampled process-group RSS against the same 1,536 MiB ceiling),
+with that cell taking 10.78 s. Run this file alone, on a quiet machine; a loaded
+machine will fail it again.
+
+**2. The structural measurement.** The first run refused with
+`Unrecognized key: "capturedAt"` on `baseIdentity`: the integrator had annotated
+`g4/freeze/identity.json` with a capture timestamp for two concurrent agents'
+freshness check, and `cs02-structure-measure` parses that file with a strict
+schema. The fingerprints never moved (production `312cde34…`, harness
+`1d4d913c…`); the annotation was removed and the group was re-run in lane 5 at
+20:06, green. The refused first attempt is kept whole as
+`structure-attempt1-red-tooling/` and is counted nowhere.
 
 ## Replays
 
@@ -240,7 +260,7 @@ The two G4 read families are reproduced by re-running their own child command
 rather than through `replay` — a read corpus names the subject it was recorded
 on, and the `replay` gate's corpus schema rejects that key. The sequencer ran
 both under `replay` anyway; those two receipts and logs are kept, renamed
-`<name>.not-a-replay-input.*` as in the previous package, and classified from
+`<name>.not-a-replay-input.*` as in the previous packages, and classified from
 the gate's own `unrecognized_keys` / `subject` sentence (`replays/NOTE.md`):
 
 ```sh
@@ -248,6 +268,8 @@ $NODE scripts/run-raptor3.mjs g4-seed-batch 20000 --subject=candidate
 $NODE scripts/run-raptor3.mjs g4-transport-seed-batch 50000 --subject=candidate
 ```
 
+Both ran in the main tree at 20:27, immediately after the cutover timing series
+released the machine, and each re-executed 200 cells / 600 replays / 0 skips.
 `package-corpora.mjs --reproductions` packages those two receipts and asserts
 each reproduced corpus is byte-identical to the retained child archive it
 reproduces, writing `support/reproduction-packaging.json`.
@@ -270,13 +292,17 @@ git apply "$PATCH"
 VIBORM_RAPTOR3_MEASUREMENT_BASE_IDENTITY=<g4>/freeze/identity.json \
 VIBORM_RAPTOR3_MEASUREMENT_PATCH="$PATCH" \
 VIBORM_RAPTOR3_MEASUREMENT_ALTERNATIVE=shared-occurrence-candidate \
-  $NODE scripts/run-raptor3.mjs cs02-structure-measure
+  TMPDIR=/private/tmp/viborm-g4-structure-tmp $NODE scripts/run-raptor3.mjs cs02-structure-measure
 git apply -R "$PATCH"
 ```
 
 The receipt of this run is `structure/receipt/` (28 cases, 60 same-build
-replays, 0 skipped, `qualifying: true`). `structure/uninstrumented-files.sha256`
-and `structure/reversed-files.sha256` are equal, and
+replays, 0 skipped, `qualifying: true`, profiles `construction-only`,
+`sqlite-interactive`, `sqlite-atomic-batch`). Its `baseIdentity` is the freeze
+and its `instrumentedIdentity` is `a8ac7987…` — the instrumented production
+fingerprint, which is what the patch is for.
+`structure/uninstrumented-files.sha256` and `structure/reversed-files.sha256`
+are equal and both files match `support/frozen-identity-manifest.json`, and
 `structure/reversed-identity.json` equals `support/final-identity.json`, so the
 instrumentation left nothing behind.
 
@@ -295,11 +321,12 @@ $NODE docs/architecture/raptor3-evidence/g4/qualified/support/build-qualificatio
 $NODE docs/architecture/raptor3-evidence/g4/qualified/support/seal-author-package.mjs
 ```
 
-`support/retention-run.log` is the stdout of the three corpus steps as they ran,
-in order, with their exit codes. `--reproductions` needs the retained children
-already in place, because it compares each re-run corpus with the retained
-archive it reproduces; `build-source-package.mjs` runs after them so that its
-evidence-status snapshot counts the retained receipts.
+`support/retention-run.log` is the stdout of the four corpus steps as they ran,
+in order, with their exit codes and the free disk before and after.
+`--reproductions` needs the retained children already in place, because it
+compares each re-run corpus with the retained archive it reproduces;
+`build-source-package.mjs` runs after them so that its evidence-status snapshot
+counts the retained receipts.
 
 `package-corpora.mjs` proves each archive restores the exact original bytes and
 hash before any raw corpus is unlinked, and re-proves the archives the runner
@@ -317,11 +344,10 @@ describe the exact tree this qualification ran.
 
 `build-qualification-index.mjs --derive` prints the totals it reads from the
 receipts without asserting the pin; a normal run asserts the pin written into
-the script after the runs finished. After the two support re-runs the index was
-derived unpinned, checked field for field against the pin, and re-pinned: the
-pinned totals are unchanged — no qualifying receipt was touched — and the only
-difference is that `gaps` is now empty and the status is
-`author-qualification-evidence-complete-independent-and-root-acceptance-pending`.
+the script after the runs finished. This attempt began with the pin set to
+`null` — attempt 5's numbers are a different identity's — derived its own totals
+at 20:31 once every run was complete, wrote them back, and re-ran with the
+assertion live.
 
 `seal-author-package.mjs` writes `task-commit-allowlist.json`,
 `retained-files.json` and `SHA256SUMS` last; `--allowlist-only` writes just the

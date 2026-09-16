@@ -4,12 +4,12 @@
   "file": "g4-seeds-20000.json.gz",
   "encoding": "gzip",
   "originalBytes": 338001,
-  "originalSha256": "4d72098b348fc2e81c5e361e5c5613b3f282ccdc68689c189f7d5ea9640d0a39",
-  "archiveBytes": 11919,
-  "archiveSha256": "b081f4b9fc114bfd6bab21b4356edc4519580856e5f53bdd9fa435d084755411",
+  "originalSha256": "3f7aa7664d33b4bffdf2eba0e17f4a4ae114946a06989a0430503838fc5e998a",
+  "archiveBytes": 11917,
+  "archiveSha256": "515125063a8cf4d96178c61a894463132c5876c1d42984f644e30df559004b17",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

@@ -1,27 +1,27 @@
-mysql: dropped 0 stale worlds; 209M/512M used
-pg: dropped 0 schemas; 46M/512M used
-=== 13:10:39 g25-pg-contracts ===
-g25-pg-contracts exit=0 Vitest resources: 10.27s wall, 529.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g25-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xM4e4Y 
-=== 13:10:55 g27-pg-contracts ===
-g27-pg-contracts exit=0 Vitest resources: 11.45s wall, 507.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g27-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Egr31j 
-=== 13:11:13 g3p02-pg-contracts ===
-g3p02-pg-contracts exit=0 Vitest resources: 11.28s wall, 541.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-WjGTZO 
-=== 13:11:30 g3p03-pg-contracts ===
-g3p03-pg-contracts exit=0 Vitest resources: 11.06s wall, 518.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p03-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d6TV2Q 
-=== 13:11:47 g3p04-pg-contracts ===
-g3p04-pg-contracts exit=0 Vitest resources: 9.86s wall, 526.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p04-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-jl8MGv 
-=== 13:12:03 g3-scope-composition-pg ===
-g3-scope-composition-pg exit=0 Vitest resources: 11.51s wall, 506.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-scope-composition-pg contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ZTuECD 
-=== 13:12:21 g29-member-dependency-pg ===
-g29-member-dependency-pg exit=0 Vitest resources: 10.71s wall, 515.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-member-dependency-pg contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Gdw5VT 
-=== 13:12:38 post-g3-clearability-pg-contracts ===
-post-g3-clearability-pg-contracts exit=0 Vitest resources: 10.44s wall, 527.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-clearability-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-d9psY7 
-=== 13:12:55 g2-pg-baseline ===
-g2-pg-baseline exit=0 Vitest resources: 11.80s wall, 695.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-pg-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-NtGQue 
-=== 13:13:12 g2-pg-contracts ===
-g2-pg-contracts exit=0 Vitest resources: 11.75s wall, 678.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KTUukW 
-=== 13:13:29 g4-read-envelope-pg-contracts ===
-g4-read-envelope-pg-contracts exit=0 Vitest resources: 9.85s wall, 501.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-envelope-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-FVlKDH 
-=== 13:13:46 g4-unit02-pg-contracts ===
-g4-unit02-pg-contracts exit=0 Vitest resources: 9.58s wall, 511.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-unit02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2QvHfX 
-=== 13:14:02 group native-pg finished ===
+mysql: dropped 133 stale worlds; 211M/512M used
+pg: dropped 70 schemas; 65M/512M used
+=== 19:10:46 g25-pg-contracts ===
+g25-pg-contracts exit=0 Vitest resources: 11.15s wall, 517.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g25-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-3yAxmv 
+=== 19:11:04 g27-pg-contracts ===
+g27-pg-contracts exit=0 Vitest resources: 11.93s wall, 496.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g27-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xJ6eOp 
+=== 19:11:23 g3p02-pg-contracts ===
+g3p02-pg-contracts exit=0 Vitest resources: 11.47s wall, 523.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2vcCNY 
+=== 19:11:41 g3p03-pg-contracts ===
+g3p03-pg-contracts exit=0 Vitest resources: 10.67s wall, 509.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p03-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-XrUxmb 
+=== 19:11:59 g3p04-pg-contracts ===
+g3p04-pg-contracts exit=0 Vitest resources: 12.49s wall, 538.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3p04-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tdXGnx 
+=== 19:12:20 g3-scope-composition-pg ===
+g3-scope-composition-pg exit=0 Vitest resources: 11.53s wall, 528.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g3-scope-composition-pg contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pzT7cF 
+=== 19:12:40 g29-member-dependency-pg ===
+g29-member-dependency-pg exit=0 Vitest resources: 11.78s wall, 525.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g29-member-dependency-pg contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-YDoY7E 
+=== 19:12:59 post-g3-clearability-pg-contracts ===
+post-g3-clearability-pg-contracts exit=0 Vitest resources: 12.69s wall, 510.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 post-g3-clearability-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xU5FJg 
+=== 19:13:19 g2-pg-baseline ===
+g2-pg-baseline exit=0 Vitest resources: 13.29s wall, 648.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-pg-baseline contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-793sAw 
+=== 19:13:39 g2-pg-contracts ===
+g2-pg-contracts exit=0 Vitest resources: 13.60s wall, 672.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Orcno6 
+=== 19:13:59 g4-read-envelope-pg-contracts ===
+g4-read-envelope-pg-contracts exit=0 Vitest resources: 12.82s wall, 491.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-read-envelope-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Y9yNtc 
+=== 19:14:18 g4-unit02-pg-contracts ===
+g4-unit02-pg-contracts exit=0 Vitest resources: 10.94s wall, 506.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g4-unit02-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-pw28Ce 
+=== 19:14:35 group native-pg finished ===

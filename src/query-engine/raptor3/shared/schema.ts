@@ -1,3 +1,4 @@
+import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers";
 import { QueryEngineError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
@@ -14,6 +15,7 @@ import {
   parseValidated,
   upsertEnvelopeSchema,
 } from "../../write-engine/parse-boundary";
+import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,
   buildPhysicalFieldView,
@@ -124,6 +126,31 @@ export function record(value: unknown): Input {
 export function entries(value: unknown): Input[] {
   return Array.isArray(value) ? value : [record(value)];
 }
+
+/**
+ * What this engine resolves once per (adapter, model) and never again.
+ *
+ * Both members are a pure function of the schema and the dialect, which is why
+ * they may be shared at all (rule 1): a scalar leaf is the field's declared
+ * type, nullability and the adapter's own `dateTime` representation; the
+ * DEFAULT projection is `scalarFieldNames` minus the model's own `omit`, and an
+ * operation-level `omit` never reaches the projection owner — admission
+ * desugars it into `select`, which takes the per-operation path. Nothing
+ * admitted and nothing a provider answered is stored (rule 5).
+ *
+ * The two member types are the query owner's, imported for their names only:
+ * `import type` adds no runtime edge, so `shared/query.ts` keeps its one
+ * runtime import of this file and this file keeps none of it.
+ */
+export type QueryViews = {
+  readonly leaves: WeakMap<AnyModel, Map<string, Leaf>>;
+  readonly defaultProjections: WeakMap<AnyModel, PreparedProjection>;
+};
+
+const createQueryViews = (): QueryViews => ({
+  leaves: new WeakMap(),
+  defaultProjections: new WeakMap(),
+});
 
 export class EngineSchema {
   readonly index;
@@ -507,6 +534,36 @@ export class EngineSchema {
       fields.set(field, descriptor);
     }
     return descriptor;
+  }
+  /**
+   * One adapter's {@link QueryViews}, created on its first use.
+   *
+   * `EngineSchema` already owns the lazy immutable per-model views this engine
+   * resolves from the schema alone, but these two are also a fact of the
+   * DIALECT — a scalar leaf carries the adapter's own `dateTime`
+   * representation — and a `Queries` instance is per-operation for writes, so
+   * neither owner alone can hold them. The adapter is the second key and it is
+   * held weakly, so a view store lives exactly as long as the adapter it
+   * describes. What it may hold is what every view here may hold: facts
+   * derived from the schema and the dialect, never an admitted input, an
+   * alias, an operation demand or a provider row (rule 5).
+   *
+   * The accessor names its one fact, like every other view on this class, so
+   * the store cannot be reached for a second shape: an anonymous
+   * `scope(adapter, create)` would hand a second caller the first caller's
+   * object under the second caller's type, and the cast would hide it.
+   */
+  private readonly queryViewsByAdapter = new WeakMap<
+    DatabaseAdapter,
+    QueryViews
+  >();
+  queryViews(adapter: DatabaseAdapter): QueryViews {
+    let views = this.queryViewsByAdapter.get(adapter);
+    if (views === undefined) {
+      views = createQueryViews();
+      this.queryViewsByAdapter.set(adapter, views);
+    }
+    return views;
   }
   storedFields(model: AnyModel): readonly string[] {
     let fields = this.storedFieldLists.get(model);

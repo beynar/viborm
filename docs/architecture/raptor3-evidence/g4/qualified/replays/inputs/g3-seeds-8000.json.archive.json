@@ -3,13 +3,13 @@
   "source": "g3-seeds-8000.json",
   "file": "g3-seeds-8000.json.gz",
   "encoding": "gzip",
-  "originalBytes": 76719782,
-  "originalSha256": "5e11a506cfec3af395943f1bae6af02d1ac265131f973f7971d8ddb1c729ae40",
-  "archiveBytes": 1359060,
-  "archiveSha256": "6936729bce4b9d9a2023740d3e5050493266474e9abb684bb66796bb49fabe66",
+  "originalBytes": 76689772,
+  "originalSha256": "2a37a038b75c3859c5055c0ac9178f2203b3cf117053756f38ba90abe50c8a2e",
+  "archiveBytes": 1356785,
+  "archiveSha256": "35d5994ea8accc279dd5aeaa3e53a935412de5832b608924bd5796c8d839d7ad",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

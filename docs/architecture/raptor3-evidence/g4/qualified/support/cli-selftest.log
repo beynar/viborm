@@ -1,14 +1,14 @@
-Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-FfsPUE
-✔ the same replay command accepts saved fixed, cut/fault and clock corpora (15391.753125ms)
-✔ the command refuses filtering, missing required cases and profiles (10117.103667ms)
-✔ saved evidence with a stale identity, empty corpus or malformed wire fails (14429.955959ms)
-✔ the outer watchdog terminates an operation that actually reached its wait (120429.199084ms)
-✔ the outer watchdog terminates a public call awaiting a queued provider reply (10460.361167ms)
-✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30339.889625ms)
-✔ the command refuses a filtered G4 mode and an off-boundary G4 child (466.146333ms)
-✔ the G4 write lanes own their own range and take no subject (341.89575ms)
-✔ a G4 campaign subject comes from the command, never from the shell (13840.692791ms)
-✔ test:all cannot replace the required lane through inherited specimen variables (16490.851333ms)
+Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-cli-h1e6d1
+✔ the same replay command accepts saved fixed, cut/fault and clock corpora (14803.798625ms)
+✔ the command refuses filtering, missing required cases and profiles (10006.080958ms)
+✔ saved evidence with a stale identity, empty corpus or malformed wire fails (13713.817709ms)
+✔ the outer watchdog terminates an operation that actually reached its wait (120696.847625ms)
+✔ the outer watchdog terminates a public call awaiting a queued provider reply (10784.510667ms)
+✔ completed G2 progress survives watchdog termination without becoming qualifying evidence (30783.258916ms)
+✔ the command refuses a filtered G4 mode and an off-boundary G4 child (365.442ms)
+✔ the G4 write lanes own their own range and take no subject (301.2295ms)
+✔ a G4 campaign subject comes from the command, never from the shell (12036.341042ms)
+✔ test:all cannot replace the required lane through inherited specimen variables (14857.33725ms)
 ℹ tests 10
 ℹ suites 0
 ℹ pass 10
@@ -16,5 +16,5 @@ Raptor 3 CLI command evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 239930.6405
-Node resources: 240.41s wall, 211.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+ℹ duration_ms 234382.215708
+Node resources: 234.63s wall, 213.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -3,13 +3,13 @@
   "source": "cs03-extension-b-seeds.json",
   "file": "cs03-extension-b-seeds.json.gz",
   "encoding": "gzip",
-  "originalBytes": 759326,
-  "originalSha256": "76c93dbfe1f15f810c390548178c76ec6946ad4ddac6d483149c954eb02bffca",
-  "archiveBytes": 21048,
-  "archiveSha256": "5edb0a48a8691f90ab1395c46da44e1638803c8b22582f191b5638d5d7f45702",
+  "originalBytes": 753446,
+  "originalSha256": "2e84d97ae885c3a9affccbbdb4bd497725c21162466a559f3b7649caa16007b7",
+  "archiveBytes": 20070,
+  "archiveSha256": "0b502de40179b74cf0084b64345b425186f9ae45f3c97134f5fffba03badf5a3",
   "identity": {
-    "production": "2e92354bafaaccb7cab5f54041992b552664a7865fb69370be70ebccb63a1975",
-    "harness": "31c2883fd742dbea69896430543a85a9eace96719b9f24f9358593b54ff3a66a"
+    "production": "312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640",
+    "harness": "1d4d913c4f686d7aa0871dde7f8af2c6049a674db2595c54a52b7f66491f2f9e"
   },
   "role": "replay input",
   "restoreWorkingDirectory": "the directory containing this descriptor",

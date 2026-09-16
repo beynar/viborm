@@ -599,6 +599,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts": 7,
   "tests/raptor3/g4/unit02/physical-envelope.test.ts": 10,
   "tests/raptor3/g4/unit02/prepared-operation.test.ts": 6,
+  "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts": 5,
   "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts": 3,
   "tests/raptor3/g4/unit02/recursive-codec-fit.test.ts": 3,
   "tests/raptor3/g4/unit02/returning-safety-gate.test.ts": 5,

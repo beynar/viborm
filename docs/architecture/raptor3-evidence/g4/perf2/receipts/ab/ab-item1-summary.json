@@ -1,0 +1,230 @@
+{
+ "scalar-find-unique/prepare": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 13.241,
+    "wall": 5.805,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 12.821,
+    "wall": 5.826,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 17.357,
+    "wall": 8.748,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 15.402,
+    "wall": 7.527,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 1.311,
+   "wall": 1.507
+  },
+  "ratio_after": {
+   "cpu": 1.201,
+   "wall": 1.292
+  }
+ },
+ "fixed-collection-rowref-20/prepare": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 20.642,
+    "wall": 11.192,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 21.025,
+    "wall": 11.137,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 27.002,
+    "wall": 14.191,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 25.992,
+    "wall": 13.568,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 1.308,
+   "wall": 1.268
+  },
+  "ratio_after": {
+   "cpu": 1.236,
+   "wall": 1.218
+  }
+ },
+ "fixed-collection-rowref-1000/prepare": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 31.549,
+    "wall": 14.787,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 31.82,
+    "wall": 14.672,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 32.104,
+    "wall": 15.602,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 29.671,
+    "wall": 14.818,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 1.018,
+   "wall": 1.055
+  },
+  "ratio_after": {
+   "cpu": 0.932,
+   "wall": 1.01
+  }
+ },
+ "bulk-update-returning-100/prepare": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 27.288,
+    "wall": 18.845,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 27.163,
+    "wall": 18.563,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 33.57,
+    "wall": 21.973,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 32.74,
+    "wall": 21.163,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 1.23,
+   "wall": 1.166
+  },
+  "ratio_after": {
+   "cpu": 1.205,
+   "wall": 1.14
+  }
+ },
+ "nested-conditional-found/full": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 205.452,
+    "wall": 130.816,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 208.038,
+    "wall": 134.072,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 145.882,
+    "wall": 102.701,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 144.778,
+    "wall": 102.758,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 0.71,
+   "wall": 0.785
+  },
+  "ratio_after": {
+   "cpu": 0.696,
+   "wall": 0.766
+  }
+ },
+ "scalar-find-unique/full": {
+  "shipped": {
+   "before": {
+    "n": 3,
+    "cpu": 31.282,
+    "wall": 19.784,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 33.259,
+    "wall": 20.864,
+    "captures": 0
+   }
+  },
+  "candidate": {
+   "before": {
+    "n": 3,
+    "cpu": 28.558,
+    "wall": 18.213,
+    "captures": 0
+   },
+   "after": {
+    "n": 3,
+    "cpu": 27.925,
+    "wall": 17.961,
+    "captures": 0
+   }
+  },
+  "ratio_before": {
+   "cpu": 0.913,
+   "wall": 0.921
+  },
+  "ratio_after": {
+   "cpu": 0.84,
+   "wall": 0.861
+  }
+ }
+}

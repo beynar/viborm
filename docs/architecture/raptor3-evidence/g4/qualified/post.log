@@ -1,49 +1,51 @@
-=== 14:05:09 all lanes and the chain exited ===
-=== 14:05:09 rerun-refused done ===
-restored g4-seeds-20000 bytes=338001 sha256=4d72098b348fc2e81c5e361e5c5613b3f282ccdc68689c189f7d5ea9640d0a39 (archive receipt matches)
-=== 14:05:10 replay g4-seeds-20000 ===
-replay g4-seeds-20000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-xCi6rL
-restored g4-transport-seeds-50000 bytes=324201 sha256=202325d185603cd2e1e6d54846aa733a6ac917843d53ebc3a26e255ac8be09cd (archive receipt matches)
-=== 14:05:15 replay g4-transport-seeds-50000 ===
-replay g4-transport-seeds-50000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-K7ac2Z
-restored g4-write-seeds-75000 bytes=61396812 sha256=59290dfcb7a7dce2bbc2dcf210cb6e7b79a9d333c5d806de28ae0ec64ab1a658 (archive receipt matches)
-=== 14:05:19 replay g4-write-seeds-75000 ===
-replay g4-write-seeds-75000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Syp
-restored g4-write-transport-seeds-100000 bytes=64104776 sha256=95501e8063972a31a698967da0130c964c86b6481b271cdd9a41cc03d9f2fbda (archive receipt matches)
-=== 14:05:25 replay g4-write-transport-seeds-100000 ===
-replay g4-write-transport-seeds-100000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-cbn
-restored g3-seeds-8000 bytes=76719782 sha256=5e11a506cfec3af395943f1bae6af02d1ac265131f973f7971d8ddb1c729ae40 (archive receipt matches)
-=== 14:05:30 replay g3-seeds-8000 ===
-replay g3-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-A0A
-restored g3-transport-seeds-8000 bytes=83715941 sha256=5f1fcf4e90f68c5a41460cfd6dfaf1b745daadc429c219ddd3708d2fc643d569 (archive receipt matches)
-=== 14:05:36 replay g3-transport-seeds-8000 ===
-replay g3-transport-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-fZM
-=== 14:05:41 replay cs03-extension-a-seeds ===
-replay cs03-extension-a-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-jru
-=== 14:05:46 replay cs03-extension-b-seeds ===
-replay cs03-extension-b-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-BET
-=== 14:05:52 replay cs03-extension-composition-seeds ===
-replay cs03-extension-composition-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-g0x
-=== 14:05:57 stale cs03-extension-a-stale (refusal expected) ===
+=== 20:02:49 all lanes and the chain exited ===
+=== 20:02:49 rerun-refused done ===
+restored g4-seeds-20000 bytes=338001 sha256=3f7aa7664d33b4bffdf2eba0e17f4a4ae114946a06989a0430503838fc5e998a (archive receipt matches)
+=== 20:02:49 replay g4-seeds-20000 ===
+replay g4-seeds-20000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-8uMiX0
+restored g4-transport-seeds-50000 bytes=324201 sha256=9bfdc729b9d886b9b3a69ce0536410caae6753c61b36587cc21cc6e6caf1e938 (archive receipt matches)
+=== 20:02:54 replay g4-transport-seeds-50000 ===
+replay g4-transport-seeds-50000 exit=1 Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tMUqZw
+restored g4-write-seeds-75000 bytes=61371797 sha256=8b8634d0423a77663141cc45a84ffce32ae88e8a15ea4d21c4cd46564355480a (archive receipt matches)
+=== 20:02:59 replay g4-write-seeds-75000 ===
+replay g4-write-seeds-75000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tko
+restored g4-write-transport-seeds-100000 bytes=64091456 sha256=924e9acd4eda70447deb8e3e0268f54913bbe2ad76e70c12104f79eb15a7be10 (archive receipt matches)
+=== 20:03:06 replay g4-write-transport-seeds-100000 ===
+replay g4-write-transport-seeds-100000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-LwL
+restored g3-seeds-8000 bytes=76689772 sha256=2a37a038b75c3859c5055c0ac9178f2203b3cf117053756f38ba90abe50c8a2e (archive receipt matches)
+=== 20:03:12 replay g3-seeds-8000 ===
+replay g3-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2i4
+restored g3-transport-seeds-8000 bytes=83679271 sha256=2c7d224231d9b77fd13706311231adcac9bf1740a4aedb47fb823675be557568 (archive receipt matches)
+=== 20:03:18 replay g3-transport-seeds-8000 ===
+replay g3-transport-seeds-8000 exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-dyB
+=== 20:03:26 replay cs03-extension-a-seeds ===
+replay cs03-extension-a-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-kLS
+=== 20:03:33 replay cs03-extension-b-seeds ===
+replay cs03-extension-b-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Wpb
+=== 20:03:41 replay cs03-extension-composition-seeds ===
+replay cs03-extension-composition-seeds exit=0 Raptor 3 replay contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-a47
+=== 20:03:51 stale cs03-extension-a-stale (refusal expected) ===
 stale cs03-extension-a-stale exit=1 refused-as-expected
-=== 14:06:01 stale cs03-extension-b-stale (refusal expected) ===
+=== 20:03:56 stale cs03-extension-b-stale (refusal expected) ===
 stale cs03-extension-b-stale exit=1 refused-as-expected
-=== 14:06:06 stale cs03-extension-composition-stale (refusal expected) ===
+=== 20:04:01 stale cs03-extension-composition-stale (refusal expected) ===
 stale cs03-extension-composition-stale exit=1 refused-as-expected
-=== 14:06:10 stale g2-conditional-upsert-stale (refusal expected) ===
+=== 20:04:06 stale g2-conditional-upsert-stale (refusal expected) ===
 stale g2-conditional-upsert-stale exit=1 refused-as-expected
-=== 14:06:15 stale g25-polish-stale (refusal expected) ===
+=== 20:04:10 stale g25-polish-stale (refusal expected) ===
 stale g25-polish-stale exit=1 refused-as-expected
-=== 14:06:19 stale g3-sqlite-8000-stale (refusal expected) ===
+=== 20:04:14 stale g3-sqlite-8000-stale (refusal expected) ===
 stale g3-sqlite-8000-stale exit=1 refused-as-expected
-=== 14:06:24 stale g3-transport-8000-stale (refusal expected) ===
+=== 20:04:19 stale g3-transport-8000-stale (refusal expected) ===
 stale g3-transport-8000-stale exit=1 refused-as-expected
-=== 14:06:29 stale historical-g2-conditional-upsert-stale (refusal expected) ===
+=== 20:04:24 stale historical-g2-conditional-upsert-stale (refusal expected) ===
 stale historical-g2-conditional-upsert-stale exit=1 refused-as-expected
-=== 14:06:33 stale historical-g25-polish-stale (refusal expected) ===
+=== 20:04:29 stale historical-g25-polish-stale (refusal expected) ===
 stale historical-g25-polish-stale exit=1 refused-as-expected
-=== 14:06:38 replays done ===
+=== 20:04:33 replays done ===
 identity restored
-cs02-structure-measure exit=0 Raptor 3 cs02-structure-measure measurement verified. Evidence: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-VqWm3N
-=== 14:06:45 group structure finished ===
-=== 14:06:45 RUNS-COMPLETE ===
+cs02-structure-measure exit=1 Raptor 3 verification failed; diagnostics: /private/tmp/viborm-g4-structure-tmp/viborm-raptor3-g0-fpYkt8
+=== 20:04:39 group structure finished ===
+=== 20:06:07 structure re-run by the integrator (capturedAt tooling incident, see g4.md): cs02-structure-measure exit=0, identity restored; receipts in structure/, the red first attempt kept as structure-attempt1-red-tooling/ ===
+cli-selftest exit=0 (re-run alone after the campaigns; the first attempt is kept as cli-selftest.attempt1-red.log)
+=== 20:08:34 RUNS-COMPLETE ===

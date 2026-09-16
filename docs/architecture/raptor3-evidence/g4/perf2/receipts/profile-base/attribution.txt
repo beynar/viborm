@@ -1,0 +1,506 @@
+########## STAGES scalar-find-unique-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/scalar-find-unique-prepare-shipped.cpuprofile
+# total 166.8 ms over 20000 ops = 8.338 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+profiler overhead                                       1.417     28.33   16.99
+gc / vm                                                 1.304     26.08   15.64
+shipped: write-engine                                   1.096     21.92   13.14
+SQL fragments (src/sql)                                 1.037     20.75   12.44
+driver / execution context                              0.790     15.80    9.47
+shipped: builders                                       0.596     11.91    7.14
+admission (EngineSchema.admit + validation)             0.452      9.04    5.42
+shipped: result shape/parse                             0.375      7.50    4.50
+pending-operation / query-engine glue                   0.373      7.46    4.48
+node builtins                                           0.221      4.42    2.65
+schema model access                                     0.181      3.63    2.17
+shipped: operations                                     0.161      3.21    1.93
+client proxy                                            0.133      2.66    1.60
+adapter lowering                                        0.131      2.63    1.57
+benchmark harness                                       0.071      1.42    0.85
+########## SELF scalar-find-unique-prepare shipped
+## SELF time by function
+    28.33 ms   16.99%  post  @ node:inspector:0
+    11.42 ms    6.85%  h  @ src/drivers/execution-context.ts:218
+    11.16 ms    6.69%  i  @ src/sql/sql.ts:74
+     9.50 ms    5.70%  (garbage collector)  @ (vm):0
+     7.21 ms    4.32%  (program)  @ (vm):0
+     4.17 ms    2.50%  (anonymous)  @ src/validation/primitives/object.ts:528
+     3.62 ms    2.17%  Yo  @ src/query-engine/builders/select-builder.ts:478
+     3.04 ms    1.83%  t  @ src/query-engine/pending-operation.ts:418
+     2.92 ms    1.75%  ll  @ src/query-engine/result/result-shape.ts:58
+     2.87 ms    1.72%  fl  @ src/query-engine/result/result-shape.ts:99
+     2.83 ms    1.70%  qo  @ src/query-engine/builders/select-builder.ts:224
+     2.59 ms    1.55%  (anonymous)  @ src/sql/identifiers.ts:17
+     2.54 ms    1.52%  toStatement  @ src/sql/sql.ts:108
+     2.41 ms    1.45%  (anonymous)  @ benchmarks/operation-pipeline-read-workloads.mjs:101
+     2.17 ms    1.30%  get ~  @ src/schema/model/model.ts:529
+     2.17 ms    1.30%  compileToEntries  @ src/query-engine/write-engine/OperationExecutor.ts:1990
+     2.13 ms    1.27%  prepare  @ benchmarks/operation-pipeline-harness.mjs:387
+     2.05 ms    1.23%  F  @ src/query-engine/operations/find-unique.ts:35
+     2.00 ms    1.20%  buildAtomicFragment  @ src/query-engine/write-engine/OperationExecutor.ts:1791
+     1.83 ms    1.10%  prepareOperationPlan  @ benchmarks/operation-pipeline-harness.mjs:248
+     1.79 ms    1.07%  prepareSharedBatch  @ src/query-engine/write-engine/OperationExecutor.ts:1493
+     1.71 ms    1.03%  getBufferedUUID  @ node:internal/crypto/random:0
+     1.71 ms    1.03%  hS  @ src/query-engine/pending-operation.ts:204
+     1.62 ms    0.97%  e  @ src/sql/sql.ts:35
+     1.42 ms    0.85%  Qb  @ src/query-engine/write-engine/FragmentValidator.ts:202
+     1.33 ms    0.80%  (anonymous)  @ src/query-engine/write-engine/FragmentValidator.ts:90
+     1.29 ms    0.78%  serializeUUID  @ node:internal/crypto/random:0
+     1.29 ms    0.77%  na  @ src/query-engine/builders/where-unique-builder.ts:107
+     1.25 ms    0.75%  b  @ src/adapters/shared/select-assembly.ts:26
+     1.21 ms    0.73%  Gb  @ src/query-engine/write-engine/FragmentValidator.ts:26
+########## ALLOC scalar-find-unique-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/scalar-find-unique-prepare-shipped.heapprofile
+# total 470.0 MB over 20000 ops = 24642 B/op
+   2773 B/op  11.25%  get ~ @ src/schema/model/model.ts:529
+   1581 B/op   6.42%  Map @ (vm)
+   1327 B/op   5.38%  qo @ src/query-engine/builders/select-builder.ts:224
+   1099 B/op   4.46%  Set @ (vm)
+   1062 B/op   4.31%  i @ src/sql/sql.ts:74
+    905 B/op   3.67%  prepare @ benchmarks/operation-pipeline-harness.mjs
+    752 B/op   3.05%  buildAtomicFragment @ src/query-engine/write-engine/OperationExecutor.ts:1791
+    738 B/op   3.00%  F @ src/query-engine/operations/find-unique.ts:35
+    689 B/op   2.80%  executePlanningLevels @ src/query-engine/write-engine/OperationExecutor.ts:1845
+    651 B/op   2.64%  Yo @ src/query-engine/builders/select-builder.ts:478
+    623 B/op   2.53%  fl @ src/query-engine/result/result-shape.ts:99
+    594 B/op   2.41%  get values @ src/sql/sql.ts:51
+    588 B/op   2.39%  serializeUUID @ node:internal/crypto/random
+    581 B/op   2.36%  Gb @ src/query-engine/write-engine/FragmentValidator.ts:26
+    573 B/op   2.33%  (anon) @ src/query-engine/builders/select-builder.ts:155
+    555 B/op   2.25%  t @ src/sql/sql.ts:155
+    534 B/op   2.17%  (anon) @ src/validation/primitives/object.ts:528
+    505 B/op   2.05%  prepareSharedBatch @ src/query-engine/write-engine/OperationExecutor.ts:1493
+    403 B/op   1.63%  hl @ src/query-engine/result/result-shape.ts:292
+    398 B/op   1.61%  entries @ (vm)
+    392 B/op   1.59%  compileToEntries @ src/query-engine/write-engine/OperationExecutor.ts:1990
+    383 B/op   1.55%  na @ src/query-engine/builders/where-unique-builder.ts:107
+    376 B/op   1.52%  next @ (vm)
+    365 B/op   1.48%  h @ src/drivers/execution-context.ts:218
+    342 B/op   1.39%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    324 B/op   1.32%  b @ src/adapters/shared/select-assembly.ts:26
+    304 B/op   1.23%  prepareBatch @ src/query-engine/pending-operation.ts:371
+    293 B/op   1.19%  t @ src/query-engine/pending-operation.ts:418
+    292 B/op   1.18%  n @ src/sql/sql.ts:174
+    278 B/op   1.13%  prepareModelOperation @ src/client/client.ts:525
+########## STAGES scalar-find-unique-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/scalar-find-unique-prepare-candidate.cpuprofile
+# total 226.2 ms over 20000 ops = 11.310 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+gc / vm                                                 3.067     61.33   27.11
+candidate: Queries.read / projection / selector         2.234     44.67   19.75
+profiler overhead                                       1.512     30.25   13.37
+driver / execution context                              1.032     20.63    9.12
+SQL fragments (src/sql)                                 0.800     15.99    7.07
+admission (EngineSchema.admit + validation)             0.579     11.59    5.12
+candidate: Commands (write plan)                        0.473      9.45    4.18
+candidate: OperationContext (package build + ctor)      0.429      8.58    3.79
+node builtins                                           0.277      5.54    2.45
+pending-operation / query-engine glue                   0.269      5.37    2.37
+candidate: route glue                                   0.196      3.92    1.73
+adapter lowering                                        0.129      2.58    1.14
+client proxy                                            0.125      2.50    1.10
+schema model access                                     0.085      1.71    0.75
+benchmark harness                                       0.065      1.29    0.57
+shipped: write-engine                                   0.040      0.79    0.35
+########## SELF scalar-find-unique-prepare candidate
+## SELF time by function
+    40.00 ms   17.68%  (garbage collector)  @ (vm):0
+    30.25 ms   13.37%  post  @ node:inspector:0
+    17.05 ms    7.54%  h  @ src/drivers/execution-context.ts:218
+    13.04 ms    5.77%  prepareProjection  @ src/query-engine/raptor3/shared/query.ts:3008
+     9.83 ms    4.35%  i  @ src/sql/sql.ts:74
+     6.46 ms    2.86%  (program)  @ (vm):0
+     6.46 ms    2.86%  lowerProjection  @ src/query-engine/raptor3/shared/query.ts:3232
+     6.00 ms    2.65%  prepareOperationPlan  @ benchmarks/operation-pipeline-harness.mjs:248
+     4.83 ms    2.13%  i  @ src/query-engine/raptor3/commands/index.ts:136
+     4.75 ms    2.10%  select  @ src/query-engine/raptor3/shared/query.ts:2369
+     3.79 ms    1.68%  (anonymous)  @ src/validation/primitives/object.ts:528
+     3.26 ms    1.44%  prepareSelector  @ src/query-engine/raptor3/shared/query.ts:924
+     3.17 ms    1.40%  operation  @ src/query-engine/raptor3/route/client-route.ts:157
+     3.08 ms    1.36%  (anonymous)  @ benchmarks/operation-pipeline-read-workloads.mjs:101
+     2.54 ms    1.12%  (anonymous)  @ src/query-engine/raptor3/shared/operation-context.ts:112
+     2.38 ms    1.05%  prepareScalarPredicate  @ src/query-engine/raptor3/shared/query.ts:1143
+     2.08 ms    0.92%  toStatement  @ src/sql/sql.ts:108
+     2.08 ms    0.92%  projectedColumn  @ src/query-engine/raptor3/shared/query.ts:654
+     2.00 ms    0.88%  prepareWhere  @ src/query-engine/raptor3/shared/query.ts:1094
+     1.92 ms    0.85%  getBufferedUUID  @ node:internal/crypto/random:0
+     1.88 ms    0.83%  leaf  @ src/query-engine/raptor3/shared/query.ts:699
+     1.87 ms    0.83%  (anonymous)  @ src/query-engine/raptor3/commands/index.ts:159
+     1.79 ms    0.79%  t  @ src/query-engine/pending-operation.ts:418
+     1.71 ms    0.76%  physicalField  @ src/query-engine/raptor3/shared/schema.ts:498
+     1.62 ms    0.72%  preparedBatch  @ src/query-engine/raptor3/shared/operation-context.ts:1094
+     1.59 ms    0.70%  prepareBatch  @ src/query-engine/raptor3/commands/index.ts:191
+     1.58 ms    0.70%  (anonymous)  @ src/sql/identifiers.ts:17
+     1.54 ms    0.68%  (anonymous)  @ file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof-stage.mjs:0
+     1.42 ms    0.63%  randomUUID  @ node:internal/crypto/random:0
+     1.42 ms    0.63%  t  @ src/query-engine/pending-operation.ts:170
+########## ALLOC scalar-find-unique-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/scalar-find-unique-prepare-candidate.heapprofile
+# total 457.7 MB over 20000 ops = 23995 B/op
+   2021 B/op   8.42%  lowerProjection @ src/query-engine/raptor3/shared/query.ts:3232
+   1824 B/op   7.60%  prepareProjection @ src/query-engine/raptor3/shared/query.ts:3008
+   1494 B/op   6.23%  get ~ @ src/schema/model/model.ts:529
+   1156 B/op   4.82%  projectedColumn @ src/query-engine/raptor3/shared/query.ts:654
+   1104 B/op   4.60%  #w @ src/query-engine/pending-operation.ts:545
+    961 B/op   4.00%  i @ src/sql/sql.ts:74
+    954 B/op   3.98%  Map @ (vm)
+    901 B/op   3.75%  select @ src/query-engine/raptor3/shared/query.ts:2369
+    551 B/op   2.30%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    535 B/op   2.23%  (anon) @ src/validation/primitives/object.ts:528
+    465 B/op   1.94%  prepareBatch @ src/query-engine/pending-operation.ts:371
+    461 B/op   1.92%  entries @ (vm)
+    459 B/op   1.91%  t @ src/query-engine/pending-operation.ts:418
+    456 B/op   1.90%  Set @ (vm)
+    454 B/op   1.89%  run @ src/query-engine/raptor3/shared/operation-context.ts:542
+    450 B/op   1.88%  prepareBatch @ src/query-engine/raptor3/commands/index.ts:191
+    443 B/op   1.85%  i @ src/query-engine/raptor3/commands/index.ts:136
+    402 B/op   1.68%  prepare @ benchmarks/operation-pipeline-harness.mjs
+    402 B/op   1.67%  next @ (vm)
+    382 B/op   1.59%  lowerOperation @ src/query-engine/raptor3/shared/query.ts:1534
+    354 B/op   1.48%  operation @ src/query-engine/raptor3/route/client-route.ts:157
+    337 B/op   1.40%  getBufferedUUID @ node:internal/crypto/random
+    337 B/op   1.40%  map @ (vm)
+    332 B/op   1.38%  column @ src/adapters/shared/standard-sql.ts:251
+    301 B/op   1.25%  publish @ src/query-engine/raptor3/shared/operation-context.ts:624
+    279 B/op   1.16%  prepareModelOperation @ src/client/client.ts:525
+    268 B/op   1.12%  prepareSelector @ src/query-engine/raptor3/shared/query.ts:924
+    259 B/op   1.08%  read @ src/query-engine/raptor3/shared/query.ts:2433
+    254 B/op   1.06%  (anon) @ src/query-engine/raptor3/commands/index.ts:159
+    253 B/op   1.05%  y @ src/adapters/shared/select-assembly.ts:10
+########## STAGES fixed-collection-rowref-1000-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/fixed-collection-rowref-1000-prepare-shipped.cpuprofile
+# total 89.1 ms over 3000 ops = 29.694 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+profiler overhead                                      10.847     32.54   36.53
+gc / vm                                                 2.877      8.63    9.69
+shipped: builders                                       2.860      8.58    9.63
+admission (EngineSchema.admit + validation)             2.792      8.38    9.40
+shipped: result shape/parse                             2.208      6.62    7.44
+shipped: write-engine                                   2.069      6.21    6.97
+SQL fragments (src/sql)                                 1.779      5.34    5.99
+driver / execution context                              1.613      4.84    5.43
+pending-operation / query-engine glue                   0.666      2.00    2.24
+shipped: operations                                     0.652      1.96    2.20
+adapter lowering                                        0.569      1.71    1.92
+schema model access                                     0.346      1.04    1.17
+node builtins                                           0.292      0.88    0.98
+benchmark harness                                       0.098      0.29    0.33
+client proxy                                            0.028      0.08    0.09
+########## SELF fixed-collection-rowref-1000-prepare shipped
+## SELF time by function
+    32.54 ms   36.53%  post  @ node:inspector:0
+     4.21 ms    4.73%  (garbage collector)  @ (vm):0
+     3.55 ms    3.98%  h  @ src/drivers/execution-context.ts:218
+     3.21 ms    3.61%  i  @ src/sql/sql.ts:74
+     2.96 ms    3.32%  (anonymous)  @ src/validation/primitives/object.ts:528
+     2.33 ms    2.62%  qo  @ src/query-engine/builders/select-builder.ts:224
+     2.08 ms    2.34%  ll  @ src/query-engine/result/result-shape.ts:58
+     1.79 ms    2.01%  (program)  @ (vm):0
+     1.46 ms    1.64%  fl  @ src/query-engine/result/result-shape.ts:99
+     0.92 ms    1.03%  (anonymous)  @ src/validation/primitives/union.ts:33
+     0.87 ms    0.98%  ml  @ src/query-engine/result/result-shape.ts:249
+     0.83 ms    0.94%  (anonymous)  @ file:///private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof-stage.mjs:0
+     0.79 ms    0.89%  hl  @ src/query-engine/result/result-shape.ts:292
+     0.79 ms    0.89%  toStatement  @ src/sql/sql.ts:108
+     0.79 ms    0.89%  t  @ src/query-engine/pending-operation.ts:170
+     0.71 ms    0.80%  Ka  @ src/query-engine/operations/cursor-order.ts:138
+     0.71 ms    0.79%  Ft  @ src/query-engine/context/query-scope.ts:57
+     0.67 ms    0.75%  (anonymous)  @ benchmarks/operation-pipeline-read-workloads.mjs:229
+     0.63 ms    0.70%  (anonymous)  @ src/sql/identifiers.ts:17
+     0.62 ms    0.70%  Ki  @ src/query-engine/builders/where-builder.ts:323
+     0.62 ms    0.70%  N  @ src/validation/primitives/helpers.ts:38
+     0.58 ms    0.66%  buildAtomicFragment  @ src/query-engine/write-engine/OperationExecutor.ts:1791
+     0.58 ms    0.65%  objectFromColumns  @ src/adapters/databases/sqlite/sqlite-adapter.ts:482
+     0.54 ms    0.61%  getBufferedUUID  @ node:internal/crypto/random:0
+     0.54 ms    0.61%  jo  @ src/query-engine/builders/include-builder.ts:80
+     0.50 ms    0.56%  Zi  @ src/query-engine/builders/where-builder.ts:507
+     0.50 ms    0.56%  prepareSharedBatch  @ src/query-engine/write-engine/OperationExecutor.ts:1493
+     0.50 ms    0.56%  _x  @ src/query-engine/write-engine/OperationExecutor.ts:2364
+     0.50 ms    0.56%  buildReadSql  @ src/query-engine/write-engine/ReadOperation.ts:261
+     0.50 ms    0.56%  hS  @ src/query-engine/pending-operation.ts:204
+########## ALLOC fixed-collection-rowref-1000-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/fixed-collection-rowref-1000-prepare-shipped.heapprofile
+# total 136.5 MB over 3000 ops = 47712 B/op
+   2523 B/op   5.29%  next @ (vm)
+   2189 B/op   4.59%  Map @ (vm)
+   2066 B/op   4.33%  qo @ src/query-engine/builders/select-builder.ts:224
+   1987 B/op   4.17%  Set @ (vm)
+   1767 B/op   3.70%  hl @ src/query-engine/result/result-shape.ts:292
+   1711 B/op   3.59%  No @ src/query-engine/builders/include-builder.ts:301
+   1695 B/op   3.55%  i @ src/sql/sql.ts:74
+   1546 B/op   3.24%  entries @ (vm)
+   1358 B/op   2.85%  (anon) @ src/validation/primitives/object.ts:528
+   1313 B/op   2.75%  get values @ src/sql/sql.ts:51
+   1263 B/op   2.65%  get ~ @ src/schema/model/model.ts:529
+   1262 B/op   2.65%  Zi @ src/query-engine/builders/where-builder.ts:507
+   1170 B/op   2.45%  fl @ src/query-engine/result/result-shape.ts:99
+   1043 B/op   2.19%  P @ src/query-engine/operations/find-common.ts:68
+   1030 B/op   2.16%  (anon) @ src/query-engine/builders/select-builder.ts:155
+    865 B/op   1.81%  (anon) @ src/query-engine/builders/correlation-utils.ts:81
+    821 B/op   1.72%  Ki @ src/query-engine/builders/where-builder.ts:323
+    793 B/op   1.66%  n @ src/sql/sql.ts:174
+    786 B/op   1.65%  prepareSharedBatch @ src/query-engine/write-engine/OperationExecutor.ts:1493
+    738 B/op   1.55%  Ka @ src/query-engine/operations/cursor-order.ts:138
+    672 B/op   1.41%  map @ (vm)
+    654 B/op   1.37%  ml @ src/query-engine/result/result-shape.ts:249
+    604 B/op   1.27%  executePlanningLevels @ src/query-engine/write-engine/OperationExecutor.ts:1845
+    602 B/op   1.26%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    589 B/op   1.23%  serializeUUID @ node:internal/crypto/random
+    570 B/op   1.19%  push @ (vm)
+    564 B/op   1.18%  h @ src/drivers/execution-context.ts:218
+    538 B/op   1.13%  Ei @ src/query-engine/builders/relation-traversal.ts:184
+    519 B/op   1.09%  Gb @ src/query-engine/write-engine/FragmentValidator.ts:26
+    514 B/op   1.08%  buildAtomicFragment @ src/query-engine/write-engine/OperationExecutor.ts:1791
+########## STAGES fixed-collection-rowref-1000-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/fixed-collection-rowref-1000-prepare-candidate.cpuprofile
+# total 83.7 ms over 3000 ops = 27.903 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+profiler overhead                                       9.958     29.88   35.69
+gc / vm                                                 4.154     12.46   14.89
+candidate: Queries.read / projection / selector         4.025     12.08   14.43
+admission (EngineSchema.admit + validation)             3.222      9.67   11.55
+SQL fragments (src/sql)                                 2.083      6.25    7.47
+driver / execution context                              1.222      3.67    4.38
+candidate: Commands (write plan)                        0.681      2.04    2.44
+adapter lowering                                        0.555      1.67    1.99
+candidate: OperationContext (package build + ctor)      0.530      1.59    1.90
+pending-operation / query-engine glue                   0.472      1.42    1.69
+schema model access                                     0.347      1.04    1.24
+candidate: route glue                                   0.181      0.54    0.65
+node builtins                                           0.166      0.50    0.60
+benchmark harness                                       0.153      0.46    0.55
+client proxy                                            0.139      0.42    0.50
+shipped: write-engine                                   0.014      0.04    0.05
+########## SELF fixed-collection-rowref-1000-prepare candidate
+## SELF time by function
+    29.88 ms   35.69%  post  @ node:inspector:0
+     8.16 ms    9.75%  (garbage collector)  @ (vm):0
+     4.33 ms    5.17%  (anonymous)  @ src/validation/primitives/object.ts:528
+     3.50 ms    4.18%  i  @ src/sql/sql.ts:74
+     3.13 ms    3.73%  h  @ src/drivers/execution-context.ts:218
+     2.17 ms    2.59%  (program)  @ (vm):0
+     1.50 ms    1.79%  lowerProjection  @ src/query-engine/raptor3/shared/query.ts:3232
+     1.34 ms    1.60%  prepareProjection  @ src/query-engine/raptor3/shared/query.ts:3008
+     1.25 ms    1.49%  lowerRelationProjection  @ src/query-engine/raptor3/shared/query.ts:3324
+     1.17 ms    1.40%  i  @ src/query-engine/raptor3/commands/index.ts:136
+     0.87 ms    1.04%  toStatement  @ src/sql/sql.ts:108
+     0.83 ms    0.99%  e  @ src/sql/sql.ts:35
+     0.75 ms    0.90%  d  @ src/schema/model/keys.ts:91
+     0.71 ms    0.84%  (anonymous)  @ src/query-engine/raptor3/shared/query.ts:2021
+     0.67 ms    0.80%  select  @ src/query-engine/raptor3/shared/query.ts:2369
+     0.62 ms    0.74%  object  @ src/adapters/databases/sqlite/sqlite-adapter.ts:464
+     0.58 ms    0.70%  (anonymous)  @ benchmarks/operation-pipeline-read-workloads.mjs:229
+     0.54 ms    0.65%  operation  @ src/query-engine/raptor3/route/client-route.ts:157
+     0.54 ms    0.65%  (anonymous)  @ src/validation/primitives/union.ts:33
+     0.50 ms    0.60%  t  @ src/query-engine/pending-operation.ts:170
+     0.50 ms    0.60%  prepareOperationPlan  @ benchmarks/operation-pipeline-harness.mjs:248
+     0.50 ms    0.60%  page  @ src/query-engine/raptor3/shared/query.ts:2147
+     0.46 ms    0.55%  (anonymous)  @ src/query-engine/raptor3/shared/operation-context.ts:112
+     0.46 ms    0.55%  prepare  @ benchmarks/operation-pipeline-harness.mjs:387
+     0.46 ms    0.55%  N  @ src/validation/primitives/helpers.ts:38
+     0.46 ms    0.55%  b  @ src/adapters/shared/select-assembly.ts:26
+     0.46 ms    0.55%  (anonymous)  @ src/sql/identifiers.ts:17
+     0.46 ms    0.55%  preparedBatch  @ src/query-engine/raptor3/shared/operation-context.ts:1094
+     0.46 ms    0.55%  t  @ src/query-engine/pending-operation.ts:418
+     0.46 ms    0.55%  prepareScalarPredicate  @ src/query-engine/raptor3/shared/query.ts:1143
+########## ALLOC fixed-collection-rowref-1000-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/fixed-collection-rowref-1000-prepare-candidate.heapprofile
+# total 110.7 MB over 3000 ops = 38699 B/op
+   2246 B/op   5.80%  lowerRelationProjection @ src/query-engine/raptor3/shared/query.ts:3324
+   2237 B/op   5.78%  lowerProjection @ src/query-engine/raptor3/shared/query.ts:3232
+   1930 B/op   4.99%  column @ src/adapters/shared/standard-sql.ts:251
+   1823 B/op   4.71%  i @ src/sql/sql.ts:74
+   1362 B/op   3.52%  (anon) @ src/validation/primitives/object.ts:528
+   1237 B/op   3.20%  prepareProjection @ src/query-engine/raptor3/shared/query.ts:3008
+   1080 B/op   2.79%  i @ src/query-engine/raptor3/commands/index.ts:136
+   1038 B/op   2.68%  select @ src/query-engine/raptor3/shared/query.ts:2369
+   1031 B/op   2.66%  n @ src/sql/sql.ts:174
+    975 B/op   2.52%  map @ (vm)
+    970 B/op   2.51%  next @ (vm)
+    953 B/op   2.46%  Map @ (vm)
+    822 B/op   2.12%  operation @ src/query-engine/raptor3/route/client-route.ts:157
+    797 B/op   2.06%  push @ (vm)
+    736 B/op   1.90%  lowerOperation @ src/query-engine/raptor3/shared/query.ts:1534
+    730 B/op   1.89%  prepareBatch @ src/query-engine/raptor3/commands/index.ts:191
+    689 B/op   1.78%  Set @ (vm)
+    675 B/op   1.74%  entries @ (vm)
+    662 B/op   1.71%  publish @ src/query-engine/raptor3/shared/operation-context.ts:624
+    632 B/op   1.63%  page @ src/query-engine/raptor3/shared/query.ts:2147
+    590 B/op   1.52%  serializeUUID @ node:internal/crypto/random
+    565 B/op   1.46%  h @ src/drivers/execution-context.ts:218
+    548 B/op   1.42%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    546 B/op   1.41%  flatMap @ (vm)
+    544 B/op   1.41%  y @ src/adapters/shared/select-assembly.ts:10
+    459 B/op   1.19%  run @ src/query-engine/raptor3/shared/operation-context.ts:542
+    445 B/op   1.15%  t @ src/sql/sql.ts:155
+    439 B/op   1.13%  i @ src/sql/sql.ts:204
+    435 B/op   1.12%  membershipWhere @ src/query-engine/raptor3/shared/query.ts:1927
+    433 B/op   1.12%  (anon) @ src/query-engine/raptor3/shared/query.ts:3355
+########## STAGES bulk-update-returning-100-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/bulk-update-returning-100-prepare-shipped.cpuprofile
+# total 137.4 ms over 5000 ops = 27.483 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+profiler overhead                                       5.992     29.96   21.80
+SQL fragments (src/sql)                                 5.226     26.13   19.01
+shipped: write-engine                                   4.342     21.71   15.80
+shipped: builders                                       4.208     21.04   15.31
+admission (EngineSchema.admit + validation)             2.481     12.41    9.03
+gc / vm                                                 1.892      9.46    6.88
+driver / execution context                              1.168      5.84    4.25
+schema model access                                     0.601      3.00    2.19
+pending-operation / query-engine glue                   0.574      2.87    2.09
+shipped: operations                                     0.408      2.04    1.49
+node builtins                                           0.250      1.25    0.91
+client proxy                                            0.183      0.92    0.67
+benchmark harness                                       0.142      0.71    0.52
+adapter lowering                                        0.017      0.08    0.06
+########## SELF bulk-update-returning-100-prepare shipped
+## SELF time by function
+    29.96 ms   21.80%  post  @ node:inspector:0
+    16.93 ms   12.32%  i  @ src/sql/sql.ts:74
+     9.20 ms    6.70%  (anonymous)  @ src/query-engine/builders/where-builder.ts:754
+     7.12 ms    5.18%  Ps  @ src/query-engine/write-engine/OperationFragment.ts:284
+     4.29 ms    3.12%  (garbage collector)  @ (vm):0
+     4.09 ms    2.97%  h  @ src/drivers/execution-context.ts:218
+     4.00 ms    2.91%  Zi  @ src/query-engine/builders/where-builder.ts:507
+     3.87 ms    2.81%  (anonymous)  @ src/validation/primitives/object.ts:528
+     3.33 ms    2.43%  toStatement  @ src/sql/sql.ts:108
+     3.00 ms    2.18%  L  @ src/query-engine/write-engine/OperationFragment.ts:228
+     2.33 ms    1.70%  (program)  @ (vm):0
+     2.33 ms    1.69%  e  @ src/sql/sql.ts:35
+     2.25 ms    1.64%  i  @ src/sql/sql.ts:204
+     2.04 ms    1.49%  Gs  @ src/query-engine/builders/set-builder.ts:31
+     1.88 ms    1.37%  L  @ src/validation/primitives/helpers.ts:71
+     1.71 ms    1.25%  get ~  @ src/schema/model/model.ts:529
+     1.71 ms    1.24%  Is  @ src/query-engine/write-engine/OperationFragment.ts:304
+     1.17 ms    0.85%  Kb  @ src/query-engine/write-engine/FragmentValidator.ts:40
+     1.08 ms    0.79%  Ki  @ src/query-engine/builders/where-builder.ts:323
+     1.04 ms    0.76%  Gb  @ src/query-engine/write-engine/FragmentValidator.ts:26
+     0.96 ms    0.70%  Qs  @ src/query-engine/operations/update.ts:128
+     0.96 ms    0.70%  mr  @ src/query-engine/builders/values-builder.ts:486
+     0.95 ms    0.69%  (anonymous)  @ src/validation/primitives/union.ts:33
+     0.92 ms    0.67%  t  @ src/query-engine/pending-operation.ts:418
+     0.83 ms    0.61%  buildAtomicFragment  @ src/query-engine/write-engine/OperationExecutor.ts:1791
+     0.79 ms    0.57%  t  @ src/query-engine/pending-operation.ts:170
+     0.79 ms    0.57%  qo  @ src/query-engine/builders/select-builder.ts:224
+     0.75 ms    0.55%  prepareOperationPlan  @ benchmarks/operation-pipeline-harness.mjs:248
+     0.67 ms    0.49%  a  @ src/validation/model/args/bulk-write-projection.ts:56
+     0.67 ms    0.49%  prepareSharedBatch  @ src/query-engine/write-engine/OperationExecutor.ts:1493
+########## ALLOC bulk-update-returning-100-prepare shipped
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/bulk-update-returning-100-prepare-shipped.heapprofile
+# total 305.2 MB over 5000 ops = 64012 B/op
+  27557 B/op  43.05%  get ~ @ src/schema/model/model.ts:529
+   5197 B/op   8.12%  i @ src/sql/sql.ts:74
+   4092 B/op   6.39%  L @ src/validation/primitives/helpers.ts:71
+   1481 B/op   2.31%  get values @ src/sql/sql.ts:51
+   1405 B/op   2.19%  Map @ (vm)
+   1349 B/op   2.11%  next @ (vm)
+   1315 B/op   2.05%  Zi @ src/query-engine/builders/where-builder.ts:507
+   1305 B/op   2.04%  join @ (vm)
+   1160 B/op   1.81%  n @ src/sql/sql.ts:174
+   1101 B/op   1.72%  map @ (vm)
+   1048 B/op   1.64%  (anon) @ src/validation/primitives/object.ts:528
+    922 B/op   1.44%  (anon) @ src/query-engine/builders/select-builder.ts:155
+    765 B/op   1.20%  prepareSharedBatch @ src/query-engine/write-engine/OperationExecutor.ts:1493
+    695 B/op   1.09%  Set @ (vm)
+    597 B/op   0.93%  executePlanningLevels @ src/query-engine/write-engine/OperationExecutor.ts:1845
+    595 B/op   0.93%  entries @ (vm)
+    593 B/op   0.93%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    584 B/op   0.91%  Ki @ src/query-engine/builders/where-builder.ts:323
+    582 B/op   0.91%  serializeUUID @ node:internal/crypto/random
+    559 B/op   0.87%  h @ src/drivers/execution-context.ts:218
+    556 B/op   0.87%  qo @ src/query-engine/builders/select-builder.ts:224
+    531 B/op   0.83%  Gb @ src/query-engine/write-engine/FragmentValidator.ts:26
+    516 B/op   0.81%  buildAtomicFragment @ src/query-engine/write-engine/OperationExecutor.ts:1791
+    515 B/op   0.80%  $s @ src/query-engine/operations/update.ts:144
+    448 B/op   0.70%  compileToEntries @ src/query-engine/write-engine/OperationExecutor.ts:1990
+    419 B/op   0.65%  (anon) @ src/validation/primitives/transform.ts:56
+    404 B/op   0.63%  prepare @ benchmarks/operation-pipeline-batch-workloads.mjs
+    400 B/op   0.62%  __ @ src/query-engine/write-engine/ManyAndReturnOperation.ts:155
+    391 B/op   0.61%  flatten @ src/sql/sql.ts:65
+    309 B/op   0.48%  Qb @ src/query-engine/write-engine/FragmentValidator.ts:202
+########## STAGES bulk-update-returning-100-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/bulk-update-returning-100-prepare-candidate.cpuprofile
+# total 153.4 ms over 5000 ops = 30.683 us/op (profiled wall, on-thread)
+stage                                                   us/op        ms       %
+candidate: Queries.read / projection / selector         7.076     35.38   23.06
+profiler overhead                                       6.417     32.08   20.91
+SQL fragments (src/sql)                                 5.016     25.08   16.35
+gc / vm                                                 4.335     21.67   14.13
+admission (EngineSchema.admit + validation)             2.547     12.74    8.30
+candidate: OperationContext (package build + ctor)      1.601      8.00    5.22
+driver / execution context                              1.167      5.83    3.80
+candidate: Commands (write plan)                        0.866      4.33    2.82
+pending-operation / query-engine glue                   0.342      1.71    1.11
+client proxy                                            0.317      1.59    1.03
+node builtins                                           0.292      1.46    0.95
+candidate: route glue                                   0.208      1.04    0.68
+adapter lowering                                        0.200      1.00    0.65
+benchmark harness                                       0.183      0.92    0.60
+schema model access                                     0.117      0.58    0.38
+shipped: write-engine                                   0.000      0.00    0.00
+########## SELF bulk-update-returning-100-prepare candidate
+## SELF time by function
+    32.08 ms   20.91%  post  @ node:inspector:0
+    18.74 ms   12.22%  i  @ src/sql/sql.ts:74
+    14.79 ms    9.64%  (garbage collector)  @ (vm):0
+    10.67 ms    6.95%  prepareOperand  @ src/query-engine/raptor3/shared/query.ts:1287
+     4.87 ms    3.18%  scalarValue  @ src/query-engine/raptor3/shared/query.ts:544
+     4.21 ms    2.74%  (anonymous)  @ src/validation/primitives/object.ts:528
+     4.08 ms    2.66%  h  @ src/drivers/execution-context.ts:218
+     4.00 ms    2.61%  (program)  @ (vm):0
+     3.96 ms    2.58%  toStatement  @ src/sql/sql.ts:108
+     3.96 ms    2.58%  prepareOperation  @ src/query-engine/raptor3/shared/query.ts:1234
+     2.84 ms    1.85%  lowerOperation  @ src/query-engine/raptor3/shared/query.ts:1534
+     2.63 ms    1.71%  (anonymous)  @ src/query-engine/raptor3/shared/query.ts:1253
+     2.54 ms    1.66%  (anonymous)  @ src/query-engine/raptor3/shared/query.ts:1615
+     2.46 ms    1.60%  updateMany  @ src/query-engine/raptor3/shared/operation-context.ts:1476
+     1.83 ms    1.19%  L  @ src/validation/primitives/helpers.ts:71
+     1.46 ms    0.95%  prepareSelector  @ src/query-engine/raptor3/shared/query.ts:924
+     1.33 ms    0.87%  prepareProjection  @ src/query-engine/raptor3/shared/query.ts:3008
+     1.17 ms    0.76%  i  @ src/query-engine/raptor3/commands/index.ts:136
+     1.00 ms    0.65%  (anonymous)  @ src/query-engine/raptor3/shared/operation-context.ts:112
+     0.96 ms    0.63%  getBufferedUUID  @ node:internal/crypto/random:0
+     0.96 ms    0.63%  statementContext  @ src/query-engine/raptor3/shared/operation-context.ts:295
+     0.92 ms    0.60%  lowerProjection  @ src/query-engine/raptor3/shared/query.ts:3232
+     0.87 ms    0.57%  operation  @ src/query-engine/raptor3/route/client-route.ts:157
+     0.87 ms    0.57%  prepareBatch  @ src/query-engine/raptor3/commands/index.ts:191
+     0.84 ms    0.54%  preparedBatch  @ src/query-engine/raptor3/shared/operation-context.ts:1094
+     0.79 ms    0.51%  setMutations  @ src/query-engine/raptor3/shared/operation-context.ts:1122
+     0.71 ms    0.46%  setMutation  @ src/query-engine/raptor3/shared/operation-context.ts:1107
+     0.71 ms    0.46%  lowerPredicate  @ src/query-engine/raptor3/shared/query.ts:1492
+     0.71 ms    0.46%  escape  @ src/adapters/shared/standard-sql.ts:249
+     0.71 ms    0.46%  N  @ src/validation/primitives/helpers.ts:38
+########## ALLOC bulk-update-returning-100-prepare candidate
+# /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/perf2/prof/base/bulk-update-returning-100-prepare-candidate.heapprofile
+# total 263.0 MB over 5000 ops = 55149 B/op
+  11356 B/op  20.59%  scalarValue @ src/query-engine/raptor3/shared/query.ts:544
+   4106 B/op   7.44%  L @ src/validation/primitives/helpers.ts:71
+   4008 B/op   7.27%  prepareOperand @ src/query-engine/raptor3/shared/query.ts:1287
+   2895 B/op   5.25%  i @ src/sql/sql.ts:74
+   2561 B/op   4.64%  push @ (vm)
+   2393 B/op   4.34%  map @ (vm)
+   2066 B/op   3.75%  Map @ (vm)
+   1327 B/op   2.41%  lowerProjection @ src/query-engine/raptor3/shared/query.ts:3232
+   1266 B/op   2.30%  join @ (vm)
+   1160 B/op   2.10%  n @ src/sql/sql.ts:174
+   1078 B/op   1.96%  i @ src/query-engine/raptor3/commands/index.ts:136
+   1052 B/op   1.91%  (anon) @ src/validation/primitives/object.ts:528
+   1019 B/op   1.85%  t @ src/sql/sql.ts:155
+    960 B/op   1.74%  updateMany @ src/query-engine/raptor3/shared/operation-context.ts:1476
+    843 B/op   1.53%  lowerOperation @ src/query-engine/raptor3/shared/query.ts:1534
+    821 B/op   1.49%  setMutations @ src/query-engine/raptor3/shared/operation-context.ts:1122
+    816 B/op   1.48%  operation @ src/query-engine/raptor3/route/client-route.ts:157
+    732 B/op   1.33%  prepareBatch @ src/query-engine/raptor3/commands/index.ts:191
+    706 B/op   1.28%  prepareProjection @ src/query-engine/raptor3/shared/query.ts:3008
+    644 B/op   1.17%  next @ (vm)
+    608 B/op   1.10%  Set @ (vm)
+    585 B/op   1.06%  serializeUUID @ node:internal/crypto/random
+    563 B/op   1.02%  h @ src/drivers/execution-context.ts:218
+    558 B/op   1.01%  prepareOperationPlan @ benchmarks/operation-pipeline-harness.mjs
+    553 B/op   1.00%  entries @ (vm)
+    490 B/op   0.89%  setMutation @ src/query-engine/raptor3/shared/operation-context.ts:1107
+    432 B/op   0.78%  run @ src/query-engine/raptor3/shared/operation-context.ts:542
+    418 B/op   0.76%  (anon) @ src/validation/primitives/transform.ts:56
+    403 B/op   0.73%  prepare @ benchmarks/operation-pipeline-batch-workloads.mjs
+    344 B/op   0.62%  get ~ @ src/schema/model/model.ts:529

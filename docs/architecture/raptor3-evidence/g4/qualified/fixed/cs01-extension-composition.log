@@ -1,13 +1,13 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 48ms
+ ✓ |raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 57ms
 
  Test Files  1 passed (1)
       Tests  4 passed (4)
-   Start at  13:09:11
-   Duration  5.69s (transform 1.92s, setup 11ms, collect 2.91s, tests 48ms, environment 0ms, prepare 31ms)
+   Start at  19:06:08
+   Duration  5.09s (transform 1.71s, setup 10ms, collect 2.54s, tests 57ms, environment 0ms, prepare 30ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ntKrmW/vitest.json
-Vitest resources: 12.03s wall, 520.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 cs01-extension-composition contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-ntKrmW
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-e901dz/vitest.json
+Vitest resources: 12.04s wall, 502.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs01-extension-composition contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-e901dz

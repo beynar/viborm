@@ -1,0 +1,66 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (10 tests | 1 failed) 50ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 1. a root create rejected before dispatch publishes no record-series progress 18ms
+   × G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress 7ms
+     → not a VibORMError: TypeError: Cannot read properties of undefined (reading 'size')
+   ✓ G4-02 — an uncertain outcome is not a record series > 3. an uncertain root create invalidates the cache on both routes 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 4. a committed root create on the same transport invalidates exactly once 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 5. a committed root create whose result is malformed still invalidates once 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 6. a throwing invalidation listener never replaces the operation's own failure 3ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes 2ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 8. a malformed result AND a throwing listener: the refusal stays primary 2ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 9. the same pair on the BATCH transport keeps the refusal primary too 4ms
+   ✓ G4-02 — an uncertain outcome is not a record series > 10. a split write inside the operation's OWN region tells the cache nothing 3ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (20 tests) 54ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 83ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 23ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 8ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 32ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 15ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 14ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 17ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 15ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/prepared-operation.test.ts (6 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 11ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/packaged-array.test.ts (5 tests) 13ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/prepared-statement-stability.test.ts (3 tests) 8ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (3 tests) 5ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 4ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 12ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 5ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts > G4-02 — an uncertain outcome is not a record series > 2. a real record series rejected the same way keeps its progress
+AssertionError: not a VibORMError: TypeError: Cannot read properties of undefined (reading 'size')
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ identity tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:239:10
+    237|   name: string;
+    238| } {
+    239|   assert.ok(
+       |          ^
+    240|     failure instanceof VibORMError,
+    241|     `not a VibORMError: ${String(failure)}`
+ ❯ tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:490:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 19 passed (20)
+      Tests  1 failed | 130 passed (131)
+   Start at  17:31:14
+   Duration  3.23s (transform 1.10s, setup 16ms, collect 2.68s, tests 387ms, environment 0ms, prepare 23ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-YRGwmr/vitest.json
+Vitest resources: 5.15s wall, 796.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-YRGwmr

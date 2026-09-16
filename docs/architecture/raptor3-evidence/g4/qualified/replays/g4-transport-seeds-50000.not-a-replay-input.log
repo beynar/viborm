@@ -40,9 +40,9 @@ ZodError: [
 
  Test Files  1 failed (1)
       Tests  1 failed (1)
-   Start at  14:05:17
-   Duration  1.97s (transform 1.18s, setup 9ms, collect 1.76s, tests 5ms, environment 0ms, prepare 28ms)
+   Start at  20:02:57
+   Duration  2.22s (transform 1.35s, setup 11ms, collect 2.06s, tests 5ms, environment 0ms, prepare 32ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-K7ac2Z/vitest.json
-Vitest resources: 3.89s wall, 531.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-K7ac2Z
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tMUqZw/vitest.json
+Vitest resources: 4.35s wall, 559.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-tMUqZw

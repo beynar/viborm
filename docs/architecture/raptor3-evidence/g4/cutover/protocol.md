@@ -676,3 +676,227 @@ and retried, up to 20 attempts per command.
    `captureRaptor3Identity` (which fingerprints files, not directories) — which
    is why identity 2 verified equal in spite of them. Inventory kept at
    [`receipts-stage2c/stray-empty-dirs-removed.json`](receipts-stage2c/stray-empty-dirs-removed.json).
+
+## 10. Stage 2d — the series against the FOURTH frozen identity (performance pass 2)
+
+Written **before** the stage-2d series runs. Identity 3 was superseded by
+performance pass 2 (`g4/perf2/note.md`), so every number sections 1–9 produced
+against it is retained as a receipt of *that* identity and is **not** a result
+for this one. Sections 1–6 are unchanged and still govern; §§7.1–7.3 still
+govern; §7.4 stays superseded by D-8 (§9.5); §§8.3, 8.4, 9.2's overlay rule,
+9.4's command shape, 9.5 and 9.6 carry forward verbatim. This section records
+only what differs.
+
+### 10.1 The two sides
+
+| Side | Worktree | Branch | Commit |
+| --- | --- | --- | --- |
+| baseline | `/private/tmp/viborm-g4-perf-baseline` | `g4-perf-baseline-overlay` | `e532bbec7667343fc5471929d5051dd15be1852b` — **unchanged since stage 2c**, `git status --porcelain` empty |
+| candidate | `/private/tmp/viborm-g4-perf-candidate` | `g4-perf-measurement-4` | `e05519c2ec41c74292a5d6bda65b26a84685db82` |
+
+Candidate branch graph. The identity-3 tips stay reachable on branch
+`g4-perf-measurement` (`90d4bb47`), the identity-2 tips on
+`g4-perf-measurement-stage2b` and the identity-1 tips on
+`g4-perf-measurement-stage2a`. Nothing was deleted or reset.
+
+```
+0cc61e61  refactor(raptor3): unify completion and scalar update ownership   (base)
+5c08e840  chore(raptor3): candidate production for measurement (pre-freeze)
+be447a3b  chore(raptor3): candidate test harness for measurement (pre-freeze)
+cacb2827  chore(raptor3): frozen G4 production for measurement (identity 2)
+a9a482e1  chore(raptor3): frozen G4 production for measurement (identity 3, perf pass)
+eee0ddfd  chore(raptor3): frozen G4 production for measurement (identity 4, perf pass 2)
+bb2e0965  chore(raptor3): C-01 cutover for measurement (identity 4, perf pass 2)
+bb0a4d60  test(raptor3): re-sync the harness files identity 4 contradicts
+af8714cf  test(bench): G4 cutover preparation phase adapter        (cherry-pick of c22cb59e)
+e05519c2  test(bench): D-8 per-engine ledger for relation-series-2 (cherry-pick of 90d4bb47)
+```
+
+The branch was created **from `a9a482e1`** — the identity-3 pre-cutover
+production commit — rather than reset from the identity-3 tip, for §9.1's
+reason: `captureRaptor3Identity().production` fingerprints every file under
+`src/`, so the pre-cutover production identity can only be verified on a tree
+that still holds the legacy owners. The two protocol overlay commits are again
+the **top two** commits.
+
+### 10.2 The protocol identity does NOT move at this identity
+
+| | value |
+| --- | --- |
+| `protocolIdentity(...).sha256`, stages 2a and 2b | `6716a2229286205dac80b62ed962483ff26804f5580f614730be0d1fbd33089d` |
+| `protocolIdentity(...).sha256`, stages 2c **and 2d** | `f23e0aace9f0a8de55a1218d054870c1353a8456ec441f91d8bc5e437e0af22a` |
+
+Verified before the series, not assumed: `protocolIdentity()` is
+`f23e0aac…` in **both** worktrees, all 24 `PROTOCOL_PATHS` files compare
+byte-identical file by file across the two worktrees, and `diff -rq` reports
+the two `benchmarks/` trees identical except the git-ignored
+`benchmarks/baseline.json` (candidate only, not a `PROTOCOL_PATHS` member).
+Because the protocol identity is the same as stage 2c's, **this series and the
+stage-2c series are comparable command for command** — the first time in this
+sequence that is true. `RAPTOR3_WORKLOAD_VERSION` is unchanged at 1.
+
+The integrator's instruction for this stage was to verify every
+`PROTOCOL_PATHS` file byte-identical between `/Users/arnaud/code/viborm` and
+`e532bbec`, and to stop if any differed. **Five of the 24 differ, and that is
+the expected state, not a moved protocol.** The phase-adapter overlay
+`e67b511b` exists only in the two measurement worktrees; its five files
+(`operation-pipeline-{batch-workloads,catalog,harness,mutation-workloads,worker}.mjs`)
+can never equal the main tree's, and did not at stage 2c either. What the
+instruction is actually asking — has `benchmarks/` moved in the main tree? — was
+checked exhaustively and answered **no**:
+
+- the 19 files the adapter does not touch, including D-8's
+  `operation-pipeline-contract-workloads.mjs`, are byte-identical between the
+  main tree and `e532bbec`;
+- the 5 files the adapter does touch are byte-identical between the main tree
+  and `0cc61e61`, i.e. the main tree carries the **pre-overlay** bytes,
+  untouched;
+- `git status --porcelain --untracked-files=all` lists nothing under
+  `benchmarks/` or `scripts/test-run-lock.mjs` in the main tree.
+
+Receipt: [`receipts-stage2d/protocol-paths-main-tree-check.json`](receipts-stage2d/protocol-paths-main-tree-check.json),
+per path.
+
+### 10.3 Identity
+
+`captureRaptor3Identity()` run in the candidate worktree with the **worktree's
+own** re-synced `scripts/raptor3-manifest.mjs`, on the tree of `eee0ddfd` —
+that is, **before** the cutover — reports
+
+```
+production 312cde34932cdb4d70ccad60bb002d0c0a438865bd18e165c38b4a572ebff640
+```
+
+byte-equal to `g4/freeze/identity.json` (freeze 6, `capturedAt`
+`2026-09-16T16:44:46Z`, i.e. 18:44:46 local, today). The same call in
+`/Users/arnaud/code/viborm` reports the same `production` **and** the same
+`harness` and `runtime`. Receipt:
+[`receipts-stage2d/identity-identity4.json`](receipts-stage2d/identity-identity4.json).
+
+The candidate worktree's `harness` fingerprint is **not** equal to the freeze
+and cannot be, for the reason stage 2b recorded (B1) and stage 2c repeated
+(§9.3). Only `production` is claimed equal.
+
+### 10.4 What performance pass 2 changed, and what this series is for
+
+Pass 2 (`g4/perf2/note.md`) touches exactly four production files, all under
+`src/query-engine/raptor3/shared/`: `operation-context.ts`, `query.ts`,
+`schema.ts` and `transport-attempt.ts`. It is declared a **no-behaviour-change**
+pass: same public answers, refusal sentences, error classes and meta, committed
+state, statement counts, round-trip counts and frozen fast-path counts. Its
+target is the GC/allocation-shape cause the cutover diagnosis named (§4.2/§4.3),
+which at identity 3 left four cells resolved over budget — three of them
+preparation cells at 1.401–1.484× CPU.
+
+This series therefore answers one question: **do the four cells that blocked at
+identity 3 come inside budget, and does anything that passed at identity 3
+regress?** Nothing about the verdict rules changes to accommodate the answer.
+
+Two expectations are recorded now so they cannot be retrofitted later:
+
+1. `relation-series-2/full` is expected to refuse again at the **between-engine**
+   comparison (§9.5, C6): pass 2 does not change how many generated defaults the
+   candidate evaluates, so the persisted primary keys still differ. If it does
+   not refuse, that is a change of behaviour in a pass that promised none, and
+   is reported as such.
+2. `flat-scalar-update/prepare` and `/execute` are expected to stay **not
+   measurable comparably** (§7.3/§8.6): the candidate's package still holds two
+   statements there.
+
+### 10.5 The exact command
+
+Identical to §9.4 except the candidate commit. One cell in one mode per command,
+40 commands per pass, five alternating fresh-process pairs per side, run from
+the **baseline overlay worktree as coordinator**:
+
+```sh
+cd /private/tmp/viborm-g4-perf-baseline
+TMPDIR=/private/tmp/viborm-g4-cutover-tmp node --max-old-space-size=512 \
+  benchmarks/operation-pipeline-compare.mjs \
+  --baseline-dir /private/tmp/viborm-g4-perf-baseline \
+  --baseline-commit e532bbec7667343fc5471929d5051dd15be1852b \
+  --baseline-source-commit e67b511b2c1e9db738b23ed5f6b6f1f16cd449b0 \
+  --candidate-dir /private/tmp/viborm-g4-perf-candidate \
+  --candidate-commit e05519c2ec41c74292a5d6bda65b26a84685db82 \
+  --providers sqlite3 --comparison semantic \
+  --workloads <workload> --stages <stage> --modes <cpu|retained> \
+  [--iterations 1000 --warmup 200]   # fixed-collection-rowref-1000, cpu only \
+  --output <receipts-stage2d/cells/pass{1,2}__<workload>__<stage>__<mode>.json>
+```
+
+The 20 cells, their modes and their counts are exactly §5's matrix with §8.3's
+and §8.4's refinements, unchanged. Verdicts and their rules are §5's, unchanged:
+no outlier removal; a claim of improvement requires improvement greater than
+`E`; a cell still unresolved after the one permitted repeat of the **full**
+series is "inconclusive — blocks adoption", never "passed". The cell verdict is
+**the worse of the two series**.
+
+Driver: [`receipts-stage2d/series-driver.mjs`](receipts-stage2d/series-driver.mjs)
+— stage 2c's driver with three values changed (receipts directory, candidate
+commit, pass label) and **no change to its lock classification**: a held lock is
+waited on (30 s, up to 20 attempts), a stale lock stops the series, no lock file
+is ever removed. Aggregator:
+[`receipts-stage2d/aggregate.mjs`](receipts-stage2d/aggregate.mjs) — stage 2c's
+aggregator with the input directory, the output path and the commit metadata
+changed and **no change to any verdict rule**.
+
+The aggregate of both passes is written to
+[`performance-identity4.json`](performance-identity4.json); if a repeat is
+needed the first series alone is retained as
+[`performance-identity4-pass1.json`](performance-identity4-pass1.json).
+`performance.json` (identity 2), `performance-identity3.json` and
+`performance-identity3-pass1.json` (identity 3) are untouched.
+
+### 10.6 Quiet machine, and the load gate
+
+The series does not start until **both** conditions hold:
+
+1. `g4/qualified/RUNS-COMPLETE` exists, and
+2. its mtime is **newer than** `g4/freeze/identity.json`'s — so the file proves
+   the integrator's attempt-6 campaign against *this* identity finished, not an
+   earlier one.
+
+Polled with a bounded loop, never busy-waited. The worktree keeps its own
+`TMPDIR=/private/tmp/viborm-g4-cutover-tmp` (§6.1). **No lock file is removed.**
+
+Added at this stage, because stage 2c's C1/C5 showed the machine's ambient load
+is what most limits what this series can conclude: the **1-minute load average
+is read and recorded before each pass, and a pass does not start while it
+exceeds 20**. The machine's owner runs other applications; that is outside this
+unit's control, and the load is recorded rather than claimed away. Loads before
+and after the series go to `receipts-stage2d/machine-*.txt` together with the
+top CPU consumers at that moment.
+
+### 10.7 Deviations recorded before the run
+
+1. **A new branch, not a reset.** `g4-perf-measurement-4` was created from
+   `a9a482e1`; `g4-perf-measurement` still points at `90d4bb47`. Nothing that
+   produced an earlier receipt moved.
+2. **The literal main-tree/`e532bbec` byte check cannot hold** and was replaced
+   by the exhaustive check §10.2 records. This is the one instruction from the
+   integrator's prompt that was not executed as written; the reason and the
+   substitute are both recorded above, with a per-path receipt.
+3. **The cutover applied with zero adjustments.** `git apply --check` of
+   `receipts-stage2c/cutover-identity3.patch` reported no failing hunk: pass 2
+   touches four files the cutover does not edit. All nine non-deleted files are
+   byte-identical to stage 2c's cutover commit `59c44d3c`, and the identity-4
+   cutover patch is identical to the identity-3 one except for Git index lines.
+   Receipt: [`receipts-stage2d/cutover-identity4.patch`](receipts-stage2d/cutover-identity4.patch).
+4. **Nine harness files re-synced** (commit `bb0a4d60`): the same eight files
+   stage 2c re-synced — the new branch starts below that commit, and each
+   main-tree version is byte-identical to what `0db0377f` set — plus
+   `tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts`, pass 2's new
+   test, because the cutover keeps `tests/raptor3/g4/unit02/` (21 of its 28
+   files survive) and the integrator registered the file in
+   `scripts/raptor3-manifest.mjs`. Those nine are every file under `tests/`
+   that exists on both sides and differs, checked file by file. No other
+   main-tree-only file was added.
+5. **`src/` was re-synced wholesale** (`rsync --checksum --delete`). `diff -rq`
+   against `a9a482e1` lists exactly five files — the four pass-2 production
+   files and `src/query-engine/raptor3/AGENTS.md` (documentation, not
+   fingerprinted) — with nothing added and nothing removed.
+6. **The stale lock stage 2c left in place is gone.** This unit did not remove
+   it and did not create it; `/private/tmp/viborm-g4-cutover-tmp` holds no
+   `.lock` file at the start of this stage. `TMPDIR` is therefore back to the
+   protocol's own directory for every command, and stage 2c's `tmp2` deviation
+   does not apply here.

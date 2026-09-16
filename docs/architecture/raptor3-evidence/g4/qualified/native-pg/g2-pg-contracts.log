@@ -1,18 +1,18 @@
 
  RUN  v3.1.4 /Users/arnaud/code/viborm
 
- ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 228ms
- ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 168ms
- ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 302ms
- ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests) 340ms
- ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 76ms
- ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests) 145ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 257ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 158ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 368ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests) 474ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 81ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests) 163ms
 
  Test Files  6 passed (6)
       Tests  18 passed (18)
-   Start at  13:13:21
-   Duration  6.66s (transform 1.35s, setup 15ms, collect 2.57s, tests 1.26s, environment 0ms, prepare 30ms)
+   Start at  19:13:48
+   Duration  7.44s (transform 1.74s, setup 21ms, collect 3.16s, tests 1.50s, environment 0ms, prepare 34ms)
 
-JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KTUukW/vitest.json
-Vitest resources: 11.75s wall, 678.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
-Raptor 3 g2-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-KTUukW
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Orcno6/vitest.json
+Vitest resources: 13.60s wall, 672.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-pg-contracts contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-Orcno6

@@ -1,0 +1,16 @@
+SAME bulk-update-returning-100-prepare-candidate.json
+SAME bulk-update-returning-100-prepare-shipped.json
+SAME fixed-collection-rowref-1000-prepare-candidate.json
+SAME fixed-collection-rowref-1000-prepare-shipped.json
+SAME fixed-collection-rowref-20-prepare-candidate.json
+SAME fixed-collection-rowref-20-prepare-shipped.json
+SAME flat-scalar-update-full-candidate.json
+SAME flat-scalar-update-full-shipped.json
+SAME nested-conditional-found-full-candidate.json
+SAME nested-conditional-found-full-shipped.json
+SAME relation-series-2-full-candidate.json
+SAME relation-series-2-full-shipped.json
+SAME scalar-find-unique-full-candidate.json
+SAME scalar-find-unique-full-shipped.json
+SAME scalar-find-unique-prepare-candidate.json
+SAME scalar-find-unique-prepare-shipped.json
