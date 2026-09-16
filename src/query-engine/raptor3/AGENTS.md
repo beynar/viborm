@@ -1,8 +1,13 @@
-# Raptor 3 — private representation experiment
+# Raptor 3 — the shipped engine
 
 The central plan in `docs/architecture/raptor3-implementation-plan.md` governs
-this explicitly authorized clean-sheet experiment. The shipped engine remains
-the public route. This directory is not a production replacement or a fallback.
+this explicitly authorized clean-sheet rewrite. Since the C-01 cutover
+(Arnaud's decision D-10, 2026-09-16) this directory IS the production engine:
+`VibORM`'s constructor builds `createCandidateRoute(...)` for every client, so
+the route is the one operation owner behind the unchanged public API rather
+than a selectable alternative, and the legacy engine it replaced has been
+deleted. It is still not a fallback, and nothing here is exported from the
+package entry.
 
 G1-01 compares structured commands (`commands/`) with a scoped relational
 program (`program/`) on the same S1–S4 public recipes. `shared/` may contain

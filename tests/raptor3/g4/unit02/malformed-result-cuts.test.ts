@@ -262,7 +262,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     database.close();
   });
 
-  it("3. the folded form answers exactly what the shipped engine answers", async () => {
+  it("3. the folded form answers exactly the same on the client route seam and the command engine", async () => {
     const run = async (engine: "shipped" | "candidate") => {
       const database = new Database(":memory:");
       const driver = new CorruptingDriver({ client: database });

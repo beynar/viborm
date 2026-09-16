@@ -72,7 +72,7 @@ describe("G4-02 SC-13 — the vector crossings without a provider tier", () => {
     database?.close();
   });
 
-  it("refuses the write with the shipped identity and decodes the read identically", async () => {
+  it("refuses the write with one identity on both seams and decodes the read identically", async () => {
     const write = { id: 1, name: "unit-x", embedding: [1, 0, 0] };
     const shippedWrite = await observe(() =>
       Promise.resolve(

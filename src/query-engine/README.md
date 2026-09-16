@@ -5,22 +5,34 @@ fragments, executes them atomically through a driver, and parses the declared
 result. PostgreSQL, MySQL, SQLite, LibSQL, and PGlite share operation semantics;
 dialect syntax remains adapter-owned.
 
+> **Since C-01 (the Raptor 3 cutover) this document is partly historical.** Every
+> client operation is owned by `src/query-engine/raptor3/`, built unconditionally
+> in `VibORM`'s constructor and reached through `PendingOperation`'s single route
+> arm. The shipped write/read engine was deleted (25 of the 43 `write-engine/`
+> files, seven `query-engine/` root owners and `builders/to-one-composition.ts`);
+> the 18 surviving `write-engine/` files are kept alive by `pattern/` alone. The
+> read/write verb vocabulary of `write-engine/routing.ts` lives in
+> `routed-operations.ts`. Check that a `write-engine/` file named below exists
+> before trusting the sentence that names it.
+
 ## Ownership
 
 ```text
 QueryEngine
 └── creates PendingOperation
-    ├── operation shell → SQL builders → adapter
-    ├── PlanningFragment → OperationFragment → OperationExecutor → driver
-    └── declared outputs → strict result parsers
+    └── raptor3 route → command engine → adapter → driver → prepared read/decoder
 ```
+
+Before C-01 the same `PendingOperation` also owned a second path
+(`operation shell → SQL builders → adapter`, `PlanningFragment →
+OperationFragment → OperationExecutor → driver`). That path and its owners were
+deleted; `pattern/` still exercises the fragment vocabulary off the operation
+path.
 
 | Owner | Responsibility |
 | --- | --- |
 | `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
-| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
 | `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
 | relation Parts | Selection, membership, branches, guards, race pins, and edge effects |
 | `OperationExecutor` | Generic statement, transaction, and atomic-batch execution |
@@ -28,13 +40,8 @@ QueryEngine
 | `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
 | `result/` | Strict row, relation, aggregate, count, scalar, and shape parsing |
 
-An operation shell is the concrete owner of one public operation family. It
-exposes `mode`, `planning()`, `compile(known)`, and `parse(outputs)`. Routing
-applies route-wide gates and parses shared envelopes before constructing it.
-The routed root shell owns the remaining family- and arm-specific parsing,
-public target, result, and direct folds while delegating SQL leaves,
-selected-record mutation, and relation-edge policy. `CreateOperation` is also
-reused as a delegated fresh-record compiler inside an outer shell.
+An operation shell was the concrete owner of one public operation family. Every
+shell, and the routing owner that constructed them, was deleted at C-01.
 
 `QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
 the originating client identity, receives a new scope identity, and owns the
@@ -101,10 +108,10 @@ Parent and child are edge-relative roles. Parent is the enclosing source record
 whose relation field is being compiled; child is its target. A
 parent-held edge (`position: "parentHeld"`) means that source record stores the FK.
 
-`CreateOperation` compiles fresh record subtrees, including record-series
-members. `RecordUpdateCompiler` compiles updates for an already-selected record,
-including selected members of root or nested update series.
-The record compiler owns scalar assignments, an optional incoming membership,
+`CreateOperation` compiled fresh record subtrees, including record-series
+members, and `RecordUpdateCompiler` compiled updates for an already-selected
+record; both were deleted at C-01, and the paragraphs below describe them as
+they were. The record compiler owned scalar assignments, an optional incoming membership,
 nested record effects, required target fields, primary-key transitions, and
 root-write order.
 
@@ -167,7 +174,6 @@ operation shells.
 | physical read traversal of a relation | `relation-traversal.ts` |
 | junction SQL — ordinary many-to-many and polymorphic member junctions alike | `many-to-many-utils.ts`, `JunctionStatements.ts` |
 | polymorphic reads | `polymorphic-read-builder.ts` (row-held), `polymorphic-collection-read-builder.ts` (collection) |
-| polymorphic collection writes | `write-engine/PolymorphicCollectionPart.ts`, `RelationJunctionToOnePart.ts`, `junction-singular-transfer.ts` |
 
 The golden rule is absolute: query-engine code decides what a query means;
 adapters decide how that meaning is written in a dialect.
@@ -199,10 +205,13 @@ array, count, or null for malformed provider output.
 
 ## Single-statement inspection
 
-`QueryEngine.build()` returns SQL only when an operation is representable as one
-statement without executor-only behavior. It rejects guards, unresolved
-references, and multi-step semantics instead of pretending that an atomic
-operation is one statement.
+`QueryEngine.build()` asked `PendingOperation.buildStatement()` for the one
+statement an operation compiles to. Since C-01 `buildStatement()` returns
+`undefined` for every operation — the candidate's prepared read owns a statement
+but publishes only the read's shape and cardinality (divergence D-4') — so
+`build()` raises "does not compile to one SQL statement" for every operation.
+What that method should publish is an open decision
+(`docs/architecture/raptor3-evidence/g4/cutover-execution/note.md`, follow-up 2).
 
 Use `prepare()` or await the returned `PendingOperation` for general operations.
 

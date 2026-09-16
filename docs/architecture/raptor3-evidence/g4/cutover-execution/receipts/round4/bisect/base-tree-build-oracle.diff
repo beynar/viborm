@@ -1,0 +1,85 @@
+--- /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/query-engine.ts.BASE	2026-09-17 00:52:51
++++ /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/query-engine.ts.BUILDORACLE	2026-09-17 00:53:02
+@@ -15,8 +15,11 @@
+   type PrepareOperationInput,
+   type PrepareWriteOutcomeRegistration,
+ } from "./pending-operation";
+-import type { ClientOperationRoute } from "./raptor3/route/client-route";
+ import {
++  type ClientOperationRoute,
++  createCandidateRoute,
++} from "./raptor3/route/client-route";
++import {
+   type ModelRegistry,
+   type Operation,
+   type OperationSchemaRegistry,
+@@ -59,7 +62,7 @@
+     route?: ClientOperationRoute
+   ) {
+     this.driver = driver;
+-    this.route = route;
++    this.route = route ?? provisionedRoute(driver, registry);
+     this.registry = registry;
+     if (!registry.schemas) {
+       throw new QueryEngineError(
+@@ -201,6 +204,21 @@
+   }
+ }
+ 
++function provisionedRoute(
++  driver: AnyDriver,
++  registry: ModelRegistry
++): ClientOperationRoute | undefined {
++  if (!(registry.schemas && registry.relations)) return undefined;
++  const schema: Record<string, Model<any>> = {};
++  for (const model of registry.relations.keys()) {
++    schema[model["~"].names.ts ?? "unknown"] = model;
++  }
++  return createCandidateRoute(schema, driver, {
++    index: registry.relations,
++    registry: registry.schemas,
++  });
++}
++
+ /**
+  * Create a simple in-memory model registry.
+  * Note: Assumes schema is already hydrated via hydrateSchemaNames().
+--- /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/pending-operation.ts.BASE	2026-09-17 00:52:51
++++ /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/pending-operation.ts.BUILDORACLE	2026-09-17 00:53:02
+@@ -862,7 +862,7 @@
+     // `g4/unit03/note.md` FU.6). `QueryEngine.build` reports the absence with
+     // its existing "does not compile to one SQL statement"; no client surface
+     // reaches it.
+-    if (this.#route) return undefined;
++    if (this.#route) return this.#resolveRouted().buildStatement();
+     return this.#executor().buildStatement(this.#resolveOperation());
+   }
+ 
+--- /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/raptor3/route/client-route.ts.BASE	2026-09-17 00:52:51
++++ /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/r4base/src/query-engine/raptor3/route/client-route.ts.BUILDORACLE	2026-09-17 00:53:02
+@@ -20,6 +20,7 @@
+ import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
+ import type { Schema } from "@schema/hydration";
+ import type { AnyModel } from "@schema/model";
++import type { Sql } from "@sql";
+ import {
+   arrayCodec,
+   booleanCodec,
+@@ -75,6 +76,7 @@
+    * and the cache key describe the query that actually runs.
+    */
+   readonly preparedArgs: Record<string, unknown>;
++  buildStatement(): Sql | undefined;
+   cacheResultCodec(): RouteCacheResultCodec;
+   prepareBatch(
+     context: QueryExecutionContext
+@@ -170,6 +172,9 @@
+         get preparedArgs(): Record<string, unknown> {
+           return prepared.args;
+         },
++        buildStatement(): Sql | undefined {
++          return prepared.read?.statement;
++        },
+         cacheResultCodec(): RouteCacheResultCodec {
+           const read = prepared.read;
+           if (!read)

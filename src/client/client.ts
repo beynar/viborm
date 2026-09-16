@@ -69,9 +69,9 @@ import {
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
-import type { ClientOperationRouteFactory } from "@query-engine/raptor3/route/client-route";
+import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
-import { isWriteOperation } from "@query-engine/write-engine/routing";
+import { isWriteOperation } from "@query-engine/routed-operations";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { validateClientSchemaOrThrow } from "@schema/validation/validator";
@@ -465,11 +465,7 @@ export class VibORM<C extends VibORMConfig> {
    *   nothing here resolves a second time and nothing copies it (§10E.10,
    *   §11.4.10).
    */
-  constructor(
-    config: C,
-    relations: ResolvedRelationIndex,
-    route?: ClientOperationRouteFactory
-  ) {
+  constructor(config: C, relations: ResolvedRelationIndex) {
     this.schema = config.schema as C["schema"];
     this.relations = relations;
 
@@ -480,10 +476,9 @@ export class VibORM<C extends VibORMConfig> {
       schemaRegistry,
       relations
     );
-    // `route` is the non-public Raptor 3 selection (G4-03). It is absent on
-    // every public client, and this is the only line that can install it. The
-    // two resolved views above travel to it by identity, so the route's engine
-    // hydrates, validates and registers nothing a second time (B-3).
+    // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
+    // views above travel to it by identity, so the route's engine hydrates,
+    // validates and registers nothing a second time (B-3).
     this.engine = new QueryEngine(
       config.driver,
       registry,
@@ -491,7 +486,7 @@ export class VibORM<C extends VibORMConfig> {
       undefined,
       undefined,
       undefined,
-      route?.(this.schema, config.driver, {
+      createCandidateRoute(this.schema, config.driver, {
         index: relations,
         registry: schemaRegistry,
       })
@@ -1204,10 +1199,7 @@ export class VibORM<C extends VibORMConfig> {
   /**
    * Create the full client with all utility methods
    */
-  static create<C extends VibORMConfig>(
-    config: C,
-    route?: ClientOperationRouteFactory
-  ): VibORMClient<C> {
+  static create<C extends VibORMConfig>(config: C): VibORMClient<C> {
     if (!config.driver) {
       throw new ClientInitializationError(
         "Driver is required to create a client. Pass a driver in createClient options."
@@ -1242,11 +1234,7 @@ export class VibORM<C extends VibORMConfig> {
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
-      return new VibORM<C>(
-        config,
-        validateClientSchemaOrThrow(config.schema),
-        route
-      );
+      return new VibORM<C>(config, validateClientSchemaOrThrow(config.schema));
     });
 
     return orm.createRootView<EmptyClientExtensionState>(orm.engine, undefined);

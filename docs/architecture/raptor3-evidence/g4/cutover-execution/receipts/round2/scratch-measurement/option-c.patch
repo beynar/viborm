@@ -1,0 +1,152 @@
+--- a/src/query-engine/pending-operation.ts
++++ b/src/query-engine/pending-operation.ts
+@@ -701,12 +701,10 @@
+    * assertion is enforced after execution, and `build()` still wants its SQL.
+    */
+   buildStatement(): Sql | undefined {
+-    // The candidate's prepared read owns a statement, but publishes only the
+-    // read's shape and cardinality, not the `Sql` (divergence D-4',
+-    // `g4/unit03/note.md` FU.6). `QueryEngine.build` reports the absence with
+-    // its existing "does not compile to one SQL statement"; no client surface
+-    // reaches it.
+-    return undefined;
++    // SCRATCH OPTION (a): the candidate's prepared read publishes its one
++    // statement; every other verb keeps the refusal (a write's fold is only
++    // reachable through the async `prepareBatch`).
++    return this.#resolveRouted().buildStatement();
+   }
+ 
+   #wrapExecution(wrapper: PendingCacheExecution<T>): PendingOperation<T> {
+--- a/src/query-engine/raptor3/route/client-route.ts
++++ b/src/query-engine/raptor3/route/client-route.ts
+@@ -19,6 +19,7 @@
+ import type { AnyDriver, QueryExecutionContext } from "@drivers";
+ import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
+ import type { Schema } from "@schema/hydration";
++import type { Sql } from "@sql";
+ import type { AnyModel } from "@schema/model";
+ import {
+   arrayCodec,
+@@ -75,6 +76,11 @@
+    * and the cache key describe the query that actually runs.
+    */
+   readonly preparedArgs: Record<string, unknown>;
++  /**
++   * The ONE statement this operation compiles to, or `undefined` when it does
++   * not compile to exactly one. Only a prepared read publishes one today.
++   */
++  buildStatement(): Sql | undefined;
+   cacheResultCodec(): RouteCacheResultCodec;
+   prepareBatch(
+     context: QueryExecutionContext
+@@ -169,6 +175,9 @@
+       return {
+         get preparedArgs(): Record<string, unknown> {
+           return prepared.args;
++        },
++        buildStatement(): Sql | undefined {
++          return prepared.read?.statement;
+         },
+         cacheResultCodec(): RouteCacheResultCodec {
+           const read = prepared.read;
+--- a/src/query-engine/raptor3/commands/index.ts
++++ b/src/query-engine/raptor3/commands/index.ts
+@@ -6,6 +6,7 @@
+   type ExecutionBinding,
+   OperationContext,
+ } from "../shared/operation-context";
++import type { Sql } from "@sql";
+ import type { Leaf, ProjectionShape, Read } from "../shared/query";
+ import { Queries } from "../shared/query";
+ import {
+@@ -78,6 +79,8 @@
+    * shape is the value's shape — `count` publishes `3`, never `{_count: 3}`.
+    */
+   readonly empty: unknown;
++  /** The ONE statement this read compiles to (backs `QueryEngine.build`). */
++  readonly statement: Sql;
+ }
+ 
+ /**
+@@ -91,6 +94,7 @@
+     value: value.value,
+     single: value.single,
+     empty: value.result([]),
++    statement: value.query.sql,
+   };
+ }
+ 
+--- a/src/query-engine/query-engine.ts
++++ b/src/query-engine/query-engine.ts
+@@ -15,6 +15,7 @@
+   type PrepareWriteOutcomeRegistration,
+ } from "./pending-operation";
+ import type { ClientOperationRoute } from "./raptor3/route/client-route";
++import { createCandidateRoute } from "./raptor3/route/client-route";
+ import {
+   type ModelRegistry,
+   type Operation,
+@@ -56,7 +57,11 @@
+     route?: ClientOperationRoute
+   ) {
+     this.driver = driver;
+-    this.route = route;
++    // SCRATCH OPTION (b): an engine built outside a client lineage provisions
++    // its own route from what it already holds — the registry's resolved
++    // topology index and schema registry, handed over by identity exactly as
++    // `VibORM`'s constructor hands them over.
++    this.route = route ?? provisionedRoute(driver, registry);
+     this.registry = registry;
+     if (!registry.schemas) {
+       throw new QueryEngineError(
+@@ -192,6 +197,30 @@
+ }
+ 
+ /**
++ * SCRATCH OPTION (b): the route a bare `new QueryEngine(driver, registry)` gets.
++ *
++ * The registry carries the resolved topology index (which enumerates every
++ * model of the schema) and the operation schema registry, which is exactly the
++ * pair `VibORM`'s constructor passes to `createCandidateRoute`. The model map
++ * is rebuilt from the index's keys under the same name the route looks models
++ * up by (`model["~"].names.ts`, the name `PendingOperation` also uses).
++ */
++function provisionedRoute(
++  driver: AnyDriver,
++  registry: ModelRegistry
++): ClientOperationRoute | undefined {
++  if (!registry.schemas || !registry.relations) return undefined;
++  const schema: Record<string, Model<any>> = {};
++  for (const model of registry.relations.keys()) {
++    schema[model["~"].names.ts ?? "unknown"] = model;
++  }
++  return createCandidateRoute(schema, driver, {
++    index: registry.relations,
++    registry: registry.schemas,
++  });
++}
++
++/**
+  * Create a simple in-memory model registry.
+  * Note: Assumes schema is already hydrated via hydrateSchemaNames().
+  *
+--- a/src/query-engine/raptor3/shared/schema.ts
++++ b/src/query-engine/raptor3/shared/schema.ts
+@@ -67,7 +67,16 @@
+  */
+ export interface ResolvedSchemaViews {
+   readonly index: ReturnType<typeof validateClientSchemaOrThrow>;
+-  readonly registry: ReturnType<typeof createResolvedSchemaRegistry>;
++  /**
++   * SCRATCH OPTION (b): widened to exactly what `EngineSchema` consumes, so an
++   * engine that holds the client's `ModelRegistry.schemas`
++   * (`Pick<SchemaRegistryLookup, "getModelSchemas" | "validate">`) can hand it
++   * over. `proxy` is never read here.
++   */
++  readonly registry: Pick<
++    ReturnType<typeof createResolvedSchemaRegistry>,
++    "getModelSchemas" | "validate"
++  >;
+ }
+ export interface EngineConfig {
+   schema: Schema;

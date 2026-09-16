@@ -92,7 +92,7 @@ async function tape(
 }
 
 describe("G4-02 §5.4 — the root conditional member's found/missing cut", () => {
-  it("update: one statement decides found from missing, and both branches equal shipped", async () => {
+  it("update: one statement decides found from missing, and both branches agree across the two seams", async () => {
     world = await createWorld();
     const found = await tape(world, "candidate", (invoke) =>
       invoke("author", "update", { where: { id: 1 }, data: { age: 37 } })
@@ -130,7 +130,7 @@ describe("G4-02 §5.4 — the root conditional member's found/missing cut", () =
     assert.equal(missingShipped.rows, 2);
   });
 
-  it("delete: the same strategy, and the row set is the shipped one on both branches", async () => {
+  it("delete: the same strategy, and the row set agrees across the two seams on both branches", async () => {
     world = await createWorld();
     const missing = await tape(world, "candidate", (invoke) =>
       invoke("author", "delete", { where: { id: 99 } })

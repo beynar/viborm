@@ -129,7 +129,9 @@ async function runWrongInsertScenario(
     authors: [...initial.authors, args.data.author.connectOrCreate.create],
   };
   const cut = "unrelated-missing-choice-observed";
-  const expectedAttempts = candidateFactory ? 1 : 2;
+  // One attempt on every arm: since C-01 the public client IS this engine, so
+  // the deleted engine's second attempt has no arm left to run on.
+  const expectedAttempts = 1;
   let missingCaptures = 0;
   let conditionalWrites = 0;
   let ddl: Record<string, string> = {};
@@ -198,7 +200,7 @@ async function runWrongInsertScenario(
       assert.deepEqual(
         observation.reachedCuts,
         Array.from({ length: expectedAttempts }, () => cut),
-        "wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion"
+        "wrong-insert-provenance: the approved exact-INSERT recovery exclusion"
       );
     },
   };
@@ -217,18 +219,14 @@ async function runWrongInsertScenario(
     "atomic-batch",
     barrier
   );
-  // The measured legacy executor retries every matching plan pin, even when a
-  // different indexed INSERT failed. The approved candidate policy excludes it.
+  // The deleted executor retried every matching plan pin, even when a different
+  // indexed INSERT failed. The approved candidate policy excludes it, on the
+  // client route and on the command engine alike.
   evidence.push({
     scenarioId: "g2-race-wrong-insert-same-constraint",
-    candidate: candidateFactory ? "commands" : "legacy",
-    status: candidateFactory
-      ? "Approved exact-INSERT recovery exclusion"
-      : "Measured legacy all-pin retry; retained diagnostic behavior",
-    sources: [
-      "src/query-engine/write-engine/OperationExecutor.ts",
-      "src/query-engine/write-engine/race-retry.ts",
-    ],
+    candidate: candidateFactory ? "commands" : "client-route",
+    status: "Approved exact-INSERT recovery exclusion",
+    sources: ["src/query-engine/raptor3/shared/operation-context.ts"],
     namespace: world.namespace,
     definitions: ddl,
     connections: world.connections,

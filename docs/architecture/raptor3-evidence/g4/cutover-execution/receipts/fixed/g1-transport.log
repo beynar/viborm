@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/transport.test.ts (44 tests) 543ms
+
+ Test Files  1 passed (1)
+      Tests  44 passed (44)
+   Start at  21:10:31
+   Duration  2.12s (transform 884ms, setup 10ms, collect 1.38s, tests 543ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0SKsg0/vitest.json
+Vitest resources: 4.09s wall, 672.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-transport contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-0SKsg0

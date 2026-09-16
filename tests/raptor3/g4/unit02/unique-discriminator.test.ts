@@ -183,7 +183,7 @@ class RecordingMySQLDriver extends MySQL2Driver {
 describe.runIf(provider === "mysql" && port > 0)(
   "G4-02 native MySQL unique discriminator",
   () => {
-    it("answers a collation-equal key exactly as the shipped engine does", async () => {
+    it("answers a collation-equal key identically on the client route seam and the command engine", async () => {
       const owners = `g4u2_disc_o_${randomUUID().replaceAll("-", "")}`;
       const notes = `g4u2_disc_n_${randomUUID().replaceAll("-", "")}`;
       const liveOwner = s
@@ -777,7 +777,7 @@ describe.runIf(provider === "mysql" && port > 0)(
       );
     };
 
-    it("addresses through the constraint exactly the call sites the shipped engine compiles with buildWhereUnique", async () => {
+    it("addresses through the constraint on both seams, at exactly the call sites the deleted engine compiled with buildWhereUnique", async () => {
       assert.equal(
         await collationIsInsensitive(),
         true,

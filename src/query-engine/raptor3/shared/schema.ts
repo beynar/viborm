@@ -67,7 +67,16 @@ export function isReadOperation(
  */
 export interface ResolvedSchemaViews {
   readonly index: ReturnType<typeof validateClientSchemaOrThrow>;
-  readonly registry: ReturnType<typeof createResolvedSchemaRegistry>;
+  /**
+   * Declared as the one member {@link EngineSchema} reads. A client hands over
+   * its full resolved registry and an engine hands over the
+   * `getModelSchemas`/`validate` pair its `ModelRegistry` carries; both satisfy
+   * this, nothing is widened, and no consumer here reads `proxy`.
+   */
+  readonly registry: Pick<
+    ReturnType<typeof createResolvedSchemaRegistry>,
+    "getModelSchemas"
+  >;
 }
 export interface EngineConfig {
   schema: Schema;

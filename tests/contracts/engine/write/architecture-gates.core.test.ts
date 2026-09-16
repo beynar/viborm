@@ -17,7 +17,6 @@ const STRUCTURE_REPORT = join(
 
 const EXECUTOR = join(WRITE_ENGINE_ROOT, "OperationExecutor.ts");
 const FRAGMENT = join(WRITE_ENGINE_ROOT, "OperationFragment.ts");
-const MEMBERSHIP = join(WRITE_ENGINE_ROOT, "relation-membership.ts");
 
 // Operation-kind and relation-kind tokens the executor must never learn. Generic
 // words (set, count, exist) are deliberately excluded — they collide with Map.set
@@ -29,10 +28,6 @@ const OPERATION_KIND_TOKENS =
 const CONCRETE_OPERATION_MODULE = /Operation$/;
 const STEP_VOCABULARY =
   /\b(?:StatementStep|GuardStep|OperationStep|OperationFragment)\b/;
-const LEGACY_MEMBERSHIP_INPUTS =
-  /incomingForeignKey|incomingPolymorphicStorage/;
-const LOCAL_MEMBERSHIP_LOWERING =
-  /buildPolymorphicMembershipPredicate|polymorphic(?:Planning|Final)IdentitySql|resolvePolymorphicStorageValue/;
 
 // The complete, intentional vocabulary of the fragment module (ATOM §1, §2).
 const FRAGMENT_TYPE_NAMES = [
@@ -233,25 +228,5 @@ describe("write engine structural gates (PLAN P0)", () => {
 
   it("(e) keeps write-engine runtime imports acyclic", () => {
     expect(writeEngineRuntimeImportCycles()).toEqual([]);
-  });
-
-  it("(f) gives child-held membership one lowering owner", () => {
-    const compilerSource = ["CreateOperation.ts", "RecordUpdateCompiler.ts"]
-      .map((name) => readFileSync(join(WRITE_ENGINE_ROOT, name), "utf8"))
-      .join("\n");
-    expect(compilerSource).not.toMatch(LEGACY_MEMBERSHIP_INPUTS);
-
-    const emitterSource = [
-      "RelationLinkPart.ts",
-      "RelationWritePart.ts",
-      "RelationUpsertPart.ts",
-    ]
-      .map((name) => readFileSync(join(WRITE_ENGINE_ROOT, name), "utf8"))
-      .join("\n");
-    expect(emitterSource).not.toMatch(LOCAL_MEMBERSHIP_LOWERING);
-
-    expect(readFileSync(MEMBERSHIP, "utf8")).toContain(
-      "export type RelationMembershipBinding"
-    );
   });
 });

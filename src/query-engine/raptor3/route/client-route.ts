@@ -10,16 +10,17 @@
  * stay with their current owners, and this route is reached only through the
  * ordinary `PendingOperation` those owners already drive.
  *
- * It is NOT public: nothing here is exported from the package entry, and
- * `createClient` cannot select it. The shipped default route is unchanged.
+ * It is NOT public: nothing here is exported from the package entry. Since the
+ * C-01 cutover `VibORM`'s constructor builds it for every client, so it is the
+ * ONE operation owner rather than a selectable alternative.
  */
 
-import { VibORM, type VibORMClient, type VibORMConfig } from "@client/client";
 import type { Operations } from "@client/types";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
+import type { Sql } from "@sql";
 import {
   arrayCodec,
   booleanCodec,
@@ -75,7 +76,25 @@ export interface RoutedCandidateOperation {
    * and the cache key describe the query that actually runs.
    */
   readonly preparedArgs: Record<string, unknown>;
+  /**
+   * The ONE statement this operation compiles to, or `undefined` when it does
+   * not compile to exactly one. A prepared read owns one and publishes it; a
+   * write's fold is only reachable through the asynchronous
+   * {@link RoutedCandidateOperation.prepareBatch}, which publishes a package of
+   * driver-prepared queries rather than an `Sql`.
+   */
+  buildStatement(): Sql | undefined;
   cacheResultCodec(): RouteCacheResultCodec;
+  /**
+   * The prepared package when this operation prepares to it synchronously —
+   * a read, whose preparation reaches no driver. It is the SAME package
+   * {@link RoutedCandidateOperation.prepareBatch} publishes, so the one query
+   * an array member dispatches and the parser that reads its result come from
+   * one preparation.
+   */
+  prepareSingle(
+    context: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined;
   prepareBatch(
     context: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
@@ -170,6 +189,9 @@ export function createCandidateRoute(
         get preparedArgs(): Record<string, unknown> {
           return prepared.args;
         },
+        buildStatement(): Sql | undefined {
+          return prepared.read?.statement;
+        },
         cacheResultCodec(): RouteCacheResultCodec {
           const read = prepared.read;
           if (!read)
@@ -178,6 +200,11 @@ export function createCandidateRoute(
               { meta: { model: modelName, operation: requestedOperation } }
             );
           return (codec ??= cacheCodec(read, requestedOperation));
+        },
+        prepareSingle(
+          context: QueryExecutionContext
+        ): PreparedBatchOperation<unknown> | undefined {
+          return prepared.prepareSingle(context);
         },
         prepareBatch(
           context: QueryExecutionContext
@@ -383,18 +410,4 @@ function runCandidate(
     },
     context
   );
-}
-
-/**
- * Construct a client whose model operations execute through the candidate.
- *
- * Private by construction: it is the public `createClient` configuration and
- * the public client surface, with one non-public route argument. The shipped
- * default route is untouched; a cutover (C-01) is this call becoming the
- * default inside `VibORM.create`, not a new public entry.
- */
-export function createCandidateClient<C extends VibORMConfig>(
-  config: C
-): VibORMClient<C> {
-  return VibORM.create<C>(config, createCandidateRoute);
 }

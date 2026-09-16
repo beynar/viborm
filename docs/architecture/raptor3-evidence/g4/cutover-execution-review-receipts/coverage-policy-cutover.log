@@ -1,0 +1,171 @@
+✔ every TypeScript source has exactly one coverage owner (5.644542ms)
+✔ subsystem configs derive includes and thresholds from the manifest (0.269042ms)
+✔ waived sources remain owned and included (0.146584ms)
+✔ test fixtures use the workspace alias instead of root-absolute imports (37.569917ms)
+✔ migration coverage admits every credential-free local contract (1.510833ms)
+✔ migration core contracts open no database outside the named in-memory SQLite exception (9.703958ms)
+✔ client coverage admits the core and audited deterministic contracts (0.243458ms)
+✖ driver coverage isolates provider resources and admits only audited local providers (2.00425ms)
+✖ query coverage admits every core contract exactly once (1.127834ms)
+✔ write coverage admits the core and audited high-signal local contracts (2.66975ms)
+✔ cache coverage admits every deterministic cache contract exactly once (1.590792ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 9
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 65.859417
+
+✖ failing tests:
+
+test at scripts/coverage-policy.test.mjs:298:1
+✖ driver coverage isolates provider resources and admits only audited local providers (2.00425ms)
+  Error: ENOENT: no such file or directory, open 'tests/contracts/drivers/consumable-result-rows.provider.test.ts'
+      at readFileSync (node:fs:483:20)
+      at importsProviderResource (file:///Users/arnaud/code/viborm/scripts/coverage-policy.test.mjs:148:18)
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/coverage-policy.test.mjs:390:7)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    errno: -2,
+    code: 'ENOENT',
+    syscall: 'open',
+    path: 'tests/contracts/drivers/consumable-result-rows.provider.test.ts'
+  }
+
+test at scripts/coverage-policy.test.mjs:425:1
+✖ query coverage admits every core contract exactly once (1.127834ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+    [
+      'tests/contracts/architecture/contract-matrix.core.test.ts',
+      'tests/contracts/architecture/core-taxonomy-census.core.test.ts',
+      'tests/contracts/architecture/extension-system-census.core.test.ts',
+      'tests/contracts/architecture/geopoint-language-census.core.test.ts',
+  ...
+      'tests/contracts/engine/query/blob-result-parser.core.test.ts',
+  +   'tests/contracts/engine/query/bound-relation.core.test.ts',
+      'tests/contracts/engine/query/bulk-create-plan.core.test.ts',
+      'tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts',
+      'tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts',
+  +   'tests/contracts/engine/query/cache-result-codec.core.test.ts',
+      'tests/contracts/engine/query/consumable-result-rows.core.test.ts',
+      'tests/contracts/engine/query/count-result-carrier.core.test.ts',
+      'tests/contracts/engine/query/cursor-order-normalization-boundaries.core.test.ts',
+      'tests/contracts/engine/query/cursor-pagination-sql.core.test.ts',
+      'tests/contracts/engine/query/decimal-cache-identity.core.test.ts',
+  ...
+      'tests/contracts/engine/query/junction-statements.core.test.ts',
+  +   'tests/contracts/engine/query/junction-topology-order.core.test.ts',
+      'tests/contracts/engine/query/lateral-joins.core.test.ts',
+      'tests/contracts/engine/query/list-update-container.core.test.ts',
+      'tests/contracts/engine/query/model-key-catalog.core.test.ts',
+      'tests/contracts/engine/query/mutation-operation-boundaries.core.test.ts',
+      'tests/contracts/engine/query/namespace-qualification.core.test.ts',
+  ...
+      'tests/contracts/engine/query/orderby-relation-depth.core.test.ts',
+  +   'tests/contracts/engine/query/own-write-dependency.core.test.ts',
+  +   'tests/contracts/engine/query/own-write-ledger.core.test.ts',
+      'tests/contracts/engine/query/own-write-target.core.test.ts',
+      'tests/contracts/engine/query/pending-operation-contracts.core.test.ts',
+      'tests/contracts/engine/query/polymorphic-collection-bind.core.test.ts',
+      'tests/contracts/engine/query/polymorphic-inverse-read-sql.core.test.ts',
+      'tests/contracts/engine/query/polymorphic-read-sql.core.test.ts',
+  ...
+      'tests/contracts/engine/query/query-builder-coverage-boundaries.core.test.ts',
+  +   'tests/contracts/engine/query/query-core-coverage-boundaries.core.test.ts',
+  +   'tests/contracts/engine/query/query-engine-boundaries.core.test.ts',
+      'tests/contracts/engine/query/query-inspection.core.test.ts',
+      'tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts',
+  +   'tests/contracts/engine/query/query-relation-coverage-boundaries.core.test.ts',
+      'tests/contracts/engine/query/query-result-coverage-boundaries.core.test.ts',
+      'tests/contracts/engine/query/read-traversal-byte-pins.core.test.ts',
+      'tests/contracts/engine/query/relation-filter-nullability-planning.core.test.ts',
+  +   'tests/contracts/engine/query/relation-key-legality.core.test.ts',
+      'tests/contracts/engine/query/relation-mutation-program.core.test.ts',
+      'tests/contracts/engine/query/relation-nullability-parity.core.test.ts',
+      'tests/contracts/engine/query/request-result-shape-contracts.core.test.ts',
+      'tests/contracts/engine/query/result-aliases.core.test.ts',
+      'tests/contracts/engine/query/result-identity-fast-path.core.test.ts',
+  ...
+      'tests/contracts/engine/query/vector-distance-result-parser.core.test.ts',
+  +   'tests/contracts/engine/query/vector-orderby.core.test.ts',
+      'tests/contracts/engine/write/architecture-gates.core.test.ts',
+      'tests/contracts/engine/write/atomic-unit-batch.core.test.ts',
+  +   'tests/contracts/engine/write/bulk-polymorphic-connect-contracts.core.test.ts',
+  +   'tests/contracts/engine/write/bulk-write-limit-plan.core.test.ts',
+  +   'tests/contracts/engine/write/captured-row-key-decode.core.test.ts',
+      'tests/contracts/engine/write/compound-relation-adoption.core.test.ts',
+  +   'tests/contracts/engine/write/create-junction-upsert.core.test.ts',
+  +   'tests/contracts/engine/write/create-many-bind-budget.core.test.ts',
+  +   'tests/contracts/engine/write/create-many-return-fold.core.test.ts',
+      'tests/contracts/engine/write/create-race-pin.core.test.ts',
+      'tests/contracts/engine/write/dead-symbol-gate.core.test.ts',
+  +   'tests/contracts/engine/write/destination-cast.core.test.ts',
+  +   'tests/contracts/engine/write/final-root-assignment.core.test.ts',
+      'tests/contracts/engine/write/fragment-validator.core.test.ts',
+  +   'tests/contracts/engine/write/generated-identity-demand.core.test.ts',
+      'tests/contracts/engine/write/generated-output-boundary.core.test.ts',
+  +   'tests/contracts/engine/write/generated-output-segment-contract.core.test.ts',
+  +   'tests/contracts/engine/write/implicit-returning-refusal.core.test.ts',
+  +   'tests/contracts/engine/write/inverse-to-one-create.core.test.ts',
+  +   'tests/contracts/engine/write/junction-produced-identity.core.test.ts',
+  +   'tests/contracts/engine/write/junction-upsert-arm-probe.core.test.ts',
+  +   'tests/contracts/engine/write/namespace-write-qualification.core.test.ts',
+  +   'tests/contracts/engine/write/nested-series-coverage.core.test.ts',
+  +   'tests/contracts/engine/write/non-returning-delete-plan.core.test.ts',
+  +   'tests/contracts/engine/write/operation-construction-inventory.core.test.ts',
+  +   'tests/contracts/engine/write/operation-construction-witnesses.core.test.ts',
+  +   'tests/contracts/engine/write/operation-executor-scenarios.core.test.ts',
+  +   'tests/contracts/engine/write/operation-owner-coverage.core.test.ts',
+  +   'tests/contracts/engine/write/own-write-linearization.core.test.ts',
+  +   'tests/contracts/engine/write/parity-b-upsert-arm.core.test.ts',
+  +   'tests/contracts/engine/write/parity-c-selected-identity.core.test.ts',
+  +   'tests/contracts/engine/write/parity-d-transition.core.test.ts',
+  +   'tests/contracts/engine/write/parity-e-shared-pk.core.test.ts',
+  +   'tests/contracts/engine/write/parity-f-fresh-field.core.test.ts',
+  +   'tests/contracts/engine/write/parity-h-to-one-lattice.core.test.ts',
+  +   'tests/contracts/engine/write/parity-j-create-many.core.test.ts',
+  +   'tests/contracts/engine/write/parity-k-update-many.core.test.ts',
+  +   'tests/contracts/engine/write/parity-m-create-dag.core.test.ts',
+      'tests/contracts/engine/write/parse-boundary-gate.core.test.ts',
+  +   'tests/contracts/engine/write/polymorphic-write-plan.core.test.ts',
+      'tests/contracts/engine/write/race-retry-classification.core.test.ts',
+  +   'tests/contracts/engine/write/record-compiler-contract.core.test.ts',
+  +   'tests/contracts/engine/write/record-series-coverage.core.test.ts',
+  +   'tests/contracts/engine/write/relation-junction-collection-coverage.core.test.ts',
+  +   'tests/contracts/engine/write/relation-junction-singular-coverage.core.test.ts',
+      'tests/contracts/engine/write/relation-membership-contracts.core.test.ts',
+  +   'tests/contracts/engine/write/relation-mutation-scenario-matrix.core.test.ts',
+  +   'tests/contracts/engine/write/relation-record-compiler-coverage.core.test.ts',
+      'tests/contracts/engine/write/relation-target-coverage.core.test.ts',
+  +   'tests/contracts/engine/write/relation-write-parity-anchors.core.test.ts',
+      'tests/contracts/engine/write/series-result-read.core.test.ts',
+      'tests/contracts/engine/write/target-projection.core.test.ts',
+  +   'tests/contracts/engine/write/unique-where-relation-filter-plan.core.test.ts',
+  +   'tests/contracts/engine/write/upsert-planning-scenarios.core.test.ts',
+      'tests/contracts/engine/write/write-shared-coverage.core.test.ts'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/arnaud/code/viborm/scripts/coverage-policy.test.mjs:434:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [Array],
+    expected: [Array],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+Node resources: 0.36s wall, 61.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

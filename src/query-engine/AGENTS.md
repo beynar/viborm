@@ -3,6 +3,20 @@
 **Location:** `src/query-engine/`  
 **Layer:** L6 — query structure and semantics
 
+> **Since C-01 (the Raptor 3 cutover) this guide is partly historical.** The one
+> operation owner of every client operation is now `src/query-engine/raptor3/`
+> (its guide: [`raptor3/AGENTS.md`](raptor3/AGENTS.md)), built unconditionally in
+> `VibORM`'s constructor and reached through `PendingOperation`'s single route
+> arm. The shipped write/read engine was deleted: 25 of the 43 `write-engine/`
+> files, the seven `query-engine/` root owners (`OwnWriteSteps`,
+> `OwnWriteAnalyzer`, `OwnWriteRelation`, `OwnWriteLedger`, `RelationMembership`,
+> `relation-key-legality`, `validator`) and `builders/to-one-composition.ts` are
+> gone from disk. The 18 `write-engine/` files that remain are kept alive by
+> `src/query-engine/pattern/` alone; nothing on the operation path imports them.
+> Before trusting a sentence below that names a `write-engine/` owner, check that
+> the file exists. The read/write verb vocabulary that `write-engine/routing.ts`
+> exported lives in `routed-operations.ts`.
+
 ## Purpose
 
 The query engine validates operation inputs, decides query structure, compiles
@@ -147,15 +161,13 @@ executor's non-read planning fallback.
 
 ### Local terminology
 
-An **operation shell** is the concrete public-operation-family owner that
-exposes `mode`, `planning`, `compile`, and `parse`. `write-engine/routing.ts`
-owns route-wide gates and shared-envelope parsing. The routed root shell owns
-the remaining family- and arm-specific parsing, target, result, and direct
-folds. `CreateOperation` can also be reused as a delegated fresh-record compiler
-inside another shell. Files in `write-engine/*Operation.ts` contain these
-owners. Files in `operations/*.ts` contain operation-specific SQL, plan,
-identity, and ordering helpers; their historical directory name does not make
-them operation shells.
+An **operation shell** was the concrete public-operation-family owner that
+exposed `mode`, `planning`, `compile`, and `parse`. C-01 deleted every one of
+them together with `write-engine/routing.ts`, which owned route-wide gates and
+shared-envelope parsing; no `write-engine/*Operation.ts` file exists any more.
+Files in `operations/*.ts` contain operation-specific SQL, plan, identity, and
+ordering helpers; their historical directory name does not make them operation
+shells.
 
 Within relation compilation, **parent** means the current source record at that
 edge and **child** means its relation target. `position: "parentHeld"` says
@@ -715,25 +727,16 @@ the existing guard; it does not add a statement or round trip.
 
 | Owner | Responsibility |
 | --- | --- |
-| `query-engine.ts` | client-scoped driver, registry, engine composition, and one resolved consumable-result candidate with a candidate-free cache executor |
-| `pending-operation.ts` | lazy public model-operation routing entry |
+| `query-engine.ts` | client-scoped driver, registry and engine composition; it owns no executor since C-01 |
+| `pending-operation.ts` | lazy public model-operation entry; its one arm is the Raptor 3 route |
 | `pending-execution.ts` | one-shot default/driver-bound execution lifecycle shared by model and raw operations |
 | `transaction-operation.ts` | the internal protocol consumed by `$transaction([...])` |
-| `write-engine/routing.ts` | route-wide operation gates, shared-envelope parsing, and shell construction |
 | `operations/*.ts` | operation-specific SQL, plan, identity, and ordering helpers; not shells |
-| `write-engine/CreateOperation.ts` | fresh record compilation and create result |
-| `write-engine/UpdateOperation.ts` | public update shell and direct folds |
-| `write-engine/RecordUpdateCompiler.ts` | one selected record mutation |
-| `write-engine/UpsertOperation.ts` | top-level arm selection and terminal result |
 | `write-engine/record-series.ts` | the record-series contract and its routed-operation discrimination |
-| `write-engine/CreateManyRecordSeries.ts` | root relation-bearing `createMany` shell |
-| `write-engine/UpdateManyRecordSeries.ts` | root relation-bearing `updateMany` shell |
-| `write-engine/FreshRecordSeriesPart.ts` | nested relation-bearing `createMany` placement |
-| `write-engine/NestedSelectedRecordSeries.ts` | member compilation for a relation owner's captured selected records — the correlated set of a nested relation-bearing `updateMany`, and the singular member a to-one supplier just produced |
 | `write-engine/series-result-read.ts` | bounded final set reads and source-order reconstruction |
 | `write-engine/target-projection.ts` | complete captured row keys and selected-target projections |
-| relation Parts | child-held/junction selection, membership, guards, pins, and edge effects |
-| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution, retry routing, and the lexical execute/prove/parse seam; it depends only on the optional prepared-row capability, never a concrete operation |
+| `write-engine/Part.ts` | the Part base; every concrete relation Part was deleted at C-01 |
+| `write-engine/OperationExecutor.ts` | generic fragment execution, including series execution, retry routing, and the lexical execute/prove/parse seam; since C-01 it is reached only from `pattern/`, never from an operation |
 | `write-engine/OperationFragment.ts` | step and fragment vocabulary |
 | `builders/relation-mutation-parser.ts` | parsed mutation programs |
 | `builders/relation-data-builder.ts` | bound relation topology, and the classifier every entry point goes through |
@@ -745,9 +748,6 @@ the existing guard; it does not add a statement or round trip.
 | `builders/polymorphic-mutation.ts` | resolved row-held intent and atomic private storage value |
 | `builders/polymorphic-collection-mutation.ts` | binds one collection member for a write leaf |
 | `builders/polymorphic-collection-filter-builder.ts` | `some`/`every`/`none` lowering over member tables (`every` as an explicit two-conjunct `NOT EXISTS`, never `negateInner`) |
-| `write-engine/PolymorphicCollectionPart.ts` | the ONE direct-collection coordinator: `set` clear-all barrier, cross-verb/cross-variant order, one owner-row publication, empty cache footprint |
-| `write-engine/RelationJunctionToOnePart.ts` | singular collection inverse: composition order, the four correlated spellings, owner-oriented membership projection |
-| `write-engine/junction-singular-transfer.ts` | the singular member slot-replacement protocol, both substrates |
 | `write-engine/relation-membership.ts` | child-held membership and value provenance |
 | `JunctionStatements.ts` | junction SQL materialization — one owner, every orientation and arity |
 | `result/ResultParser.ts` | result-boundary middleware chains, compiled row-container policy, and nested row-parser reuse |

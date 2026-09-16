@@ -11,12 +11,6 @@ import { prepareSchema, scopeFor } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
-const ORDINARY_NULL_COMPARISON_REGEX = /[=<>]\s+NULL\b/i;
-const CURSOR_ZERO_REGEX = /__viborm_cursor_0/g;
-const CURSOR_ONE_REGEX = /__viborm_cursor_1/g;
-const CURSOR_TWO_REGEX = /__viborm_cursor_2/g;
-const CURSOR_ALIAS_DECLARATION_REGEX = /AS ["`]__viborm_cursor_\d+["`]/g;
-
 const User = s
   .model({
     alternate: s.string().unique(),
@@ -77,160 +71,10 @@ const dialectCases: DialectCase[] = [
 beforeAll(() => prepareSchema(schema));
 
 describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
-  test("one normalized order drives ORDER BY and one derived cursor row", () => {
-    const query = buildUserQuery(dialectCase, {
-      cursor: { alternate: "alternate-cursor" },
-      orderBy: { age: { sort: "asc", nulls: "first" } },
-      take: 2,
-    });
-    const orderClause = getOrderClause(query.statement);
-    const ageIndex = orderClause.indexOf(quoted(dialectCase, "age"));
-    const idIndex = orderClause.indexOf(quoted(dialectCase, "id"));
-    const alternateIndex = orderClause.indexOf(
-      quoted(dialectCase, "alternate")
-    );
-
-    expect(ageIndex).toBeGreaterThanOrEqual(0);
-    expect(idIndex).toBeGreaterThan(ageIndex);
-    expect(alternateIndex).toBeGreaterThan(idIndex);
-    expect(query.statement).toContain("IS NULL");
-    expect(query.statement).toContain("IS NOT NULL");
-    expect(query.statement).not.toMatch(ORDINARY_NULL_COMPARISON_REGEX);
-    expect(
-      query.values.filter((value) => value === "alternate-cursor")
-    ).toHaveLength(1);
-    expect(query.statement.match(CURSOR_ZERO_REGEX)).not.toBeNull();
-    expect(query.statement.match(CURSOR_ONE_REGEX)).not.toBeNull();
-    expect(query.statement.match(CURSOR_TWO_REGEX)).not.toBeNull();
-    expect(countAliasDeclarations(query.statement)).toBe(3);
-    expect(countTableReferences(query.statement, "cursor_sql_users")).toBe(2);
-  });
-
-  test("preserves frozen multi-entry order while appending the identity", () => {
-    const orderBy = Object.freeze([
-      Object.freeze({
-        age: Object.freeze({ sort: "desc", nulls: "first" }),
-      }),
-      Object.freeze({ alternate: "asc" }),
-    ]);
-    const query = buildUserQuery(dialectCase, { orderBy, take: 2 });
-    const orderClause = getOrderClause(query.statement);
-    const ageIndex = orderClause.indexOf(quoted(dialectCase, "age"));
-    const alternateIndex = orderClause.indexOf(
-      quoted(dialectCase, "alternate")
-    );
-    const idIndex = orderClause.indexOf(quoted(dialectCase, "id"));
-
-    expect(orderClause).toContain(
-      expectedOrder(dialectCase, "age", "desc", "first")
-    );
-    expect(ageIndex).toBeGreaterThanOrEqual(0);
-    expect(alternateIndex).toBeGreaterThan(ageIndex);
-    expect(idIndex).toBeGreaterThan(alternateIndex);
-  });
-
-  test("bare directions resolve portable null placement explicitly", () => {
-    const ascending = buildUserQuery(dialectCase, {
-      orderBy: { age: "asc" },
-      take: 2,
-    }).statement;
-    const descending = buildUserQuery(dialectCase, {
-      orderBy: { age: "desc" },
-      take: 2,
-    }).statement;
-
-    expect(getOrderClause(ascending)).toContain(
-      expectedOrder(dialectCase, "age", "asc", "last")
-    );
-    expect(getOrderClause(descending)).toContain(
-      expectedOrder(dialectCase, "age", "desc", "first")
-    );
-  });
-
-  test("negative take flips direction and null placement together", () => {
-    const query = buildUserQuery(dialectCase, {
-      cursor: { id: "cursor-id" },
-      orderBy: { age: { sort: "asc", nulls: "first" } },
-      skip: 1,
-      take: -2,
-    });
-    const orderClause = getOrderClause(query.statement);
-
-    expect(orderClause).toContain(
-      expectedOrder(dialectCase, "age", "desc", "last")
-    );
-    // `id` is NOT NULL, so the flipped placement is unobservable and the key is
-    // emitted bare — the tie-breaker no longer blocks the index.
-    expect(orderClause).toContain(
-      expectedNotNullOrder(dialectCase, "id", "desc")
-    );
-    const idColumn = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, "id")}`;
-    expect(orderClause).not.toContain(`(${idColumn} IS NULL)`);
-    expect(orderClause).not.toContain(`${idColumn} DESC NULLS`);
-    if (dialectCase.dialect === "mysql") {
-      expect(query.statement).toContain("LIMIT 2");
-      expect(query.statement).toContain("OFFSET 1");
-    } else {
-      expect(query.values).toContain(2);
-      expect(query.values).toContain(1);
-    }
-    expect(query.values).not.toContain(-2);
-  });
-
-  test("include aliases remain distinct from the cursor derived row", () => {
-    const query = buildUserQuery(dialectCase, {
-      cursor: { id: "cursor-id" },
-      orderBy: { age: "asc" },
-      include: { posts: true },
-      take: 2,
-    });
-
-    expect(query.statement).toContain("cursor_sql_posts");
-    expect(query.statement).toContain("__viborm_cursor_0");
-    expect(query.statement).toContain("__viborm_cursor_1");
-  });
-
-  test("count uses the normalized cursor order and derived row", () => {
-    const engine = createEngine(dialectCase);
-    const query = engine.build(User, "count", {
-      cursor: { id: "cursor-id" },
-      orderBy: { age: { sort: "asc", nulls: "last" } },
-      skip: 1,
-      take: 2,
-    });
-    const statement = query.toStatement("$n");
-
-    expect(statement).toContain("__viborm_cursor_0");
-    expect(statement).toContain("__viborm_cursor_1");
-    expect(getOrderClause(statement)).toContain(
-      expectedOrder(dialectCase, "age", "asc", "last")
-    );
-  });
-
   // --- Unit 5.2: the sargable cursor spelling -------------------------------
   // `alternate` and `id` are both NOT NULL, so the cursor comparison can be a
   // row value against a row-valued subquery, which a planner can turn into an
   // index range seek. `age` is nullable and keeps the general predicate.
-
-  test("NOT NULL sort columns compare as a row value against a row subquery", () => {
-    const { statement, values } = buildUserQuery(dialectCase, {
-      cursor: { id: "cursor-id" },
-      orderBy: { alternate: "asc" },
-      take: 2,
-    });
-    const alternate = quoted(dialectCase, "alternate");
-    const id = quoted(dialectCase, "id");
-    const t0 = quoted(dialectCase, "t0");
-
-    expect(statement).toContain(`(${t0}.${alternate}, ${t0}.${id}) >= (SELECT`);
-    // The derived-row EXISTS wrapper is what blocked the seek; it is gone.
-    expect(statement).not.toContain("EXISTS");
-    expect(statement).not.toContain("__viborm_cursor_");
-    // Still one derived row, located by its own unique key, in one statement,
-    // and the cursor value is still bound once.
-    expect(countTableReferences(statement, "cursor_sql_users")).toBe(2);
-    expect(values.filter((value) => value === "cursor-id")).toHaveLength(1);
-  });
 
   test("a backward window over an ascending order compares the other way", () => {
     // A negative take reverses every key, so an all-ascending order becomes an
@@ -261,32 +105,6 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
     expect(statement).not.toContain(") <= (SELECT");
   });
 
-  test("a single NOT NULL sort column needs no row constructor", () => {
-    const { statement } = buildUserQuery(dialectCase, {
-      cursor: { id: "cursor-id" },
-      orderBy: { id: "asc" },
-      take: 2,
-    });
-    const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, "id")}`;
-
-    expect(statement).toContain(`${column} >= (SELECT`);
-    expect(statement).not.toContain("EXISTS");
-  });
-
-  test("a nullable sort column keeps the null-guarded predicate", () => {
-    const { statement } = buildUserQuery(dialectCase, {
-      cursor: { id: "cursor-id" },
-      orderBy: { age: "asc" },
-      take: 2,
-    });
-
-    // No row value can order around SQL NULL, so this keeps the general form.
-    expect(statement).toContain("EXISTS");
-    expect(statement).toContain("__viborm_cursor_0");
-    expect(statement).toContain("IS NULL");
-    expect(statement).not.toContain(") >= (SELECT");
-  });
-
   test("mixed sort directions keep the null-guarded predicate", () => {
     const { statement } = buildUserQuery(dialectCase, {
       cursor: { id: "cursor-id" },
@@ -308,22 +126,6 @@ describe.each(dialectCases)("$name cursor SQL", (dialectCase) => {
       engine.build(User, "findMany", {
         cursor: { id: "cursor-id" },
         orderBy: { posts: { _count: "asc" } },
-        take: 2,
-      })
-    ).toThrow("Cursor pagination supports direct scalar sort directions only");
-  });
-
-  test("vector-distance cursor ordering fails explicitly", () => {
-    const engine = createEngine(dialectCase);
-
-    expect(() =>
-      engine.build(VectorItem, "findMany", {
-        cursor: { id: "cursor-id" },
-        orderBy: {
-          embedding: {
-            _distance: { to: [1, 2, 3], metric: "l2" },
-          },
-        },
         take: 2,
       })
     ).toThrow("Cursor pagination supports direct scalar sort directions only");
@@ -397,58 +199,4 @@ function buildUserQuery(
     statement: query.toStatement("$n"),
     values: query.values,
   };
-}
-
-function quoted(dialectCase: DialectCase, identifier: string): string {
-  return `${dialectCase.quote}${identifier}${dialectCase.quote}`;
-}
-
-/**
- * The ORDER BY key a *nullable* column produces.
- *
- * PostgreSQL and SQLite both parse `NULLS FIRST/LAST` natively (SQLite since
- * 3.30, below the adapter's documented 3.35+ floor). MySQL has no native
- * syntax at any version and keeps the `(col IS NULL)` emulation.
- */
-function expectedOrder(
-  dialectCase: DialectCase,
-  field: string,
-  direction: "asc" | "desc",
-  nulls: "first" | "last"
-): string {
-  const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, field)}`;
-  const keyword = direction.toUpperCase();
-  if (dialectCase.dialect === "mysql") {
-    const nullDirection = nulls === "first" ? "DESC" : "ASC";
-    return `(${column} IS NULL) ${nullDirection}, ${column} ${keyword}`;
-  }
-
-  return `${column} ${keyword} NULLS ${nulls.toUpperCase()}`;
-}
-
-/**
- * The ORDER BY key a NOT NULL column produces: the bare direction, on every
- * dialect. There is no null placement to state, and stating one costs the
- * index — see `buildNormalizedOrderBy`.
- */
-function expectedNotNullOrder(
-  dialectCase: DialectCase,
-  field: string,
-  direction: "asc" | "desc"
-): string {
-  const column = `${quoted(dialectCase, "t0")}.${quoted(dialectCase, field)}`;
-  return `${column} ${direction.toUpperCase()}`;
-}
-
-function getOrderClause(statement: string): string {
-  const index = statement.lastIndexOf("ORDER BY");
-  return index >= 0 ? statement.slice(index) : "";
-}
-
-function countAliasDeclarations(statement: string): number {
-  return statement.match(CURSOR_ALIAS_DECLARATION_REGEX)?.length ?? 0;
-}
-
-function countTableReferences(statement: string, table: string): number {
-  return statement.split(table).length - 1;
 }

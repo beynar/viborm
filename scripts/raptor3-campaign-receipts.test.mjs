@@ -73,12 +73,6 @@ import {
   G29_MEMBER_DEPENDENCY_PG_TESTS,
   G4_READ_TESTS,
   G4_READ_COUNTS,
-  G4_LIFECYCLE_EVENTS_TESTS,
-  G4_LIFECYCLE_ADMISSION_TESTS,
-  G4_ROUTE_LIFECYCLE_TESTS,
-  G4_ROUTE_ADMISSION_TESTS,
-  G4_ROUTE_CACHE_TESTS,
-  G4_ROUTE_TRANSACTION_TESTS,
   G4_GENERATION_SELFTEST_TESTS,
   G4_GENERATED_CAMPAIGN,
   G4_GENERATED_CAMPAIGN_TESTS,
@@ -956,12 +950,6 @@ for (const lane of prepLanes) {
 
 const G4_FIXED_SUITES = [
   ...G4_READ_TESTS,
-  ...G4_LIFECYCLE_EVENTS_TESTS,
-  ...G4_LIFECYCLE_ADMISSION_TESTS,
-  ...G4_ROUTE_LIFECYCLE_TESTS,
-  ...G4_ROUTE_ADMISSION_TESTS,
-  ...G4_ROUTE_CACHE_TESTS,
-  ...G4_ROUTE_TRANSACTION_TESTS,
   ...G4_GENERATION_SELFTEST_TESTS,
   ...G4_UNIT01_AUTHOR_TESTS,
   ...G4_UNIT01_REVIEW_TESTS,
@@ -996,12 +984,6 @@ test("G4 fixed modes admit their exact contract without filters", () => {
     "g4-read-aggregates",
     "g4-read-codecs",
     "g4-read-recursive-fit",
-    "g4-lifecycle-events",
-    "g4-lifecycle-admission",
-    "g4-route-lifecycle",
-    "g4-route-admission",
-    "g4-route-cache",
-    "g4-route-transactions",
     "g4-generation-selftests",
     "g4-unit01-author",
     "g4-unit01-review",
@@ -1038,9 +1020,11 @@ test("G4 fixed modes admit their exact contract without filters", () => {
     83,
     "The landed G4-01 author checks lost or gained a cell"
   );
+  // 200 until C-01 retired the two cells that pinned the deleted engine's
+  // `0viborm_distance` alias beside the candidate's `_distance`.
   assert.equal(
     sum(G4_UNIT01_REVIEW_COUNTS),
-    200,
+    198,
     "The landed G4-01 reviewer probes lost or gained a cell"
   );
 });

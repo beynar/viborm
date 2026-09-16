@@ -1,0 +1,40 @@
+file                                                                          base       (a)       (b)       (c)
+contracts/architecture/contract-matrix.core.test.ts                            3/5       3/5       3/5       3/5
+contracts/drivers/namespace-execution-target.core.test.ts                      5/5       5/5       5/5       5/5
+contracts/drivers/provider-result-contracts.core.test.ts                     1/115     1/115     1/115     1/115
+contracts/drivers/sqlite-integer-safety.core.test.ts                           1/5       1/5       1/5       1/5
+contracts/engine/query/batch-attribution-hazard-signature.core.test.ts       12/17     12/17     12/17     12/17
+contracts/engine/query/bulk-create-plan.core.test.ts                          1/12      1/12      1/12      1/12
+contracts/engine/query/bulk-insert-row-shapes.core.test.ts                     1/2       1/2       1/2       1/2
+contracts/engine/query/cursor-pagination-sql.core.test.ts                    42/44     42/44     42/44     30/44
+contracts/engine/query/decimal-having-operand-sql.core.test.ts               48/48     48/48     48/48      6/48
+contracts/engine/query/field-reference-sql.core.test.ts                      83/89     83/89     83/89     40/89
+contracts/engine/query/geopoint-sql.core.test.ts                             10/20     10/20     10/20      6/20
+contracts/engine/query/json-null-sentinel-sql.core.test.ts                   24/30     24/30     24/30      9/30
+contracts/engine/query/lateral-joins.core.test.ts                             9/18      9/18      9/18      7/18
+contracts/engine/query/namespace-qualification.core.test.ts                COLLECT   COLLECT   COLLECT     2/122
+contracts/engine/query/operand-callback-sql.core.test.ts                     67/74     67/74     67/74     12/74
+contracts/engine/query/operation-equivalence-oracles.core.test.ts              3/3       3/3       3/3       3/3
+contracts/engine/query/operation-program-read-contracts.core.test.ts           2/2       2/2       1/2       1/2
+contracts/engine/query/orderby-relation-depth.core.test.ts                     3/4       3/4     green     green
+contracts/engine/query/pending-operation-contracts.core.test.ts              11/27     11/27      4/27      4/27
+contracts/engine/query/query-operation-coverage-boundaries.core.test.ts       1/25      1/25     green     green
+contracts/engine/query/read-traversal-byte-pins.core.test.ts                 32/32     32/32     32/32     32/32
+contracts/engine/query/request-result-shape-contracts.core.test.ts           16/29     16/29     16/29     15/29
+contracts/engine/query/select-mode-capability-matrix.core.test.ts              3/3       3/3       3/3       3/3
+contracts/engine/query/sql-generation.core.test.ts                         108/147   114/147   108/147    56/147
+contracts/engine/query/starts-with-prefix-sql.core.test.ts                   27/31     27/31     27/31     green
+contracts/engine/write/architecture-gates.core.test.ts                         1/6       1/6       1/6       1/6
+contracts/engine/write/parse-boundary-gate.core.test.ts                        3/6       3/6       3/6       3/6
+contracts/public-client/array-transaction-closure.core.test.ts                 1/8       1/8       1/8       1/8
+contracts/public-client/official-cache-swr.core.test.ts                        1/7       1/7       1/7       1/7
+contracts/public-client/one-resolution-identity.core.test.ts                   1/3     green       1/3     green
+contracts/public-client/query-interceptors-array.core.test.ts                 4/54      4/54      4/54      4/54
+contracts/public-client/query-interceptors-integration.core.test.ts           2/48      2/48      2/48      2/48
+contracts/public-client/request-transforms.core.test.ts                       6/43      6/43      6/43      6/43
+unit/cache/operand-callback-keys.core.test.ts                                  1/7     green       1/7     green
+
+base failing files: 34
+a failing files: 32
+b failing files: 32
+c failing files: 29

@@ -1,0 +1,11 @@
+ FAIL  |tests/contracts/architecture/contract-matrix.core.test.ts > contract and provider matrix > inventories every executable test by owner and boundary
+ FAIL  |tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts > bulk insert row-shape planning > empty createMany rejects during batch preparation
+ FAIL  |tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'create' fails before dispatch
+ FAIL  |tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'update' fails before dispatch
+ FAIL  |tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'upsert' fails before dispatch
+ FAIL  |tests/contracts/public-client/official-cache-swr.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+ FAIL  |tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > keeps the native child primary across ordered post-work and commit failures
+ FAIL  |tests/contracts/public-client/query-interceptors-array.core.test.ts > native array query execution > orders provider, committed outcomes, parsing, and handler post-work
+ FAIL  |tests/contracts/public-client/query-interceptors-array.core.test.ts > public array lifecycle observers > orders native statement onions before transforms and submits nothing on failure
+ FAIL  |tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports commit ambiguity for a direct composed write transaction
+ FAIL  |tests/contracts/public-client/query-interceptors-integration.core.test.ts > public query-interceptor integration > reports committed certainty when direct transaction cleanup fails after commit

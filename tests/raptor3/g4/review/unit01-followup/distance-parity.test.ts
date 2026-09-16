@@ -11,8 +11,11 @@ import { describe, it } from "vitest";
 
 /**
  * Finding 3 follow-up. No distance-tier provider can execute here, so the
- * comparison is between the SHIPPED lowering and the CANDIDATE lowering on the
- * same PostgreSQL adapter: which columns each projects, and under what names.
+ * comparison is between the two seams that reach the engine on the same
+ * PostgreSQL adapter: `QueryEngine.build` through the route it provisions
+ * ({@link routedStatement}, the shipped lowering before C-01) and this
+ * engine's query layer directly ({@link candidate}) — which columns each
+ * projects, and under what names.
  */
 const spot = s
   .model({
@@ -52,7 +55,7 @@ class MockDriver extends Driver<null, null> {
   }
 }
 
-function shippedStatement(
+function routedStatement(
   args: Record<string, unknown>,
   postgis = true
 ): string {
@@ -82,35 +85,7 @@ function candidate(args: Record<string, unknown>, postgis = true) {
 
 const paris = { longitude: 2.3522, latitude: 48.8566 };
 
-describe("G4-01 follow-up — distance projection against the shipped lowering", () => {
-  it("projects the distance and NOT the point column, exactly as the shipped engine does", () => {
-    const args = {
-      select: { id: true, at: { _distance: { to: paris } } },
-    };
-    const shipped = shippedStatement(args);
-    const mine = candidate(args);
-    // The shipped engine hides the distance behind a private alias and never
-    // projects the point column beside it.
-    assert.match(shipped, /AS "0viborm_distance"/);
-    assert.doesNotMatch(shipped, /AS "at"/);
-    assert.match(mine.statement, /AS "_distance"/);
-    assert.doesNotMatch(mine.statement, /AS "at"/);
-    assert.deepEqual(mine.fields, ["id", "_distance"]);
-  });
-
-  it("keeps the point column when it is selected in its own right", () => {
-    const args = {
-      select: { id: true, at: true, fixed: { _distance: { to: paris } } },
-    };
-    const shipped = shippedStatement(args);
-    const mine = candidate(args);
-    assert.match(shipped, /AS "at"/);
-    assert.match(shipped, /AS "0viborm_distance"/);
-    assert.match(mine.statement, /AS "at"/);
-    assert.match(mine.statement, /AS "_distance"/);
-    assert.deepEqual(mine.fields, ["id", "at", "_distance"]);
-  });
-
+describe("G4-01 follow-up — distance projection across the routed seam and the query layer", () => {
   it("decodes a NOT NULL point distance as required and a nullable one as optional", () => {
     const required = candidate({
       select: { id: true, fixed: { _distance: { to: paris } } },
@@ -146,73 +121,73 @@ describe("G4-01 follow-up — distance projection against the shipped lowering",
     );
   });
 
-  it("refuses a vector distance selection with the shipped refusal", () => {
+  it("refuses a vector distance selection with one refusal on both seams", () => {
     const args = {
       select: {
         id: true,
         embedding: { _distance: { to: [1, 2, 3], metric: "cosine" } },
       },
     };
-    let shippedMessage = "";
+    let routedMessage = "";
     let candidateMessage = "";
     try {
-      shippedStatement(args);
+      routedStatement(args);
     } catch (error) {
-      shippedMessage = (error as Error).message;
+      routedMessage = (error as Error).message;
     }
     try {
       candidate(args);
     } catch (error) {
       candidateMessage = (error as Error).message;
     }
-    assert.notEqual(shippedMessage, "", "the shipped engine must refuse");
+    assert.notEqual(routedMessage, "", "the routed seam must refuse");
     assert.equal(
       candidateMessage,
-      shippedMessage,
-      `vector select refusal\n  candidate ${candidateMessage}\n  shipped   ${shippedMessage}`
+      routedMessage,
+      `vector select refusal\n  candidate ${candidateMessage}\n  routed    ${routedMessage}`
     );
   });
 
-  it("refuses a vector distance ORDER with the shipped refusal", () => {
+  it("refuses a vector distance ORDER with one refusal on both seams", () => {
     const args = {
       select: { id: true },
       orderBy: {
         embedding: { _distance: { to: [1, 2, 3], metric: "cosine", sort: "asc" } },
       },
     };
-    let shippedMessage = "";
+    let routedMessage = "";
     let candidateMessage = "";
     try {
-      shippedStatement(args);
+      routedStatement(args);
     } catch (error) {
-      shippedMessage = (error as Error).message;
+      routedMessage = (error as Error).message;
     }
     try {
       candidate(args);
     } catch (error) {
       candidateMessage = (error as Error).message;
     }
-    assert.notEqual(shippedMessage, "", "the shipped engine must refuse");
+    assert.notEqual(routedMessage, "", "the routed seam must refuse");
     assert.equal(
       candidateMessage,
-      shippedMessage,
-      `vector orderBy refusal\n  candidate ${candidateMessage}\n  shipped   ${shippedMessage}`
+      routedMessage,
+      `vector orderBy refusal\n  candidate ${candidateMessage}\n  routed    ${routedMessage}`
     );
   });
 
-  it("keeps the shipped refusal for a nullable vector distance selection", () => {
+  it("keeps one refusal on both seams for a nullable vector distance selection", () => {
     const args = {
       select: {
         id: true,
         maybeEmbedding: { _distance: { to: [1, 2, 3], metric: "cosine" } },
       },
     };
-    let shippedMessage = "";
+    let routedMessage = "";
     let candidateMessage = "";
     try {
-      shippedStatement(args);
+      routedStatement(args);
     } catch (error) {
-      shippedMessage = (error as Error).message;
+      routedMessage = (error as Error).message;
     }
     try {
       candidate(args);
@@ -220,48 +195,48 @@ describe("G4-01 follow-up — distance projection against the shipped lowering",
       candidateMessage = (error as Error).message;
     }
     assert.match(
-      shippedMessage,
+      routedMessage,
       /Vector distance select does not support nullable vector field/
     );
     assert.equal(
       candidateMessage,
-      shippedMessage,
-      `nullable vector refusal\n  candidate ${candidateMessage}\n  shipped   ${shippedMessage}`
+      routedMessage,
+      `nullable vector refusal\n  candidate ${candidateMessage}\n  routed    ${routedMessage}`
     );
   });
 
-  it("refuses a point distance ORDER on a provider with no distance tier, as the shipped engine words it", () => {
+  it("refuses a point distance ORDER on a provider with no distance tier, worded identically on both seams", () => {
     const args = {
       select: { id: true },
       orderBy: { at: { _distance: { to: paris, sort: "asc" } } },
     };
-    let shippedMessage = "";
+    let routedMessage = "";
     let candidateMessage = "";
     try {
-      shippedStatement(args, false);
+      routedStatement(args, false);
     } catch (error) {
-      shippedMessage = (error as Error).message;
+      routedMessage = (error as Error).message;
     }
     try {
       candidate(args, false);
     } catch (error) {
       candidateMessage = (error as Error).message;
     }
-    assert.notEqual(shippedMessage, "", "the shipped engine must refuse");
+    assert.notEqual(routedMessage, "", "the routed seam must refuse");
     assert.equal(
       candidateMessage,
-      shippedMessage,
-      `point orderBy refusal\n  candidate ${candidateMessage}\n  shipped   ${shippedMessage}`
+      routedMessage,
+      `point orderBy refusal\n  candidate ${candidateMessage}\n  routed    ${routedMessage}`
     );
   });
 
-  it("reverses a point distance ORDER the way the shipped engine reverses it", () => {
+  it("reverses a point distance ORDER identically on both seams", () => {
     const args = {
       select: { id: true },
       orderBy: { at: { _distance: { to: paris, sort: "asc" } } },
       take: -2,
     };
-    const shipped = shippedStatement(args);
+    const routed = routedStatement(args);
     const mine = candidate(args);
     const placement = (statement: string) =>
       /(ASC|DESC)(\s+NULLS\s+(FIRST|LAST))?/g.exec(
@@ -269,8 +244,8 @@ describe("G4-01 follow-up — distance projection against the shipped lowering",
       )?.[0];
     assert.equal(
       placement(mine.statement),
-      placement(shipped),
-      `reversed distance order\n  candidate ${placement(mine.statement)}\n  shipped   ${placement(shipped)}`
+      placement(routed),
+      `reversed distance order\n  candidate ${placement(mine.statement)}\n  routed    ${placement(routed)}`
     );
   });
 });

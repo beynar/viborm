@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/gate.test.ts (9 tests) 1129ms
+   ✓ records the complete fixed and 100-seed-per-profile G0 campaign  1016ms
+ ✓ |raptor3| tests/raptor3/fixed.test.ts (24 tests) 30ms
+
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+   Start at  23:11:41
+   Duration  2.73s (transform 818ms, setup 13ms, collect 1.35s, tests 1.16s, environment 0ms, prepare 37ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-OfOppj/vitest.json
+Vitest resources: 4.83s wall, 723.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g0 contract gate verified. Evidence: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-OfOppj

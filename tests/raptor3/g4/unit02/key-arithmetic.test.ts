@@ -154,7 +154,7 @@ async function bothEngines(
 }
 
 describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () => {
-  it("multiplies an int key the way the shipped engine does", async () => {
+  it("multiplies an int key identically on the client route seam and the command engine", async () => {
     await bothEngines(
       "intKey",
       "g4u2k_int_keys",
@@ -164,7 +164,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
     );
   });
 
-  it("divides an int key with the dialect's truncation, as shipped", async () => {
+  it("divides an int key with the dialect's truncation, identically on both seams", async () => {
     // 7 / 2 is the quotient that distinguishes integer truncation from real
     // division: the SET clause writes 3 and the readback must address 3.
     await bothEngines(
@@ -176,7 +176,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
     );
   });
 
-  it("multiplies and divides a bigint key the way the shipped engine does", async () => {
+  it("multiplies and divides a bigint key identically on both seams", async () => {
     await bothEngines(
       "bigKey",
       "g4u2k_big_keys",
@@ -211,7 +211,7 @@ describe("G4-02 — the updated key is NAMED on a non-RETURNING provider", () =>
   });
 });
 
-describe("G4-02 — the row key's portability contract, as the shipped engine states it", () => {
+describe("G4-02 — the row key's portability contract, on the client route seam and the command engine", () => {
   for (const [name, model, table, where, data] of [
     [
       "decimal key multiply",
@@ -242,7 +242,7 @@ describe("G4-02 — the row key's portability contract, as the shipped engine st
       { id: { divide: 0 } },
     ],
   ] as const) {
-    it(`${name}: the candidate answers what the shipped engine answers`, async () => {
+    it(`${name}: the command engine answers what the client route seam answers`, async () => {
       await bothEngines(model, table, where, data);
     });
   }
@@ -275,7 +275,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
     assert.deepEqual(candidate.rows, [{ id: 700, label: "a" }]);
   });
 
-  it("R-D2 (c) PARITY: refuses `set` beside an operator with the shipped sentence", async () => {
+  it("R-D2 (c) PARITY: refuses `set` beside an operator with one sentence on both seams", async () => {
     const shipped = await update(
       "intKey",
       "g4u2k_int_keys",
@@ -326,7 +326,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
     assert.deepEqual(candidate.rows, [{ id: 7, label: "a" }]);
   });
 
-  it("R-D2 (b) PARITY: refuses a number key increment with the shipped sentence", async () => {
+  it("R-D2 (b) PARITY: refuses a number key increment with one sentence on both seams", async () => {
     // The whole `number` arithmetic family, not just `increment`: the rule is
     // the scalar's, so `decrement` answers it too.
     for (const data of [
@@ -493,14 +493,15 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
    * can tell this deliberate capability boundary from a crash (V9001
    * INTERNAL_ERROR) without reading the sentence.
    *
-   * The divergence from the shipped row answer is the recorded, accepted half of
-   * the decision: the shipped engine computes the value in JavaScript and
-   * answers the row. Widening the candidate to match would need a typed scratch
-   * read per domain, and an answer to the decimal rounding question that
-   * `Queries.updateValue` refuses — a capability change, not an identity.
+   * The divergence from the shipped row answer was the recorded, accepted half
+   * of the decision: the shipped engine computed the value in JavaScript and
+   * answered the row (`ok:{"id":7,…}` / `ok:{"id":12,…}`). The C-01 cutover
+   * deletes that engine, so the shipped arm of these two cells — and the
+   * `assert.equal(shipped.answer, shippedAnswer)` that recorded the divergence
+   * — is gone; the REGISTERED REFUSAL below is what the cells now pin, and a
+   * registered refusal is a contract (`g4/cutover-execution/note.md`).
    */
   async function batchUpsert(
-    engine: "shipped" | "candidate",
     update: unknown
   ): Promise<Outcome & { raised?: unknown }> {
     const database = new Database(":memory:");
@@ -514,15 +515,7 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
     let answer: string;
     let raised: unknown;
     try {
-      const value =
-        engine === "shipped"
-          ? await (
-              client as unknown as Record<
-                string,
-                { upsert(args: unknown): Promise<unknown> }
-              >
-            ).numKey!.upsert(args)
-          : await candidate.execute("numKey", "upsert", args);
+      const value = await candidate.execute("numKey", "upsert", args);
       answer = `ok:${JSON.stringify(value)}`;
     } catch (error) {
       raised = error;
@@ -534,16 +527,12 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
     return { answer, raised, rows };
   }
 
-  for (const [name, update, shippedAnswer] of [
-    ["increment", { id: { increment: 1 } }, 'ok:{"id":7,"label":"a"}'],
-    ["multiply", { id: { multiply: 2 } }, 'ok:{"id":12,"label":"a"}'],
+  for (const [name, update] of [
+    ["increment", { id: { increment: 1 } }],
+    ["multiply", { id: { multiply: 2 } }],
   ] as const) {
     it(`R-D3 refuses a number key ${name} under a batch with its registered identity`, async () => {
-      const shipped = await batchUpsert("shipped", update);
-      const candidate = await batchUpsert("candidate", update);
-      // The accepted divergence, recorded: the shipped engine computes the
-      // value in JavaScript and answers the row.
-      assert.equal(shipped.answer, shippedAnswer);
+      const candidate = await batchUpsert(update);
       // The decided identity: a registered UnsupportedOperationError (R-D3
       // plus R-D3-class), naming the model, the field and the operation, raised
       // before any statement is dispatched. It is still a QueryEngineError —
@@ -552,10 +541,7 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
         candidate.answer,
         "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
       );
-      assert.equal(
-        candidate.raised instanceof UnsupportedOperationError,
-        true
-      );
+      assert.equal(candidate.raised instanceof UnsupportedOperationError, true);
       assert.equal(candidate.raised instanceof QueryEngineError, true);
       assert.deepEqual(
         { ...(candidate.raised as QueryEngineError).meta },

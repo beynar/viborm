@@ -1,0 +1,60 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests | 1 failed) 250ms
+   ✓ G2 live mysql atomic-batch unique races: commands > g2-race-selected-unique-recovery 125ms
+   ✓ G2 live mysql atomic-batch unique races: commands > g2-race-unrelated-unique-refused 55ms
+   × G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint 30ms
+     → wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
+  [
+    'unrelated-missing-choice-observed',
+-   'unrelated-missing-choice-observed'
+  ]
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 426ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (2 tests) 235ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 76ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts > G2 live mysql atomic-batch unique races: commands > g2-race-wrong-insert-same-constraint
+AssertionError: wrong-insert-provenance: preserve the measured legacy retry and approved exact-INSERT exclusion
++ actual - expected
+
+  [
+    'unrelated-missing-choice-observed',
+-   'unrelated-missing-choice-observed'
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "unrelated-missing-choice-observed",[22m
+[32m-   "unrelated-missing-choice-observed",[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/transitions/unique-races-live.ts:198:14
+    196|         "Unique constraint violation"
+    197|       );
+    198|       assert.deepEqual(
+       |              ^
+    199|         observation.reachedCuts,
+    200|         Array.from({ length: expectedAttempts }, () => cut),
+ ❯ runWrongInsertScenario tests/raptor3/transitions/unique-races-live.ts:292:11
+ ❯ tests/raptor3/transitions/unique-races-live-commands.test.ts:15:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 12 passed (13)
+   Start at  21:16:38
+   Duration  2.51s (transform 728ms, setup 12ms, collect 1.33s, tests 987ms, environment 0ms, prepare 26ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2rOzRZ/vitest.json
+Vitest resources: 4.56s wall, 594.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-2rOzRZ

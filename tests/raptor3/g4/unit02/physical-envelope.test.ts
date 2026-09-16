@@ -76,7 +76,7 @@ describe("G4-02 physical envelope", () => {
     assert.equal((candidate.value as unknown[]).length, 2);
   });
 
-  it("flat-scalar-update: one statement, no envelope, same row as shipped", async () => {
+  it("flat-scalar-update: one statement, no envelope, same row on both seams", async () => {
     world = await createWorld();
     const engine = createCommandEngine({
       schema: worldSchema,
@@ -193,7 +193,7 @@ describe("G4-02 physical envelope", () => {
   // projection on a RETURNING adapter answers `single: true` for both), so the
   // difference between them can only come from the envelope rule itself: the
   // construction's own statement count, enforced at `OperationContext.dispatch`.
-  it("two rows sharing a column set are one statement with no envelope, as shipped", async () => {
+  it("two rows sharing a column set are one statement with no envelope, on both seams", async () => {
     world = await createWorld();
     const engine = createCommandEngine({
       schema: worldSchema,

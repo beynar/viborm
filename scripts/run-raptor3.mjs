@@ -188,18 +188,6 @@ import {
   G4_READ_RECURSIVE_FIT_TESTS,
   G4_READ_COUNTS,
   G4_READ_TESTS,
-  G4_LIFECYCLE_EVENTS_COUNTS,
-  G4_LIFECYCLE_EVENTS_TESTS,
-  G4_LIFECYCLE_ADMISSION_COUNTS,
-  G4_LIFECYCLE_ADMISSION_TESTS,
-  G4_ROUTE_LIFECYCLE_COUNTS,
-  G4_ROUTE_LIFECYCLE_TESTS,
-  G4_ROUTE_ADMISSION_COUNTS,
-  G4_ROUTE_ADMISSION_TESTS,
-  G4_ROUTE_CACHE_COUNTS,
-  G4_ROUTE_CACHE_TESTS,
-  G4_ROUTE_TRANSACTION_COUNTS,
-  G4_ROUTE_TRANSACTION_TESTS,
   G4_GENERATION_SELFTEST_COUNTS,
   G4_GENERATION_SELFTEST_TESTS,
   G4_NATIVE_PG_COUNTS,
@@ -427,12 +415,6 @@ export function parseRaptor3Request(arguments_) {
       "g4-read-aggregates",
       "g4-read-codecs",
       "g4-read-recursive-fit",
-      "g4-lifecycle-events",
-      "g4-lifecycle-admission",
-      "g4-route-lifecycle",
-      "g4-route-admission",
-      "g4-route-cache",
-      "g4-route-transactions",
       "g4-generation-selftests",
       "g4-unit01-author",
       "g4-unit01-review",
@@ -529,7 +511,7 @@ export function parseRaptor3Request(arguments_) {
     return { mode: "replay", path, wallMs };
   }
   throw new Error(
-    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | g3-bulk-series | g3-suppression-retry | g3-transaction-array | g3-depth-recurrence | g3-scope-composition-pg | g3-scope-composition-mysql | g3-generated-smoke | g3-generated-transport-smoke | g3-generated-minimization | g3-seeds | g3-seed-batch <first-seed> | g3-transport-seeds | g3-transport-seed-batch <first-seed> | g4-read-contracts | g4-read-operations | g4-read-filters | g4-read-ordering | g4-read-pagination | g4-read-projection | g4-read-aggregates | g4-read-codecs | g4-read-recursive-fit | g4-lifecycle-events | g4-lifecycle-admission | g4-route-lifecycle | g4-route-admission | g4-route-cache | g4-route-transactions | g4-generation-selftests | g4-unit01-author | g4-unit01-review | g4-unit02-author | g4-unit02-mysql-contracts | g4-unit02-pg-contracts | g4-seeds [--subject=candidate|shipped] | g4-seed-batch <first-seed> [--subject=candidate|shipped] | g4-transport-seeds [--subject=candidate|shipped] | g4-transport-seed-batch <first-seed> [--subject=candidate|shipped] | g4-write-seeds | g4-write-seed-batch <first-seed> | g4-write-transport-seeds | g4-write-transport-seed-batch <first-seed> | g4-read-envelope-pg-contracts | g4-read-envelope-mysql-contracts | g3-execution-review | g3-author-execution-regressions | g3-scope-failure | g3-bulk-result-boundary | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
+    "Usage: node scripts/run-raptor3.mjs g0 | g1-compare | g1-baseline | g1-contracts | g1-generated | g1-seeds | g1-seed-batch <first-seed> | g1-transport | g1-transport-seeds | g1-transport-seed-batch <first-seed> | g2-baseline | g2-contracts | g25-contracts | g25-pg-contracts | g27-contracts | g27-pg-contracts | g27-mysql-contracts | g3p02-contracts | g3p02-pg-contracts | g3p02-mysql-contracts | g3p03-contracts | g3p03-pg-contracts | g3p03-mysql-contracts | g3p04-contracts | g3p04-review-contracts | g3p04-pg-contracts | g3p04-mysql-contracts | g3p05-contracts | g3p05-selector-dependencies | g3p05-variant-collection-order | g3p05-recursive-read-fit | g3-bulk-series | g3-suppression-retry | g3-transaction-array | g3-depth-recurrence | g3-scope-composition-pg | g3-scope-composition-mysql | g3-generated-smoke | g3-generated-transport-smoke | g3-generated-minimization | g3-seeds | g3-seed-batch <first-seed> | g3-transport-seeds | g3-transport-seed-batch <first-seed> | g4-read-contracts | g4-read-operations | g4-read-filters | g4-read-ordering | g4-read-pagination | g4-read-projection | g4-read-aggregates | g4-read-codecs | g4-read-recursive-fit | g4-generation-selftests | g4-unit01-author | g4-unit01-review | g4-unit02-author | g4-unit02-mysql-contracts | g4-unit02-pg-contracts | g4-seeds [--subject=candidate|shipped] | g4-seed-batch <first-seed> [--subject=candidate|shipped] | g4-transport-seeds [--subject=candidate|shipped] | g4-transport-seed-batch <first-seed> [--subject=candidate|shipped] | g4-write-seeds | g4-write-seed-batch <first-seed> | g4-write-transport-seeds | g4-write-transport-seed-batch <first-seed> | g4-read-envelope-pg-contracts | g4-read-envelope-mysql-contracts | g3-execution-review | g3-author-execution-regressions | g3-scope-failure | g3-bulk-result-boundary | post-g3-clearability-contracts | post-g3-clearability-pg-contracts | post-g3-clearability-mysql-contracts | post-g3-schema-views | post-g3-projection-preparation | post-g3-selector-preparation | post-g3-history-analysis | g29-member-dependency | g29-dependency-boundaries | g29-dependency-choices | g29-result-progress | cs01-structural-reference | cs01-extension-a | cs01-extension-b | cs01-extension-composition | cs03-member-scope | cs03-extension-a-seeds | cs03-extension-b-seeds | cs03-extension-composition-seeds | cs02-structure-measure | g29-member-dependency-pg | g29-member-dependency-mysql | g3p06-seeds | g3p06-seed-batch <first-seed> | g3p06-transport-seeds | g3p06-transport-seed-batch <first-seed> | g2-generated | g2-seeds | g2-seed-batch <first-seed> | g2-transport | g2-transport-seeds | g2-transport-seed-batch <first-seed> | g2-diagnostics | g2-pg-baseline | g2-pg-contracts | g2-mysql-baseline | g2-mysql-contracts | replay <corpus.json>. Gate selection cannot be filtered."
   );
 }
 
@@ -763,12 +745,6 @@ async function run(request) {
     "g4-read-aggregates": G4_READ_AGGREGATE_TESTS,
     "g4-read-codecs": G4_READ_CODEC_TESTS,
     "g4-read-recursive-fit": G4_READ_RECURSIVE_FIT_TESTS,
-    "g4-lifecycle-events": G4_LIFECYCLE_EVENTS_TESTS,
-    "g4-lifecycle-admission": G4_LIFECYCLE_ADMISSION_TESTS,
-    "g4-route-lifecycle": G4_ROUTE_LIFECYCLE_TESTS,
-    "g4-route-admission": G4_ROUTE_ADMISSION_TESTS,
-    "g4-route-cache": G4_ROUTE_CACHE_TESTS,
-    "g4-route-transactions": G4_ROUTE_TRANSACTION_TESTS,
     "g4-generation-selftests": G4_GENERATION_SELFTEST_TESTS,
     "g4-unit01-author": G4_UNIT01_AUTHOR_TESTS,
     "g4-unit01-review": G4_UNIT01_REVIEW_TESTS,
@@ -949,12 +925,6 @@ async function run(request) {
       "g4-read-aggregates": G4_READ_AGGREGATE_COUNTS,
       "g4-read-codecs": G4_READ_CODEC_COUNTS,
       "g4-read-recursive-fit": G4_READ_RECURSIVE_FIT_COUNTS,
-      "g4-lifecycle-events": G4_LIFECYCLE_EVENTS_COUNTS,
-      "g4-lifecycle-admission": G4_LIFECYCLE_ADMISSION_COUNTS,
-      "g4-route-lifecycle": G4_ROUTE_LIFECYCLE_COUNTS,
-      "g4-route-admission": G4_ROUTE_ADMISSION_COUNTS,
-      "g4-route-cache": G4_ROUTE_CACHE_COUNTS,
-      "g4-route-transactions": G4_ROUTE_TRANSACTION_COUNTS,
       "g4-generation-selftests": G4_GENERATION_SELFTEST_COUNTS,
       "g4-unit01-author": G4_UNIT01_AUTHOR_COUNTS,
       "g4-unit01-review": G4_UNIT01_REVIEW_COUNTS,

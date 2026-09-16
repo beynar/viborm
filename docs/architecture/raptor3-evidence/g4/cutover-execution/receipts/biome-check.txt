@@ -1,0 +1,3390 @@
+scripts/credential-free-test-manifest.mjs:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { dirname, relative, resolve } from "node:path";
+    3 │ import { fileURLToPath } from "node:url";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      3   3 │   import { fileURLToPath } from "node:url";
+      4   4 │   import {
+      5     │ - ··G1_COMPARISON_TESTS,
+      6     │ - ··G1_BASELINE_TESTS,
+      7     │ - ··G1_CONTRACT_TESTS,
+      8     │ - ··G2_BASELINE_TESTS,
+      9     │ - ··G2_CONTRACT_TESTS,
+     10     │ - ··G25_CONTRACT_TESTS,
+     11     │ - ··G25_PG_CONTRACT_TESTS,
+     12     │ - ··G27_CONTRACT_TESTS,
+     13     │ - ··G27_PG_CONTRACT_TESTS,
+     14     │ - ··G3P02_CONTRACT_TESTS,
+     15     │ - ··G3P02_PG_CONTRACT_TESTS,
+     16     │ - ··G3P03_CONTRACT_TESTS,
+     17     │ - ··G3P03_PG_CONTRACT_TESTS,
+     18     │ - ··G3P04_CONTRACT_TESTS,
+     19     │ - ··G3P04_PG_CONTRACT_TESTS,
+     20     │ - ··G3P04_REVIEW_CONTRACT_TESTS,
+     21     │ - ··G3P05_CONTRACT_TESTS,
+     22     │ - ··G3_BULK_SERIES_TESTS,
+     23     │ - ··G3_SUPPRESSION_RETRY_TESTS,
+     24     │ - ··G3_TRANSACTION_ARRAY_TESTS,
+     25     │ - ··G3_DEPTH_RECURRENCE_TESTS,
+     26     │ - ··G3_SCOPE_COMPOSITION_PG_TESTS,
+     27     │ - ··G3_GENERATED_SMOKE_TESTS,
+     28     │ - ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+     29     │ - ··G3_GENERATED_CAMPAIGN_TESTS,
+     30     │ - ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     31     │ - ··G4_READ_TESTS,
+     32     │ - ··G4_GENERATION_SELFTEST_TESTS,
+     33     │ - ··G4_GENERATED_CAMPAIGN_TESTS,
+     34     │ - ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     35     │ - ··G4_WRITE_CAMPAIGN_TESTS,
+     36     │ - ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+     37     │ - ··G4_UNIT01_AUTHOR_TESTS,
+     38     │ - ··G4_UNIT02_AUTHOR_TESTS,
+     39     │ - ··G4_UNIT02_MYSQL_TESTS,
+     40     │ - ··G4_UNIT02_PG_TESTS,
+     41     │ - ··G4_NATIVE_PG_TESTS,
+     42     │ - ··G4_NATIVE_MYSQL_TESTS,
+     43     │ - ··G3_EXECUTION_REVIEW_TESTS,
+     44     │ - ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+     45     │ - ··G3_SCOPE_FAILURE_TESTS,
+     46     │ - ··G3_BULK_RESULT_BOUNDARY_TESTS,
+     47     │ - ··POST_G3_CLEARABILITY_CONTRACT_TESTS,
+     48     │ - ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+     49     │ - ··POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+     50     │ - ··POST_G3_SCHEMA_VIEW_TESTS,
+     51     │ - ··POST_G3_PROJECTION_PREPARATION_TESTS,
+     52     │ - ··POST_G3_SELECTOR_PREPARATION_TESTS,
+     53     │ - ··POST_G3_HISTORY_ANALYSIS_TESTS,
+     54     │ - ··G29_MEMBER_DEPENDENCY_TESTS,
+     55     │ - ··G29_DEPENDENCY_BOUNDARY_TESTS,
+     56     │ - ··G29_DEPENDENCY_CHOICE_TESTS,
+     57     │ - ··G29_RESULT_PROGRESS_TESTS,
+     58     │ - ··CS01_STRUCTURAL_REFERENCE_TESTS,
+     59     │ - ··CS01_EXTENSION_A_TESTS,
+     60     │ - ··CS01_EXTENSION_B_TESTS,
+     61     │ - ··CS01_EXTENSION_COMPOSITION_TESTS,
+     62     │ - ··CS03_MEMBER_SCOPE_TESTS,
+     63     │ - ··CS03_EXTENSION_CAMPAIGN_TESTS,
+     64     │ - ··CS03_EXTENSION_SUPPORT_TESTS,
+     65     │ - ··CS02_REPEATED_OCCURRENCE_TESTS,
+     66     │ - ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     67     │ - ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+     68     │ - ··G2_DIAGNOSTIC_TESTS,
+     69     │ - ··G2_PG_BASELINE_TESTS,
+     70     │ - ··G2_PG_CONTRACT_TESTS,
+     71     │ - ··G2_CAMPAIGN_TESTS,
+     72     │ - ··G2_TRANSPORT_TESTS,
+     73     │ - ··G2_GENERATED_TESTS,
+     74     │ - ··G1_GENERATED_TESTS,
+     75     │ - ··G1_CAMPAIGN_TESTS,
+     76     │ - ··G1_TRANSPORT_TESTS,
+     77     │ - ··G1_TRANSPORT_CAMPAIGN_TESTS,
+     78     │ - ··G1_PROVIDER_TESTS,
+     79     │ - ··G1_PROVIDER_BASELINE_TESTS,
+          5 │ + ··CS01_EXTENSION_A_TESTS,
+          6 │ + ··CS01_EXTENSION_B_TESTS,
+          7 │ + ··CS01_EXTENSION_COMPOSITION_TESTS,
+          8 │ + ··CS01_STRUCTURAL_REFERENCE_TESTS,
+          9 │ + ··CS02_REPEATED_OCCURRENCE_TESTS,
+         10 │ + ··CS03_EXTENSION_CAMPAIGN_TESTS,
+         11 │ + ··CS03_EXTENSION_SUPPORT_TESTS,
+         12 │ + ··CS03_MEMBER_SCOPE_TESTS,
+         13 │ + ··G1_BASELINE_TESTS,
+         14 │ + ··G1_CAMPAIGN_TESTS,
+         15 │ + ··G1_COMPARISON_TESTS,
+         16 │ + ··G1_CONTRACT_TESTS,
+         17 │ + ··G1_GENERATED_TESTS,
+         18 │ + ··G1_PROVIDER_BASELINE_TESTS,
+         19 │ + ··G1_PROVIDER_TESTS,
+         20 │ + ··G1_TRANSPORT_CAMPAIGN_TESTS,
+         21 │ + ··G1_TRANSPORT_TESTS,
+         22 │ + ··G2_BASELINE_TESTS,
+         23 │ + ··G2_CAMPAIGN_TESTS,
+         24 │ + ··G2_CONTRACT_TESTS,
+         25 │ + ··G2_DIAGNOSTIC_TESTS,
+         26 │ + ··G2_GENERATED_TESTS,
+         27 │ + ··G2_PG_BASELINE_TESTS,
+         28 │ + ··G2_PG_CONTRACT_TESTS,
+         29 │ + ··G2_TRANSPORT_TESTS,
+         30 │ + ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+         31 │ + ··G3_BULK_RESULT_BOUNDARY_TESTS,
+         32 │ + ··G3_BULK_SERIES_TESTS,
+         33 │ + ··G3_DEPTH_RECURRENCE_TESTS,
+         34 │ + ··G3_EXECUTION_REVIEW_TESTS,
+         35 │ + ··G3_GENERATED_CAMPAIGN_TESTS,
+         36 │ + ··G3_GENERATED_SMOKE_TESTS,
+         37 │ + ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         38 │ + ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+         39 │ + ··G3_SCOPE_COMPOSITION_PG_TESTS,
+         40 │ + ··G3_SCOPE_FAILURE_TESTS,
+         41 │ + ··G3_SUPPRESSION_RETRY_TESTS,
+         42 │ + ··G3_TRANSACTION_ARRAY_TESTS,
+         43 │ + ··G3P02_CONTRACT_TESTS,
+         44 │ + ··G3P02_PG_CONTRACT_TESTS,
+         45 │ + ··G3P03_CONTRACT_TESTS,
+         46 │ + ··G3P03_PG_CONTRACT_TESTS,
+         47 │ + ··G3P04_CONTRACT_TESTS,
+         48 │ + ··G3P04_PG_CONTRACT_TESTS,
+         49 │ + ··G3P04_REVIEW_CONTRACT_TESTS,
+         50 │ + ··G3P05_CONTRACT_TESTS,
+         51 │ + ··G4_GENERATED_CAMPAIGN_TESTS,
+         52 │ + ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         53 │ + ··G4_GENERATION_SELFTEST_TESTS,
+         54 │ + ··G4_NATIVE_MYSQL_TESTS,
+         55 │ + ··G4_NATIVE_PG_TESTS,
+         56 │ + ··G4_READ_TESTS,
+         57 │ + ··G4_UNIT01_AUTHOR_TESTS,
+         58 │ + ··G4_UNIT02_AUTHOR_TESTS,
+         59 │ + ··G4_UNIT02_MYSQL_TESTS,
+         60 │ + ··G4_UNIT02_PG_TESTS,
+         61 │ + ··G4_WRITE_CAMPAIGN_TESTS,
+         62 │ + ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+         63 │ + ··G25_CONTRACT_TESTS,
+         64 │ + ··G25_PG_CONTRACT_TESTS,
+         65 │ + ··G27_CONTRACT_TESTS,
+         66 │ + ··G27_PG_CONTRACT_TESTS,
+         67 │ + ··G29_DEPENDENCY_BOUNDARY_TESTS,
+         68 │ + ··G29_DEPENDENCY_CHOICE_TESTS,
+         69 │ + ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+         70 │ + ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+         71 │ + ··G29_MEMBER_DEPENDENCY_TESTS,
+         72 │ + ··G29_RESULT_PROGRESS_TESTS,
+         73 │ + ··POST_G3_CLEARABILITY_CONTRACT_TESTS,
+         74 │ + ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+         75 │ + ··POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+         76 │ + ··POST_G3_HISTORY_ANALYSIS_TESTS,
+         77 │ + ··POST_G3_PROJECTION_PREPARATION_TESTS,
+  4 more lines truncated
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:668:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    666 │     assert.throws(
+    667 │       () => parseRaptor3Request([mode, "--testNamePattern=absent"]),
+  > 668 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    669 │     );
+    670 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:96:8 lint/performance/noNamespaceImport ━━━━━━━━━━━━━━━━━
+
+  × Avoid namespace imports, it can prevent efficient tree shaking and increase bundle size.
+  
+    94 │   assertG4OracleValidationReceipt,
+    95 │ } from "./raptor3-manifest.mjs";
+  > 96 │ import * as manifest from "./raptor3-manifest.mjs";
+       │        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    97 │ import {
+    98 │   archiveG3GeneratedCorpus,
+  
+  i Use named imports instead.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:175:42 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    173 │     );
+    174 │     assert.equal(archive.originalBytes, source.length);
+  > 175 │     assert.match(archive.originalSha256, /^[0-9a-f]{64}$/);
+        │                                          ^^^^^^^^^^^^^^^^
+    176 │     assert.match(archive.restoreCommand, /gzip -dc .*generated-corpus\.json\.gz/);
+    177 │     assert.match(archive.replayCommand, /^cd /);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:176:42 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    174 │     assert.equal(archive.originalBytes, source.length);
+    175 │     assert.match(archive.originalSha256, /^[0-9a-f]{64}$/);
+  > 176 │     assert.match(archive.restoreCommand, /gzip -dc .*generated-corpus\.json\.gz/);
+        │                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    177 │     assert.match(archive.replayCommand, /^cd /);
+    178 │     assert.match(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:177:41 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    175 │     assert.match(archive.originalSha256, /^[0-9a-f]{64}$/);
+    176 │     assert.match(archive.restoreCommand, /gzip -dc .*generated-corpus\.json\.gz/);
+  > 177 │     assert.match(archive.replayCommand, /^cd /);
+        │                                         ^^^^^^
+    178 │     assert.match(
+    179 │       archive.replayCommand,
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:180:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    178 │     assert.match(
+    179 │       archive.replayCommand,
+  > 180 │       /node scripts\/run-raptor3\.mjs replay/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    181 │     );
+    182 │   } finally {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:209:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    207 │     assert.doesNotMatch(
+    208 │       archive.replayCommand,
+  > 209 │       /run-raptor3\.mjs replay/,
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^
+    210 │       "a G4 lane receipt kept the G0/G3 replay default"
+    211 │     );
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:227:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    225 │     assert.match(
+    226 │       archive.replayCommand,
+  > 227 │       /node scripts\/run-raptor3\.mjs replay "\$g3_corpus_restore_dir\/generated-corpus\.json"$/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    228 │     );
+    229 │   } finally {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:317:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    315 │   assert.throws(
+    316 │     () => assertStructuralMeasurementRuntime(wrong, wrong),
+  > 317 │     /base runtime is not the qualified Node version/
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    318 │   );
+    319 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:447:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    445 │       assert.throws(
+    446 │         () => parseRaptor3Request([mode, extra]),
+  > 447 │         /cannot be filtered/
+        │         ^^^^^^^^^^^^^^^^^^^^
+    448 │       );
+    449 │     const valid = unitExtensionReceipt(campaign, identity);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:506:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    504 │     assert.throws(
+    505 │       () => assertEquivalentExtensionCampaignReceipts(reference, divergent),
+  > 506 │       /CS-03 alternatives diverged/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    507 │     );
+    508 │   }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:523:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    521 │     assert.throws(
+    522 │       () => parseRaptor3Request(["g25-contracts", filter]),
+  > 523 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    524 │     );
+    525 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:535:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    533 │     assert.throws(
+    534 │       () => parseRaptor3Request(["g3-bulk-series", filter]),
+  > 535 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    536 │     );
+    537 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:550:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    548 │     assert.throws(
+    549 │       () => parseRaptor3Request(["g3-suppression-retry", filter]),
+  > 550 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    551 │     );
+    552 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:565:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    563 │     assert.throws(
+    564 │       () => parseRaptor3Request(["g3-transaction-array", filter]),
+  > 565 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    566 │     );
+    567 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:580:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    578 │     assert.throws(
+    579 │       () => parseRaptor3Request(["g3-generated-smoke", filter]),
+  > 580 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    581 │     );
+    582 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:595:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    593 │         "--profile=scripted-returning-ack",
+    594 │       ]),
+  > 595 │     /cannot be filtered/
+        │     ^^^^^^^^^^^^^^^^^^^^
+    596 │   );
+    597 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:610:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    608 │         "--testNamePattern=absent",
+    609 │       ]),
+  > 610 │     /cannot be filtered/
+        │     ^^^^^^^^^^^^^^^^^^^^
+    611 │   );
+    612 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:621:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    619 │   assert.throws(
+    620 │     () => parseRaptor3Request(["g3-depth-recurrence", "--profile=sqlite"]),
+  > 621 │     /cannot be filtered/
+        │     ^^^^^^^^^^^^^^^^^^^^
+    622 │   );
+    623 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:633:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    631 │     () =>
+    632 │       parseRaptor3Request(["g3-execution-review", "--testNamePattern=absent"]),
+  > 633 │     /cannot be filtered/
+        │     ^^^^^^^^^^^^^^^^^^^^
+    634 │   );
+    635 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:648:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    646 │         "--testNamePattern=absent",
+    647 │       ]),
+  > 648 │     /cannot be filtered/
+        │     ^^^^^^^^^^^^^^^^^^^^
+    649 │   );
+    650 │ });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:657:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    655 │     assert.throws(
+    656 │       () => parseRaptor3Request([mode, "--testNamePattern=absent"]),
+  > 657 │       /cannot be filtered/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    658 │     );
+    659 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     174  174 │       assert.equal(archive.originalBytes, source.length);
+     175  175 │       assert.match(archive.originalSha256, /^[0-9a-f]{64}$/);
+     176      │ - ····assert.match(archive.restoreCommand,·/gzip·-dc·.*generated-corpus\.json\.gz/);
+          176 │ + ····assert.match(
+          177 │ + ······archive.restoreCommand,
+          178 │ + ······/gzip·-dc·.*generated-corpus\.json\.gz/
+          179 │ + ····);
+     177  180 │       assert.match(archive.replayCommand, /^cd /);
+     178  181 │       assert.match(
+    ········· │ 
+     214  217 │     }
+     215  218 │     // ...and the one-argument call still spells the G0/G3 default exactly.
+     216      │ - ··const·g3Directory·=·mkdtempSync(
+     217      │ - ····join(tmpdir(),·"viborm-g3-archive-default-")
+     218      │ - ··);
+          219 │ + ··const·g3Directory·=·mkdtempSync(join(tmpdir(),·"viborm-g3-archive-default-"));
+     219  220 │     try {
+     220  221 │       writeFileSync(
+    ········· │ 
+    1161 1162 │         completed,
+    1162 1163 │         replays:
+    1163      │ - ········campaign.batchSize·*
+    1164      │ - ········campaign.profiles.length·*
+    1165      │ - ········campaign.replayCount,
+         1164 │ + ········campaign.batchSize·*·campaign.profiles.length·*·campaign.replayCount,
+    1166 1165 │         skipped: 0,
+    1167 1166 │       };
+    ········· │ 
+    1350 1349 │       const validation = g4UnitReceipt(first, 5, campaign, "shipped", identity);
+    1351 1350 │       assert.throws(
+    1352      │ - ······()·=>·assertG4GeneratedBatchReceipt(validation,·first,·campaign,·identity),
+         1351 │ + ······()·=>
+         1352 │ + ········assertG4GeneratedBatchReceipt(validation,·first,·campaign,·identity),
+    1353 1353 │         /candidate/
+    1354 1354 │       );
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:731:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    729 │     assert.throws(
+    730 │       () => assertG3GeneratedBatchReceipt(stale, 8000, lane.campaign, identity),
+  > 731 │       /Stale Raptor 3 evidence/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^
+    732 │     );
+    733 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:2:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+    1 │ /** Synthetic unit receipts only: this file does not claim campaign execution. */
+  > 2 │ import assert from "node:assert/strict";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │ import { execFileSync } from "node:child_process";
+    4 │ import {
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      17   17 │     RAPTOR3_FIXED_LOCAL_TESTS,
+      18   18 │   } from "./credential-free-test-manifest.mjs";
+      19      │ - import·{
+      20      │ - ··assertEquivalentExtensionCampaignReceipts,
+      21      │ - ··assertExtensionCampaignReceipt,
+      22      │ - ··assertGeneratedBatchReceipt,
+      23      │ - ··assertG3GeneratedBatchReceipt,
+      24      │ - ··assertStructuralMeasurementRuntime,
+      25      │ - ··G2_CAMPAIGN,
+      26      │ - ··G2_TRANSPORT_CAMPAIGN,
+      27      │ - ··G3P06_CAMPAIGN,
+      28      │ - ··G3P06_TRANSPORT_CAMPAIGN,
+      29      │ - ··G3_GENERATED_CAMPAIGN,
+      30      │ - ··G3_GENERATED_TRANSPORT_CAMPAIGN,
+      31      │ - ··G27_CONTRACT_TESTS,
+      32      │ - ··G27_PG_CONTRACT_TESTS,
+      33      │ - ··G3P03_CONTRACT_TESTS,
+      34      │ - ··G3P03_PG_CONTRACT_TESTS,
+      35      │ - ··G3P04_CONTRACT_TESTS,
+      36      │ - ··G3P04_PG_CONTRACT_TESTS,
+      37      │ - ··G3P04_REVIEW_CONTRACT_TESTS,
+      38      │ - ··G3P05_CONTRACT_TESTS,
+      39      │ - ··G3_BULK_SERIES_TESTS,
+      40      │ - ··G3_SUPPRESSION_RETRY_TESTS,
+      41      │ - ··G3_TRANSACTION_ARRAY_TESTS,
+      42      │ - ··G3_DEPTH_RECURRENCE_TESTS,
+      43      │ - ··G3_SCOPE_COMPOSITION_PG_TESTS,
+      44      │ - ··G3_GENERATED_SMOKE_TESTS,
+      45      │ - ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+      46      │ - ··G3_GENERATED_CAMPAIGN_TESTS,
+      47      │ - ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+      48      │ - ··G3_EXECUTION_REVIEW_TESTS,
+      49      │ - ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+      50      │ - ··G3_SCOPE_FAILURE_TESTS,
+      51      │ - ··G3_BULK_RESULT_BOUNDARY_TESTS,
+      52      │ - ··POST_G3_CLEARABILITY_CONTRACT_TESTS,
+      53      │ - ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+      54      │ - ··POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+      55      │ - ··POST_G3_SCHEMA_VIEW_TESTS,
+      56      │ - ··POST_G3_PROJECTION_PREPARATION_TESTS,
+      57      │ - ··POST_G3_SELECTOR_PREPARATION_TESTS,
+      58      │ - ··POST_G3_HISTORY_ANALYSIS_TESTS,
+      59      │ - ··G29_MEMBER_DEPENDENCY_TESTS,
+      60      │ - ··G29_DEPENDENCY_BOUNDARY_TESTS,
+      61      │ - ··G29_DEPENDENCY_CHOICE_TESTS,
+      62      │ - ··G29_RESULT_PROGRESS_TESTS,
+      63      │ - ··CS01_STRUCTURAL_REFERENCE_TESTS,
+      64      │ - ··CS01_EXTENSION_A_TESTS,
+      65      │ - ··CS01_EXTENSION_B_TESTS,
+      66      │ - ··CS01_EXTENSION_COMPOSITION_TESTS,
+      67      │ - ··CS03_MEMBER_SCOPE_TESTS,
+      68      │ - ··CS03_EXTENSION_CAMPAIGNS,
+      69      │ - ··CS03_EXTENSION_CAMPAIGN_TESTS,
+      70      │ - ··CS03_EXTENSION_SUPPORT_TESTS,
+      71      │ - ··CS02_REPEATED_OCCURRENCE_TESTS,
+      72      │ - ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+      73      │ - ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+      74      │ - ··G4_READ_TESTS,
+      75      │ - ··G4_READ_COUNTS,
+      76      │ - ··G4_GENERATION_SELFTEST_TESTS,
+      77      │ - ··G4_GENERATED_CAMPAIGN,
+      78      │ - ··G4_GENERATED_CAMPAIGN_TESTS,
+      79      │ - ··G4_GENERATED_TRANSPORT_CAMPAIGN,
+      80      │ - ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+      81      │ - ··G4_WRITE_CAMPAIGN,
+      82      │ - ··G4_WRITE_CAMPAIGN_TESTS,
+      83      │ - ··G4_WRITE_TRANSPORT_CAMPAIGN,
+      84      │ - ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+      85      │ - ··G4_UNIT01_AUTHOR_COUNTS,
+      86      │ - ··G4_UNIT01_AUTHOR_TESTS,
+      87      │ - ··G4_UNIT01_REVIEW_COUNTS,
+      88      │ - ··G4_UNIT01_REVIEW_TESTS,
+      89      │ - ··G4_NATIVE_PG_TESTS,
+      90      │ - ··G4_NATIVE_MYSQL_TESTS,
+      91      │ - ··G4_READ_CONTRACT_FAMILIES,
+      92      │ - ··G4_TRANSPORT_MODELS,
+      93      │ - ··assertG4GeneratedBatchReceipt,
+      94      │ - ··assertG4OracleValidationReceipt,
+      95      │ - }·from·"./raptor3-manifest.mjs";
+      96      │ - import·*·as·manifest·from·"./raptor3-manifest.mjs";
+           19 │ + import·*·as·manifest·from·"./raptor3-manifest.mjs";
+           20 │ + import·{
+           21 │ + ··assertEquivalentExtensionCampaignReceipts,
+           22 │ + ··assertExtensionCampaignReceipt,
+           23 │ + ··assertG3GeneratedBatchReceipt,
+           24 │ + ··assertG4GeneratedBatchReceipt,
+           25 │ + ··assertG4OracleValidationReceipt,
+           26 │ + ··assertGeneratedBatchReceipt,
+           27 │ + ··assertStructuralMeasurementRuntime,
+           28 │ + ··CS01_EXTENSION_A_TESTS,
+           29 │ + ··CS01_EXTENSION_B_TESTS,
+           30 │ + ··CS01_EXTENSION_COMPOSITION_TESTS,
+           31 │ + ··CS01_STRUCTURAL_REFERENCE_TESTS,
+           32 │ + ··CS02_REPEATED_OCCURRENCE_TESTS,
+           33 │ + ··CS03_EXTENSION_CAMPAIGN_TESTS,
+           34 │ + ··CS03_EXTENSION_CAMPAIGNS,
+           35 │ + ··CS03_EXTENSION_SUPPORT_TESTS,
+           36 │ + ··CS03_MEMBER_SCOPE_TESTS,
+           37 │ + ··G2_CAMPAIGN,
+           38 │ + ··G2_TRANSPORT_CAMPAIGN,
+           39 │ + ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+           40 │ + ··G3_BULK_RESULT_BOUNDARY_TESTS,
+           41 │ + ··G3_BULK_SERIES_TESTS,
+           42 │ + ··G3_DEPTH_RECURRENCE_TESTS,
+           43 │ + ··G3_EXECUTION_REVIEW_TESTS,
+           44 │ + ··G3_GENERATED_CAMPAIGN,
+           45 │ + ··G3_GENERATED_CAMPAIGN_TESTS,
+           46 │ + ··G3_GENERATED_SMOKE_TESTS,
+           47 │ + ··G3_GENERATED_TRANSPORT_CAMPAIGN,
+           48 │ + ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+           49 │ + ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+           50 │ + ··G3_SCOPE_COMPOSITION_PG_TESTS,
+           51 │ + ··G3_SCOPE_FAILURE_TESTS,
+           52 │ + ··G3_SUPPRESSION_RETRY_TESTS,
+           53 │ + ··G3_TRANSACTION_ARRAY_TESTS,
+           54 │ + ··G3P03_CONTRACT_TESTS,
+           55 │ + ··G3P03_PG_CONTRACT_TESTS,
+           56 │ + ··G3P04_CONTRACT_TESTS,
+           57 │ + ··G3P04_PG_CONTRACT_TESTS,
+           58 │ + ··G3P04_REVIEW_CONTRACT_TESTS,
+           59 │ + ··G3P05_CONTRACT_TESTS,
+           60 │ + ··G3P06_CAMPAIGN,
+           61 │ + ··G3P06_TRANSPORT_CAMPAIGN,
+           62 │ + ··G4_GENERATED_CAMPAIGN,
+           63 │ + ··G4_GENERATED_CAMPAIGN_TESTS,
+           64 │ + ··G4_GENERATED_TRANSPORT_CAMPAIGN,
+           65 │ + ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+           66 │ + ··G4_GENERATION_SELFTEST_TESTS,
+           67 │ + ··G4_NATIVE_MYSQL_TESTS,
+           68 │ + ··G4_NATIVE_PG_TESTS,
+           69 │ + ··G4_READ_CONTRACT_FAMILIES,
+           70 │ + ··G4_READ_COUNTS,
+           71 │ + ··G4_READ_TESTS,
+           72 │ + ··G4_TRANSPORT_MODELS,
+           73 │ + ··G4_UNIT01_AUTHOR_COUNTS,
+           74 │ + ··G4_UNIT01_AUTHOR_TESTS,
+           75 │ + ··G4_UNIT01_REVIEW_COUNTS,
+           76 │ + ··G4_UNIT01_REVIEW_TESTS,
+           77 │ + ··G4_WRITE_CAMPAIGN,
+           78 │ + ··G4_WRITE_CAMPAIGN_TESTS,
+           79 │ + ··G4_WRITE_TRANSPORT_CAMPAIGN,
+           80 │ + ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+           81 │ + ··G27_CONTRACT_TESTS,
+           82 │ + ··G27_PG_CONTRACT_TESTS,
+           83 │ + ··G29_DEPENDENCY_BOUNDARY_TESTS,
+           84 │ + ··G29_DEPENDENCY_CHOICE_TESTS,
+           85 │ + ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+           86 │ + ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+           87 │ + ··G29_MEMBER_DEPENDENCY_TESTS,
+           88 │ + ··G29_RESULT_PROGRESS_TESTS,
+  10 more lines truncated
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:747:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    745 │       () =>
+    746 │         assertG3GeneratedBatchReceipt(corrupt, 8000, lane.campaign, identity),
+  > 747 │       /actual overlap cut/
+        │       ^^^^^^^^^^^^^^^^^^^^
+    748 │     );
+    749 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:763:71 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    761 │     assert.equal(parseRaptor3Request([mode]).mode, mode);
+    762 │     assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+  > 763 │     assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
+        │                                                                       ^^^^^
+    764 │     for (const firstSeed of [7999, 8001, 17901, 18000])
+    765 │       assert.throws(
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     761  761 │       assert.equal(parseRaptor3Request([mode]).mode, mode);
+     762  762 │       assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+     763      │ - ····assert.equal(parseRaptor3Request([batchMode,·"17900"]).firstSeed,·17900);
+          763 │ + ····assert.equal(parseRaptor3Request([batchMode,·"17900"]).firstSeed,·17_900);
+     764  764 │       for (const firstSeed of [7999, 8001, 17901, 18000])
+     765  765 │         assert.throws(
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:764:42 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    762 │     assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+    763 │     assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
+  > 764 │     for (const firstSeed of [7999, 8001, 17901, 18000])
+        │                                          ^^^^^
+    765 │       assert.throws(
+    766 │         () => parseRaptor3Request([batchMode, String(firstSeed)]),
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     762  762 │       assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+     763  763 │       assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
+     764      │ - ····for·(const·firstSeed·of·[7999,·8001,·17901,·18000])
+          764 │ + ····for·(const·firstSeed·of·[7999,·8001,·17_901,·18000])
+     765  765 │         assert.throws(
+     766  766 │           () => parseRaptor3Request([batchMode, String(firstSeed)]),
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:764:49 lint/style/useNumericSeparators  FIXABLE  ━━━━━━━━━━
+
+  × Long numeric literal lacks separators.
+  
+    762 │     assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+    763 │     assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
+  > 764 │     for (const firstSeed of [7999, 8001, 17901, 18000])
+        │                                                 ^^^^^
+    765 │       assert.throws(
+    766 │         () => parseRaptor3Request([batchMode, String(firstSeed)]),
+  
+  i Adding separators helps improve readability and clarity for long numbers.
+  
+  i Safe fix: Add numeric separators.
+  
+     762  762 │       assert.equal(parseRaptor3Request([batchMode, "8000"]).firstSeed, 8000);
+     763  763 │       assert.equal(parseRaptor3Request([batchMode, "17900"]).firstSeed, 17900);
+     764      │ - ····for·(const·firstSeed·of·[7999,·8001,·17901,·18000])
+          764 │ + ····for·(const·firstSeed·of·[7999,·8001,·17901,·18_000])
+     765  765 │         assert.throws(
+     766  766 │           () => parseRaptor3Request([batchMode, String(firstSeed)]),
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:767:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    765 │       assert.throws(
+    766 │         () => parseRaptor3Request([batchMode, String(firstSeed)]),
+  > 767 │         /exact frozen boundary/
+        │         ^^^^^^^^^^^^^^^^^^^^^^^
+    768 │       );
+    769 │     assert.equal(campaign.seedCount, 10_000);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:789:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    787 │       assert.throws(
+    788 │         () => parseRaptor3Request([lane.batchMode, String(firstSeed)]),
+  > 789 │         /exact frozen boundary/,
+        │         ^^^^^^^^^^^^^^^^^^^^^^^
+    790 │         `Must reject batch start ${firstSeed}`
+    791 │       );
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:799:32 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  × Template literals are preferred over string concatenation.
+  
+    797 │       [lane.batchMode, "2000", "--seed-count=1"],
+    798 │       [lane.batchMode, "2000", "--testNamePattern=absent"],
+  > 799 │       [lane.batchMode, "2000", "--profile=" + lane.profiles[0]],
+        │                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    800 │     ]) {
+    801 │       assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+  
+  i Unsafe fix: Use a template literal.
+  
+     797  797 │         [lane.batchMode, "2000", "--seed-count=1"],
+     798  798 │         [lane.batchMode, "2000", "--testNamePattern=absent"],
+     799      │ - ······[lane.batchMode,·"2000",·"--profile="·+·lane.profiles[0]],
+          799 │ + ······[lane.batchMode,·"2000",·`--profile=${lane.profiles[0]}`],
+     800  800 │       ]) {
+     801  801 │         assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:801:54 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    799 │       [lane.batchMode, "2000", "--profile=" + lane.profiles[0]],
+    800 │     ]) {
+  > 801 │       assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+        │                                                      ^^^^^^^^^^^^^^^^^^^^
+    802 │     }
+    803 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:870:26 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    868 │     for (const deficientProfile of lane.profiles) {
+    869 │       for (const [field, below, extra, reason] of [
+  > 870 │         ["actors", 1, 2, /Missing two-actor quota/],
+        │                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+    871 │         ["faults", 0, 1, /Missing actually injected fault quota/],
+    872 │       ]) {
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:871:26 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    869 │       for (const [field, below, extra, reason] of [
+    870 │         ["actors", 1, 2, /Missing two-actor quota/],
+  > 871 │         ["faults", 0, 1, /Missing actually injected fault quota/],
+        │                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    872 │       ]) {
+    873 │         const invalid = structuredClone(valid);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:907:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    905 │       assert.throws(
+    906 │         () => parseRaptor3Request([lane.batchMode, String(firstSeed)]),
+  > 907 │         /exact frozen boundary/,
+        │         ^^^^^^^^^^^^^^^^^^^^^^^
+    908 │         `Must reject prep batch start ${firstSeed}`
+    909 │       );
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:917:32 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━
+
+  × Template literals are preferred over string concatenation.
+  
+    915 │       [lane.batchMode, "7000", "--seed-count=1"],
+    916 │       [lane.batchMode, "7000", "--testNamePattern=absent"],
+  > 917 │       [lane.batchMode, "7000", "--profile=" + lane.profiles[0]],
+        │                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    918 │     ])
+    919 │       assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+  
+  i Unsafe fix: Use a template literal.
+  
+     915  915 │         [lane.batchMode, "7000", "--seed-count=1"],
+     916  916 │         [lane.batchMode, "7000", "--testNamePattern=absent"],
+     917      │ - ······[lane.batchMode,·"7000",·"--profile="·+·lane.profiles[0]],
+          917 │ + ······[lane.batchMode,·"7000",·`--profile=${lane.profiles[0]}`],
+     918  918 │       ])
+     919  919 │         assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:919:54 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    917 │       [lane.batchMode, "7000", "--profile=" + lane.profiles[0]],
+    918 │     ])
+  > 919 │       assert.throws(() => parseRaptor3Request(args), /cannot be filtered/);
+        │                                                      ^^^^^^^^^^^^^^^^^^^^
+    920 │   });
+    921 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1001:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+     999 │       assert.throws(
+    1000 │         () => parseRaptor3Request([mode, extra]),
+  > 1001 │         /cannot be filtered/
+         │         ^^^^^^^^^^^^^^^^^^^^
+    1002 │       );
+    1003 │   }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1122:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1120 │       assert.throws(
+    1121 │         () => parseRaptor3Request([lane.batchMode, String(off)]),
+  > 1122 │         /exact frozen boundary/
+         │         ^^^^^^^^^^^^^^^^^^^^^^^
+    1123 │       );
+    1124 │     // One subject, so the read campaign's flag is refused rather than ignored.
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1131:9 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1129 │       assert.throws(
+    1130 │         () => parseRaptor3Request(args),
+  > 1131 │         /Subject selection applies only to the G4 generated read campaign/
+         │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1132 │       );
+    1133 │     assert.throws(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1135:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1133 │     assert.throws(
+    1134 │       () => parseRaptor3Request([lane.mode, "--testNamePattern=absent"]),
+  > 1135 │       /cannot be filtered/
+         │       ^^^^^^^^^^^^^^^^^^^^
+    1136 │     );
+    1137 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1181:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1179 │           identity
+    1180 │         ),
+  > 1181 │       /outside the frozen campaign/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1182 │     );
+    1183 │     const corrupt = structuredClone(receipt);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1188:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1186 │       () =>
+    1187 │         assertG3GeneratedBatchReceipt(corrupt, firstSeed, campaign, identity),
+  > 1188 │       /legal injected failure/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^
+    1189 │     );
+    1190 │   }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1253:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1251 │   assert.throws(
+    1252 │     () => parseRaptor3Request(["g4-seed-batch", "19999"]),
+  > 1253 │     /exact frozen boundary/
+         │     ^^^^^^^^^^^^^^^^^^^^^^^
+    1254 │   );
+    1255 │   assert.throws(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1257:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1255 │   assert.throws(
+    1256 │     () => parseRaptor3Request(["g4-seed-batch", "45000"]),
+  > 1257 │     /exact frozen boundary/
+         │     ^^^^^^^^^^^^^^^^^^^^^^^
+    1258 │   );
+    1259 │   assert.throws(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1261:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1259 │   assert.throws(
+    1260 │     () => parseRaptor3Request(["g4-transport-seed-batch", "20000"]),
+  > 1261 │     /exact frozen boundary/
+         │     ^^^^^^^^^^^^^^^^^^^^^^^
+    1262 │   );
+    1263 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1283:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1281 │     assert.throws(
+    1282 │       () => parseRaptor3Request([...positional, "--subject=anything"]),
+  > 1283 │       /Subject is candidate or shipped/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1284 │     );
+    1285 │     assert.throws(
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1292:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1290 │           "--subject=candidate",
+    1291 │         ]),
+  > 1292 │       /Subject may be specified only once/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1293 │     );
+    1294 │   }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1298:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1296 │     assert.throws(
+    1297 │       () => parseRaptor3Request([mode, "--subject=shipped"]),
+  > 1298 │       /Subject selection applies only to the G4 generated read campaign/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1299 │     );
+    1300 │   assert.equal(parseRaptor3Request(["g0"]).subject, undefined);
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1319:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1317 │           identity
+    1318 │         ),
+  > 1319 │       /Stale Raptor 3 evidence/
+         │       ^^^^^^^^^^^^^^^^^^^^^^^^^
+    1320 │     );
+    1321 │     assert.throws(() =>
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1353:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1351 │     assert.throws(
+    1352 │       () => assertG4GeneratedBatchReceipt(validation, first, campaign, identity),
+  > 1353 │       /candidate/
+         │       ^^^^^^^^^^^
+    1354 │     );
+    1355 │     assert.doesNotThrow(() =>
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:1361:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    1359 │       () =>
+    1360 │         assertG4OracleValidationReceipt(qualifying, first, campaign, identity),
+  > 1361 │       /shipped/
+         │       ^^^^^^^^^
+    1362 │     );
+    1363 │   }
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-campaign-receipts.test.mjs:739:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    737 │       () =>
+    738 │         assertG3GeneratedBatchReceipt(missing, 8000, lane.campaign, identity),
+  > 739 │       /Expected values to be strictly equal/
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    740 │     );
+    741 │ 
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-manifest.mjs:1177:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1175 │         )
+    1176 │       );
+  > 1177 │   assert.equal(candidate.slice, reference.slice);
+         │   ^^^^^^
+    1178 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+    1179 │   assert.equal(candidate.seedCount, reference.seedCount);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:980:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    978 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+    979 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+  > 980 │   assert.equal(
+        │   ^^^^^^
+    981 │     receipt.replays,
+    982 │     (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:984:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    982 │     (receipt.fixedCells + receipt.seededCells) * G0_CAMPAIGN.replayCount
+    983 │   );
+  > 984 │   assert.equal(receipt.skipped, 0, "Required G0 cells cannot be skipped");
+        │   ^^^^^^
+    985 │   assert.deepEqual(
+    986 │     [...receipt.falsifiers].sort(),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:985:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    983 │   );
+    984 │   assert.equal(receipt.skipped, 0, "Required G0 cells cannot be skipped");
+  > 985 │   assert.deepEqual(
+        │   ^^^^^^
+    986 │     [...receipt.falsifiers].sort(),
+    987 │     [...G0_FALSIFIERS].sort(),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:998:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     996 │ ) {
+     997 │   assert.equal(receipt.firstSeed, firstSeed);
+   > 998 │   assert.equal(receipt.seedCount, campaign.batchSize);
+         │   ^^^^^^
+     999 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1000 │   assert.equal(receipt.skipped, 0);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:999:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     997 │   assert.equal(receipt.firstSeed, firstSeed);
+     998 │   assert.equal(receipt.seedCount, campaign.batchSize);
+   > 999 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1000 │   assert.equal(receipt.skipped, 0);
+    1001 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1000:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     998 │   assert.equal(receipt.seedCount, campaign.batchSize);
+     999 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1000 │   assert.equal(receipt.skipped, 0);
+         │   ^^^^^^
+    1001 │   assert.equal(
+    1002 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1001:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+     999 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1000 │   assert.equal(receipt.skipped, 0);
+  > 1001 │   assert.equal(
+         │   ^^^^^^
+    1002 │     receipt.replays,
+    1003 │     campaign.batchSize * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1013:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1011 │     )
+    1012 │     .sort();
+  > 1013 │   assert.deepEqual(
+         │   ^^^^^^
+    1014 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1015 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1038:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1036 │ ) {
+    1037 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1038 │   assert.equal(receipt.formatVersion, 1);
+         │   ^^^^^^
+    1039 │   assert.equal(receipt.qualifying, true);
+    1040 │   assert.equal(receipt.status, "complete");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1039:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1037 │   assertRaptor3Identity(receipt.identity, identity);
+    1038 │   assert.equal(receipt.formatVersion, 1);
+  > 1039 │   assert.equal(receipt.qualifying, true);
+         │   ^^^^^^
+    1040 │   assert.equal(receipt.status, "complete");
+    1041 │   assert.equal(receipt.firstSeed, firstSeed);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1040:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1038 │   assert.equal(receipt.formatVersion, 1);
+    1039 │   assert.equal(receipt.qualifying, true);
+  > 1040 │   assert.equal(receipt.status, "complete");
+         │   ^^^^^^
+    1041 │   assert.equal(receipt.firstSeed, firstSeed);
+    1042 │   assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1041:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1039 │   assert.equal(receipt.qualifying, true);
+    1040 │   assert.equal(receipt.status, "complete");
+  > 1041 │   assert.equal(receipt.firstSeed, firstSeed);
+         │   ^^^^^^
+    1042 │   assert(
+    1043 │     Number.isInteger(receipt.seedCount) &&
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1053:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1051 │     "G3 child seed range is outside the frozen campaign"
+    1052 │   );
+  > 1053 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1054 │   assert.equal(receipt.skipped, 0);
+    1055 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1054:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1052 │   );
+    1053 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1054 │   assert.equal(receipt.skipped, 0);
+         │   ^^^^^^
+    1055 │   assert.equal(
+    1056 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1055:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1053 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1054 │   assert.equal(receipt.skipped, 0);
+  > 1055 │   assert.equal(
+         │   ^^^^^^
+    1056 │     receipt.replays,
+    1057 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1059:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1057 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+    1058 │   );
+  > 1059 │   assert.equal(
+         │   ^^^^^^
+    1060 │     receipt.completed.length,
+    1061 │     receipt.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1071:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1069 │     )
+    1070 │     .sort();
+  > 1071 │   assert.deepEqual(
+         │   ^^^^^^
+    1072 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1073 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1084:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1082 │         (cell.seed - campaign.firstSeed) % 4
+    1083 │       ];
+  > 1084 │       assert.equal(cell.actors, expectedActors, "Changed G3 actor recipe");
+         │       ^^^^^^
+    1085 │       assert.equal(
+    1086 │         cell.actorOverlap,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1085:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1083 │       ];
+    1084 │       assert.equal(cell.actors, expectedActors, "Changed G3 actor recipe");
+  > 1085 │       assert.equal(
+         │       ^^^^^^
+    1086 │         cell.actorOverlap,
+    1087 │         expectedActors === 2,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1090:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1088 │         "G3 actor recipe lacks an actual overlap cut"
+    1089 │       );
+  > 1090 │       assert.equal(
+         │       ^^^^^^
+    1091 │         cell.faults > 0,
+    1092 │         expectedFault,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1095:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1093 │         "G3 fault recipe lacks an actual legal injected failure"
+    1094 │       );
+  > 1095 │       assert.equal(
+         │       ^^^^^^
+    1096 │         cell.contract,
+    1097 │         expectedContract,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1118:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1116 │ export function assertExtensionCampaignReceipt(receipt, campaign, identity) {
+    1117 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1118 │   assert.equal(receipt.slice, campaign.slice);
+         │   ^^^^^^
+    1119 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+    1120 │   assert.equal(receipt.seedCount, campaign.seedCount);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1119:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1117 │   assertRaptor3Identity(receipt.identity, identity);
+    1118 │   assert.equal(receipt.slice, campaign.slice);
+  > 1119 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+         │   ^^^^^^
+    1120 │   assert.equal(receipt.seedCount, campaign.seedCount);
+    1121 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1120:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1118 │   assert.equal(receipt.slice, campaign.slice);
+    1119 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+  > 1120 │   assert.equal(receipt.seedCount, campaign.seedCount);
+         │   ^^^^^^
+    1121 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1122 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1121:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1119 │   assert.equal(receipt.firstSeed, campaign.firstSeed);
+    1120 │   assert.equal(receipt.seedCount, campaign.seedCount);
+  > 1121 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1122 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+    1123 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1122:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1120 │   assert.equal(receipt.seedCount, campaign.seedCount);
+    1121 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  > 1122 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+         │   ^^^^^^
+    1123 │   assert.equal(
+    1124 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1123:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1121 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+    1122 │   assert.equal(receipt.skipped, 0, "Required CS-03 cells cannot be skipped");
+  > 1123 │   assert.equal(
+         │   ^^^^^^
+    1124 │     receipt.replays,
+    1125 │     campaign.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1127:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1125 │     campaign.seedCount * campaign.profiles.length * campaign.replayCount
+    1126 │   );
+  > 1127 │   assert.equal(
+         │   ^^^^^^
+    1128 │     receipt.completed.length,
+    1129 │     campaign.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1139:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1137 │     )
+    1138 │     .sort();
+  > 1139 │   assert.deepEqual(
+         │   ^^^^^^
+    1140 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1141 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1145:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1143 │   );
+    1144 │   for (const cell of receipt.completed) {
+  > 1145 │     assert.equal(cell.recipe.formatVersion, 1);
+         │     ^^^^^^
+    1146 │     assert.equal(cell.recipe.slice, campaign.slice);
+    1147 │     assert.equal(cell.recipe.seed, cell.seed);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1146:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1144 │   for (const cell of receipt.completed) {
+    1145 │     assert.equal(cell.recipe.formatVersion, 1);
+  > 1146 │     assert.equal(cell.recipe.slice, campaign.slice);
+         │     ^^^^^^
+    1147 │     assert.equal(cell.recipe.seed, cell.seed);
+    1148 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1147:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1145 │     assert.equal(cell.recipe.formatVersion, 1);
+    1146 │     assert.equal(cell.recipe.slice, campaign.slice);
+  > 1147 │     assert.equal(cell.recipe.seed, cell.seed);
+         │     ^^^^^^
+    1148 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+    1149 │     assert(cell.schedule.length > 0, "CS-03 recipe omitted its schedule");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1148:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1146 │     assert.equal(cell.recipe.slice, campaign.slice);
+    1147 │     assert.equal(cell.recipe.seed, cell.seed);
+  > 1148 │     assert.deepEqual(cell.schedule, cell.recipe.schedule);
+         │     ^^^^^^
+    1149 │     assert(cell.schedule.length > 0, "CS-03 recipe omitted its schedule");
+    1150 │     const expectedOutcome =
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1155:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1153 │         ? "failure"
+    1154 │         : "success";
+  > 1155 │     assert.equal(cell.observation.outcome.kind, expectedOutcome);
+         │     ^^^^^^
+    1156 │   }
+    1157 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1178:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1176 │       );
+    1177 │   assert.equal(candidate.slice, reference.slice);
+  > 1178 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+         │   ^^^^^^
+    1179 │   assert.equal(candidate.seedCount, reference.seedCount);
+    1180 │   assert.deepEqual(candidate.profiles, reference.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1179:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1177 │   assert.equal(candidate.slice, reference.slice);
+    1178 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+  > 1179 │   assert.equal(candidate.seedCount, reference.seedCount);
+         │   ^^^^^^
+    1180 │   assert.deepEqual(candidate.profiles, reference.profiles);
+    1181 │   assert.equal(candidate.replays, reference.replays);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1180:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1178 │   assert.equal(candidate.firstSeed, reference.firstSeed);
+    1179 │   assert.equal(candidate.seedCount, reference.seedCount);
+  > 1180 │   assert.deepEqual(candidate.profiles, reference.profiles);
+         │   ^^^^^^
+    1181 │   assert.equal(candidate.replays, reference.replays);
+    1182 │   assert.equal(candidate.skipped, reference.skipped);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1181:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1179 │   assert.equal(candidate.seedCount, reference.seedCount);
+    1180 │   assert.deepEqual(candidate.profiles, reference.profiles);
+  > 1181 │   assert.equal(candidate.replays, reference.replays);
+         │   ^^^^^^
+    1182 │   assert.equal(candidate.skipped, reference.skipped);
+    1183 │   assert.deepEqual(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1182:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1180 │   assert.deepEqual(candidate.profiles, reference.profiles);
+    1181 │   assert.equal(candidate.replays, reference.replays);
+  > 1182 │   assert.equal(candidate.skipped, reference.skipped);
+         │   ^^^^^^
+    1183 │   assert.deepEqual(
+    1184 │     canonicalCells(candidate),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1183:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1181 │   assert.equal(candidate.replays, reference.replays);
+    1182 │   assert.equal(candidate.skipped, reference.skipped);
+  > 1183 │   assert.deepEqual(
+         │   ^^^^^^
+    1184 │     canonicalCells(candidate),
+    1185 │     canonicalCells(reference),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1192:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1190 │ function assertG4BatchShape(receipt, firstSeed, campaign, identity) {
+    1191 │   assertRaptor3Identity(receipt.identity, identity);
+  > 1192 │   assert.equal(receipt.formatVersion, 1);
+         │   ^^^^^^
+    1193 │   assert.equal(receipt.firstSeed, firstSeed);
+    1194 │   assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1193:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1191 │   assertRaptor3Identity(receipt.identity, identity);
+    1192 │   assert.equal(receipt.formatVersion, 1);
+  > 1193 │   assert.equal(receipt.firstSeed, firstSeed);
+         │   ^^^^^^
+    1194 │   assert(
+    1195 │     Number.isInteger(receipt.seedCount) &&
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1205:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1203 │     "G4 child seed range is outside the frozen campaign"
+    1204 │   );
+  > 1205 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+         │   ^^^^^^
+    1206 │   // Every profile in a lane must denote a DIFFERENT read transport, or the
+    1207 │   // lane pays for cells it cannot distinguish.
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1208:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1206 │   // Every profile in a lane must denote a DIFFERENT read transport, or the
+    1207 │   // lane pays for cells it cannot distinguish.
+  > 1208 │   assert.equal(
+         │   ^^^^^^
+    1209 │     new Set(campaign.profiles.map((profile) => G4_TRANSPORT_MODELS[profile]))
+    1210 │       .size,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1214:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1212 │     "Two G4 campaign profiles denote the same read transport model"
+    1213 │   );
+  > 1214 │   assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
+         │   ^^^^^^
+    1215 │   assert.equal(
+    1216 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1215:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1213 │   );
+    1214 │   assert.equal(receipt.skipped, 0, "Required G4 cells cannot be skipped");
+  > 1215 │   assert.equal(
+         │   ^^^^^^
+    1216 │     receipt.replays,
+    1217 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1219:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1217 │     receipt.seedCount * campaign.profiles.length * campaign.replayCount
+    1218 │   );
+  > 1219 │   assert.equal(
+         │   ^^^^^^
+    1220 │     receipt.completed.length,
+    1221 │     receipt.seedCount * campaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1231:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1229 │     )
+    1230 │     .sort();
+  > 1231 │   assert.deepEqual(
+         │   ^^^^^^
+    1232 │     receipt.completed.map((cell) => `${cell.profile}:${cell.seed}`).sort(),
+    1233 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1241:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1239 │         (cell.seed - campaign.firstSeed) % G4_READ_CONTRACT_FAMILIES.length
+    1240 │       ];
+  > 1241 │     assert.equal(cell.contract, expectedContract, "Changed G4 contract family");
+         │     ^^^^^^
+    1242 │     assert(
+    1243 │       G4_READ_SCHEMA_FAMILIES.includes(cell.family),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1247:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1245 │     );
+    1246 │     if (cell.contract === "Q-S")
+  > 1247 │       assert.equal(cell.family, "relation", "Q-S must use the relation family");
+         │       ^^^^^^
+    1248 │     if (cell.contract === "Q-A")
+    1249 │       assert.equal(cell.family, "codec", "Q-A must use the codec family");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1249:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1247 │       assert.equal(cell.family, "relation", "Q-S must use the relation family");
+    1248 │     if (cell.contract === "Q-A")
+  > 1249 │       assert.equal(cell.family, "codec", "Q-A must use the codec family");
+         │       ^^^^^^
+    1250 │     // This campaign injects no peer actor and no fault: reads publish no
+    1251 │     // effect for a peer to observe. The quota is therefore an exact zero,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1253:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1251 │     // effect for a peer to observe. The quota is therefore an exact zero,
+    1252 │     // which a recipe that silently started injecting would break.
+  > 1253 │     assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
+         │     ^^^^^^
+    1254 │     assert.equal(cell.faults, 0, "G4 read cells inject no fault");
+    1255 │     assert(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1254:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1252 │     // which a recipe that silently started injecting would break.
+    1253 │     assert.equal(cell.actors, 1, "G4 read cells carry exactly one actor");
+  > 1254 │     assert.equal(cell.faults, 0, "G4 read cells inject no fault");
+         │     ^^^^^^
+    1255 │     assert(
+    1256 │       Number.isInteger(cell.rows) && cell.rows >= 0 && cell.rows <= 64,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1263:5 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1261 │       "A G4 read cell must reach the provider at least once"
+    1262 │     );
+  > 1263 │     assert.equal(
+         │     ^^^^^^
+    1264 │       cell.transport,
+    1265 │       G4_TRANSPORT_MODELS[cell.profile],
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1271:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1269 │     // stream of that profile is exactly three entries per submitted read.
+    1270 │     if (cell.transport === "atomic-submission")
+  > 1271 │       assert.equal(
+         │       ^^^^^^
+    1272 │         cell.statements % 3,
+    1273 │         0,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1286:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1284 │   identity
+    1285 │ ) {
+  > 1286 │   assert.equal(
+         │   ^^^^^^
+    1287 │     receipt.subject,
+    1288 │     "candidate",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1291:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1289 │     "Only a candidate-subject G4 child can qualify"
+    1290 │   );
+  > 1291 │   assert.equal(receipt.qualifying, true);
+         │   ^^^^^^
+    1292 │   assert.equal(receipt.status, "complete");
+    1293 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1292:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1290 │   );
+    1291 │   assert.equal(receipt.qualifying, true);
+  > 1292 │   assert.equal(receipt.status, "complete");
+         │   ^^^^^^
+    1293 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+    1294 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1307:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1305 │   identity
+    1306 │ ) {
+  > 1307 │   assert.equal(
+         │   ^^^^^^
+    1308 │     receipt.subject,
+    1309 │     "shipped",
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1312:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1310 │     "An oracle-validation G4 child runs the shipped subject"
+    1311 │   );
+  > 1312 │   assert.equal(receipt.qualifying, false);
+         │   ^^^^^^
+    1313 │   assert.equal(receipt.status, "oracle-validation");
+    1314 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:1313:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1311 │   );
+    1312 │   assert.equal(receipt.qualifying, false);
+  > 1313 │   assert.equal(receipt.status, "oracle-validation");
+         │   ^^^^^^
+    1314 │   assertG4BatchShape(receipt, firstSeed, campaign, identity);
+    1315 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:893:14 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    891 │     const path = `${directory}/${entry.name}`;
+    892 │     if (entry.isDirectory()) files.push(...sourceFiles(root, path));
+  > 893 │     else if (/\.(?:ts|mts|mjs|js|json)$/.test(entry.name)) files.push(path);
+        │              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    894 │   }
+    895 │   return files;
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/raptor3-manifest.mjs:947:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    945 │   actual = captureRaptor3Identity()
+    946 │ ) {
+  > 947 │   assert.deepEqual(
+        │   ^^^^^^
+    948 │     actual,
+    949 │     expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:960:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    958 │   instrumentedIdentity
+    959 │ ) {
+  > 960 │   assert.equal(
+        │   ^^^^^^
+    961 │     baseIdentity.runtime.node,
+    962 │     RAPTOR3_MEASUREMENT_NODE_VERSION,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:965:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    963 │     "Structural measurement base runtime is not the qualified Node version"
+    964 │   );
+  > 965 │   assert.equal(
+        │   ^^^^^^
+    966 │     instrumentedIdentity.runtime.node,
+    967 │     RAPTOR3_MEASUREMENT_NODE_VERSION,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:973:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    972 │ export function assertG0CampaignReceipt(receipt) {
+  > 973 │   assert.deepEqual(
+        │   ^^^^^^
+    974 │     receipt.campaign,
+    975 │     G0_CAMPAIGN,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:978:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    976 │     "Incomplete or changed G0 campaign"
+    977 │   );
+  > 978 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+        │   ^^^^^^
+    979 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+    980 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:979:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    977 │   );
+    978 │   assert.equal(receipt.fixedCells, 24, "Missing required G0 profile/case");
+  > 979 │   assert.equal(receipt.seededCells, 200, "Missing G0 schedule seeds");
+        │   ^^^^^^
+    980 │   assert.equal(
+    981 │     receipt.replays,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/raptor3-manifest.mjs:997:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    995 │   campaign = G1_CAMPAIGN
+    996 │ ) {
+  > 997 │   assert.equal(receipt.firstSeed, firstSeed);
+        │   ^^^^^^
+    998 │   assert.equal(receipt.seedCount, campaign.batchSize);
+    999 │   assert.deepEqual(receipt.profiles, campaign.profiles);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:840:5 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    838 │     environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED = String(request.firstSeed);
+    839 │   if (/^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/.test(request.mode))
+  > 840 │     delete environment.VIBORM_RAPTOR3_SPECIMEN;
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    841 │   if (request.mode === "g3p02-contracts")
+    842 │     environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     838  838 │       environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED = String(request.firstSeed);
+     839  839 │     if (/^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/.test(request.mode))
+     840      │ - ····delete·environment.VIBORM_RAPTOR3_SPECIMEN;
+          840 │ + ····environment.VIBORM_RAPTOR3_SPECIMEN·=·undefined;
+     841  841 │     if (request.mode === "g3p02-contracts")
+     842  842 │       environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
+  
+
+scripts/run-raptor3.mjs:359:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE  ━━━━━━━━━━━━━━━
+
+  × Logical expression contains unnecessary complexity.
+  
+    357 │   const positional = arguments_.filter(
+    358 │     (argument) =>
+  > 359 │       !limitArguments.includes(argument) && !subjectArguments.includes(argument)
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    360 │   );
+    361 │   assert(
+  
+  i Safe fix: Reduce the complexity of the logical expression.
+  
+     357  357 │     const positional = arguments_.filter(
+     358  358 │       (argument) =>
+     359      │ - ······!limitArguments.includes(argument)·&&·!subjectArguments.includes(argument)
+          359 │ + ······!(limitArguments.includes(argument)·||·subjectArguments.includes(argument))
+     360  360 │     );
+     361  361 │     assert(
+  
+
+scripts/run-raptor3.mjs:642:44 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    640 │     );
+    641 │     writeAttemptReceipt(directory, request, identity);
+  > 642 │     const batchMode = request.mode.replace(/seeds$/, "seed-batch");
+        │                                            ^^^^^^^^
+    643 │     const batches = [];
+    644 │     for (
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:814:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    812 │   const environment = { ...process.env };
+    813 │   const provider =
+  > 814 │     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    815 │     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+    816 │     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:815:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    813 │   const provider =
+    814 │     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
+  > 815 │     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    816 │     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+    817 │     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:816:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    814 │     /^g(?:2|25|27|3p02|3p03|3p04)-(pg|mysql)-/.exec(request.mode)?.[1] ??
+    815 │     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+  > 816 │     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    817 │     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
+    818 │     /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1] ??
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:817:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    815 │     /^post-g3-clearability-(pg|mysql)-/.exec(request.mode)?.[1] ??
+    816 │     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+  > 817 │     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    818 │     /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1] ??
+    819 │     /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:818:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    816 │     /^g3-scope-composition-(pg|mysql)$/.exec(request.mode)?.[1] ??
+    817 │     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
+  > 818 │     /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1] ??
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    819 │     /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+    820 │   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:819:5 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    817 │     /^g29-member-dependency-(pg|mysql)$/.exec(request.mode)?.[1] ??
+    818 │     /^g4-read-envelope-(pg|mysql)-contracts$/.exec(request.mode)?.[1] ??
+  > 819 │     /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+        │     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    820 │   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+    821 │   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs:821:3 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    819 │     /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+    820 │   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+  > 821 │   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    822 │   delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+    823 │   // The batch size is the campaign's, never the shell's: an inherited count
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     819  819 │       /^g4-unit02-(pg|mysql)-contracts$/.exec(request.mode)?.[1];
+     820  820 │     if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+     821      │ - ··delete·environment.VIBORM_RAPTOR3_REPLAY_PATH;
+          821 │ + ··environment.VIBORM_RAPTOR3_REPLAY_PATH·=·undefined;
+     822  822 │     delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+     823  823 │     // The batch size is the campaign's, never the shell's: an inherited count
+  
+
+scripts/run-raptor3.mjs:822:3 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    820 │   if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+    821 │   delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
+  > 822 │   delete environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    823 │   // The batch size is the campaign's, never the shell's: an inherited count
+    824 │   // used to shrink a child while its receipt stayed individually truthful, so
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     820  820 │     if (provider) environment.VIBORM_RAPTOR3_PROVIDER = provider;
+     821  821 │     delete environment.VIBORM_RAPTOR3_REPLAY_PATH;
+     822      │ - ··delete·environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED;
+          822 │ + ··environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED·=·undefined;
+     823  823 │     // The batch size is the campaign's, never the shell's: an inherited count
+     824  824 │     // used to shrink a child while its receipt stayed individually truthful, so
+  
+
+scripts/run-raptor3.mjs:826:3 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    824 │   // used to shrink a child while its receipt stayed individually truthful, so
+    825 │   // a 250-child parent could print "campaign verified" over 1% of its seeds.
+  > 826 │   delete environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    827 │   delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+    828 │   // The subject is the runner's, never the shell's: an inherited `shipped`
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     824  824 │     // used to shrink a child while its receipt stayed individually truthful, so
+     825  825 │     // a 250-child parent could print "campaign verified" over 1% of its seeds.
+     826      │ - ··delete·environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
+          826 │ + ··environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT·=·undefined;
+     827  827 │     delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+     828  828 │     // The subject is the runner's, never the shell's: an inherited `shipped`
+  
+
+scripts/run-raptor3.mjs:827:3 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    825 │   // a 250-child parent could print "campaign verified" over 1% of its seeds.
+    826 │   delete environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
+  > 827 │   delete environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    828 │   // The subject is the runner's, never the shell's: an inherited `shipped`
+    829 │   // used to turn a candidate campaign into an oracle-validation run that still
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     825  825 │     // a 250-child parent could print "campaign verified" over 1% of its seeds.
+     826  826 │     delete environment.VIBORM_RAPTOR3_GENERATED_SEED_COUNT;
+     827      │ - ··delete·environment.VIBORM_RAPTOR3_EXTENSION_SLICE;
+          827 │ + ··environment.VIBORM_RAPTOR3_EXTENSION_SLICE·=·undefined;
+     828  828 │     // The subject is the runner's, never the shell's: an inherited `shipped`
+     829  829 │     // used to turn a candidate campaign into an oracle-validation run that still
+  
+
+scripts/run-raptor3.mjs:831:3 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    829 │   // used to turn a candidate campaign into an oracle-validation run that still
+    830 │   // printed "verified".
+  > 831 │   delete environment.VIBORM_RAPTOR3_G4_SUBJECT;
+        │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    832 │   const requestedSubject = subjectRecord(request);
+    833 │   if (requestedSubject.subject !== undefined)
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     829  829 │     // used to turn a candidate campaign into an oracle-validation run that still
+     830  830 │     // printed "verified".
+     831      │ - ··delete·environment.VIBORM_RAPTOR3_G4_SUBJECT;
+          831 │ + ··environment.VIBORM_RAPTOR3_G4_SUBJECT·=·undefined;
+     832  832 │     const requestedSubject = subjectRecord(request);
+     833  833 │     if (requestedSubject.subject !== undefined)
+  
+
+scripts/run-raptor3.mjs:839:7 lint/performance/useTopLevelRegex ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    837 │   if (request.mode.endsWith("seed-batch"))
+    838 │     environment.VIBORM_RAPTOR3_GENERATED_FIRST_SEED = String(request.firstSeed);
+  > 839 │   if (/^g(?:1|2|25|27|29|3p02|3p03|3p04|3p06)-/.test(request.mode))
+        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    840 │     delete environment.VIBORM_RAPTOR3_SPECIMEN;
+    841 │   if (request.mode === "g3p02-contracts")
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+scripts/run-raptor3.mjs format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     360  360 │     );
+     361  361 │     assert(
+     362      │ - ····subjectArguments.length·===·0·||
+     363      │ - ······G4_SUBJECT_MODES.includes(positional[0]),
+          362 │ + ····subjectArguments.length·===·0·||·G4_SUBJECT_MODES.includes(positional[0]),
+     364  363 │       "Subject selection applies only to the G4 generated read campaign"
+     365  364 │     );
+  
+
+scripts/run-raptor3.mjs:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import assert from "node:assert/strict";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { spawn } from "node:child_process";
+    3 │ import { createHash } from "node:crypto";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      20   20 │   import { createGunzip, createGzip } from "node:zlib";
+      21   21 │   import {
+      22      │ - ··RAPTOR3_ROOT,
+      23      │ - ··RAPTOR3_TESTS,
+      24      │ - ··G1_COMPARISON_TESTS,
+      25      │ - ··G1_COMPARISON_COUNTS,
+      26      │ - ··G1_BASELINE_TESTS,
+      27      │ - ··G1_BASELINE_COUNTS,
+      28      │ - ··G1_CONTRACT_TESTS,
+      29      │ - ··G1_CONTRACT_COUNTS,
+      30      │ - ··G2_BASELINE_TESTS,
+      31      │ - ··G2_BASELINE_COUNTS,
+      32      │ - ··G2_CONTRACT_TESTS,
+      33      │ - ··G2_DIAGNOSTIC_TESTS,
+      34      │ - ··G2_DIAGNOSTIC_COUNTS,
+      35      │ - ··G2_CONTRACT_COUNTS,
+      36      │ - ··G25_CONTRACT_COUNTS,
+      37      │ - ··G25_CONTRACT_TESTS,
+      38      │ - ··G25_PG_CONTRACT_COUNTS,
+      39      │ - ··G25_PG_CONTRACT_TESTS,
+      40      │ - ··G27_CONTRACT_COUNTS,
+      41      │ - ··G27_CONTRACT_TESTS,
+      42      │ - ··G27_MYSQL_CONTRACT_COUNTS,
+      43      │ - ··G27_MYSQL_CONTRACT_TESTS,
+      44      │ - ··G27_PG_CONTRACT_COUNTS,
+      45      │ - ··G27_PG_CONTRACT_TESTS,
+      46      │ - ··G3P02_CONTRACT_COUNTS,
+      47      │ - ··G3P02_CONTRACT_TESTS,
+      48      │ - ··G3P02_MYSQL_CONTRACT_COUNTS,
+      49      │ - ··G3P02_MYSQL_CONTRACT_TESTS,
+      50      │ - ··G3P02_PG_CONTRACT_COUNTS,
+      51      │ - ··G3P02_PG_CONTRACT_TESTS,
+      52      │ - ··G3P03_CONTRACT_COUNTS,
+      53      │ - ··G3P03_CONTRACT_TESTS,
+      54      │ - ··G3P03_MYSQL_CONTRACT_COUNTS,
+      55      │ - ··G3P03_MYSQL_CONTRACT_TESTS,
+      56      │ - ··G3P03_PG_CONTRACT_COUNTS,
+      57      │ - ··G3P03_PG_CONTRACT_TESTS,
+      58      │ - ··G3P04_CONTRACT_COUNTS,
+      59      │ - ··G3P04_CONTRACT_TESTS,
+      60      │ - ··G3P04_REVIEW_CONTRACT_COUNTS,
+      61      │ - ··G3P04_REVIEW_CONTRACT_TESTS,
+      62      │ - ··G3P04_MYSQL_CONTRACT_COUNTS,
+      63      │ - ··G3P04_MYSQL_CONTRACT_TESTS,
+      64      │ - ··G3P04_PG_CONTRACT_COUNTS,
+      65      │ - ··G3P04_PG_CONTRACT_TESTS,
+      66      │ - ··G3P05_CONTRACT_COUNTS,
+      67      │ - ··G3P05_CONTRACT_TESTS,
+      68      │ - ··G3_BULK_SERIES_COUNTS,
+      69      │ - ··G3_BULK_SERIES_TESTS,
+      70      │ - ··G3_SUPPRESSION_RETRY_COUNTS,
+      71      │ - ··G3_SUPPRESSION_RETRY_TESTS,
+      72      │ - ··G3_TRANSACTION_ARRAY_COUNTS,
+      73      │ - ··G3_TRANSACTION_ARRAY_TESTS,
+      74      │ - ··G3_DEPTH_RECURRENCE_COUNTS,
+      75      │ - ··G3_DEPTH_RECURRENCE_TESTS,
+      76      │ - ··G3_SCOPE_COMPOSITION_PG_COUNTS,
+      77      │ - ··G3_SCOPE_COMPOSITION_PG_TESTS,
+      78      │ - ··G3_SCOPE_COMPOSITION_MYSQL_COUNTS,
+      79      │ - ··G3_SCOPE_COMPOSITION_MYSQL_TESTS,
+      80      │ - ··G3_GENERATED_SMOKE_COUNTS,
+      81      │ - ··G3_GENERATED_SMOKE_TESTS,
+      82      │ - ··G3_GENERATED_TRANSPORT_SMOKE_COUNTS,
+      83      │ - ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+      84      │ - ··G3_GENERATED_MINIMIZATION_COUNTS,
+      85      │ - ··G3_GENERATED_MINIMIZATION_TESTS,
+      86      │ - ··G3_EXECUTION_REVIEW_COUNTS,
+      87      │ - ··G3_EXECUTION_REVIEW_TESTS,
+      88      │ - ··G3_AUTHOR_EXECUTION_REGRESSION_COUNTS,
+      89      │ - ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+      90      │ - ··G3_SCOPE_FAILURE_COUNTS,
+      91      │ - ··G3_SCOPE_FAILURE_TESTS,
+      92      │ - ··G3_BULK_RESULT_BOUNDARY_COUNTS,
+      93      │ - ··G3_BULK_RESULT_BOUNDARY_TESTS,
+      94      │ - ··POST_G3_CLEARABILITY_CONTRACT_COUNTS,
+      95      │ - ··POST_G3_CLEARABILITY_CONTRACT_TESTS,
+      96      │ - ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_COUNTS,
+      97      │ - ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+      98      │ - ··POST_G3_CLEARABILITY_PG_CONTRACT_COUNTS,
+      99      │ - ··POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+     100      │ - ··POST_G3_SCHEMA_VIEW_COUNTS,
+     101      │ - ··POST_G3_SCHEMA_VIEW_TESTS,
+     102      │ - ··POST_G3_PROJECTION_PREPARATION_COUNTS,
+     103      │ - ··POST_G3_PROJECTION_PREPARATION_TESTS,
+     104      │ - ··POST_G3_SELECTOR_PREPARATION_COUNTS,
+     105      │ - ··POST_G3_SELECTOR_PREPARATION_TESTS,
+     106      │ - ··POST_G3_HISTORY_ANALYSIS_COUNTS,
+     107      │ - ··POST_G3_HISTORY_ANALYSIS_TESTS,
+     108      │ - ··G29_MEMBER_DEPENDENCY_COUNTS,
+     109      │ - ··G29_MEMBER_DEPENDENCY_TESTS,
+     110      │ - ··G29_DEPENDENCY_BOUNDARY_COUNTS,
+     111      │ - ··G29_DEPENDENCY_BOUNDARY_TESTS,
+     112      │ - ··G29_DEPENDENCY_CHOICE_COUNTS,
+     113      │ - ··G29_DEPENDENCY_CHOICE_TESTS,
+     114      │ - ··G29_RESULT_PROGRESS_COUNTS,
+     115      │ - ··G29_RESULT_PROGRESS_TESTS,
+     116      │ - ··CS01_STRUCTURAL_REFERENCE_COUNTS,
+     117      │ - ··CS01_STRUCTURAL_REFERENCE_TESTS,
+     118      │ - ··CS01_EXTENSION_A_COUNTS,
+     119      │ - ··CS01_EXTENSION_A_TESTS,
+     120      │ - ··CS01_EXTENSION_B_COUNTS,
+     121      │ - ··CS01_EXTENSION_B_TESTS,
+     122      │ - ··CS01_EXTENSION_COMPOSITION_COUNTS,
+     123      │ - ··CS01_EXTENSION_COMPOSITION_TESTS,
+     124      │ - ··CS03_MEMBER_SCOPE_COUNTS,
+     125      │ - ··CS03_MEMBER_SCOPE_TESTS,
+     126      │ - ··CS03_EXTENSION_CAMPAIGNS,
+     127      │ - ··CS03_EXTENSION_CAMPAIGN_COUNTS,
+     128      │ - ··CS03_EXTENSION_CAMPAIGN_TESTS,
+     129      │ - ··CS02_STRUCTURE_MEASUREMENT_COUNTS,
+     130      │ - ··CS02_STRUCTURE_MEASUREMENT_TESTS,
+     131      │ - ··G29_MEMBER_DEPENDENCY_MYSQL_COUNTS,
+     132      │ - ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     133      │ - ··G29_MEMBER_DEPENDENCY_PG_COUNTS,
+     134      │ - ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+           22 │ + ··assertExtensionCampaignReceipt,
+           23 │ + ··assertG0CampaignReceipt,
+           24 │ + ··assertG3GeneratedBatchReceipt,
+           25 │ + ··assertG4GeneratedBatchReceipt,
+           26 │ + ··assertG4OracleValidationReceipt,
+           27 │ + ··assertGeneratedBatchReceipt,
+           28 │ + ··assertRaptor3Identity,
+           29 │ + ··assertStructuralMeasurementRuntime,
+           30 │ + ··CS01_EXTENSION_A_COUNTS,
+           31 │ + ··CS01_EXTENSION_A_TESTS,
+           32 │ + ··CS01_EXTENSION_B_COUNTS,
+           33 │ + ··CS01_EXTENSION_B_TESTS,
+           34 │ + ··CS01_EXTENSION_COMPOSITION_COUNTS,
+           35 │ + ··CS01_EXTENSION_COMPOSITION_TESTS,
+           36 │ + ··CS01_STRUCTURAL_REFERENCE_COUNTS,
+           37 │ + ··CS01_STRUCTURAL_REFERENCE_TESTS,
+           38 │ + ··CS02_STRUCTURE_MEASUREMENT_COUNTS,
+           39 │ + ··CS02_STRUCTURE_MEASUREMENT_TESTS,
+           40 │ + ··CS03_EXTENSION_CAMPAIGN_COUNTS,
+           41 │ + ··CS03_EXTENSION_CAMPAIGN_TESTS,
+           42 │ + ··CS03_EXTENSION_CAMPAIGNS,
+           43 │ + ··CS03_MEMBER_SCOPE_COUNTS,
+           44 │ + ··CS03_MEMBER_SCOPE_TESTS,
+           45 │ + ··captureRaptor3Identity,
+           46 │ + ··G0_RESOURCES,
+           47 │ + ··G1_BASELINE_COUNTS,
+           48 │ + ··G1_BASELINE_TESTS,
+           49 │ + ··G1_CAMPAIGN,
+           50 │ + ··G1_CAMPAIGN_TESTS,
+           51 │ + ··G1_COMPARISON_COUNTS,
+           52 │ + ··G1_COMPARISON_TESTS,
+           53 │ + ··G1_CONTRACT_COUNTS,
+           54 │ + ··G1_CONTRACT_TESTS,
+           55 │ + ··G1_GENERATED_COUNTS,
+           56 │ + ··G1_GENERATED_TESTS,
+  254 more lines truncated
+  
+
+scripts/run-raptor3.mjs:872:11 lint/suspicious/useIterableCallbackReturn ━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This callback passed to forEach() iterable method should not return a value.
+  
+    870 │   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+    871 │   const handlers = signals.map((signal) => () => interrupt(signal));
+  > 872 │   signals.forEach((signal, index) => process.on(signal, handlers[index]));
+        │           ^^^^^^^
+    873 │   try {
+    874 │     const exitCode = await new Promise((resolveExit, reject) => {
+  
+  i Either remove this return or remove the returned value.
+  
+    870 │   const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
+    871 │   const handlers = signals.map((signal) => () => interrupt(signal));
+  > 872 │   signals.forEach((signal, index) => process.on(signal, handlers[index]));
+        │                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    873 │   try {
+    874 │     const exitCode = await new Promise((resolveExit, reject) => {
+  
+
+scripts/run-raptor3.mjs:1121:13 lint/suspicious/useIterableCallbackReturn ━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × This callback passed to forEach() iterable method should not return a value.
+  
+    1119 │     return directory;
+    1120 │   } finally {
+  > 1121 │     signals.forEach((signal, index) => process.off(signal, handlers[index]));
+         │             ^^^^^^^
+    1122 │   }
+    1123 │ }
+  
+  i Either remove this return or remove the returned value.
+  
+    1119 │     return directory;
+    1120 │   } finally {
+  > 1121 │     signals.forEach((signal, index) => process.off(signal, handlers[index]));
+         │                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    1122 │   }
+    1123 │ }
+  
+
+scripts/run-raptor3.mjs:282:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    280 │   const baseIdentity = JSON.parse(readFileSync(resolvedBaseIdentity, "utf8"));
+    281 │   assertStructuralMeasurementRuntime(baseIdentity, instrumentedIdentity);
+  > 282 │   assert.notDeepEqual(
+        │   ^^^^^^
+    283 │     baseIdentity,
+    284 │     instrumentedIdentity,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:519:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    518 │ export function assertRaptor3TestReport(report, files) {
+  > 519 │   assert.equal(report.success, true, "The executed Raptor 3 tests failed");
+        │   ^^^^^^
+    520 │   assert(report.numTotalTests > 0, "Zero-case execution cannot pass the gate");
+    521 │   assert.equal(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:521:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    519 │   assert.equal(report.success, true, "The executed Raptor 3 tests failed");
+    520 │   assert(report.numTotalTests > 0, "Zero-case execution cannot pass the gate");
+  > 521 │   assert.equal(
+        │   ^^^^^^
+    522 │     report.numPendingTests,
+    523 │     0,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:526:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    524 │     "Required Raptor 3 tests were skipped"
+    525 │   );
+  > 526 │   assert.deepEqual(
+        │   ^^^^^^
+    527 │     report.testResults.map((suite) => suite.name).sort(),
+    528 │     files.map((file) => resolve(RAPTOR3_ROOT, file)).sort(),
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:537:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    535 │     );
+    536 │     for (const test of suite.assertionResults)
+  > 537 │       assert.equal(test.status, "passed");
+        │       ^^^^^^
+    538 │   }
+    539 │ }
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:602:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    600 │   );
+    601 │   const restored = await fileIdentity(archiveTemporaryPath, "gzip");
+  > 602 │   assert.deepEqual(
+        │   ^^^^^^
+    603 │     restored,
+    604 │     original,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1016:9 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1014 │           (suite) => suite.name === resolve(RAPTOR3_ROOT, file)
+    1015 │         );
+  > 1016 │         assert.equal(
+         │         ^^^^^^
+    1017 │           comparison.assertionResults.length,
+    1018 │           expected,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1024:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1022 │     }
+    1023 │     if (replayInput) {
+  > 1024 │       assert.equal(
+         │       ^^^^^^
+    1025 │         createHash("sha256")
+    1026 │           .update(readFileSync(replayInput.path))
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1047:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1045 │         readFileSync(join(directory, "corpus.json"), "utf8")
+    1046 │       );
+  > 1047 │       assert.equal(corpus.formatVersion, 1);
+         │       ^^^^^^
+    1048 │       assertRaptor3Identity(corpus.identity, identity);
+    1049 │       assert.equal(corpus.records[0], "array");
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1049:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1047 │       assert.equal(corpus.formatVersion, 1);
+    1048 │       assertRaptor3Identity(corpus.identity, identity);
+  > 1049 │       assert.equal(corpus.records[0], "array");
+         │       ^^^^^^
+    1050 │       assert.equal(
+    1051 │         corpus.records[1].length,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1050:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1048 │       assertRaptor3Identity(corpus.identity, identity);
+    1049 │       assert.equal(corpus.records[0], "array");
+  > 1050 │       assert.equal(
+         │       ^^^^^^
+    1051 │         corpus.records[1].length,
+    1052 │         extensionCampaign.seedCount * extensionCampaign.profiles.length
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1090:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1088 │         readFileSync(join(directory, "verified.json"), "utf8")
+    1089 │       );
+  > 1090 │       assert.equal(receipt.mode, request.mode);
+         │       ^^^^^^
+    1091 │       assert.equal(receipt.alternative, measurement.alternative);
+    1092 │       assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1091:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1089 │       );
+    1090 │       assert.equal(receipt.mode, request.mode);
+  > 1091 │       assert.equal(receipt.alternative, measurement.alternative);
+         │       ^^^^^^
+    1092 │       assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+    1093 │       assert.deepEqual(receipt.instrumentedIdentity, identity);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1092:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1090 │       assert.equal(receipt.mode, request.mode);
+    1091 │       assert.equal(receipt.alternative, measurement.alternative);
+  > 1092 │       assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+         │       ^^^^^^
+    1093 │       assert.deepEqual(receipt.instrumentedIdentity, identity);
+    1094 │       assert.equal(receipt.cases.length, 28);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1093:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1091 │       assert.equal(receipt.alternative, measurement.alternative);
+    1092 │       assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+  > 1093 │       assert.deepEqual(receipt.instrumentedIdentity, identity);
+         │       ^^^^^^
+    1094 │       assert.equal(receipt.cases.length, 28);
+    1095 │       assert.equal(receipt.replays, 60);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1094:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1092 │       assert.deepEqual(receipt.baseIdentity, measurement.baseIdentity);
+    1093 │       assert.deepEqual(receipt.instrumentedIdentity, identity);
+  > 1094 │       assert.equal(receipt.cases.length, 28);
+         │       ^^^^^^
+    1095 │       assert.equal(receipt.replays, 60);
+    1096 │       assert.equal(receipt.skipped, 0);
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1095:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1093 │       assert.deepEqual(receipt.instrumentedIdentity, identity);
+    1094 │       assert.equal(receipt.cases.length, 28);
+  > 1095 │       assert.equal(receipt.replays, 60);
+         │       ^^^^^^
+    1096 │       assert.equal(receipt.skipped, 0);
+    1097 │       process.stdout.write(
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:1096:7 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    1094 │       assert.equal(receipt.cases.length, 28);
+    1095 │       assert.equal(receipt.replays, 60);
+  > 1096 │       assert.equal(receipt.skipped, 0);
+         │       ^^^^^^
+    1097 │       process.stdout.write(
+    1098 │         `Raptor 3 ${request.mode} measurement verified. Evidence: ${directory}\n`
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+scripts/run-raptor3.mjs:843:8 lint/performance/noDelete  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Avoid the delete operator which can impact performance.
+  
+    841 │   if (request.mode === "g3p02-contracts")
+    842 │     environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
+  > 843 │   else delete environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT;
+        │        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    844 │   environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY = directory;
+    845 │   if (request.mode === "replay")
+  
+  i Unsafe fix: Use an undefined assignment instead.
+  
+     841  841 │     if (request.mode === "g3p02-contracts")
+     842  842 │       environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT = "1";
+     843      │ - ··else·delete·environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT;
+          843 │ + ··else·environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY_CONTRACT·=·undefined;
+     844  844 │     environment.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY = directory;
+     845  845 │     if (request.mode === "replay")
+  
+
+tests/raptor3/g4/unit02/decimal-having-operand.test.ts:35:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+    33 │  */
+    34 │ 
+  > 35 │ import assert from "node:assert/strict";
+       │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    36 │ import type { DatabaseAdapter } from "@adapters/database-adapter";
+    37 │ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+    36 36 │   import type { DatabaseAdapter } from "@adapters/database-adapter";
+    37 37 │   import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+    38    │ - import·{·EngineSchema·}·from·"@query-engine/raptor3/shared/schema";
+    39    │ - import·{·Queries·}·from·"@query-engine/raptor3/shared/query";
+       38 │ + import·{·Queries·}·from·"@query-engine/raptor3/shared/query";
+       39 │ + import·{·EngineSchema·}·from·"@query-engine/raptor3/shared/schema";
+    40 40 │   import { hydrateSchemaNames, s } from "@schema";
+    41 41 │   import { beforeAll, describe, it } from "vitest";
+  
+
+tests/raptor3/g4/unit02/decimal-having-operand.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    81 81 │         }
+    82 82 │       };
+    83    │ - ····const·candidateOutcome·=·observe(()·=>·candidate(new·SQLiteAdapter(),·args));
+       83 │ + ····const·candidateOutcome·=·observe(()·=>
+       84 │ + ······candidate(new·SQLiteAdapter(),·args)
+       85 │ + ····);
+    84 86 │       assert.match(
+    85 87 │         candidateOutcome,
+  
+
+tests/raptor3/g4/unit02/decimal-having-operand.test.ts:86:7 lint/performance/useTopLevelRegex ━━━━━━━━━━
+
+  × This regex literal is not defined in the top level scope. This can lead to performance issues if this function is called frequently.
+  
+    84 │     assert.match(
+    85 │       candidateOutcome,
+  > 86 │       /outside this provider's exact HAVING operand cast domain/
+       │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    87 │     );
+    88 │   });
+  
+  i Move the regex literal outside of this scope, and place it at the top level of this module, as a constant.
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:157:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    155 │   name: string;
+    156 │ } {
+  > 157 │   assert.ok(
+        │   ^^^^^^
+    158 │     failure instanceof VibORMError,
+    159 │     `not a VibORMError: ${String(failure)}`
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:188:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    186 │   const driver = new BeforeDispatchDriver({ client: database });
+    187 │   const client = createClient({ schema, driver });
+  > 188 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    189 │   const publicClient = client as unknown as Record<
+    190 │     string,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/lone-statement-transport.test.ts:229:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    227 │   const driver = new BeforeDispatchDriver({ client: database });
+    228 │   const client = createClient({ schema, driver });
+  > 229 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    230 │   const publicClient = client as unknown as Record<
+    231 │     string,
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+    517 517 │       assert.equal(observed.batches, 1, diagnostic);
+    518 518 │       assert.deepEqual(
+    519     │ - ······(observed.failure·as·{·cause?:·{·meta?:·Record<string,·unknown>·}·})
+    520     │ - ········.cause?.meta?.recordSeriesProgress,
+        519 │ + ······(observed.failure·as·{·cause?:·{·meta?:·Record<string,·unknown>·}·}).cause
+        520 │ + ········?.meta?.recordSeriesProgress,
+    521 521 │         {
+    522 522 │           atomicity: "segment",
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:229:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    227 │   name: string;
+    228 │ } {
+  > 229 │   assert.ok(
+        │   ^^^^^^
+    230 │     failure instanceof VibORMError,
+    231 │     `not a VibORMError: ${String(failure)}`
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:249:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    247 │   const driver = new BeforeDispatchDriver({ client: database });
+    248 │   const client = createClient({ schema, driver });
+  > 249 │   assert.equal((await syncLiveSchema(client)).applied, true);
+        │   ^^^^^^
+    250 │   try {
+    251 │     return await drive({ driver, database });
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:283:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    281 │   const driver = new BeforeDispatchDriver({ client: database });
+    282 │   const base = createClient({ driver, schema });
+  > 283 │   assert.equal((await syncLiveSchema(base)).applied, true);
+        │   ^^^^^^
+    284 │   const cacheDriver = new RecordingCache();
+    285 │   const background: Promise<unknown>[] = [];
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts:356:3 lint/suspicious/noMisplacedAssertion ━━━━━━━━━━
+
+  × The assertion isn't inside a it(), test() or Deno.test() function call.
+  
+    354 │       : new SplittingTransactionalDriver({ client: database });
+    355 │   const base = createClient({ driver, schema });
+  > 356 │   assert.equal((await syncLiveSchema(base)).applied, true);
+        │   ^^^^^^
+    357 │   const cacheDriver = new RecordingCache();
+    358 │   const background: Promise<unknown>[] = [];
+  
+  i This will result in unexpected behaviours from your test suite.
+  
+  i Move the assertion inside a it(), test() or Deno.test() function call.
+  
+
+vitest.workspace.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × The imports and exports are not sorted.
+  
+  > 1 │ import { defineWorkspace } from "vitest/config";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    2 │ import { CLIENT_COVERAGE_TESTS } from "./scripts/client-test-manifest.mjs";
+    3 │ import { EXTENDED_LOCAL_TESTS } from "./scripts/credential-free-test-manifest.mjs";
+  
+  i Safe fix: Organize Imports (Biome)
+  
+      8   8 │   import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
+      9   9 │   import {
+     10     │ - ··G1_COMPARISON_TESTS,
+     11     │ - ··G1_BASELINE_TESTS,
+     12     │ - ··G1_CONTRACT_TESTS,
+     13     │ - ··G2_BASELINE_TESTS,
+     14     │ - ··G2_CONTRACT_TESTS,
+     15     │ - ··G25_CONTRACT_TESTS,
+     16     │ - ··G25_PG_CONTRACT_TESTS,
+     17     │ - ··G27_CONTRACT_TESTS,
+     18     │ - ··G27_MYSQL_CONTRACT_TESTS,
+     19     │ - ··G27_PG_CONTRACT_TESTS,
+     20     │ - ··G3P02_PG_CONTRACT_TESTS,
+     21     │ - ··G3P03_CONTRACT_TESTS,
+     22     │ - ··G3P03_PG_CONTRACT_TESTS,
+     23     │ - ··G3P04_CONTRACT_TESTS,
+     24     │ - ··G3P04_REVIEW_CONTRACT_TESTS,
+     25     │ - ··G3P04_PG_CONTRACT_TESTS,
+     26     │ - ··G3P05_CONTRACT_TESTS,
+     27     │ - ··G3_BULK_SERIES_TESTS,
+     28     │ - ··G3_SUPPRESSION_RETRY_TESTS,
+     29     │ - ··G3_TRANSACTION_ARRAY_TESTS,
+     30     │ - ··G3_DEPTH_RECURRENCE_TESTS,
+     31     │ - ··G3_SCOPE_COMPOSITION_PG_TESTS,
+     32     │ - ··G3_GENERATED_SMOKE_TESTS,
+     33     │ - ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+     34     │ - ··G3_GENERATED_MINIMIZATION_TESTS,
+     35     │ - ··G3_GENERATED_CAMPAIGN_TESTS,
+     36     │ - ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     37     │ - ··G4_READ_TESTS,
+     38     │ - ··G4_GENERATION_SELFTEST_TESTS,
+     39     │ - ··G4_GENERATED_CAMPAIGN_TESTS,
+     40     │ - ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+     41     │ - ··G4_WRITE_CAMPAIGN_TESTS,
+     42     │ - ··G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+     43     │ - ··G4_UNIT01_AUTHOR_TESTS,
+     44     │ - ··G4_UNIT01_REVIEW_TESTS,
+     45     │ - ··G4_UNIT02_AUTHOR_TESTS,
+     46     │ - ··G4_UNIT02_MYSQL_TESTS,
+     47     │ - ··G4_UNIT02_PG_TESTS,
+     48     │ - ··G4_NATIVE_PG_TESTS,
+     49     │ - ··G4_NATIVE_MYSQL_TESTS,
+     50     │ - ··G3_EXECUTION_REVIEW_TESTS,
+     51     │ - ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+     52     │ - ··G3_SCOPE_FAILURE_TESTS,
+     53     │ - ··G3_BULK_RESULT_BOUNDARY_TESTS,
+     54     │ - ··POST_G3_CLEARABILITY_CONTRACT_TESTS,
+     55     │ - ··POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+     56     │ - ··POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+     57     │ - ··POST_G3_SCHEMA_VIEW_TESTS,
+     58     │ - ··POST_G3_PROJECTION_PREPARATION_TESTS,
+     59     │ - ··POST_G3_SELECTOR_PREPARATION_TESTS,
+     60     │ - ··POST_G3_HISTORY_ANALYSIS_TESTS,
+     61     │ - ··G29_MEMBER_DEPENDENCY_TESTS,
+     62     │ - ··G29_DEPENDENCY_BOUNDARY_TESTS,
+     63     │ - ··G29_DEPENDENCY_CHOICE_TESTS,
+     64     │ - ··G29_RESULT_PROGRESS_TESTS,
+     65     │ - ··CS01_STRUCTURAL_REFERENCE_TESTS,
+     66     │ - ··CS01_EXTENSION_A_TESTS,
+     67     │ - ··CS01_EXTENSION_B_TESTS,
+     68     │ - ··CS01_EXTENSION_COMPOSITION_TESTS,
+     69     │ - ··CS03_MEMBER_SCOPE_TESTS,
+     70     │ - ··CS03_EXTENSION_CAMPAIGN_TESTS,
+     71     │ - ··CS03_EXTENSION_SUPPORT_TESTS,
+     72     │ - ··CS02_REPEATED_OCCURRENCE_TESTS,
+     73     │ - ··CS02_STRUCTURE_MEASUREMENT_TESTS,
+     74     │ - ··G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+     75     │ - ··G29_MEMBER_DEPENDENCY_PG_TESTS,
+     76     │ - ··G2_DIAGNOSTIC_TESTS,
+     77     │ - ··G2_PG_BASELINE_TESTS,
+     78     │ - ··G2_PG_CONTRACT_TESTS,
+     79     │ - ··G2_CAMPAIGN_TESTS,
+     80     │ - ··G2_TRANSPORT_TESTS,
+     81     │ - ··G2_GENERATED_TESTS,
+     82     │ - ··G1_GENERATED_TESTS,
+     83     │ - ··G1_CAMPAIGN_TESTS,
+     84     │ - ··G1_TRANSPORT_TESTS,
+     85     │ - ··G1_TRANSPORT_CAMPAIGN_TESTS,
+     86     │ - ··G1_PROVIDER_TESTS,
+     87     │ - ··G1_PROVIDER_BASELINE_TESTS,
+     88     │ - ··RAPTOR3_TESTS,
+     89     │ - }·from·"./scripts/raptor3-manifest.mjs";
+         10 │ + ··QUERY_ENGINE_CORE_TESTS,
+         11 │ + ··WRITE_ENGINE_CORE_TESTS,
+         12 │ + ··WRITE_ENGINE_COVERAGE_TESTS,
+         13 │ + }·from·"./scripts/query-engine-test-manifest.mjs";
+     90  14 │   import {
+     91     │ - ··QUERY_ENGINE_CORE_TESTS,
+     92     │ - ··WRITE_ENGINE_CORE_TESTS,
+     93     │ - ··WRITE_ENGINE_COVERAGE_TESTS,
+     94     │ - }·from·"./scripts/query-engine-test-manifest.mjs";
+         15 │ + ··CS01_EXTENSION_A_TESTS,
+         16 │ + ··CS01_EXTENSION_B_TESTS,
+         17 │ + ··CS01_EXTENSION_COMPOSITION_TESTS,
+         18 │ + ··CS01_STRUCTURAL_REFERENCE_TESTS,
+         19 │ + ··CS02_REPEATED_OCCURRENCE_TESTS,
+         20 │ + ··CS02_STRUCTURE_MEASUREMENT_TESTS,
+         21 │ + ··CS03_EXTENSION_CAMPAIGN_TESTS,
+         22 │ + ··CS03_EXTENSION_SUPPORT_TESTS,
+         23 │ + ··CS03_MEMBER_SCOPE_TESTS,
+         24 │ + ··G1_BASELINE_TESTS,
+         25 │ + ··G1_CAMPAIGN_TESTS,
+         26 │ + ··G1_COMPARISON_TESTS,
+         27 │ + ··G1_CONTRACT_TESTS,
+         28 │ + ··G1_GENERATED_TESTS,
+         29 │ + ··G1_PROVIDER_BASELINE_TESTS,
+         30 │ + ··G1_PROVIDER_TESTS,
+         31 │ + ··G1_TRANSPORT_CAMPAIGN_TESTS,
+         32 │ + ··G1_TRANSPORT_TESTS,
+         33 │ + ··G2_BASELINE_TESTS,
+         34 │ + ··G2_CAMPAIGN_TESTS,
+         35 │ + ··G2_CONTRACT_TESTS,
+         36 │ + ··G2_DIAGNOSTIC_TESTS,
+         37 │ + ··G2_GENERATED_TESTS,
+         38 │ + ··G2_PG_BASELINE_TESTS,
+         39 │ + ··G2_PG_CONTRACT_TESTS,
+         40 │ + ··G2_TRANSPORT_TESTS,
+         41 │ + ··G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+         42 │ + ··G3_BULK_RESULT_BOUNDARY_TESTS,
+         43 │ + ··G3_BULK_SERIES_TESTS,
+         44 │ + ··G3_DEPTH_RECURRENCE_TESTS,
+         45 │ + ··G3_EXECUTION_REVIEW_TESTS,
+         46 │ + ··G3_GENERATED_CAMPAIGN_TESTS,
+         47 │ + ··G3_GENERATED_MINIMIZATION_TESTS,
+         48 │ + ··G3_GENERATED_SMOKE_TESTS,
+         49 │ + ··G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         50 │ + ··G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+         51 │ + ··G3_SCOPE_COMPOSITION_PG_TESTS,
+         52 │ + ··G3_SCOPE_FAILURE_TESTS,
+         53 │ + ··G3_SUPPRESSION_RETRY_TESTS,
+         54 │ + ··G3_TRANSACTION_ARRAY_TESTS,
+         55 │ + ··G3P02_PG_CONTRACT_TESTS,
+         56 │ + ··G3P03_CONTRACT_TESTS,
+         57 │ + ··G3P03_PG_CONTRACT_TESTS,
+         58 │ + ··G3P04_CONTRACT_TESTS,
+         59 │ + ··G3P04_PG_CONTRACT_TESTS,
+         60 │ + ··G3P04_REVIEW_CONTRACT_TESTS,
+         61 │ + ··G3P05_CONTRACT_TESTS,
+         62 │ + ··G4_GENERATED_CAMPAIGN_TESTS,
+         63 │ + ··G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+         64 │ + ··G4_GENERATION_SELFTEST_TESTS,
+         65 │ + ··G4_NATIVE_MYSQL_TESTS,
+         66 │ + ··G4_NATIVE_PG_TESTS,
+         67 │ + ··G4_READ_TESTS,
+         68 │ + ··G4_UNIT01_AUTHOR_TESTS,
+         69 │ + ··G4_UNIT01_REVIEW_TESTS,
+         70 │ + ··G4_UNIT02_AUTHOR_TESTS,
+         71 │ + ··G4_UNIT02_MYSQL_TESTS,
+         72 │ + ··G4_UNIT02_PG_TESTS,
+         73 │ + ··G4_WRITE_CAMPAIGN_TESTS,
+  23 more lines truncated
+  
+
+Checked 10 files in 18ms. No fixes applied.
+Found 175 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

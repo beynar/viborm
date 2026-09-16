@@ -1,5 +1,5 @@
 import { QueryError } from "@errors";
-import { isReadOperation } from "@query-engine/write-engine/routing";
+import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionHandler } from "./chain";

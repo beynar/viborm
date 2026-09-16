@@ -32,7 +32,7 @@ const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
 describe.runIf(provider === "pg" && port > 0)(
   "G4-02 native PostgreSQL date codec",
   () => {
-    it("decodes a DATE column identically on the shipped and candidate engines", async () => {
+    it("decodes a DATE column identically on the client route seam and the command engine", async () => {
       const table = `g4u2_dates_${randomUUID().replaceAll("-", "")}`;
       const day = s.model({ id: s.int().id(), at: s.date() }).map(table);
       const schema = { day };

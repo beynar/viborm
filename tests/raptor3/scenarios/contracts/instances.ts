@@ -9,90 +9,63 @@ import type {
 } from "../../harness/protocol";
 import type { ObservedWorld } from "../../harness/sqlite-world";
 
-export function verifyChangedDependencyCommandsProgress(
-  baselineOutcome: OperationOutcome,
-  comparedOutcome: OperationOutcome
+/**
+ * Compare the client route with the PROGRAM engine.
+ *
+ * The one recorded difference between the two candidate engines is the
+ * record-series progress a planning failure publishes: the commands engine —
+ * and therefore the client route, which is built on it — names the
+ * `memberPath` and the `totalMembers`, and the program engine does not. That
+ * difference was adjudicated against the deleted engine's baseline before
+ * C-01 and is stated here, where it now lives, so everything else still has to
+ * agree exactly.
+ */
+export function verifyProgramEnginePair(
+  route: ObservedWorld,
+  program: ObservedWorld
 ): void {
-  assert.equal(baselineOutcome.kind, "failure");
-  assert.equal(comparedOutcome.kind, "failure");
-  assert(isRecord(baselineOutcome.failure.meta));
-  assert(isRecord(comparedOutcome.failure.meta));
-  assert(isRecord(baselineOutcome.failure.meta.recordSeriesProgress));
-  assert(isRecord(comparedOutcome.failure.meta.recordSeriesProgress));
-  const baselineProgress = baselineOutcome.failure.meta.recordSeriesProgress;
-  const comparedProgress = comparedOutcome.failure.meta.recordSeriesProgress;
-  assert.deepEqual(comparedProgress, {
-    atomicity: "segment",
-    phase: "planning",
-    committedSegments: 1,
-    committedWriteMembers: 1,
-    completedMembers: 0,
-    memberPath: [1],
-    totalMembers: 2,
-  });
-  assert.deepEqual(
-    Object.entries(comparedProgress).filter(
-      ([field]) => field !== "memberPath" && field !== "totalMembers"
-    ),
-    Object.entries(baselineProgress)
-  );
-  assert.deepEqual(
-    Object.entries(comparedOutcome.failure.meta).filter(
-      ([field]) => field !== "recordSeriesProgress"
-    ),
-    Object.entries(baselineOutcome.failure.meta).filter(
-      ([field]) => field !== "recordSeriesProgress"
-    )
-  );
-  assert.deepEqual(
-    Object.entries(comparedOutcome.failure).filter(
-      ([field]) => field !== "meta"
-    ),
-    Object.entries(baselineOutcome.failure).filter(
-      ([field]) => field !== "meta"
-    )
+  route.fixture.assert(route.observation);
+  program.fixture.assert(program.observation);
+  assertEquivalentRunObservations(
+    route.record.scenarioId,
+    {
+      ...route.observation,
+      outcome: withoutMemberPath(route.observation.outcome),
+    },
+    program.observation
   );
 }
 
-/** Compare only the two explicitly adjudicated S2 admission contracts. */
-export function verifyInstanceAdmissionPair(
-  baseline: ObservedWorld,
-  compared: ObservedWorld
-): void {
-  const id = baseline.record.scenarioId;
-  assert(id === "s2-distinct-defaults" || id === "s2-changed-dependency");
-  baseline.fixture.assert(baseline.observation);
-  compared.fixture.assert(compared.observation);
-  let final = baseline.observation.final;
-  if (id === "s2-distinct-defaults") {
-    const renamed = new Map([
-      ["ticket-3", "ticket-2"],
-      ["ticket-5", "ticket-3"],
-    ]);
-    final = {
-      ...final,
-      tickets: final.tickets!.map((value) => {
-        const ticket = value as { id: string; note: string; binId: number };
-        return { ...ticket, id: renamed.get(ticket.id) ?? ticket.id };
-      }),
-    };
-  }
-  let baselineOutcome = baseline.observation.outcome;
-  const comparedOutcome = compared.observation.outcome;
-  if (
-    id === "s2-changed-dependency" &&
-    compared.record.candidate === "commands" &&
-    compared.record.profile === "sqlite-atomic-batch"
-  ) {
-    verifyChangedDependencyCommandsProgress(baselineOutcome, comparedOutcome);
-    baselineOutcome = comparedOutcome;
-  }
-  // Both raw ledgers and generated IDs are pinned by the exact oracles above.
-  assertEquivalentRunObservations(
-    id,
-    { ...baseline.observation, outcome: baselineOutcome, final, defaults: [] },
-    { ...compared.observation, defaults: [] }
-  );
+function withoutMemberPath(outcome: OperationOutcome): OperationOutcome {
+  if (outcome.kind !== "failure") return outcome;
+  const meta = outcome.failure.meta;
+  if (!isRecord(meta)) return outcome;
+  const progress = meta.recordSeriesProgress;
+  if (!isRecord(progress)) return outcome;
+  const narrowed = copyWithPrototype(progress, ["memberPath", "totalMembers"]);
+  const narrowedMeta = copyWithPrototype(meta, []);
+  narrowedMeta.recordSeriesProgress = narrowed;
+  return {
+    ...outcome,
+    failure: { ...outcome.failure, meta: narrowedMeta },
+  };
+}
+
+/**
+ * A copy without the named keys that the deep comparison cannot otherwise tell
+ * apart from its original — the engines publish a null-prototype `meta`, and a
+ * plain object literal is a different value to `assert.deepEqual`.
+ */
+function copyWithPrototype(
+  value: Record<string, unknown>,
+  omit: readonly string[]
+): Record<string, unknown> {
+  const copy = Object.create(
+    Object.getPrototypeOf(value) as object | null
+  ) as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(value))
+    if (!omit.includes(key)) copy[key] = entry;
+  return copy;
 }
 
 const distinctDefaults: ScenarioDefinition = {
@@ -104,7 +77,6 @@ const distinctDefaults: ScenarioDefinition = {
   ],
   prepare(controls) {
     let nextDefault = 0;
-    let singleAdmission = false;
     const bin = s
       .model({
         id: s.int().id(),
@@ -152,7 +124,6 @@ const distinctDefaults: ScenarioDefinition = {
         `);
       },
       async invoke(driver, candidateFactory) {
-        singleAdmission = candidateFactory !== undefined;
         if (candidateFactory)
           return await candidateFactory({
             schema: { bin, ticket },
@@ -177,30 +148,24 @@ const distinctDefaults: ScenarioDefinition = {
           kind: "success",
           value: { count: 2 },
         });
-        // The envelope and each captured occurrence admit once in Raptor 3.
-        // Keep the old duplicate relation evaluations visible in its baseline.
+        // The envelope and each captured occurrence admit once (D-8), on every
+        // arm: since C-01 the public client IS this engine.
         assert.deepEqual(observation.defaults, [
           { name: "ticket.id", value: "ticket-1" },
           { name: "ticket.id", value: "ticket-2" },
           { name: "ticket.id", value: "ticket-3" },
-          ...(singleAdmission
-            ? []
-            : [
-                { name: "ticket.id", value: "ticket-4" },
-                { name: "ticket.id", value: "ticket-5" },
-              ]),
         ]);
         assert.deepEqual(observation.final, {
           bins,
           tickets: [
             decoy,
             {
-              id: singleAdmission ? "ticket-2" : "ticket-3",
+              id: "ticket-2",
               note: "auto",
               binId: 1,
             },
             {
-              id: singleAdmission ? "ticket-3" : "ticket-5",
+              id: "ticket-3",
               note: "auto",
               binId: 2,
             },
@@ -219,7 +184,6 @@ const changedDependency: ScenarioDefinition = {
   prepare(controls) {
     let captureReached = false;
     let capturedDefaultCalls = 0;
-    let singleAdmission = false;
     const shelf = s
       .model({
         id: s.int().id(),
@@ -306,7 +270,6 @@ const changedDependency: ScenarioDefinition = {
         `);
       },
       async invoke(driver, candidateFactory) {
-        singleAdmission = candidateFactory !== undefined;
         if (candidateFactory)
           return await candidateFactory({
             schema: { shelf, bin, target },
@@ -359,10 +322,37 @@ const changedDependency: ScenarioDefinition = {
           observation.outcome.failure.message,
           "Nested operation 'set' on relation 'targets' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries."
         );
+        // The retired `verifyChangedDependencyCommandsProgress` adjudicator
+        // carried this literal — the engine's OWN published progress at the
+        // refusal — inside a two-armed comparison, and it ran at one profile
+        // only (`sqlite-atomic-batch`; the interactive profile publishes no
+        // segment progress). Restated here, one-sided and unchanged, so this
+        // scenario pins the record again.
+        if (controls.profile === "sqlite-atomic-batch") {
+          assert(isRecord(observation.outcome.failure.meta));
+          const progress =
+            observation.outcome.failure.meta.recordSeriesProgress;
+          assert(isRecord(progress));
+          const { memberPath, totalMembers, ...segment } = progress;
+          assert.deepEqual(segment, {
+            atomicity: "segment",
+            phase: "planning",
+            committedSegments: 1,
+            committedWriteMembers: 1,
+            completedMembers: 0,
+          });
+          // The program engine publishes the same segment record without the
+          // located pair — the one difference `verifyProgramEnginePair` strips
+          // — so those two fields are pinned for the engines that publish them.
+          if (memberPath !== undefined)
+            assert.deepEqual(
+              { memberPath, totalMembers },
+              { memberPath: [1], totalMembers: 2 }
+            );
+        }
         assert.deepEqual(observation.defaults, [
           { name: "target.id", value: 1 },
           { name: "target.id", value: 1 },
-          ...(singleAdmission ? [] : [{ name: "target.id", value: 1 }]),
           { name: "target.id", value: 2 },
         ]);
         assert.deepEqual(observation.final, {

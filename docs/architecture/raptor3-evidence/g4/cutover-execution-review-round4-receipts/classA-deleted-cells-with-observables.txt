@@ -1,0 +1,401 @@
+deleted cells total 200
+write/architecture-gates :: write engine structural gates (PLAN P0) (f) gives child-held membership one lowering owner
+      -> Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/CreateOperation.ts'
+write/parse-boundary-gate :: write engine parse-boundary gate (X2 — one home for validation) (2) create/update/delete validate their whole args through the boundary
+      -> Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/CreateOperation.ts'
+write/parse-boundary-gate :: write engine parse-boundary gate (X2 — one home for validation) (5) the upsert envelope is a schema at the boundary, wired at the one construction path
+      -> Error: ENOENT: no such file or directory, open '/Users/arnaud/code/viborm/src/query-engine/write-engine/routing.ts'
+write/parse-boundary-gate :: write engine parse-boundary gate (X2 — one home for validation) (ratchet self-check) the current counts equal the pinned ceilings
+      -> AssertionError: expected 2 to be 6 // Object.is equality
+query/batch-attribution-hazard-signature :: 'PostgreSQL' batch attribution hazard signature the adapter spells both hazard shapes the way the table expects
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'PostgreSQL' batch attribution hazard signature an ordinary statement carrying this dialect's trick blocks attribution
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'PostgreSQL' batch attribution hazard signature the other dialect's trick is not this dialect's, so attribution stands
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'PostgreSQL' batch attribution hazard signature a batch of nothing but its own assertion attributes
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'MySQL' batch attribution hazard signature the adapter spells both hazard shapes the way the table expects
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'MySQL' batch attribution hazard signature an ordinary statement carrying this dialect's trick blocks attribution
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'MySQL' batch attribution hazard signature the other dialect's trick is not this dialect's, so attribution stands
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'MySQL' batch attribution hazard signature a batch of nothing but its own assertion attributes
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'SQLite' batch attribution hazard signature the adapter spells both hazard shapes the way the table expects
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'SQLite' batch attribution hazard signature an ordinary statement carrying this dialect's trick blocks attribution
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'SQLite' batch attribution hazard signature the other dialect's trick is not this dialect's, so attribution stands
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/batch-attribution-hazard-signature :: 'SQLite' batch attribution hazard signature a batch of nothing but its own assertion attributes
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL one normalized order drives ORDER BY and one derived cursor row
+      -> AssertionError: expected null not to be null
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL preserves frozen multi-entry order while appending the identity
+      -> AssertionError: expected 'ORDER BY "q0"."age" DESC NULLS FIRST,…' to contain '"t0"."age" DESC NULLS FIRST'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL bare directions resolve portable null placement explicitly
+      -> AssertionError: expected 'ORDER BY "q0"."age" ASC NULLS LAST, "…' to contain '"t0"."age" ASC NULLS LAST'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL negative take flips direction and null placement together
+      -> AssertionError: expected 'ORDER BY "q0"."age" DESC NULLS LAST, …' to contain '"t0"."age" DESC NULLS LAST'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL include aliases remain distinct from the cursor derived row
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL count uses the normalized cursor order and derived row
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL NOT NULL sort columns compare as a row value against a row subquery
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '("t0"."alternate", "t0"."id") >= (SEL…'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL a single NOT NULL sort column needs no row constructor
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '"t0"."id" >= (SELECT'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL a nullable sort column keeps the null-guarded predicate
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'PostgreSQL' cursor SQL vector-distance cursor ordering fails explicitly
+      -> AssertionError: expected [Function] to throw error including 'Cursor pagination supports direct sca…' but got 'vector.orderBy is n
+query/cursor-pagination-sql :: 'MySQL' cursor SQL one normalized order drives ORDER BY and one derived cursor row
+      -> AssertionError: expected null not to be null
+query/cursor-pagination-sql :: 'MySQL' cursor SQL preserves frozen multi-entry order while appending the identity
+      -> AssertionError: expected 'ORDER BY (`q0`.`age` IS NULL) DESC, `…' to contain '(`t0`.`age` IS NULL) DESC, `t0`.`age`…'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL bare directions resolve portable null placement explicitly
+      -> AssertionError: expected 'ORDER BY (`q0`.`age` IS NULL) ASC, `q…' to contain '(`t0`.`age` IS NULL) ASC, `t0`.`age` …'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL negative take flips direction and null placement together
+      -> AssertionError: expected 'ORDER BY (`q0`.`age` IS NULL) ASC, `q…' to contain '(`t0`.`age` IS NULL) ASC, `t0`.`age` …'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL include aliases remain distinct from the cursor derived row
+      -> AssertionError: expected 'SELECT `q0`.`alternate` AS `alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL count uses the normalized cursor order and derived row
+      -> AssertionError: expected 'SELECT COUNT(*) AS `_count` FROM (SEL…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL NOT NULL sort columns compare as a row value against a row subquery
+      -> AssertionError: expected 'SELECT `q0`.`alternate` AS `alternate…' to contain '(`t0`.`alternate`, `t0`.`id`) >= (SEL…'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL a single NOT NULL sort column needs no row constructor
+      -> AssertionError: expected 'SELECT `q0`.`alternate` AS `alternate…' to contain '`t0`.`id` >= (SELECT'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL a nullable sort column keeps the null-guarded predicate
+      -> AssertionError: expected 'SELECT `q0`.`alternate` AS `alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'MySQL' cursor SQL vector-distance cursor ordering fails explicitly
+      -> AssertionError: expected [Function] to throw error including 'Cursor pagination supports direct sca…' but got 'vector.orderBy is n
+query/cursor-pagination-sql :: 'SQLite' cursor SQL one normalized order drives ORDER BY and one derived cursor row
+      -> AssertionError: expected null not to be null
+query/cursor-pagination-sql :: 'SQLite' cursor SQL preserves frozen multi-entry order while appending the identity
+      -> AssertionError: expected 'ORDER BY "q0"."age" DESC NULLS FIRST,…' to contain '"t0"."age" DESC NULLS FIRST'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL bare directions resolve portable null placement explicitly
+      -> AssertionError: expected 'ORDER BY "q0"."age" ASC NULLS LAST, "…' to contain '"t0"."age" ASC NULLS LAST'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL negative take flips direction and null placement together
+      -> AssertionError: expected 'ORDER BY "q0"."age" DESC NULLS LAST, …' to contain '"t0"."age" DESC NULLS LAST'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL include aliases remain distinct from the cursor derived row
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL count uses the normalized cursor order and derived row
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL NOT NULL sort columns compare as a row value against a row subquery
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '("t0"."alternate", "t0"."id") >= (SEL…'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL a single NOT NULL sort column needs no row constructor
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '"t0"."id" >= (SELECT'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL a nullable sort column keeps the null-guarded predicate
+      -> AssertionError: expected 'SELECT "q0"."alternate" AS "alternate…' to contain '__viborm_cursor_0'
+query/cursor-pagination-sql :: 'SQLite' cursor SQL vector-distance cursor ordering fails explicitly
+      -> AssertionError: expected [Function] to throw error including 'Cursor pagination supports direct sca…' but got 'vector.orderBy is n
+query/decimal-having-operand-sql :: 'PostgreSQL' decimal having operands grouped decimal lists project through their transport but group on the physical column
+      -> AssertionError: expected 'CAST("q0"."amounts" AS TEXT[]) AS "am…' to contain 'CAST("t0"."amounts" AS TEXT[]) AS "am…'
+query/decimal-having-operand-sql :: 'PostgreSQL' decimal having operands having _count compares a row count, so it does NOT get the cast
+      -> AssertionError: expected 'CAST($1 AS NUMERIC(16,2))' to match /^\$\d+$/
+query/decimal-having-operand-sql :: 'MySQL' decimal having operands grouped decimal lists project through their transport but group on the physical column
+      -> AssertionError: expected 'CAST(`q0`.`amounts` AS CHAR) AS `amou…' to contain 'CAST(`t0`.`amounts` AS CHAR) AS `amou…'
+query/decimal-having-operand-sql :: 'MySQL' decimal having operands having _count compares a row count, so it does NOT get the cast
+      -> AssertionError: expected 'CAST($1 AS DECIMAL(16,2))' to match /^\$\d+$/
+query/decimal-having-operand-sql :: 'SQLite' decimal having operands grouped decimal lists project through their transport but group on the physical column
+      -> AssertionError: expected 'CAST("q0"."amounts" AS TEXT) AS "amou…' to contain 'CAST("t0"."amounts" AS TEXT) AS "amou…'
+query/decimal-having-operand-sql :: 'SQLite' decimal having operands having _count compares a row count, so it does NOT get the cast
+      -> AssertionError: expected 'CAST($1 AS INTEGER)' to match /^\$\d+$/
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand default mode compares both sides under the case-sensitive collation
+      -> AssertionError: expected '"q0"."title" = "q0"."slug_col"' to be '"t0"."title" = "t0"."slug_col"' // Object.is equality
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand insensitive mode folds AND collates both sides
+      -> AssertionError: expected 'TRANSLATE("q0"."title", \'ABCDEFGHIJK…' to be 'TRANSLATE("t0"."title", \'ABCDEFGHIJK…' // Object.is equa
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand insensitive `not` negates the folded comparison
+      -> AssertionError: expected 'NOT (TRANSLATE("q0"."title", \'ABCDEF…' to be 'NOT (TRANSLATE("t0"."title", \'ABCDEF…' // Object.is equa
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand insensitive contains carries the fold onto the referenced operand
+      -> AssertionError: expected 'POSITION(TRANSLATE("q0"."slug_col", \…' to contain 'TRANSLATE("t0"."title", \'ABCDEFGHIJK…'
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand insensitive startsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'LEFT(TRANSLATE("q0"."title", \'ABCDEF…' to contain 'TRANSLATE("t0"."title", \'ABCDEFGHIJK…'
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand insensitive endsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'RIGHT(TRANSLATE("q0"."title", \'ABCDE…' to contain 'TRANSLATE("t0"."title", \'ABCDEFGHIJK…'
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand default mode leaves the string predicates unwrapped on both sides
+      -> AssertionError: expected 'POSITION("q0"."slug_col" IN "q0"."tit…' to contain '"t0"."title"'
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL collation and folding of a referenced operand a literal operand is folded but not collation-wrapped
+      -> AssertionError: expected 'TRANSLATE("q0"."title", \'ABCDEFGHIJK…' to be 'TRANSLATE("t0"."title", \'ABCDEFGHIJK…' // Object.is equa
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL enum operands equals against a reference casts both sides to text
+      -> AssertionError: expected '"q0"."status" = CAST("q0"."review_sta…' to be 'CAST("t0"."status" AS TEXT) = CAST("t…' // Object.is equa
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL enum operands not against a reference negates the same comparison
+      -> AssertionError: expected 'NOT ("q0"."status" = CAST("q0"."revie…' to be 'NOT (CAST("t0"."status" AS TEXT) = CA…' // Object.is equa
+query/field-reference-sql :: 'PostgreSQL' field-reference SQL enum operands a literal operand leaves the column uncast and bound
+      -> AssertionError: expected '"q0"."status" = $1' to be '"t0"."status" = $1' // Object.is equality
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand default mode compares both sides under the case-sensitive collation
+      -> AssertionError: expected 'BINARY `q0`.`title` = BINARY `q0`.`sl…' to be 'BINARY `t0`.`title` = BINARY `t0`.`sl…' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand insensitive mode folds AND collates both sides
+      -> AssertionError: expected 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…' to be 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand insensitive `not` negates the folded comparison
+      -> AssertionError: expected 'NOT (BINARY REPLACE(REPLACE(REPLACE(R…' to be 'NOT (BINARY REPLACE(REPLACE(REPLACE(R…' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand insensitive contains carries the fold onto the referenced operand
+      -> AssertionError: expected 'LOCATE(BINARY BINARY REPLACE(REPLACE(…' to contain 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…'
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand insensitive startsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'LEFT(BINARY BINARY REPLACE(REPLACE(RE…' to contain 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…'
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand insensitive endsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'RIGHT(BINARY BINARY REPLACE(REPLACE(R…' to contain 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…'
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand default mode leaves the string predicates unwrapped on both sides
+      -> AssertionError: expected 'LOCATE(BINARY BINARY `q0`.`slug_col`,…' to contain '`t0`.`title`'
+query/field-reference-sql :: 'MySQL' field-reference SQL collation and folding of a referenced operand a literal operand is folded but not collation-wrapped
+      -> AssertionError: expected 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…' to be 'BINARY REPLACE(REPLACE(REPLACE(REPLAC…' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL enum operands equals against a reference casts both sides to text
+      -> AssertionError: expected 'BINARY `q0`.`status` = BINARY CAST(`q…' to be 'BINARY CAST(`t0`.`status` AS CHAR) = …' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL enum operands not against a reference negates the same comparison
+      -> AssertionError: expected 'NOT (BINARY `q0`.`status` = BINARY CA…' to be 'NOT (BINARY CAST(`t0`.`status` AS CHA…' // Object.is equa
+query/field-reference-sql :: 'MySQL' field-reference SQL enum operands a literal operand leaves the column uncast and bound
+      -> AssertionError: expected '(`q0`.`status` = $1 AND BINARY `q0`.`…' to be '(`t0`.`status` = $1 AND BINARY `t0`.`…' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand default mode compares both sides under the case-sensitive collation
+      -> AssertionError: expected '"q0"."title" COLLATE BINARY = "q0"."s…' to be '"t0"."title" COLLATE BINARY = "t0"."s…' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand insensitive mode folds AND collates both sides
+      -> AssertionError: expected 'lower("q0"."title") COLLATE BINARY = …' to be 'lower("t0"."title") COLLATE BINARY = …' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand insensitive `not` negates the folded comparison
+      -> AssertionError: expected 'NOT (lower("q0"."title") COLLATE BINA…' to be 'NOT (lower("t0"."title") COLLATE BINA…' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand insensitive contains carries the fold onto the referenced operand
+      -> AssertionError: expected 'instr(lower("q0"."title") COLLATE BIN…' to contain 'lower("t0"."title") COLLATE BINARY'
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand insensitive startsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'substr(lower("q0"."title") COLLATE BI…' to contain 'lower("t0"."title") COLLATE BINARY'
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand insensitive endsWith carries the fold onto the referenced operand
+      -> AssertionError: expected 'CASE WHEN length(lower("q0"."slug_col…' to contain 'lower("t0"."title") COLLATE BINARY'
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand default mode leaves the string predicates unwrapped on both sides
+      -> AssertionError: expected 'instr("q0"."title", "q0"."slug_col" C…' to contain '"t0"."title"'
+query/field-reference-sql :: 'SQLite' field-reference SQL collation and folding of a referenced operand a literal operand is folded but not collation-wrapped
+      -> AssertionError: expected 'lower("q0"."title") COLLATE BINARY = …' to be 'lower("t0"."title") COLLATE BINARY = …' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL enum operands equals against a reference casts both sides to text
+      -> AssertionError: expected '"q0"."status" COLLATE BINARY = CAST("…' to be 'CAST("t0"."status" AS TEXT) COLLATE B…' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL enum operands not against a reference negates the same comparison
+      -> AssertionError: expected 'NOT ("q0"."status" COLLATE BINARY = C…' to be 'NOT (CAST("t0"."status" AS TEXT) COLL…' // Object.is equa
+query/field-reference-sql :: 'SQLite' field-reference SQL enum operands a literal operand leaves the column uncast and bound
+      -> AssertionError: expected '"q0"."status" COLLATE BINARY = $1' to be '"t0"."status" COLLATE BINARY = $1' // Object.is equality
+query/field-reference-sql :: surfaces that stay closed to field references a reference is refused in create data
+      -> AssertionError: expected [Function] to not throw an error but 'QueryEngineError: Operation \'create\…' was thrown
+query/field-reference-sql :: JSON operands stay closed to field references JSON write data refuses a reference in a create data slot
+      -> AssertionError: expected [Function] to throw error matching /Field reference 'Post\.meta2' is not …/ but got 'Operation \'create\'
+query/field-reference-sql :: JSON operands stay closed to field references JSON write data refuses a reference in a create data slot, buried
+      -> AssertionError: expected [Function] to throw error matching /Field reference 'Post\.meta2' is not …/ but got 'Operation \'create\'
+query/field-reference-sql :: JSON operands stay closed to field references JSON update data refuses a reference in the shorthand form
+      -> AssertionError: expected [Function] to throw error matching /Field reference 'Post\.meta2' is not …/ but got 'Operation \'update\'
+query/field-reference-sql :: JSON operands stay closed to field references JSON update data refuses a reference in the { set } form
+      -> AssertionError: expected [Function] to throw error matching /Field reference 'Post\.meta2' is not …/ but got 'Operation \'update\'
+query/field-reference-sql :: JSON operands stay closed to field references JSON update data refuses a reference in a buried position
+      -> AssertionError: expected [Function] to throw error matching /Field reference 'Post\.meta2' is not …/ but got 'Operation \'update\'
+query/field-reference-sql :: JSON operands stay closed to field references ordinary JSON documents still compile in filters and writes
+      -> AssertionError: expected [Function] to not throw an error but 'QueryEngineError: Operation \'create\…' was thrown
+query/geopoint-sql :: GeoPoint query lowering lowers point values for writes on 'PostgreSQL'
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/geopoint-sql :: GeoPoint query lowering lowers point values for writes on 'MySQL'
+      -> Operation 'createMany' does not compile to one SQL statement. Execute the operation instead.
+query/geopoint-sql :: GeoPoint query lowering lowers point values for writes on 'SQLite'
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/geopoint-sql :: GeoPoint query lowering uses the smallest positive upper bound only in positive polarity
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id" FROM "public…' to contain ' && '
+query/geopoint-sql :: GeoPoint query lowering threads distance-prefilter polarity through relation quantifiers
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id" FROM "public…' to contain ' && '
+query/geopoint-sql :: GeoPoint query lowering combines every distance comparator and uses null-last point ordering
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", CASE WHEN "…' to contain 'AS "0viborm_distance"'
+query/json-null-sentinel-sql :: 'PostgreSQL' json null sentinel SQL not DbNull is IS NOT NULL
+      -> AssertionError: expected 'WHERE NOT ("q0"."meta" IS NULL)' to contain '"meta" IS NOT NULL'
+query/json-null-sentinel-sql :: 'PostgreSQL' json null sentinel SQL not JsonNull is a value inequality
+      -> AssertionError: expected 'WHERE NOT ("q0"."meta" = ?)' to contain '"meta" <> ?'
+query/json-null-sentinel-sql :: 'PostgreSQL' json null sentinel SQL not AnyNull is the conjunction of both complements
+      -> AssertionError: expected 'WHERE NOT (("q0"."meta" IS NULL OR "q…' to contain '"meta" IS NOT NULL'
+query/json-null-sentinel-sql :: 'MySQL' json null sentinel SQL not DbNull is IS NOT NULL
+      -> AssertionError: expected 'WHERE NOT (`q0`.`meta` IS NULL)' to contain '`meta` IS NOT NULL'
+query/json-null-sentinel-sql :: 'MySQL' json null sentinel SQL not JsonNull is a value inequality
+      -> AssertionError: expected 'WHERE NOT (`q0`.`meta` = CAST(? AS JS…' to contain '`meta` <> CAST(? AS JSON)'
+query/json-null-sentinel-sql :: 'MySQL' json null sentinel SQL not AnyNull is the conjunction of both complements
+      -> AssertionError: expected 'WHERE NOT ((`q0`.`meta` IS NULL OR `q…' to contain '`meta` IS NOT NULL'
+query/json-null-sentinel-sql :: 'SQLite' json null sentinel SQL not DbNull is IS NOT NULL
+      -> AssertionError: expected 'WHERE NOT ("q0"."meta" IS NULL)' to contain '"meta" IS NOT NULL'
+query/json-null-sentinel-sql :: 'SQLite' json null sentinel SQL not JsonNull is a value inequality
+      -> AssertionError: expected 'WHERE NOT ("q0"."meta" = ?)' to contain '"meta" <> ?'
+query/json-null-sentinel-sql :: 'SQLite' json null sentinel SQL not AnyNull is the conjunction of both complements
+      -> AssertionError: expected 'WHERE NOT (("q0"."meta" IS NULL OR "q…' to contain '"meta" IS NOT NULL'
+query/lateral-joins :: Lateral Joins SQL Generation PostgreSQL (lateral joins enabled) to-many include uses lateral join
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation PostgreSQL (lateral joins enabled) to-one include uses lateral join
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation PostgreSQL (lateral joins enabled) include with where filter
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation PostgreSQL (lateral joins enabled) include with orderBy
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation PostgreSQL (lateral joins enabled) include with take/skip pagination
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation MySQL (lateral joins enabled) to-many include uses lateral join
+      -> AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`name`…' to contain 'LEFT JOIN LATERAL'
+query/lateral-joins :: Lateral Joins SQL Generation MySQL (lateral joins enabled) to-one include uses lateral join
+      -> AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain 'LEFT JOIN LATERAL'
+query/operand-callback-sql :: 'PostgreSQL' operand callbacks a fragment operand is spliced parenthesized, its values bound
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 + $2)'
+query/operand-callback-sql :: 'PostgreSQL' operand callbacks a fragment, a reference and a literal mix in one where
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 - $2)'
+query/operand-callback-sql :: 'PostgreSQL' operand callbacks a subquery fragment compiles as an operand
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '(SELECT MAX(v) FROM'
+query/operand-callback-sql :: 'MySQL' operand callbacks a fragment operand is spliced parenthesized, its values bound
+      -> AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 + $2)'
+query/operand-callback-sql :: 'MySQL' operand callbacks a fragment, a reference and a literal mix in one where
+      -> AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '($1 - $2)'
+query/operand-callback-sql :: 'MySQL' operand callbacks a subquery fragment compiles as an operand
+      -> AssertionError: expected 'SELECT `q0`.`id` AS `id`, `q0`.`title…' to contain '(SELECT MAX(v) FROM'
+query/operand-callback-sql :: 'SQLite' operand callbacks a fragment operand is spliced parenthesized, its values bound
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 + $2)'
+query/operand-callback-sql :: 'SQLite' operand callbacks a fragment, a reference and a literal mix in one where
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '($1 - $2)'
+query/operand-callback-sql :: 'SQLite' operand callbacks a subquery fragment compiles as an operand
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain '(SELECT MAX(v) FROM'
+query/operand-callback-sql :: surfaces that stay closed a fragment is refused in JSON write data, as non-JSON
+      -> AssertionError: expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+query/operand-callback-sql :: surfaces that stay closed a JSON document that looks like a fragment still writes
+      -> AssertionError: expected [Function] to not throw an error but 'QueryEngineError: Operation \'updateM…' was thrown
+query/operand-callback-sql :: surfaces that stay closed write data takes no callback
+      -> AssertionError: expected 'QueryEngineError' to be 'ValidationError' // Object.is equality
+query/request-result-shape-contracts :: request-aware result shapes rejects known but unrequested and uniformly missing scalar columns
+      -> AssertionError: expected function to throw an error, but it didn't
+query/request-result-shape-contracts :: request-aware result shapes enforces the requested projection on direct execution
+      -> Error: promise resolved "[ { id: 'parent-1' } ]" instead of rejecting
+query/request-result-shape-contracts :: request-aware result shapes enforces requested nested include shapes and preserves empty relations
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes honors model-level omit in default SQL and result parsing
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id" FROM "public…' to contain '"t0"."id" AS "id"'
+query/request-result-shape-contracts :: request-aware result shapes row keys are checked as a set, not as an order
+      -> AssertionError: expected 'SELECT "q0"."_count_children" AS "_co…' to contain '"t0"."id" AS "id", "t0"."secret" AS "…'
+query/request-result-shape-contracts :: request-aware result shapes keeps relation-count carriers distinct from same-named scalars
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."_coun…' to contain 'AS "0viborm_relation_counts"'
+query/request-result-shape-contracts :: request-aware result shapes uses one short exact relation-count carrier across dialects
+      -> AssertionError: expected [ Array(1) ] to have a length of 2 but got 1
+query/request-result-shape-contracts :: request-aware result shapes rejects a relation-count row with missing carrier
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes rejects a relation-count row with missing inner relation
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes rejects a relation-count row with extra inner relation
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes rejects a relation-count row with primitive carrier
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes maps private aggregate carriers and rejects missing aggregate fields
+      -> TypeError: Invalid provider integer
+query/request-result-shape-contracts :: request-aware result shapes fails closed when grouped scalars collide with public aggregates
+      -> AssertionError: expected [Function] to throw error including 'both grouped scalar \'_count\' and ag…' but got 'by.map is not a fun
+query/request-result-shape-contracts :: request-aware result shapes rejects duplicate groupBy fields for a empty result
+      -> AssertionError: expected [Function] to throw an error
+query/request-result-shape-contracts :: request-aware result shapes rejects duplicate groupBy fields for a non-empty result
+      -> AssertionError: expected [Function] to throw an error
+query/request-result-shape-contracts :: request-aware result shapes rejects private carriers that were not requested
+      -> AssertionError: expected error to be instance of QueryEngineError
+query/request-result-shape-contracts :: request-aware result shapes preserves cardinality for models with no public default scalars
+      -> AssertionError: expected 'SELECT  FROM "public"."emptyParent" A…' to contain '0viborm_empty_row'
+query/request-result-shape-contracts :: request-aware result shapes fails closed on simultaneous scalar and computed _distance output
+      -> AssertionError: expected [Function] to throw error including 'cannot be selected together' but got 'Distance select supports only 
+query/sql-generation :: Basic CRUD Operations findMany cursor without orderBy defaults to cursor field order
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain '"t0"."id" ASC'
+query/sql-generation :: Basic CRUD Operations findMany negative take reverses a relation-order fallback recursively
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."label…' to match /ORDER BY .*"nextId" DESC NULLS FIRST/
+query/sql-generation :: Basic CRUD Operations findMany compound unique cursor uses compound whereUnique fields
+      -> AssertionError: expected 'SELECT "q0"."orgId" AS "orgId", "q0".…' to contain '"t0"."orgId"'
+query/sql-generation :: Basic CRUD Operations findMany cursor with non-cursor orderBy builds a keyset comparison (Prisma parity)
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain '"t0"."name"'
+query/sql-generation :: Basic CRUD Operations findMany json string paths compile to the same SQL as the array form
+      -> AssertionError: expected [ 'ball', [] ] to deeply equal [ 'ball', [ 'pet', 'toys', '0' ] ]
+query/sql-generation :: Basic CRUD Operations findMany json filter with only a path fails closed
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany json root and path comparisons keep number and string classes distinct
+      -> AssertionError: expected [ Array(13) ] to deeply equal ArrayContaining{…}
+query/sql-generation :: Basic CRUD Operations findMany json string operators inherit and can override case-folding scope
+      -> AssertionError: expected [ 'TRANSLATE', 'TRANSLATE', …(2) ] to have a length of 2 but got 4
+query/sql-generation :: Basic CRUD Operations findMany json null at the root and under a path remain different questions
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'IS NOT NULL'
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path status
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path $.
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path $.*
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path $[last]
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path $[0
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses non-portable JSON string path $status
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany refuses path segments whose escaping is not portable
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany empty accepted scalar filter fails closed
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany empty accepted relation filter fails closed
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: Basic CRUD Operations findMany to-one relation scalar orderBy joins related table
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to match /LEFT JOIN/i
+query/sql-generation :: Basic CRUD Operations findMany to-many relation _count orderBy uses count subquery
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to match /ORDER BY \(SELECT COUNT\(\*\)/i
+query/sql-generation :: Basic CRUD Operations findUnique by id
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LIMIT'
+query/sql-generation :: Basic CRUD Operations create simple create
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Basic CRUD Operations create with defaults
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Basic CRUD Operations update simple update
+      -> Operation 'update' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Basic CRUD Operations update empty where fails before SQL generation
+      -> AssertionError: expected [Function] to throw error including 'Object cannot be empty' but got 'Operation \'update\' does not compi
+query/sql-generation :: Basic CRUD Operations delete a scalar delete on a RETURNING driver is ONE statement
+      -> Operation 'delete' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Basic CRUD Operations delete empty where fails before SQL generation
+      -> AssertionError: expected [Function] to throw error including 'Object cannot be empty' but got 'Operation \'delete\' does not compi
+query/sql-generation :: Basic CRUD Operations upsert empty where fails before SQL generation
+      -> AssertionError: expected [Function] to throw error including 'Object cannot be empty' but got 'Operation \'upsert\' does not compi
+query/sql-generation :: Select/Include (Relation Loading) nested selects (2-3 levels deep) author -> posts -> comments
+      -> AssertionError: expected 0 to be greater than or equal to 2
+query/sql-generation :: Relation Filters in WHERE to-many filters combines all supplied filters independent of key order
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to be 'SELECT "q0"."id" AS "id", "q0"."name"…' // Object.is equa
+query/sql-generation :: Relation Filters in WHERE to-many filters empty every predicates lower to portable true
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' not to contain 'EXISTS'
+query/sql-generation :: Relation Filters in WHERE to-one filters combines is and isNot independent of key order
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to be 'SELECT "q0"."id" AS "id", "q0"."title…' // Object.is equa
+query/sql-generation :: Many-to-Many Relations select with manyToMany relation select tags on post
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to contain 'LEFT JOIN LATERAL'
+query/sql-generation :: Many-to-Many Relations select with manyToMany relation select posts on tag
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' to contain 'LEFT JOIN LATERAL'
+query/sql-generation :: Many-to-Many Relations filter with manyToMany combines all supplied filters through the junction independent of key order
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' to be 'SELECT "q0"."id" AS "id", "q0"."title…' // Object.is equa
+query/sql-generation :: Many-to-Many Relations filter with manyToMany empty every through the junction lowers to portable true
+      -> AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."title…' not to contain 'EXISTS'
+query/sql-generation :: Multi-step writes create with nested create with nested create builds ONE folded statement
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes create with nested create with nested createMany builds ONE folded statement
+      -> Operation 'create' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes update with nested a required relation publishes no disconnect at all
+      -> AssertionError: expected error to be instance of ValidationError
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'PostgreSQL' updateMany relation filter stays correlated to the target table
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'SQLite' updateMany relation filter stays correlated to the target table
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'MySQL' updateMany relation filter stays correlated to the target table
+      -> Operation 'updateMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'PostgreSQL' deleteMany relation filter stays correlated to the target table
+      -> Operation 'deleteMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'SQLite' deleteMany relation filter stays correlated to the target table
+      -> Operation 'deleteMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Multi-step writes dialect top-level relation-filter mutations 'MySQL' deleteMany relation filter stays correlated to the target table
+      -> Operation 'deleteMany' does not compile to one SQL statement. Execute the operation instead.
+query/sql-generation :: Aggregates count with order and pagination counts an input subquery
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to contain 'aggregate_input'
+query/sql-generation :: Aggregates count with cursor pagination counts an input subquery
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to contain 'aggregate_input'
+query/sql-generation :: Aggregates count with supported relation order counts an input subquery
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to match /LEFT JOIN/i
+query/sql-generation :: Aggregates aggregate projects selected count members and ignores false selections
+      -> AssertionError: expected 'SELECT json_build_object($1::text, CO…' to contain 'COUNT("aggregate_input"."id")'
+query/sql-generation :: Aggregates aggregate with order and pagination aggregates an input subquery
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count", json_bui…' to contain 'aggregate_input'
+query/sql-generation :: Aggregates aggregate with supported relation order aggregates an input subquery
+      -> AssertionError: expected 'SELECT COUNT(*) AS "_count" FROM (SEL…' to match /LEFT JOIN/i
+query/sql-generation :: Aggregates groupBy with direct value filter in having
+      -> AssertionError: expected 'SELECT "q0"."authorId" AS "authorId" …' to contain '"t0"."authorId" ='
+query/sql-generation :: Aggregates groupBy with direct object filter (equals)
+      -> AssertionError: expected 'SELECT "q0"."authorId" AS "authorId" …' to contain '"t0"."authorId" ='
+query/sql-generation :: Aggregates groupBy with mixed aggregate and direct filters
+      -> AssertionError: expected 'SELECT "q0"."authorId" AS "authorId" …' to contain '"t0"."authorId" ='
+query/sql-generation :: Aggregates groupBy throws when direct having filter field is not in by
+      -> AssertionError: expected [Function] to throw an error
+query/sql-generation :: explicit undefined args behave like absent args update with undefined data field does not touch the column
+      -> Operation 'update' does not compile to one SQL statement. Execute the operation instead.

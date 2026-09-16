@@ -160,12 +160,10 @@ export function generatedTransitions(
         recipe.mode === "required-depart" ||
         recipe.mode === "coc-set-same" ||
         recipe.mode === "delete-update";
-      // Retain the measured shipped ledger. The approved Raptor 3 contract is
-      // one evaluation per admitted input, selected by invoke's actual route.
-      let primaryAdmissions =
-        recipe.mode === "coc-set-same" || recipe.mode === "delete-update"
-          ? 1
-          : 2;
+      // One evaluation per admitted input (D-8), on every arm: since C-01 the
+      // public client IS this engine, so the second admission the deleted
+      // engine published for the other modes has no arm left.
+      const primaryAdmissions = 1;
       const admissions: string[] = [];
       const owner = s
         .model({
@@ -485,7 +483,6 @@ export function generatedTransitions(
             );
         },
         async invoke(driver, factory) {
-          if (factory) primaryAdmissions = 1;
           const engine = factory?.({ schema, driver });
           // This fixture-selected mutation union is not a DX assertion. Every legacy
           // operation still enters the public model method and its real validator.

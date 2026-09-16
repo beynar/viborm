@@ -1,9 +1,7 @@
-import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { afterAll, describe, it } from "vitest";
-import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import { captureRaptor3Identity } from "../../../scripts/raptor3-manifest.mjs";
 import type { G0ReplayRecord } from "../harness/protocol";
 import {
@@ -42,23 +40,10 @@ describe.each(
       });
       if (scenario.id === "g1-upsert-nested-admission-publication") {
         adjudicated.push(baseline.record, candidate.record);
-        candidate.fixture.assert(candidate.observation);
-        // Both raw ledgers have passed their exact oracles. Only the explicitly
-        // retired, discarded second parse differs; stored values stay identical.
-        assertEquivalentRunObservations(
-          scenario.id,
-          {
-            ...baseline.observation,
-            defaults: baseline.observation.defaults.slice(0, 1),
-          },
-          candidate.observation
-        );
-        assert.throws(() =>
-          candidate.fixture.assert({
-            ...candidate.observation,
-            defaults: baseline.observation.defaults,
-          })
-        );
+        // Since C-01 the client route and the command engine admit the same
+        // input once each: the discarded second parse the deleted engine
+        // published has no arm left, so the two ledgers agree exactly.
+        verifyG0Pair(baseline, candidate);
         for (const record of [baseline.record, candidate.record])
           for (let replay = 0; replay < 3; replay++) await replayG0Run(record);
       } else verifyG0Pair(baseline, candidate);

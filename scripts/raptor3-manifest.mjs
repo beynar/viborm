@@ -491,45 +491,15 @@ export const G4_READ_COUNTS = Object.freeze({
   ...G4_READ_RECURSIVE_FIT_COUNTS,
 });
 export const G4_READ_TESTS = Object.freeze(Object.keys(G4_READ_COUNTS));
-export const G4_LIFECYCLE_EVENTS_COUNTS = Object.freeze({
-  "tests/raptor3/g4/lifecycle-events.test.ts": 3,
-});
-export const G4_LIFECYCLE_EVENTS_TESTS = Object.freeze(
-  Object.keys(G4_LIFECYCLE_EVENTS_COUNTS)
-);
-export const G4_LIFECYCLE_ADMISSION_COUNTS = Object.freeze({
-  "tests/raptor3/g4/lifecycle-admission.test.ts": 4,
-});
-export const G4_LIFECYCLE_ADMISSION_TESTS = Object.freeze(
-  Object.keys(G4_LIFECYCLE_ADMISSION_COUNTS)
-);
-// Owned by the G4-03 author; registered here because registration has one
-// writer this milestone. Counts are derived from the current files and are
-// reconciled against `g4/unit03/note.md` section "Registration requests".
-export const G4_ROUTE_LIFECYCLE_COUNTS = Object.freeze({
-  "tests/raptor3/g4/route-lifecycle.test.ts": 8,
-});
-export const G4_ROUTE_LIFECYCLE_TESTS = Object.freeze(
-  Object.keys(G4_ROUTE_LIFECYCLE_COUNTS)
-);
-export const G4_ROUTE_ADMISSION_COUNTS = Object.freeze({
-  "tests/raptor3/g4/route-admission.test.ts": 7,
-});
-export const G4_ROUTE_ADMISSION_TESTS = Object.freeze(
-  Object.keys(G4_ROUTE_ADMISSION_COUNTS)
-);
-export const G4_ROUTE_CACHE_COUNTS = Object.freeze({
-  "tests/raptor3/g4/route-cache.test.ts": 7,
-});
-export const G4_ROUTE_CACHE_TESTS = Object.freeze(
-  Object.keys(G4_ROUTE_CACHE_COUNTS)
-);
-export const G4_ROUTE_TRANSACTION_COUNTS = Object.freeze({
-  "tests/raptor3/g4/route-transactions.test.ts": 13,
-});
-export const G4_ROUTE_TRANSACTION_TESTS = Object.freeze(
-  Object.keys(G4_ROUTE_TRANSACTION_COUNTS)
-);
+// The six two-sided modes `g4-lifecycle-events`, `g4-lifecycle-admission`,
+// `g4-route-lifecycle`, `g4-route-admission`, `g4-route-cache` and
+// `g4-route-transactions` were RETIRED at the C-01 cutover, not re-pointed.
+// Each one ran one oracle twice — once against the shipped route as the
+// control, once against the candidate — and the cutover deletes the control.
+// Re-pointing them at `createClient` would compare the candidate with itself
+// and report green forever. Their files are deleted by the cutover; the
+// one-sided replacements that survive are `g4-read-*`, `g2-*`, `g3-*` and the
+// generation campaigns, which assert against fixtures and oracles instead.
 // Landed from the G4-01 author's worktree `/private/tmp/viborm-g4-unit01`
 // after that unit was accepted, so its executable claims live where every
 // other stream can run them. Counts are derived from the landed files.
@@ -559,7 +529,9 @@ export const G4_UNIT01_REVIEW_COUNTS = Object.freeze({
   "tests/raptor3/g4/review/unit01/shipped-parity.test.ts": 8,
   "tests/raptor3/g4/review/unit01/variant-arms.test.ts": 2,
   "tests/raptor3/g4/review/unit01/whole-value-operands.test.ts": 7,
-  "tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts": 9,
+  // C-01 retired the two cells that pinned the deleted engine's
+  // `0viborm_distance` alias beside the candidate's `_distance` (9 -> 7).
+  "tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts": 7,
   "tests/raptor3/g4/review/unit01-followup/empty-arm.test.ts": 12,
   "tests/raptor3/g4/review/unit01-followup/nested-reversal.test.ts": 5,
   "tests/raptor3/g4/review/unit01-followup/operand-and-logic.test.ts": 9,
@@ -588,14 +560,14 @@ export const G4_UNIT01_REVIEW_TESTS = Object.freeze(
 // below rather than skipped inside the credential-free mode.
 export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/borrowed-envelope.test.ts": 5,
-  "tests/raptor3/g4/unit02/decimal-having-operand.test.ts": 3,
+  "tests/raptor3/g4/unit02/decimal-having-operand.test.ts": 1,
   "tests/raptor3/g4/unit02/k-competing-refusals.test.ts": 4,
   "tests/raptor3/g4/unit02/k-refusal-order-history.test.ts": 3,
   "tests/raptor3/g4/unit02/key-arithmetic.test.ts": 20,
   "tests/raptor3/g4/unit02/lone-statement-transport.test.ts": 7,
   "tests/raptor3/g4/unit02/malformed-result-cuts.test.ts": 4,
   "tests/raptor3/g4/unit02/nested-key-refusal.test.ts": 6,
-  "tests/raptor3/g4/unit02/packaged-array.test.ts": 5,
+  "tests/raptor3/g4/unit02/packaged-array.test.ts": 3,
   "tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts": 7,
   "tests/raptor3/g4/unit02/physical-envelope.test.ts": 10,
   "tests/raptor3/g4/unit02/prepared-operation.test.ts": 6,
@@ -605,7 +577,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/returning-safety-gate.test.ts": 5,
   "tests/raptor3/g4/unit02/root-delete.test.ts": 6,
   "tests/raptor3/g4/unit02/root-member-cut-trace.test.ts": 4,
-  "tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts": 10,
+  "tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts": 8,
   "tests/raptor3/g4/unit02/upsert-key-portability.test.ts": 19,
   "tests/raptor3/g4/unit02/vector-capability.test.ts": 1,
 });

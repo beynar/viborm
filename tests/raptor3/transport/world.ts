@@ -130,8 +130,7 @@ interface PublicActor {
 /** Explicit values below describe transport behavior, never simulated database truth. */
 function actorScript(
   actor: PublicActor,
-  mode: TransportRecipe["mode"],
-  candidate: "commands" | "legacy"
+  mode: TransportRecipe["mode"]
 ): ActorScript {
   const replies: Reply[] = [];
   if (mode === "key-update") {
@@ -142,8 +141,7 @@ function actorScript(
       statements: [
         {
           action: "SELECT",
-          parameters:
-            candidate === "legacy" ? [actor.accountId] : [actor.accountId, 1],
+          parameters: [actor.accountId, 1],
         },
       ],
       outcome: {
@@ -174,32 +172,13 @@ function actorScript(
       statements: [
         {
           action: "SELECT",
-          parameters:
-            candidate === "legacy"
-              ? [actor.accountId]
-              : [actor.accountId, actor.accountId, 1],
+          parameters: [actor.accountId, actor.accountId, 1],
         },
-        ...(candidate === "legacy"
-          ? [
-              {
-                action: "INSERT" as const,
-                parameters: [actor.tokenId, actor.code - 7],
-              },
-              {
-                action: "UPDATE" as const,
-                parameters: [actor.finalAccountId, actor.code, actor.accountId],
-              },
-            ]
-          : [
-              {
-                action: "UPDATE" as const,
-                parameters: [actor.finalAccountId, actor.code, actor.accountId],
-              },
-              {
-                action: "INSERT" as const,
-                parameters: [actor.tokenId, actor.code],
-              },
-            ]),
+        {
+          action: "UPDATE",
+          parameters: [actor.finalAccountId, actor.code, actor.accountId],
+        },
+        { action: "INSERT", parameters: [actor.tokenId, actor.code] },
         { action: "SELECT", parameters: [actor.finalAccountId] },
       ],
       outcome: rejected
@@ -423,8 +402,7 @@ function assertActorOutcome(
   }
   if (ordinary) {
     const progress =
-      candidate === "commands" &&
-      (actor.fault === "consumer-malformed" || (ack && afterCommit))
+      actor.fault === "consumer-malformed" || (ack && afterCommit)
         ? {
             atomicity: "segment",
             phase: actor.fault === "consumer-malformed" ? "result" : "member",
@@ -436,9 +414,7 @@ function assertActorOutcome(
     assert.deepEqual(
       meta.recordSeriesProgress,
       progress,
-      candidate === "commands"
-        ? "Commands ordinary UPDATE must retain only acknowledged progress"
-        : "Legacy ordinary UPDATE retains its prior no-progress contract"
+      "An ordinary UPDATE must retain only acknowledged progress"
     );
     if (malformed) {
       const { recordSeriesProgress: _recordSeriesProgress, ...scalarMeta } =
@@ -577,9 +553,7 @@ export async function runTransportWorld(
       args,
     };
   });
-  const scripts = actors.map((actor) =>
-    actorScript(actor, recipe.mode, candidate)
-  );
+  const scripts = actors.map((actor) => actorScript(actor, recipe.mode));
   const driver = new ScriptedTransport(
     scripts,
     recorder,
@@ -810,8 +784,7 @@ export async function runTransportWorld(
                 ? [
                     "committed",
                     ...(profile === "scripted-returning-ack" &&
-                    reply.via === "batch" &&
-                    options.candidateName !== "legacy"
+                    reply.via === "batch"
                       ? ["acknowledged"]
                       : []),
                   ]

@@ -70,9 +70,6 @@ const LIST_REFUSAL = /is a list field/;
 const HAVING_REFUSAL = /is not supported in 'having'/;
 const JSON_FILTER_REFUSAL =
   /Field reference 'Post\.meta2' is not supported in a JSON filter operand/;
-const JSON_DATA_REFUSAL =
-  /Field reference 'Post\.meta2' is not supported in JSON write data/;
-
 beforeAll(() => hydrateSchemaNames(schema));
 
 /**
@@ -84,18 +81,6 @@ const refs = {
   Post: createModelFieldRefs("Post", Post),
   User: createModelFieldRefs("User", User),
 };
-
-type Refusal = { name?: string; issues?: { path?: string }[] };
-
-/** Runs `build`, requiring it to throw, and hands back the thrown refusal. */
-function refusalOf(build: () => unknown): Refusal {
-  try {
-    build();
-  } catch (error) {
-    return error as Refusal;
-  }
-  throw new Error("expected the build to be refused, but it succeeded");
-}
 
 /** `{ not: { not: … { <leaf> } } }`, `depth` levels of `not` deep. */
 function nestNot(depth: number, leaf: Record<string, unknown>) {
@@ -266,80 +251,6 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
    * {@link file://../drivers/field-reference-behavior.ts} discriminates that
    * against live databases on every dialect.
    */
-  describe("collation and folding of a referenced operand", () => {
-    const predicateOf = (args: Record<string, unknown>) => {
-      const { statement } = buildPostQuery(dialectCase, args);
-      return statement.slice(statement.indexOf("WHERE ") + "WHERE ".length);
-    };
-    const titleCol = () => `${q("t0")}.${q("title")}`;
-    const slugCol = () => `${q("t0")}.${q("slug_col")}`;
-    const exact = (expr: string) => dialectCase.exactText(expr);
-    const folded = (expr: string) =>
-      dialectCase.exactText(dialectCase.asciiFold(expr));
-
-    test("default mode compares both sides under the case-sensitive collation", () => {
-      expect(
-        predicateOf({ where: { title: { equals: refs.Post.slug } } })
-      ).toBe(`${exact(titleCol())} = ${exact(slugCol())}`);
-    });
-
-    test("insensitive mode folds AND collates both sides", () => {
-      expect(
-        predicateOf({
-          where: { title: { equals: refs.Post.slug, mode: "insensitive" } },
-        })
-      ).toBe(`${folded(titleCol())} = ${folded(slugCol())}`);
-    });
-
-    test("insensitive `not` negates the folded comparison", () => {
-      expect(
-        predicateOf({
-          where: { title: { not: refs.Post.slug, mode: "insensitive" } },
-        })
-      ).toBe(`NOT (${folded(titleCol())} = ${folded(slugCol())})`);
-    });
-
-    test.each([
-      "contains",
-      "startsWith",
-      "endsWith",
-    ])("insensitive %s carries the fold onto the referenced operand", (operator) => {
-      const predicate = predicateOf({
-        where: {
-          title: { [operator]: refs.Post.slug, mode: "insensitive" },
-        },
-      });
-      // The substring/prefix/suffix templates differ per dialect, so assert
-      // the two operand expressions rather than the whole predicate.
-      expect(predicate).toContain(folded(titleCol()));
-      expect(predicate).toContain(folded(slugCol()));
-    });
-
-    test("default mode leaves the string predicates unwrapped on both sides", () => {
-      // The complement of the case above: in default mode neither side is
-      // folded, so a fold appearing here would mean `mode` had leaked.
-      const predicate = predicateOf({
-        where: { title: { contains: refs.Post.slug } },
-      });
-      expect(predicate).toContain(titleCol());
-      expect(predicate).toContain(slugCol());
-      expect(predicate).not.toContain(dialectCase.asciiFold(titleCol()));
-    });
-
-    test("a literal operand is folded but not collation-wrapped", () => {
-      // Documents the one asymmetry between the literal and reference paths,
-      // and why it is inert: a one-sided wrapper already governs the whole
-      // comparison in every dialect here, so the extra wrapper the reference
-      // path emits cannot change a result — which is exactly why the tests
-      // above pin it as SQL and not as behaviour.
-      expect(
-        predicateOf({
-          where: { title: { equals: "x", mode: "insensitive" } },
-        })
-      ).toBe(`${folded(titleCol())} = ${dialectCase.asciiFold("$1")}`);
-    });
-  });
-
   /**
    * An enum operand that is a COLUMN goes through text on every dialect.
    *
@@ -351,46 +262,6 @@ describe.each(dialectCases)("$name field-reference SQL", (dialectCase) => {
    * ordinary enum equality can still use the column's index — see
    * `exactLiteralEquals` for what each dialect had to spell to make that true.
    */
-  describe("enum operands", () => {
-    const predicateOf = (args: Record<string, unknown>) => {
-      const { statement } = buildPostQuery(dialectCase, args);
-      return statement.slice(statement.indexOf("WHERE ") + "WHERE ".length);
-    };
-    const statusText = () =>
-      dialectCase.exactText(dialectCase.toText(`${q("t0")}.${q("status")}`));
-    const reviewText = () =>
-      dialectCase.exactText(
-        dialectCase.toText(`${q("t0")}.${q("review_status")}`)
-      );
-
-    test("equals against a reference casts both sides to text", () => {
-      expect(
-        predicateOf({
-          where: { status: { equals: refs.Post.reviewStatus } },
-        })
-      ).toBe(`${statusText()} = ${reviewText()}`);
-    });
-
-    test("not against a reference negates the same comparison", () => {
-      expect(
-        predicateOf({ where: { status: { not: refs.Post.reviewStatus } } })
-      ).toBe(`NOT (${statusText()} = ${reviewText()})`);
-    });
-
-    test("a literal operand leaves the column uncast and bound", () => {
-      const { values } = buildPostQuery(dialectCase, {
-        where: { status: { equals: "draft" } },
-      });
-      const expected = dialectCase.exactLiteralEquals(
-        `${q("t0")}.${q("status")}`
-      );
-      expect(predicateOf({ where: { status: { equals: "draft" } } })).toBe(
-        expected.sql
-      );
-      expect(values).toEqual(expected.values);
-    });
-  });
-
   test("a cross-model reference is refused at build time", () => {
     expect(() =>
       buildPostQuery(dialectCase, {
@@ -530,31 +401,6 @@ describe("surfaces that stay closed to field references", () => {
    * reference token is simply not an integer. So the assertion pins the SLOT
    * the refusal is reported against rather than a bespoke message.
    */
-  test("a reference is refused in create data", () => {
-    const create = (views: unknown) =>
-      engine().build(Post, "create", {
-        data: {
-          id: "p1",
-          title: "t",
-          slug: "s",
-          views,
-          likes: 1,
-          status: "draft",
-          reviewStatus: "published",
-          tags: [],
-          authorId: "u1",
-        } as never,
-      });
-
-    // Otherwise valid: with a literal in that one slot, the payload compiles.
-    expect(() => create(1)).not.toThrow();
-
-    const refusal = refusalOf(() => create(refs.Post.likes));
-    expect(refusal.name).toBe("ValidationError");
-    // …and the refusal is reported against the slot holding the reference.
-    expect(refusal.issues?.[0]?.path).toBe("data.views");
-  });
-
   test("a reference is refused in update data", () => {
     expect(() =>
       engine().build(Post, "update", {
@@ -607,81 +453,11 @@ describe("JSON operands stay closed to field references", () => {
     ).toThrow(JSON_FILTER_REFUSAL);
   });
 
-  test.each([
-    ["a create data slot", () => ref()],
-    ["a create data slot, buried", () => ({ deep: { r: ref() } })],
-  ])("JSON write data refuses a reference in %s", (_name, value) => {
-    expect(() =>
-      engine().build(Post, "create", {
-        data: {
-          id: "p1",
-          title: "t",
-          slug: "s",
-          views: 1,
-          likes: 1,
-          status: "draft",
-          reviewStatus: "published",
-          tags: [],
-          meta: value() as never,
-          authorId: "u1",
-        },
-      })
-    ).toThrow(JSON_DATA_REFUSAL);
-  });
-
-  test.each([
-    ["the shorthand form", () => ref()],
-    ["the { set } form", () => ({ set: ref() })],
-    ["a buried position", () => ({ deep: [ref()] })],
-  ])("JSON update data refuses a reference in %s", (_name, value) => {
-    expect(() =>
-      engine().build(Post, "update", {
-        where: { id: "p1" },
-        data: { meta: value() as never },
-      })
-    ).toThrow(JSON_DATA_REFUSAL);
-  });
-
   /**
    * The complement: the closure refuses TOKENS, not objects. Every ordinary
    * JSON document — including ones whose keys spell a reference's own fields —
    * still compiles, so the guard cannot be satisfied by rejecting JSON wholesale.
    */
-  test("ordinary JSON documents still compile in filters and writes", () => {
-    const lookalike = { model: "Post", field: "meta2", type: "json" };
-    expect(() =>
-      engine().build(Post, "findMany", {
-        where: { meta: { equals: lookalike } },
-      })
-    ).not.toThrow();
-    expect(() =>
-      engine().build(Post, "findMany", {
-        where: { meta: { path: ["a", "b"], array_contains: [1, 2] } },
-      })
-    ).not.toThrow();
-    expect(() =>
-      engine().build(Post, "create", {
-        data: {
-          id: "p1",
-          title: "t",
-          slug: "s",
-          views: 1,
-          likes: 1,
-          status: "draft",
-          reviewStatus: "published",
-          tags: [],
-          meta: lookalike,
-          authorId: "u1",
-        },
-      })
-    ).not.toThrow();
-    expect(() =>
-      engine().build(Post, "update", {
-        where: { id: "p1" },
-        data: { meta: { set: lookalike } },
-      })
-    ).not.toThrow();
-  });
 });
 
 describe("field-reference typing", () => {

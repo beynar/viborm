@@ -101,7 +101,7 @@ describe("G4-02 borrowed transaction envelope", () => {
     });
   });
 
-  it("a failing single-statement write poisons the caller's transaction, as shipped", async () => {
+  it("a failing single-statement write poisons the caller's transaction on both seams", async () => {
     world = await createWorld();
     const engine = engineOf(world);
     const driver = world.driver;

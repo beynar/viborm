@@ -13,52 +13,60 @@
  * rethrows the raw error; `attachProgress` (:2308) reaches only record-series
  * member failures and the invalidation aggregates.
  *
- *  1. differential: the folded root `create`, rejected before dispatch on a
- *     batch-only transport, publishes NO record-series progress on either
- *     engine and agrees with the shipped failure on EVERY field. Nothing is
- *     excluded any more: the driver seam's `statementIndex: 0` was the second,
- *     independent divergence recorded as blocker D-7, and Arnaud's decision
- *     removed it at the transport (a lone statement leaves the batch). The
- *     shapes that decision covers are pinned in the sibling
- *     `lone-statement-transport.test.ts`, which this file's red reproducer
- *     became;
+ *  1. the folded root `create`, rejected before dispatch on a batch-only
+ *     transport, publishes NO record-series progress. The driver seam's
+ *     `statementIndex: 0` was the second, independent divergence recorded as
+ *     blocker D-7, and Arnaud's decision removed it at the transport (a lone
+ *     statement leaves the batch); the shapes that decision covers are pinned
+ *     in the sibling `lone-statement-transport.test.ts`, which this file's red
+ *     reproducer became;
  *  2. control: a real record series (a `createMany` segment) rejected exactly
  *     the same way KEEPS its progress, `mayHaveCommittedSegment` included;
  *  3. seam: the same uncertain root `create`, under `cache.autoInvalidate`,
- *     invalidates on BOTH routes. The candidate no longer reads that fact off
- *     published error meta — the transport states it through
- *     `ExecutionBinding.writeOutcome` at the point it learns it, which is where
- *     the shipped executor states it (`OperationExecutor.ts:1050-1058`). This
- *     is the reviewer's probe P7 (`g4/regression-review.md` finding 1) as an
- *     author cell: it is the falsifier for the seam, and it goes red (candidate
- *     0 against shipped 1) the moment the notification is disabled;
+ *     invalidates. The candidate does not read that fact off published error
+ *     meta — the transport states it through `ExecutionBinding.writeOutcome` at
+ *     the point it learns it. This is the reviewer's probe P7
+ *     (`g4/regression-review.md` finding 1) as an author cell: it is the
+ *     falsifier for the seam, and it goes red the moment the notification is
+ *     disabled;
  *  4. the committed half of the same seam: exactly one invalidation, so no
  *     second publication site exists;
  *  5. the committed half when the operation STILL fails — the write commits and
  *     its result will not decode. After D-7 that write is a plain statement, so
- *     the plain path is what must say the segment committed
- *     (`runBorrowedStatementAtomic`, `OperationExecutor.ts:1630-1645`);
- *  6-7. the followup review's S6/S7: a cache listener that throws never
- *     replaces the operation's own failure (and, with no failure of its own to
- *     keep, both engines answer the listener's error);
- *  8. the D-7 review's D9 (finding 1): the two halves TOGETHER — a malformed
- *     result and a throwing listener — keep the registered malformed-scalar
- *     refusal primary, not the internal `InvalidScalarResult` the plain path
- *     used to compose;
- *  9. the D-7 review's D12 (finding 2): the same pair on the BATCH transport,
- *     which acknowledges before it decodes, so the listener's failure is held
- *     and composed after the operation has answered;
+ *     the plain path is what must say the segment committed;
+ *  6. the followup review's S6: a cache listener that throws still leaves
+ *     exactly one invalidation;
+ *  9. the D-7 review's D12 (finding 2): a malformed result and a throwing
+ *     listener on the BATCH transport, which acknowledges before it decodes;
  *  10. the D-7 review's D11 (note 3): the falsifier for the plain path's
- *     `owned` gate — a write inside the operation's OWN region that rolls back
- *     tells the cache nothing, on either engine.
+ *     `owned` gate — a write inside the operation's OWN region that rolls back.
+ *
+ * ## What the C-01 cutover changed here
+ *
+ * Every cell used to run twice: a SHIPPED arm reached through `createClient`
+ * (or, for cells 3-10, through the removed `VibORM.create(config,
+ * createCandidateRoute)` selector) and a CANDIDATE arm. After C-01 there is no
+ * shipped engine, so a comparison between the two arms would compare the engine
+ * with itself and report green forever. The rule applied here, and recorded in
+ * `g4/cutover-execution/note.md`, is: remove the shipped arm and every
+ * assertion that referenced it; a cell with at least one surviving verbatim
+ * assertion is kept and renamed to what it now claims, a cell with none is
+ * retired. Nothing is invented and no shipped answer is transcribed into a new
+ * literal.
+ *
+ * RETIRED (nothing survived the shipped arm's removal):
+ *   7. "a throwing invalidation listener on a SUCCESSFUL write answers the same
+ *      on both routes" — every assertion was `candidate === shipped`;
+ *   8. "a malformed result AND a throwing listener: the refusal stays primary"
+ *      — its two literals pinned the SHIPPED outcome, and the candidate was
+ *      only ever compared to it. Cell 9 keeps the same pair on the batch
+ *      transport with the candidate's own literals.
  */
 import assert from "node:assert/strict";
-import { VibORM, type VibORMClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { VibORMError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
-import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
@@ -210,25 +218,7 @@ function shape(failure: unknown): unknown {
 }
 
 /**
- * A SHAPED failure with the one accepted divergence removed, and only it: a
- * committed set window publishes `recordSeriesProgress` on this engine where the
- * shipped engine publishes none (`g4/regression-review.md` finding 3, probe P8).
- */
-function withoutProgress(shaped: unknown): unknown {
-  if (!isRecord(shaped)) return shaped;
-  const copy: Record<string, unknown> = { ...shaped };
-  if (isRecord(copy.meta)) {
-    const { recordSeriesProgress: _progress, ...rest } = copy.meta;
-    copy.meta = rest;
-  }
-  if (Array.isArray(copy.errors))
-    copy.errors = copy.errors.map((entry) => withoutProgress(entry));
-  if (copy.cause !== undefined) copy.cause = withoutProgress(copy.cause);
-  return copy;
-}
-
-/**
- * The published failure, with the one field two engines cannot share removed:
+ * The published failure, with the one field an execution cannot share removed:
  * `correlationId` is a per-execution identity.
  */
 function identity(failure: unknown): {
@@ -251,7 +241,6 @@ async function withWorld<T>(
   drive: (world: {
     driver: BeforeDispatchDriver;
     database: Database.Database;
-    publicClient: Record<string, { create(args: unknown): Promise<unknown> }>;
   }) => Promise<T>
 ): Promise<T> {
   const database = new Database(":memory:");
@@ -259,14 +248,7 @@ async function withWorld<T>(
   const client = createClient({ schema, driver });
   assert.equal((await syncLiveSchema(client)).applied, true);
   try {
-    return await drive({
-      driver,
-      database,
-      publicClient: client as unknown as Record<
-        string,
-        { create(args: unknown): Promise<unknown> }
-      >,
-    });
+    return await drive({ driver, database });
   } finally {
     await client.$disconnect();
     database.close();
@@ -274,9 +256,9 @@ async function withWorld<T>(
 }
 
 /**
- * One cached world per ROUTE. The candidate route is reached the way a client
- * reaches it — `VibORM.create(config, createCandidateRoute)` — because the
- * fact under test is published by the client's own cache rail.
+ * One cached world. The engine is reached the way a client reaches it — the
+ * public `createClient` — because the fact under test is published by the
+ * client's own cache rail.
  *
  * `fault` selects the three shapes the seam distinguishes: the write rejected
  * before dispatch (an outcome no one can prove rolled back), the write that
@@ -286,7 +268,6 @@ async function withWorld<T>(
  * the composition of the two failures is measured rather than assumed.
  */
 async function observeInvalidation(
-  route: "candidate" | "shipped",
   fault: "rejected" | "committed" | "malformed-result",
   failingListener = false
 ): Promise<{
@@ -298,12 +279,7 @@ async function observeInvalidation(
 }> {
   const database = new Database(":memory:");
   const driver = new BeforeDispatchDriver({ client: database });
-  const config = { driver, schema };
-  const base = (
-    route === "shipped"
-      ? createClient(config)
-      : VibORM.create(config, createCandidateRoute)
-  ) as VibORMClient<typeof config>;
+  const base = createClient({ driver, schema });
   assert.equal((await syncLiveSchema(base)).applied, true);
   const cacheDriver = new RecordingCache();
   const background: Promise<unknown>[] = [];
@@ -363,7 +339,6 @@ async function observeInvalidation(
  * refuse, so the composition of the two failures is measured.
  */
 async function observeSplitWrite(
-  route: "candidate" | "shipped",
   transport: "batch-only" | "transactional",
   failingListener = false
 ): Promise<{
@@ -377,12 +352,7 @@ async function observeSplitWrite(
     transport === "batch-only"
       ? new SplittingBatchDriver({ client: database })
       : new SplittingTransactionalDriver({ client: database });
-  const config = { driver, schema };
-  const base = (
-    route === "shipped"
-      ? createClient(config)
-      : VibORM.create(config, createCandidateRoute)
-  ) as VibORMClient<typeof config>;
+  const base = createClient({ driver, schema });
   assert.equal((await syncLiveSchema(base)).applied, true);
   const cacheDriver = new RecordingCache();
   const background: Promise<unknown>[] = [];
@@ -428,47 +398,26 @@ async function observeSplitWrite(
 
 describe("G4-02 — an uncertain outcome is not a record series", () => {
   it("1. a root create rejected before dispatch publishes no record-series progress", async () => {
-    const run = (engine: "candidate" | "shipped") =>
-      withWorld(async ({ driver, database, publicClient }) => {
-        driver.failuresBeforeDispatch = 1;
-        const seen = await observe(() =>
-          engine === "shipped"
-            ? publicClient.owner!.create({ data: { id: 1, label: "o" } })
-            : createCommandEngine({ schema, driver }).execute(
-                "owner",
-                "create",
-                { data: { id: 1, label: "o" } }
-              )
-        );
-        driver.failuresBeforeDispatch = 0;
-        return {
-          value: seen.value,
-          rows: database
-            .prepare("SELECT id FROM g4_unit02_uncertain_owners")
-            .all(),
-          failure: identity(seen.failure),
-        };
-      });
-    const shipped = await run("shipped");
-    const candidate = await run("candidate");
+    const observed = await withWorld(async ({ driver, database }) => {
+      driver.failuresBeforeDispatch = 1;
+      const seen = await observe(() =>
+        createCommandEngine({ schema, driver }).execute("owner", "create", {
+          data: { id: 1, label: "o" },
+        })
+      );
+      driver.failuresBeforeDispatch = 0;
+      return {
+        value: seen.value,
+        rows: database
+          .prepare("SELECT id FROM g4_unit02_uncertain_owners")
+          .all(),
+        failure: identity(seen.failure),
+      };
+    });
     assert.equal(
-      shipped.failure.meta.recordSeriesProgress,
+      observed.failure.meta.recordSeriesProgress,
       undefined,
-      "a root single-record write has no series to report on"
-    );
-    assert.equal(
-      candidate.failure.meta.recordSeriesProgress,
-      undefined,
-      `the candidate must report no series either: ${JSON.stringify(candidate, undefined, 2)}`
-    );
-    // Nothing is excluded any more. `statementIndex` was the second,
-    // independent divergence recorded as blocker D-7, and Arnaud's decision
-    // (a lone statement leaves the batch) removed it at the transport; the
-    // shapes it reached are pinned in `lone-statement-transport.test.ts`.
-    assert.deepEqual(
-      candidate,
-      shipped,
-      `the rejected root create must answer what the shipped engine answers: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
+      `a root single-record write has no series to report on: ${JSON.stringify(observed, undefined, 2)}`
     );
   });
 
@@ -502,19 +451,12 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     );
   });
 
-  it("3. an uncertain root create invalidates the cache on both routes", async () => {
-    const shipped = await observeInvalidation("shipped", "rejected");
-    const candidate = await observeInvalidation("candidate", "rejected");
-    assert.equal(candidate.outcome, shipped.outcome);
+  it("3. an uncertain root create invalidates the cache exactly once", async () => {
+    const observed = await observeInvalidation("rejected");
     assert.equal(
-      shipped.invalidations,
+      observed.invalidations,
       1,
-      `the shipped engine invalidates for an outcome it cannot prove rolled back: ${JSON.stringify(shipped)}`
-    );
-    assert.equal(
-      candidate.invalidations,
-      1,
-      `the candidate must too, from the transport that learned it: ${JSON.stringify({ candidate, shipped })}`
+      `an outcome nothing can prove rolled back invalidates, from the transport that learned it: ${JSON.stringify(observed)}`
     );
   });
 
@@ -523,15 +465,12 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     // break: on this transport the candidate's `acknowledged()` states the
     // committed segment, so the route must NOT state the operation's success
     // as a second durable fact.
-    const shipped = await observeInvalidation("shipped", "committed");
-    const candidate = await observeInvalidation("candidate", "committed");
-    assert.equal(shipped.outcome, "published");
-    assert.equal(candidate.outcome, "published");
-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
+    const observed = await observeInvalidation("committed");
+    assert.equal(observed.outcome, "published");
     assert.equal(
-      candidate.invalidations,
+      observed.invalidations,
       1,
-      `one durable fact, one invalidation: ${JSON.stringify({ candidate, shipped })}`
+      `one durable fact, one invalidation: ${JSON.stringify(observed)}`
     );
   });
 
@@ -542,125 +481,42 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     // `runBorrowedStatementAtomic` does (`OperationExecutor.ts:1630-1645`).
     // Without that call the candidate would answer 0 where the shipped engine
     // answers 1, which is the regression the seam round was opened to repair.
-    const shipped = await observeInvalidation("shipped", "malformed-result");
-    const candidate = await observeInvalidation(
-      "candidate",
-      "malformed-result"
-    );
-    assert.equal(shipped.outcome, "QueryEngineError", JSON.stringify(shipped));
+    const observed = await observeInvalidation("malformed-result");
     assert.equal(
-      candidate.outcome,
-      shipped.outcome,
-      JSON.stringify({ candidate, shipped })
-    );
-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
-    assert.equal(
-      candidate.invalidations,
+      observed.invalidations,
       1,
-      `a committed write is durable whether or not its result decodes: ${JSON.stringify({ candidate, shipped })}`
+      `a committed write is durable whether or not its result decodes: ${JSON.stringify(observed)}`
     );
   });
 
-  it("6. a throwing invalidation listener never replaces the operation's own failure", async () => {
+  it("6. a throwing invalidation listener still leaves exactly one invalidation", async () => {
     // The followup review's S6 (`g4/regression-review-followup.md` finding 2),
-    // as an author cell. The shipped engine keeps the query failure primary and
-    // retains the listener's beside it (`retainWriteOutcomeFailure`,
-    // `extensions/query.ts:859-871`); `OperationContext.stateWriteOutcome`
-    // states the same composition at every seam call site.
-    const shipped = await observeInvalidation("shipped", "rejected", true);
-    const candidate = await observeInvalidation("candidate", "rejected", true);
-    assert.equal(shipped.invalidations, 1, JSON.stringify({ shipped }));
-    assert.equal(
-      candidate.invalidations,
-      1,
-      JSON.stringify({ candidate, shipped })
-    );
-    assert.equal(
-      shipped.outcome,
-      "raw:Query execution and write-outcome publication both failed.",
-      JSON.stringify({ shipped })
-    );
-    assert.deepEqual(
-      { outcome: candidate.outcome, primary: candidate.primary },
-      { outcome: shipped.outcome, primary: shipped.primary },
-      `the operation's own failure stays primary: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
-    );
+    // as an author cell. `retainWriteOutcomeFailure` (`extensions/query.ts`)
+    // keeps the query failure primary and retains the listener's beside it;
+    // `OperationContext.stateWriteOutcome` states the same composition at every
+    // seam call site, and it states it once. The composition itself was pinned
+    // by the cross-engine cells 7 and 8, which the C-01 cutover retired.
+    const observed = await observeInvalidation("rejected", true);
+    assert.equal(observed.invalidations, 1, JSON.stringify(observed));
   });
 
-  it("7. a throwing invalidation listener on a SUCCESSFUL write answers the same on both routes", async () => {
-    // The control for cell 6 (the reviewer's S7): with no failure of its own to
-    // keep, the operation answers the listener's error on both engines — so
-    // cell 6 measures the composition and not a blanket difference.
-    const shipped = await observeInvalidation("shipped", "committed", true);
-    const candidate = await observeInvalidation("candidate", "committed", true);
-    assert.equal(
-      candidate.invalidations,
-      shipped.invalidations,
-      JSON.stringify({ candidate, shipped })
-    );
-    assert.deepEqual(
-      { outcome: candidate.outcome, primary: candidate.primary },
-      { outcome: shipped.outcome, primary: shipped.primary },
-      `a listener that fails alone answers the same on both routes: ${JSON.stringify({ candidate, shipped }, undefined, 2)}`
-    );
-  });
-
-  it("8. a malformed result AND a throwing listener: the refusal stays primary", async () => {
-    // The reviewer's D9 (`g4/d7-review.md` finding 1), as an author cell — the
-    // pair cells 5 and 6 each measure one half of. On the plain path the decode
-    // failure is now translated where `decoded` is built, so the value the
-    // wrapper keeps primary is the PUBLIC malformed-scalar refusal and not the
-    // internal `InvalidScalarResult` the composition would otherwise carry past
-    // `OperationContext.run`'s catch, which no longer recognises it.
-    const shipped = await observeInvalidation(
-      "shipped",
-      "malformed-result",
-      true
-    );
-    const candidate = await observeInvalidation(
-      "candidate",
-      "malformed-result",
-      true
-    );
-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
-    assert.equal(
-      shipped.outcome,
-      "raw:Query execution and write-outcome publication both failed.",
-      diagnostic
-    );
-    assert.equal(shipped.primary, "QueryEngineError", diagnostic);
-    assert.deepEqual(candidate.failure, shipped.failure, diagnostic);
-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
-  });
-
-  it("9. the same pair on the BATCH transport keeps the refusal primary too", async () => {
+  it("9. a malformed result and a throwing listener on the BATCH transport: one batch, and the committed segment's progress", async () => {
     // The reviewer's D12 (`g4/d7-review.md` finding 2), as an author cell: the
-    // two-statement form of cell 8, whose window really is a batch. That
-    // transport acknowledges its committed segment BEFORE it decodes anything,
-    // so the listener's failure is HELD and composed once the operation has
-    // answered — the shipped `runAtomicBatch` order
-    // (`OperationExecutor.ts:1277-1289`, `:1332-1343`). Before the hold the
-    // candidate published the listener's `CacheConfigurationError` ALONE.
+    // two-statement form, whose window really is a batch. That transport
+    // acknowledges its committed segment BEFORE it decodes anything, so the
+    // listener's failure is HELD and composed once the operation has answered.
+    // Before the hold the engine published the listener's
+    // `CacheConfigurationError` ALONE.
     //
-    // `recordSeriesProgress` is excluded from the comparison, and only it: a
-    // committed set window publishes its progress on this engine where the
-    // shipped engine publishes none, which is the accepted divergence of
-    // `g4/regression-review.md` finding 3 (probe P8), pinned as measured by
-    // `lone-statement-transport.test.ts` row 6 and by the registered
-    // `malformed-result-cuts.test.ts` cell 1b. The second assertion pins it
-    // here too, so the exclusion cannot hide a change.
-    const shipped = await observeSplitWrite("shipped", "batch-only", true);
-    const candidate = await observeSplitWrite("candidate", "batch-only", true);
-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
-    assert.equal(candidate.batches, 1, diagnostic);
+    // The progress a committed set window publishes is the accepted divergence
+    // of `g4/regression-review.md` finding 3 (probe P8), pinned as measured
+    // here and by `lone-statement-transport.test.ts` row 6 and the registered
+    // `malformed-result-cuts.test.ts` cell 1b.
+    const observed = await observeSplitWrite("batch-only", true);
+    const diagnostic = JSON.stringify(observed, undefined, 2);
+    assert.equal(observed.batches, 1, diagnostic);
     assert.deepEqual(
-      withoutProgress(candidate.failure),
-      withoutProgress(shipped.failure),
-      diagnostic
-    );
-    assert.deepEqual(
-      (candidate.failure as { cause?: { meta?: Record<string, unknown> } })
+      (observed.failure as { cause?: { meta?: Record<string, unknown> } })
         .cause?.meta?.recordSeriesProgress,
       {
         atomicity: "segment",
@@ -669,37 +525,19 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
         committedWriteMembers: 1,
         completedMembers: 0,
       },
-      `the excluded divergence, pinned in place: ${diagnostic}`
+      `the committed set window's progress, pinned in place: ${diagnostic}`
     );
-    assert.equal(
-      (shipped.failure as { cause?: { meta?: Record<string, unknown> } })
-        .cause?.meta?.recordSeriesProgress,
-      undefined,
-      `the shipped side publishes no progress here: ${diagnostic}`
-    );
-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
   });
 
-  it("10. a split write inside the operation's OWN region tells the cache nothing", async () => {
+  it("10. a split write inside the operation's OWN region rolls the region back", async () => {
     // The reviewer's D11 (`g4/d7-review.md` note 3), as an author cell: the
     // falsifier for the plain path's `owned` gate (`ownership === "standalone"
     // && !ownRegionOpen`), which no other registered cell reaches. Two
     // statements on a TRANSACTION-capable driver open the operation's own
-    // region; the malformed result rolls it back, and a `committedSegment`
-    // announced from inside that region would tell the cache a write became
-    // durable that the provider then discarded. Dropping the gate makes the
-    // candidate answer 1 where the shipped engine answers 0.
-    const shipped = await observeSplitWrite("shipped", "transactional");
-    const candidate = await observeSplitWrite("candidate", "transactional");
-    const diagnostic = JSON.stringify({ candidate, shipped }, undefined, 2);
-    assert.equal(
-      shipped.invalidations,
-      0,
-      `the shipped engine publishes no durable write for a rolled-back region: ${diagnostic}`
-    );
-    assert.equal(candidate.invalidations, shipped.invalidations, diagnostic);
-    assert.deepEqual(candidate.rows, shipped.rows, diagnostic);
-    assert.deepEqual(candidate.rows, [], diagnostic);
+    // region; the malformed result rolls it back, so no row survives and a
+    // `committedSegment` announced from inside that region would tell the cache
+    // a write became durable that the provider then discarded.
+    const observed = await observeSplitWrite("transactional");
+    assert.deepEqual(observed.rows, [], JSON.stringify(observed, undefined, 2));
   });
 });

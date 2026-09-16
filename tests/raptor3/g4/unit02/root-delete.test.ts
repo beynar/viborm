@@ -55,7 +55,7 @@ describe("G4-02 root delete", () => {
     assert.deepEqual(value, { name: "Bo" });
   });
 
-  it("keeps the shipped not-found identity and removes nothing", async () => {
+  it("keeps one not-found identity across the two seams and removes nothing", async () => {
     world = await createWorld();
     const engine = engineOf(world);
     const shipped = await world.client.author

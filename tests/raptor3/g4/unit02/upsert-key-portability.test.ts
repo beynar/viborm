@@ -174,7 +174,7 @@ async function bothEngines(
 }
 
 describe("G4-02 — a scalar-only upsert carries no key-portability assertion", () => {
-  it("multiplies a NUMBER key on the found arm, as the shipped engine does", async () => {
+  it("multiplies a NUMBER key on the found arm, identically on both seams", async () => {
     const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
       where: { id: 6 },
       create: { id: 6, label: "a" },
@@ -184,7 +184,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
     assert.equal(outcome.answer, 'ok:{"id":12,"label":"a"}');
   });
 
-  it("multiplies a DECIMAL key on the found arm, as the shipped engine does", async () => {
+  it("multiplies a DECIMAL key on the found arm, identically on both seams", async () => {
     const outcome = await bothEngines("decKey", "g4u2u_dec_keys", {
       where: { id: "6.00" },
       create: { id: "6.00", label: "a" },
@@ -193,7 +193,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
     assert.equal(outcome.answer, 'ok:{"id":"12","label":"a"}');
   });
 
-  it("carries an int key divide-by-zero to the provider, as the shipped engine does", async () => {
+  it("carries an int key divide-by-zero to the provider, identically on both seams", async () => {
     const outcome = await bothEngines("intKey", "g4u2u_int_keys", {
       where: { id: 3 },
       create: { id: 3, label: "a" },
@@ -208,7 +208,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
     );
   });
 
-  it("CREATES the missing row whose update names key arithmetic, as shipped does", async () => {
+  it("CREATES the missing row whose update names key arithmetic, identically on both seams", async () => {
     const outcome = await bothEngines("numKey", "g4u2u_num_keys", {
       where: { id: 99 },
       create: { id: 99, label: "new" },
@@ -223,7 +223,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
 });
 
 describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
-  it("refuses a number key multiply beside a relation write, as shipped does", async () => {
+  it("refuses a number key multiply beside a relation write, identically on both seams", async () => {
     const outcome = await bothEngines("owner", "g4u2u_owners", {
       where: { id: 6 },
       create: { id: 6, label: "o" },
@@ -238,7 +238,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
     );
   });
 
-  it("still CREATES the missing row, because the shipped assertion is found-arm", async () => {
+  it("still CREATES the missing row on both seams, because the assertion is found-arm", async () => {
     // `UpsertOperation.compileFoundArm` runs `updateLegality` only after the
     // found arm is selected, so an upsert whose row is absent writes its create
     // arm and never reaches the contract. The candidate carries the refusal on
@@ -256,7 +256,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
     ]);
   });
 
-  it("refuses ahead of a conditional that would skip, as shipped does", async () => {
+  it("refuses ahead of a conditional that would skip, identically on both seams", async () => {
     // Shipped order: found-arm legality runs BEFORE conditional skip/update
     // selection, so an unmatched `targetWhere` does not hide the refusal.
     const outcome = await bothEngines("owner", "g4u2u_owners", {
@@ -272,7 +272,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
   });
 });
 
-describe("G4-02 — the THIRD shipped owner: the key transition at analysis", () => {
+describe("G4-02 — the THIRD owner the deleted engine had: the key transition at analysis", () => {
   it("refuses a divide-by-zero beside a relation write with the analysis sentence", async () => {
     const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
       where: { id: 6 },

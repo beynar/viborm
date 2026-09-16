@@ -298,7 +298,6 @@ test("client coverage admits the core and audited deterministic contracts", () =
 test("driver coverage isolates provider resources and admits only audited local providers", () => {
   const core = coreTests("tests/contracts/drivers");
   const providerContracts = [
-    "tests/contracts/drivers/consumable-result-rows.provider.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.provider.test.ts",
     "tests/contracts/drivers/sqlite-integer-safety.provider.test.ts",
     "tests/contracts/drivers/sqlite-native-datetime.provider.test.ts",
@@ -331,7 +330,6 @@ test("driver coverage isolates provider resources and admits only audited local 
   const providerHeavyCore = new Set([
     "tests/contracts/drivers/bind-parameter-capacity.core.test.ts",
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
-    "tests/contracts/drivers/namespace-execution-target.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
@@ -392,7 +390,6 @@ test("driver coverage isolates provider resources and admits only audited local 
     );
   }
   const pgliteCoverageExclusions = [
-    "tests/contracts/drivers/consumable-result-rows-pglite.provider.test.ts",
     "tests/contracts/drivers/error-mapping.provider.test.ts",
     "tests/contracts/drivers/transaction-options-behavior.provider.test.ts",
     "tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts",

@@ -1,0 +1,19 @@
+{
+  "mode": "g4-write-transport-seed-batch",
+  "identity": {
+    "production": "02acf87987e1394a335fb633f65b5c54bb2b372abfe61d8e97c52da2f8c1331e",
+    "harness": "c4eca7bbf91bf266cf0d2332d71c1ce270279d78de228b45c2d335a151fc900f",
+    "runtime": {
+      "node": "v24.21.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "sqliteDriver": "12.6.0",
+      "vitest": "3.1.4"
+    }
+  },
+  "resourceBounds": {
+    "heapMb": 768,
+    "rssMb": 1536,
+    "wallMs": 120000
+  }
+}

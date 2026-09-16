@@ -1,0 +1,179 @@
+▲ [WARNING] Expected the "target" option to be nested inside a "compilerOptions" object [tsconfig.json]
+
+    ../../tsconfig.json:2:1:
+      2 │  "target": "es2022",
+        ╵  ~~~~~~~~
+
+
+ RUN  v3.1.4 /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/rev4/base
+
+ ❯ |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts (5 tests | 5 failed) 29ms
+   × round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse the six non-portable JSON string paths the base refused 18ms
+     → status refused with JSON filter for field 'metadata' has an unsupported path string 'status': a path string must start with '$'. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'.
++ actual - expected
+
++ "JSON filter for field 'metadata' has an unsupported path string 'status': a path string must start with '$'. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'."
+- undefined
+
+   × round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse a JSON filter that carries only a path, and answers every row 2ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ "Filter for field 'metadata' must contain at least one operation."
+- undefined
+
+   × round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse an empty scalar filter, and answers every row 2ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ "Filter for field 'name' must contain at least one operation."
+- undefined
+
+   × round-4 review — deleted class-A cells that pinned a READ-path refusal > carries the empty-scalar-filter fail-open into deleteMany and updateMany 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   error: "Filter for field 'name' must contain at least one operation."
+-   ok: {
+-     count: 2
+-   }
+  }
+
+   × round-4 review — deleted class-A cells that pinned a READ-path refusal > answers a string JSON path and the equivalent array path differently 2ms
+     → Expected "actual" not to be strictly deep-equal to:
+
+{
+  ok: [
+    {
+      name: 'Ada'
+    }
+  ]
+}
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts > round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse the six non-portable JSON string paths the base refused
+AssertionError: status refused with JSON filter for field 'metadata' has an unsupported path string 'status': a path string must start with '$'. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'.
++ actual - expected
+
++ "JSON filter for field 'metadata' has an unsupported path string 'status': a path string must start with '$'. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'."
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts:97:14
+     95|     for (const [path] of paths) {
+     96|       const result = seen[path] as { ok?: unknown; error?: string };
+     97|       assert.equal(
+       |              ^
+     98|         result.error,
+     99|         undefined,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts > round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse a JSON filter that carries only a path, and answers every row
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ "Filter for field 'metadata' must contain at least one operation."
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts:115:12
+    113|       })
+    114|     );
+    115|     assert.equal(result.error, undefined);
+       |            ^
+    116|     assert.deepEqual(result.ok, [{ name: "Ada" }, { name: "Bob" }]);
+    117|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts > round-4 review — deleted class-A cells that pinned a READ-path refusal > does not refuse an empty scalar filter, and answers every row
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ "Filter for field 'name' must contain at least one operation."
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts:126:12
+    124|       client.author.findMany({ where: { name: {} }, select: { name: tr…
+    125|     );
+    126|     assert.equal(result.error, undefined);
+       |            ^
+    127|     assert.deepEqual(result.ok, [{ name: "Ada" }, { name: "Bob" }]);
+    128|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts > round-4 review — deleted class-A cells that pinned a READ-path refusal > carries the empty-scalar-filter fail-open into deleteMany and updateMany
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   error: "Filter for field 'name' must contain at least one operation."
+-   ok: {
+-     count: 2
+-   }
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "ok": {[39m
+[32m-     "count": 2,[39m
+[32m-   },[39m
+[31m+   "error": "Filter for field 'name' must contain at least one operation.",[39m
+[2m  }[22m
+
+ ❯ tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts:138:12
+    136|       })
+    137|     );
+    138|     assert.deepEqual(updated, { ok: { count: 2 } });
+       |            ^
+    139|     const deleted = await outcome(() =>
+    140|       client.author.deleteMany({ where: { name: {} } })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |review-cutover| tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts > round-4 review — deleted class-A cells that pinned a READ-path refusal > answers a string JSON path and the equivalent array path differently
+AssertionError: Expected "actual" not to be strictly deep-equal to:
+
+{
+  ok: [
+    {
+      name: 'Ada'
+    }
+  ]
+}
+
+
+[2mCompared values have no visual difference.[22m
+
+ ❯ tests/raptor3/g4/review/cutover/round4-deleted-refusals.review.test.ts:163:12
+    161|     );
+    162|     assert.deepEqual(arrayForm, { ok: [{ name: "Ada" }] });
+    163|     assert.notDeepEqual(stringForm, arrayForm);
+       |            ^
+    164|     assert.deepEqual(stringForm, { ok: [] });
+    165|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  01:46:04
+   Duration  1.72s (transform 1.08s, setup 13ms, collect 1.56s, tests 29ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 2.19s wall, 453.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

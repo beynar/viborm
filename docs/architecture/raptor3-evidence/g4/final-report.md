@@ -1,4 +1,4 @@
-# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-16, 20:45)
+# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-17, 02:00)
 
 ## Outcome
 
@@ -66,6 +66,37 @@ and the owner's desktop load (swap, load average 143) cost time only; both
 are recorded in the ledger.
 
 ## Risks and open items
+
+0. **D-16 — 115 behaviour differences of the new engine surfaced by the
+   cutover's own verification, none caused by the cutover (first item for
+   Arnaud).** The most serious first: an EMPTY operator bag in a bulk
+   `where` (`updateMany`/`deleteMany({ where: { name: {} } })`) used to fail
+   closed and now matches every row — every row updated, then deleted — and
+   six non-portable JSON path spellings, empty scalar/relation filters and a
+   `having` field outside `by` are no longer refused on reads (27 lost or
+   changed refusals in all, plus 13 fail-closed result contracts no longer
+   enforced, some now leaking a raw `TypeError`). The C-01 unit ran the lanes the qualification estate never
+   registered — the credential-free sqlite3/libsql provider suites and the
+   two Docker provider suites — and found 78 red cells there plus 8 on the
+   public-client core lane and 2 changed refusal wordings; every one
+   reproduces on the pre-cutover tree with the candidate route, so they are
+   pre-existing differences between the candidate and the engine it
+   replaces, not cutover defects. Families a user would notice first:
+   relation-filtered `updateMany`/`deleteMany` touching the wrong row set
+   (18 cells), a nested object value parsed as an update-operator bag (9:
+   delegated JSON writes, GeoPoint round-trips), JSON path filters (8),
+   polymorphic collection reads and writes (9), decimal exactness and scalar
+   decoding (7), nested-write dependency refusals raised where the old engine
+   executed (5), read-path regressions (`groupBy` `by.map` crash, empty
+   default projections, `_count: true`; 4), live upsert concurrency (4),
+   an empty `createMany` refusal gone, an `upsert` pre-dispatch error class,
+   three array-interceptor orderings, two write-outcome certainties. They
+   are neither repaired nor deleted (D-12); they stay red on the branch and
+   are listed cell by cell in `g4/cutover-execution/note.md` R3.2 and R4.2
+   and in commit 4's message. Decision: repair unit before pushing, accept
+   and re-pin, or hold the cutover. Six qualification attempts did not see
+   them because those suites were outside the registered modes — a gap in
+   the qualification plan, recorded as such.
 
 1. **Accepted performance difference (D-9).** Preparation 1.19–1.40× CPU
    on three cells and four relation-read cells 2–7 % above parity, with

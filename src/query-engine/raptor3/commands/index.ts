@@ -1,6 +1,7 @@
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
+import type { Sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
 import {
   type ExecutionBinding,
@@ -78,6 +79,12 @@ export interface PreparedRead {
    * shape is the value's shape — `count` publishes `3`, never `{_count: 3}`.
    */
   readonly empty: unknown;
+  /**
+   * The ONE statement this read compiles to, as the prepared `Read` built it.
+   * It is the `Sql` the execution runs, read from the same construction, so
+   * `QueryEngine.build` and the run cannot describe different queries.
+   */
+  readonly statement: Sql;
 }
 
 /**
@@ -91,6 +98,7 @@ function publishedFacts(value: Read): PreparedRead {
     value: value.value,
     single: value.single,
     empty: value.result([]),
+    statement: value.query.sql,
   };
 }
 
@@ -116,6 +124,15 @@ export interface PreparedOperation {
   prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
+  /**
+   * The same package as {@link PreparedOperation.prepareBatch}, for the verbs
+   * whose preparation reaches no driver and therefore completes synchronously:
+   * a read, which queues its one statement and states its parser in one call.
+   * Every other verb needs the asynchronous fold and answers `undefined`.
+   */
+  prepareSingle(
+    attribution?: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined;
 }
 
 export function createCommandEngine(config: EngineConfig) {
@@ -187,6 +204,25 @@ export function createCommandEngine(config: EngineConfig) {
             attribution
           )
         );
+      },
+      prepareSingle(attribution?) {
+        // Preparing admits the input whatever the verb compiles to: an
+        // operation that publishes no single query still answers for the
+        // payload it was handed, exactly as `prepareBatch` does.
+        args();
+        const value = read();
+        if (!value) return undefined;
+        const context = new OperationContext(
+          schema,
+          config.driver,
+          modelName,
+          operation,
+          undefined,
+          true,
+          attribution
+        );
+        context.publishPrepared(value, missing);
+        return context.preparedBatch();
       },
       async prepareBatch(attribution?) {
         const context = new OperationContext(

@@ -25,7 +25,6 @@ export const upsertLegalityScenarios: ScenarioDefinition[] = cases.map(
     ],
     prepare(controls) {
       const transformedUpdate = id === "g1-upsert-nested-admission-publication";
-      let singleAdmission = false;
       let transforms = 0;
       const author = s
         .model({
@@ -114,7 +113,6 @@ export const upsertLegalityScenarios: ScenarioDefinition[] = cases.map(
         `);
         },
         async invoke(driver, candidateFactory) {
-          singleAdmission = candidateFactory !== undefined;
           if (candidateFactory)
             return candidateFactory({ schema, driver }).execute(
               "post",
@@ -156,12 +154,10 @@ export const upsertLegalityScenarios: ScenarioDefinition[] = cases.map(
             observation.defaults,
             transformedUpdate
               ? [
-                  // The approved candidate removes the discarded second admission;
-                  // retain legacy's measured ledger and the same stored first value.
+                  // One admission per admitted input (D-8), on every arm: since
+                  // C-01 the public client IS this engine, so the discarded
+                  // second admission the deleted engine published is gone.
                   { name: "author.name.transform", value: "Changed-1" },
-                  ...(!singleAdmission
-                    ? [{ name: "author.name.transform", value: "Changed-2" }]
-                    : []),
                 ]
               : []
           );

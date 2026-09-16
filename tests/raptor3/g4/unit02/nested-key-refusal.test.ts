@@ -248,7 +248,7 @@ describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
     );
   });
 
-  it("keeps the refusal inside the shipped predicate's SHAPE and POSITIONS", async () => {
+  it("keeps the refusal, on both seams, inside the deleted engine's predicate SHAPE and POSITIONS", async () => {
     // The scope control, in both directions. It is the shipped predicate at the
     // shipped positions, never a wider "no nested key writes" rule.
     //
@@ -309,7 +309,7 @@ describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
     assert.deepEqual(keys(createdNumberKey.nitems), [10, 999]);
   });
 
-  it("answers the shipped sentence for a relation-free root upsert whose key names nothing", async () => {
+  it("answers one sentence on both seams for a relation-free root upsert whose key names nothing", async () => {
     // Review note 3: the last bare `Error` reachable from an admitted public
     // request in this family. No relation in the update payload means the
     // found-arm key channel never runs, exactly as shipped.

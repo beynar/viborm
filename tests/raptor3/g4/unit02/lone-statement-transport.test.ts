@@ -258,7 +258,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
     "updateMany",
     "deleteMany",
   ] as const) {
-    it(`${verb}: one statement rejected before dispatch answers the shipped failure exactly`, async () => {
+    it(`${verb}: one statement rejected before dispatch answers the same failure on both seams`, async () => {
       const shipped = await rejectedLoneStatement("shipped", verb);
       const candidate = await rejectedLoneStatement("candidate", verb);
       assert.equal(
@@ -284,7 +284,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
     });
   }
 
-  it("5. a multi-statement batch is still a batch, and still agrees with the shipped engine", async () => {
+  it("5. a multi-statement batch is still a batch, and the two seams still agree", async () => {
     // The neighbour the rule must not disturb. Two rows whose bind budget
     // splits them into two statements stay in ONE batch, so the driver seam
     // still attributes its index — the change is confined to the one-statement
@@ -357,42 +357,36 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
     );
   });
 
-  it("7. root update/delete: the shipped two-statement fold keeps an index the candidate's one-statement fold has none of", async () => {
+  it("7. root update/delete: the fold is one statement outside any batch", async () => {
     // RECORDED DIVERGENCE (D-7.1, a decision for Arnaud — `g4/regression/note.md`
-    // "D-7 round" §D.6). The shipped root `update`/`delete` fold is TWO
-    // statements on a batch-only driver — `[presence guard, mutation …
+    // "D-7 round" §D.6), now one-sided. The SHIPPED root `update`/`delete` fold
+    // was TWO statements on a batch-only driver — `[presence guard, mutation …
     // RETURNING]` (`UpdateOperation`/`DeleteOperation` `foldGuard` /
-    // `buildRootPresenceGuard`) — so it is a batch, and the driver seam
-    // attributes `statementIndex: 0` to a rejection before dispatch. The
-    // candidate's fold is ONE statement with a JavaScript postcondition
+    // `buildRootPresenceGuard`) — so it was a batch, and the driver seam
+    // attributed `statementIndex: 0` to a rejection before dispatch. This
+    // engine's fold is ONE statement with a JavaScript postcondition
     // (`OperationContext.published`), which is the G3-accepted difference, so
-    // after D-7 it is no batch and has no index to attribute. Before D-7 the
-    // candidate's one-statement BATCH agreed with shipped by coincidence.
-    // Pinned as measured so any change in either engine shows up here.
+    // after D-7 it is no batch and has no index to attribute.
+    //
+    // The C-01 cutover deletes the shipped fold, so the cross-engine half of
+    // this cell — the shipped `{ statements: 1, index: 0 }` pin and the
+    // "nothing else diverges" comparison — is retired with it. What is kept
+    // verbatim is the one-sided pin of THIS engine's fold, the fact D-7
+    // decided, which no other cell in this file reaches for a root
+    // `update`/`delete` (cells 1-4 cover the four bulk/create verbs).
     for (const verb of ["update", "delete"] as const) {
       const args =
         verb === "update"
           ? { where: { id: 1 }, data: { label: "changed" } }
           : { where: { id: 1 } };
-      const shipped = await rejectedRootFold("shipped", verb, args);
       const candidate = await rejectedRootFold("candidate", verb, args);
-      assert.deepEqual(
-        { statements: shipped.statements, index: shipped.meta.statementIndex },
-        { statements: 1, index: 0 },
-        `the shipped fold batches a presence guard with its mutation: ${JSON.stringify(shipped, undefined, 2)}`
-      );
       assert.deepEqual(
         {
           statements: candidate.statements,
           index: candidate.meta.statementIndex,
         },
         { statements: 1, index: undefined },
-        `the candidate fold is one statement outside any batch: ${JSON.stringify(candidate, undefined, 2)}`
-      );
-      assert.deepEqual(
-        { ...candidate.meta, statementIndex: undefined },
-        { ...shipped.meta, statementIndex: undefined },
-        `nothing else diverges: ${JSON.stringify({ shipped, candidate }, undefined, 2)}`
+        `the fold is one statement outside any batch: ${JSON.stringify(candidate, undefined, 2)}`
       );
     }
   });

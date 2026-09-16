@@ -3,7 +3,6 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { createProgramEngine } from "@query-engine/raptor3/program";
-import { isRecord } from "@validation/value-guards";
 import { afterAll, describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
 import type {
@@ -18,10 +17,7 @@ import {
 import { runSQLiteWorld } from "./harness/sqlite-world";
 import { G0_PROFILES } from "./profiles";
 import { fixedScenarios } from "./scenarios/contracts";
-import {
-  verifyChangedDependencyCommandsProgress,
-  verifyInstanceAdmissionPair,
-} from "./scenarios/contracts/instances";
+import { verifyProgramEnginePair } from "./scenarios/contracts/instances";
 
 const records: G0ReplayRecord[] = [];
 afterAll(async () => {
@@ -63,50 +59,13 @@ for (const [name, factory] of Object.entries(candidates)) {
               : {}),
           });
           if (
-            scenario.id === "s2-distinct-defaults" ||
-            scenario.id === "s2-changed-dependency"
-          ) {
-            if (name === "commands")
-              records.push(baseline.record, compared.record);
-            verifyInstanceAdmissionPair(baseline, compared);
-            if (
-              name === "commands" &&
-              scenario.id === "s2-changed-dependency" &&
-              profile === "sqlite-atomic-batch"
-            ) {
-              const baselineOutcome = baseline.observation.outcome;
-              const comparedOutcome = compared.observation.outcome;
-              assert.equal(baselineOutcome.kind, "failure");
-              assert.equal(comparedOutcome.kind, "failure");
-              const comparedMeta = comparedOutcome.failure.meta;
-              assert(isRecord(comparedMeta));
-              const comparedProgress = comparedMeta.recordSeriesProgress;
-              assert(isRecord(comparedProgress));
-              const {
-                memberPath: _memberPath,
-                totalMembers: _totalMembers,
-                ...incompleteProgress
-              } = comparedProgress;
-              assert.throws(() =>
-                verifyChangedDependencyCommandsProgress(baselineOutcome, {
-                  ...comparedOutcome,
-                  failure: {
-                    ...comparedOutcome.failure,
-                    meta: {
-                      ...comparedMeta,
-                      recordSeriesProgress: incompleteProgress,
-                    },
-                  },
-                })
-              );
-            }
-            assert.throws(() =>
-              compared.fixture.assert({
-                ...compared.observation,
-                defaults: baseline.observation.defaults,
-              })
-            );
-          } else verifyG0Pair(baseline, compared);
+            name === "commands" &&
+            (scenario.id === "s2-distinct-defaults" ||
+              scenario.id === "s2-changed-dependency")
+          )
+            records.push(baseline.record, compared.record);
+          if (name === "program") verifyProgramEnginePair(baseline, compared);
+          else verifyG0Pair(baseline, compared);
 
           for (let replay = 0; replay < 3; replay += 1) {
             const replayed = await runSQLiteWorld(scenario, profile, 0, {

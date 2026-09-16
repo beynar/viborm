@@ -35,7 +35,7 @@ describe.runIf(provider === "mysql" && port > 0)(
       ["increment", { increment: 5 }, 12],
       ["decrement", { decrement: 5 }, 2],
     ] as const) {
-      it(`names an int key under ${name} exactly as the shipped engine does`, async () => {
+      it(`names an int key under ${name} identically on the client route seam and the command engine`, async () => {
         const table = `g4u2_keys_${randomUUID().replaceAll("-", "")}`;
         const row = s.model({ id: s.int().id(), label: s.string() }).map(table);
         const schema = { row };

@@ -85,7 +85,7 @@ describe("G4-01 repair 3 — the cursor refusal identity (finding H, Q-P01)", ()
   ];
 
   for (const [label, model, orderBy] of ORDERS)
-    it(`words the cursor refusal for ${label} the way the shipped engine does`, async () => {
+    it(`words the cursor refusal for ${label} identically on the client route seam and the command engine`, async () => {
       const seen = await outcomes(seedPosts, model, "findMany", {
         orderBy,
         cursor: { id: 1 },
@@ -128,7 +128,7 @@ describe("G4-01 repair 3 — the JSON sentinel-with-path refusal (finding I, Q-W
     ["JsonNull", JsonNull],
     ["AnyNull", AnyNull],
   ] as [string, unknown][])
-    it(`words the path + ${label} refusal the way the shipped engine does`, async () => {
+    it(`words the path + ${label} refusal identically on the client route seam and the command engine`, async () => {
       const seen = await outcomes(seedProfiles, "author", "findMany", {
         where: { profile: { path: ["a"], equals: sentinel } },
         orderBy: { id: "asc" },

@@ -121,7 +121,7 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
     }
   });
 
-  it("orders a grouped read the way the shipped engine orders it", async () => {
+  it("orders a grouped read identically on the client route seam and the command engine", async () => {
     const { shipped, candidate } = await differential(
       seedRatings,
       "author",

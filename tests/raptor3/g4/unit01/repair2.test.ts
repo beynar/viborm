@@ -46,7 +46,7 @@ describe("G4-01 repair 2 — the empty logical arm (finding B, Q-W01)", () => {
   ];
 
   for (const [label, where] of FORMS)
-    it(`answers ${label} the way the shipped engine does`, async () => {
+    it(`answers ${label} identically on the client route seam and the command engine`, async () => {
       const { shipped, candidate } = await differential(
         seedCategories,
         "post",

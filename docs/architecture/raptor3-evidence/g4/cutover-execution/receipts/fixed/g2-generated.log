@@ -1,0 +1,2237 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ❯ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests | 36 failed) 1341ms
+   ✓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-interactive 28ms
+   × G2 generated fixed key-move: sqlite-interactive 43ms
+     → G2 seed 2100, sqlite-interactive, baseline failed
+   × G2 generated fixed key-rollback: sqlite-interactive 39ms
+     → G2 seed 2101, sqlite-interactive, baseline failed
+   × G2 generated fixed singular-supply-modify: sqlite-interactive 28ms
+     → G2 seed 2102, sqlite-interactive, baseline failed
+   × G2 generated fixed required-retain: sqlite-interactive 28ms
+     → G2 seed 2103, sqlite-interactive, baseline failed
+   × G2 generated fixed required-depart: sqlite-interactive 28ms
+     → G2 seed 2104, sqlite-interactive, baseline failed
+   × G2 generated fixed coc-set-distinct: sqlite-interactive 30ms
+     → G2 seed 2105, sqlite-interactive, baseline failed
+   ✓ G2 generated fixed coc-set-same: sqlite-interactive 14ms
+   × G2 generated fixed delete-create: sqlite-interactive 34ms
+     → G2 seed 2107, sqlite-interactive, baseline failed
+   ✓ G2 generated fixed delete-update: sqlite-interactive 15ms
+   × G2 generated fixed junction-transfer: sqlite-interactive 37ms
+     → G2 seed 2109, sqlite-interactive, baseline failed
+   × G2 generated before-dispatch followed by healthy calls: sqlite-interactive 34ms
+     → G2 seed 2120, sqlite-interactive, baseline failed
+   × G2 generated after-key-write followed by healthy calls: sqlite-interactive 26ms
+     → G2 seed 2121, sqlite-interactive, baseline failed
+   × G2 generated two-before-dispatch followed by healthy calls: sqlite-interactive 26ms
+     → G2 seed 2122, sqlite-interactive, baseline failed
+   × G2 generated seed 2000: sqlite-interactive 34ms
+     → G2 seed 2000, sqlite-interactive, baseline failed
+   × G2 generated seed 2001: sqlite-interactive 34ms
+     → G2 seed 2001, sqlite-interactive, baseline failed
+   × G2 generated seed 2002: sqlite-interactive 34ms
+     → G2 seed 2002, sqlite-interactive, baseline failed
+   × G2 generated seed 2003: sqlite-interactive 32ms
+     → G2 seed 2003, sqlite-interactive, baseline failed
+   × G2 generated seed 2004: sqlite-interactive 32ms
+     → G2 seed 2004, sqlite-interactive, baseline failed
+   × G2 generated seed 2005: sqlite-interactive 29ms
+     → G2 seed 2005, sqlite-interactive, baseline failed
+   × G2 generated seed 2006: sqlite-interactive 35ms
+     → G2 seed 2006, sqlite-interactive, baseline failed
+   ✓ G2 generated seed 2007: sqlite-interactive 9ms
+   ✓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-interactive 39ms
+   ✓ pins the approved single-admission ledger against duplicate and missing entries: sqlite-atomic-batch 15ms
+   × G2 generated fixed key-move: sqlite-atomic-batch 30ms
+     → G2 seed 2100, sqlite-atomic-batch, baseline failed
+   × G2 generated fixed key-rollback: sqlite-atomic-batch 24ms
+     → G2 seed 2101, sqlite-atomic-batch, baseline failed
+   × G2 generated fixed singular-supply-modify: sqlite-atomic-batch 32ms
+     → G2 seed 2102, sqlite-atomic-batch, baseline failed
+   × G2 generated fixed required-retain: sqlite-atomic-batch 32ms
+     → G2 seed 2103, sqlite-atomic-batch, baseline failed
+   × G2 generated fixed required-depart: sqlite-atomic-batch 36ms
+     → G2 seed 2104, sqlite-atomic-batch, baseline failed
+   × G2 generated fixed coc-set-distinct: sqlite-atomic-batch 32ms
+     → G2 seed 2105, sqlite-atomic-batch, baseline failed
+   ✓ G2 generated fixed coc-set-same: sqlite-atomic-batch 12ms
+   × G2 generated fixed delete-create: sqlite-atomic-batch 26ms
+     → G2 seed 2107, sqlite-atomic-batch, baseline failed
+   ✓ G2 generated fixed delete-update: sqlite-atomic-batch 11ms
+   × G2 generated fixed junction-transfer: sqlite-atomic-batch 29ms
+     → G2 seed 2109, sqlite-atomic-batch, baseline failed
+   × G2 generated before-dispatch followed by healthy calls: sqlite-atomic-batch 31ms
+     → G2 seed 2120, sqlite-atomic-batch, baseline failed
+   × G2 generated after-key-write followed by healthy calls: sqlite-atomic-batch 29ms
+     → G2 seed 2121, sqlite-atomic-batch, baseline failed
+   × G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch 27ms
+     → G2 seed 2122, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2000: sqlite-atomic-batch 32ms
+     → G2 seed 2000, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2001: sqlite-atomic-batch 32ms
+     → G2 seed 2001, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2002: sqlite-atomic-batch 31ms
+     → G2 seed 2002, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2003: sqlite-atomic-batch 36ms
+     → G2 seed 2003, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2004: sqlite-atomic-batch 31ms
+     → G2 seed 2004, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2005: sqlite-atomic-batch 31ms
+     → G2 seed 2005, sqlite-atomic-batch, baseline failed
+   × G2 generated seed 2006: sqlite-atomic-batch 30ms
+     → G2 seed 2006, sqlite-atomic-batch, baseline failed
+   ✓ G2 generated seed 2007: sqlite-atomic-batch 5ms
+   ✓ G2 shrinks actual wrong-parent publication and exactly replays the same property: sqlite-atomic-batch 23ms
+ ✓ |raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 40ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 36 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed key-move: sqlite-interactive
+Error: G2 seed 2100, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed key-rollback: sqlite-interactive
+Error: G2 seed 2101, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed singular-supply-modify: sqlite-interactive
+Error: G2 seed 2102, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed required-retain: sqlite-interactive
+Error: G2 seed 2103, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed required-depart: sqlite-interactive
+Error: G2 seed 2104, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed coc-set-distinct: sqlite-interactive
+Error: G2 seed 2105, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed delete-create: sqlite-interactive
+Error: G2 seed 2107, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed junction-transfer: sqlite-interactive
+Error: G2 seed 2109, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated before-dispatch followed by healthy calls: sqlite-interactive
+Error: G2 seed 2120, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated after-key-write followed by healthy calls: sqlite-interactive
+Error: G2 seed 2121, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated two-before-dispatch followed by healthy calls: sqlite-interactive
+Error: G2 seed 2122, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2000: sqlite-interactive
+Error: G2 seed 2000, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-121'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-121'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-121'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-121'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-121",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-121",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-121",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-121",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2001: sqlite-interactive
+Error: G2 seed 2001, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-116'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-116'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-116'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-116'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-116",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-116",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-116",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-116",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2002: sqlite-interactive
+Error: G2 seed 2002, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-627'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-627'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-627'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-627'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-627",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-627",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-627",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-627",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2003: sqlite-interactive
+Error: G2 seed 2003, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-982'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-982'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-982'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-982'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-982",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-982",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-982",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-982",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2004: sqlite-interactive
+Error: G2 seed 2004, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-325'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-325'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-325'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-325'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-325",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-325",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-325",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-325",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2005: sqlite-interactive
+Error: G2 seed 2005, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-912'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-912'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-912'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-912'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-912",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-912",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-912",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-912",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2006: sqlite-interactive
+Error: G2 seed 2006, sqlite-interactive, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-767'
+    },
+-   {
+-     name: 'owner.label.admission',
+-     value: 'value-767'
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-767",[22m
+[2m    },[22m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[32m-     "value": "value-767",[39m
+[32m-   },[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed key-move: sqlite-atomic-batch
+Error: G2 seed 2100, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed key-rollback: sqlite-atomic-batch
+Error: G2 seed 2101, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed singular-supply-modify: sqlite-atomic-batch
+Error: G2 seed 2102, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed required-retain: sqlite-atomic-batch
+Error: G2 seed 2103, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed required-depart: sqlite-atomic-batch
+Error: G2 seed 2104, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed coc-set-distinct: sqlite-atomic-batch
+Error: G2 seed 2105, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed delete-create: sqlite-atomic-batch
+Error: G2 seed 2107, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated fixed junction-transfer: sqlite-atomic-batch
+Error: G2 seed 2109, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:94:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated before-dispatch followed by healthy calls: sqlite-atomic-batch
+Error: G2 seed 2120, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated after-key-write followed by healthy calls: sqlite-atomic-batch
+Error: G2 seed 2121, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated two-before-dispatch followed by healthy calls: sqlite-atomic-batch
+Error: G2 seed 2122, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-700'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-700'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-700'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-700'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-700",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-700",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-700",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:106:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2000: sqlite-atomic-batch
+Error: G2 seed 2000, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-121'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-121'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-121'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-121'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-121",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-121",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-121",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-121",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2001: sqlite-atomic-batch
+Error: G2 seed 2001, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-116'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-116'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-116'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-116'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-116",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-116",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-116",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-116",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2002: sqlite-atomic-batch
+Error: G2 seed 2002, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-627'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-627'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-627'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-627'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-627",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-627",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-627",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-627",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2003: sqlite-atomic-batch
+Error: G2 seed 2003, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-982'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-982'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-982'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-982'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-982",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-982",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-982",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-982",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2004: sqlite-atomic-batch
+Error: G2 seed 2004, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-325'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-325'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-325'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-325'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-325",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-325",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-325",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-325",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2005: sqlite-atomic-batch
+Error: G2 seed 2005, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-912'
+    },
+    {
+      name: 'owner.label.admission',
+-     value: 'value-912'
+-   },
+-   {
+-     name: 'owner.label.admission',
+      value: 'healthy-0-912'
+    },
+    {
+      name: 'owner.label.admission',
+      value: 'healthy-1-912'
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -3,14 +3,10 @@[39m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-912",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[32m-     "value": "value-912",[39m
+[32m-   },[39m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[2m      "value": "healthy-0-912",[22m
+[2m    },[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "healthy-1-912",[22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/36]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-generated.test.ts > G2 generated seed 2006: sqlite-atomic-batch
+Error: G2 seed 2006, sqlite-atomic-batch, baseline failed
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:102:11
+    100|         );
+    101|     }
+    102|     throw new Error(
+       |           ^
+    103|       `${transition ? "G2" : "G1"} seed ${recipe.seed}, ${profile}, ${…
+    104|       {
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+Caused by: AssertionError: transition:admission-ledger
++ actual - expected
+
+  [
+    {
+      name: 'owner.label.admission',
+      value: 'value-767'
+    },
+-   {
+-     name: 'owner.label.admission',
+-     value: 'value-767'
+-   }
+  ]
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    {[22m
+[2m      "name": "owner.label.admission",[22m
+[2m      "value": "value-767",[22m
+[2m    },[22m
+[32m-   {[39m
+[32m-     "name": "owner.label.admission",[39m
+[32m-     "value": "value-767",[39m
+[32m-   },[39m
+[2m  ][22m
+
+ ❯ Object.assert tests/raptor3/generation/transitions.ts:646:18
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyGeneratedCell tests/raptor3/generation/campaign.ts:44:22
+ ❯ tests/raptor3/g2-generated.test.ts:132:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { generatedMessage: false, code: 'ERR_ASSERTION' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/36]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  36 failed | 16 passed (52)
+   Start at  21:10:54
+   Duration  3.07s (transform 856ms, setup 10ms, collect 1.48s, tests 1.38s, environment 0ms, prepare 25ms)
+
+JSON report written to /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-SWfqYV/vitest.json
+Vitest resources: 5.31s wall, 679.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /var/folders/2c/xh5rx2d91wd_lk8rvnnhlr4m0000gn/T/viborm-raptor3-g0-SWfqYV

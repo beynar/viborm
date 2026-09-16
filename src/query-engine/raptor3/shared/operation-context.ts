@@ -671,13 +671,19 @@ export class OperationContext {
    * projection or decoder exists (g4/unit03/note.md D-2).
    */
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
-    const decide = (rows: Input[]) => {
-      const value = read.result(rows);
-      if (value === null && missing) throw missing();
-      return value;
-    };
-    if (this.ownership !== "batch-preparation")
-      return decide(await this.read(read.query, false, true));
+    if (this.ownership === "batch-preparation")
+      return this.publishPrepared(read, missing);
+    const rows = await this.read(read.query, false, true);
+    return this.decideRead(read, missing, rows);
+  }
+  /**
+   * The batch-preparation arm of {@link publish}: queue this read's ONE
+   * statement and state the parser for its one result. It reaches no driver,
+   * so the package {@link preparedBatch} publishes is complete the moment this
+   * returns — which is what lets a caller ask for a read's single prepared
+   * query synchronously.
+   */
+  publishPrepared(read: Read, missing?: () => Error): undefined {
     const resultIndex = this.queued.length;
     this.queue(read.query.sql);
     this.preparedParser = (results) => {
@@ -687,11 +693,22 @@ export class OperationContext {
           `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
           { meta: this.errorMeta }
         );
-      return decide(
+      return this.decideRead(
+        read,
+        missing,
         this.queries.decodeQuery(read.query, response.rows.map(record))
       );
     };
     return undefined;
+  }
+  private decideRead(
+    read: Read,
+    missing: (() => Error) | undefined,
+    rows: Input[]
+  ): unknown {
+    const value = read.result(rows);
+    if (value === null && missing) throw missing();
+    return value;
   }
   referenceProjection(model: AnyModel, values: Input): Query {
     const adapter = this.driver.adapter;
@@ -1297,14 +1314,15 @@ export class OperationContext {
    * Say ONE durable write phase on the client's cache rail, keeping the
    * OPERATION's own failure primary when the client's listener throws.
    *
-   * The shipped engine composes the two exactly this way —
-   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859-871`) at every
-   * executor site that notifies while holding a failure
-   * (`write-engine/OperationExecutor.ts:1310`, `:1341`, `:1609`, `:1640`). The
-   * composition is restated here rather than imported because
-   * `@extensions/query` imports `write-engine/routing` and with it every
-   * shipped operation class — the one import this engine may not have. `primary`
-   * absent means the operation has not failed, which is the shipped
+   * The shipped engine composed the two exactly this way —
+   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859`) at every
+   * executor site that notified while holding a failure. It was restated here
+   * rather than imported because `@extensions/query` then imported
+   * `write-engine/routing` and with it every shipped operation class — the one
+   * import this engine may not have. C-01 deleted those classes and re-pointed
+   * that import at `@query-engine/routed-operations`, so the hazard is gone and
+   * the restatement is simply this engine's own composition. `primary` absent
+   * means the operation has not failed, which was the shipped
    * `throw outcomeFailure` arm.
    */
   private async stateWriteOutcome(

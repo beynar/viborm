@@ -10,7 +10,7 @@ import { verifyG0Pair } from "./harness/replay";
 import { runSQLiteWorld } from "./harness/sqlite-world";
 import { G0_PROFILES } from "./profiles";
 import { fixedScenarios } from "./scenarios/contracts";
-import { verifyInstanceAdmissionPair } from "./scenarios/contracts/instances";
+import { verifyProgramEnginePair } from "./scenarios/contracts/instances";
 
 const changedDependency = fixedScenarios.find(
   (scenario) => scenario.id === "s2-changed-dependency"
@@ -64,7 +64,8 @@ for (const [name, factory] of Object.entries(candidates)) {
         candidateFactory: factory,
         ...(name === "commands" ? { candidateName: "commands" as const } : {}),
       });
-      verifyInstanceAdmissionPair(reordered, candidate);
+      if (name === "program") verifyProgramEnginePair(reordered, candidate);
+      else verifyG0Pair(reordered, candidate);
     });
   });
 }

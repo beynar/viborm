@@ -1,0 +1,8 @@
+=== 21:29:17 g4-seed-batch 20000 --subject=candidate ===
+g4-seed-batch 20000 exit=0
+=== 21:29:24 g4-transport-seed-batch 50000 --subject=candidate ===
+g4-transport-seed-batch 50000 exit=0
+=== 21:29:32 g4-write-seed-batch 75000  ===
+g4-write-seed-batch 75000 exit=0
+=== 21:29:41 g4-write-transport-seed-batch 100000  ===
+g4-write-transport-seed-batch 100000 exit=0

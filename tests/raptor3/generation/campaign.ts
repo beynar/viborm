@@ -3,7 +3,6 @@ import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { captureRaptor3Identity } from "../../../scripts/raptor3-manifest.mjs";
-import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import type { ProfileId } from "../profiles";
 import type { G0ReplayRecord } from "../harness/protocol";
 import {
@@ -49,23 +48,10 @@ export async function verifyGeneratedCell(
       candidateName: "commands",
     });
     records.push(compared.record);
-    if (transition) {
-      compared.fixture.assert(compared.observation);
-      // Both exact ledgers are independently pinned before this adjudicated
-      // comparison. Remove only legacy's duplicate first admission; raw records
-      // and same-engine replay retain every observed evaluation.
-      const duplicateAdmissions =
-        baseline.observation.defaults.length -
-        compared.observation.defaults.length;
-      assertEquivalentRunObservations(
-        scenario.id,
-        {
-          ...baseline.observation,
-          defaults: baseline.observation.defaults.slice(duplicateAdmissions),
-        },
-        compared.observation
-      );
-    } else verifyG0Pair(baseline, compared);
+    // Both exact ledgers are independently pinned before this comparison of
+    // the client route with the command engine; since C-01 they admit the same
+    // input the same number of times, so nothing is adjudicated away.
+    verifyG0Pair(baseline, compared);
     phase = "replay";
     for (let replay = 0; replay < 3; replay++)
       await replayG0Run(compared.record);
