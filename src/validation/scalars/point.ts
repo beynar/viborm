@@ -4,6 +4,7 @@ import { geoAreaSchema } from "../primitives/geo-area-codec";
 import { createSchema, fail, ok } from "../primitives/helpers";
 import { validateNumber } from "../primitives/number";
 import v, { type V } from "../primitives/v";
+import { buildSetUpdate, type SetUpdateSchema } from "./family";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -22,14 +23,6 @@ type PointFilterBase<S extends V.Schema> = {
 type PointFilterSchema<S extends V.Schema> = NegatableFilterSchema<
   S,
   PointFilterBase<S>
->;
-
-// =============================================================================
-// UPDATE TYPES
-// =============================================================================
-
-type PointUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
 >;
 
 // =============================================================================
@@ -70,19 +63,6 @@ const buildPointFilterSchema = <S extends V.Schema>(
   return buildNegatableFilterSchema<S, PointFilterBase<S>>(filter, schema);
 };
 
-const buildPointUpdateSchema = <S extends V.Schema>(
-  schema: S
-): PointUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object(
-      {
-        set: schema,
-      },
-      { partial: false }
-    ),
-  ]);
-
 // =============================================================================
 // POINT SCHEMA BUILDER
 // =============================================================================
@@ -90,7 +70,7 @@ const buildPointUpdateSchema = <S extends V.Schema>(
 export interface PointSchemas<F extends ScalarState<"point">> {
   base: F["base"];
   create: V.Point<F>;
-  update: PointUpdateSchema<F["base"]>;
+  update: SetUpdateSchema<F["base"]>;
   filter: PointFilterSchema<F["base"]>;
 }
 
@@ -100,7 +80,7 @@ export const buildPointSchema = <F extends ScalarState<"point">>(
   return lazyScalarSchemas<PointSchemas<F>>({
     base: state.base,
     create: () => v.point(state),
-    update: () => buildPointUpdateSchema<F["base"]>(state.base),
+    update: () => buildSetUpdate<F["base"]>(state.base),
     filter: () => buildPointFilterSchema<F["base"]>(state.base),
   });
 };

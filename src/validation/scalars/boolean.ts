@@ -1,22 +1,23 @@
 import type { ScalarState } from "@schema/scalars/common";
-import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
-import { createScalarInterner, scalarInternKey } from "./intern";
+import {
+  buildSetUpdate,
+  createScalarInterners,
+  internedScalarSchemas,
+  type ListFilterSchema,
+  type ListUpdateSchema,
+  listFilterFamily,
+  listUpdateFamily,
+  type SetUpdateSchema,
+} from "./family";
+import { scalarInternKey } from "./intern";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
 } from "./negatable-filter";
 
-// =============================================================================
-// BASE TYPES
-// =============================================================================
-
 const booleanBase = v.boolean();
 const booleanList = v.boolean({ array: true });
-
-// =============================================================================
-// FILTER TYPES
-// =============================================================================
 
 /**
  * Equality operand: a literal, a field reference to another boolean column, an
@@ -27,6 +28,15 @@ type BooleanOperand<
   C extends V.Operand<any>,
 > = V.ComparisonOperand<"boolean", S, C>;
 
+/**
+ * `equals` and nothing else.
+ *
+ * A boolean has no ORDER, so `lt`/`lte`/`gt`/`gte` have no meaning, and over
+ * two values set membership says nothing equality does not: `in: [true, false]`
+ * is every row and `in: [true]` is `equals: true`. That is the whole reason
+ * this filter is spelled here rather than built by the comparison family — the
+ * LIST arm below is the family's, unchanged.
+ */
 type BooleanFilterBase<S extends V.Schema, C extends V.Operand<any>> = {
   equals: BooleanOperand<S, C>;
 };
@@ -35,46 +45,6 @@ type BooleanFilterSchema<
   S extends V.Schema,
   C extends V.Operand<any>,
 > = NegatableFilterSchema<BooleanOperand<S, C>, BooleanFilterBase<S, C>>;
-
-type BooleanListFilterBase<S extends V.Schema> = {
-  equals: S;
-  has: V.Boolean;
-  hasEvery: V.Boolean<{ array: true }>;
-  hasSome: V.Boolean<{ array: true }>;
-  isEmpty: V.Boolean;
-};
-
-type BooleanListFilterSchema<S extends V.Schema> = NegatableFilterSchema<
-  S,
-  BooleanListFilterBase<S>
->;
-
-// =============================================================================
-// UPDATE TYPES
-// =============================================================================
-
-type BooleanUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
->;
-
-type BooleanListUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [
-    V.ShorthandUpdate<S>,
-    V.Object<{
-      set: S;
-      push: V.Union<
-        readonly [V.ShorthandArray<V.Boolean>, V.Boolean<{ array: true }>]
-      >;
-      unshift: V.Union<
-        readonly [V.ShorthandArray<V.Boolean>, V.Boolean<{ array: true }>]
-      >;
-    }>,
-  ]
->;
-
-// =============================================================================
-// FILTER SCHEMA BUILDERS
-// =============================================================================
 
 const buildBooleanFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   schema: S
@@ -89,57 +59,8 @@ const buildBooleanFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   >(filter, operand);
 };
 
-const booleanListFilterBase = v.object({
-  has: booleanBase,
-  hasEvery: booleanList,
-  hasSome: booleanList,
-  isEmpty: v.boolean(),
-});
-
-const buildBooleanListFilterSchema = <S extends V.Schema>(
-  schema: S
-): BooleanListFilterSchema<S> => {
-  const filter = booleanListFilterBase.extend({
-    equals: schema,
-  });
-  return buildNegatableFilterSchema<S, BooleanListFilterBase<S>>(
-    filter,
-    schema
-  );
-};
-
-// =============================================================================
-// UPDATE SCHEMA BUILDERS
-// =============================================================================
-
-const buildBooleanUpdateSchema = <S extends V.Schema>(
-  schema: S
-): BooleanUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object(
-      {
-        set: schema,
-      },
-      { partial: false }
-    ),
-  ]);
-
-const buildBooleanListUpdateSchema = <S extends V.Schema>(
-  schema: S
-): BooleanListUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object({
-      set: schema,
-      push: v.union([v.shorthandArray(booleanBase), booleanList]),
-      unshift: v.union([v.shorthandArray(booleanBase), booleanList]),
-    }),
-  ]);
-
-// =============================================================================
-// BOOLEAN SCHEMA BUILDER
-// =============================================================================
+const buildBooleanListFilterSchema = listFilterFamily(booleanBase, booleanList);
+const buildBooleanListUpdateSchema = listUpdateFamily(booleanBase, booleanList);
 
 export interface BooleanSchemas<
   F extends ScalarState<"boolean">,
@@ -148,37 +69,34 @@ export interface BooleanSchemas<
   base: F["base"];
   create: V.Boolean<F>;
   update: F["array"] extends true
-    ? BooleanListUpdateSchema<F["base"]>
-    : BooleanUpdateSchema<F["base"]>;
+    ? ListUpdateSchema<F["base"], V.Boolean, V.Boolean<{ array: true }>>
+    : SetUpdateSchema<F["base"]>;
   filter: F["array"] extends true
-    ? BooleanListFilterSchema<F["base"]>
+    ? ListFilterSchema<F["base"], V.Boolean, V.Boolean<{ array: true }>>
     : BooleanFilterSchema<F["base"], C>;
 }
 
-const internFilter = createScalarInterner<unknown>();
-const internUpdate = createScalarInterner<unknown>();
+const interners = createScalarInterners();
 
 export const buildBooleanSchema = <
   F extends ScalarState<"boolean">,
   C extends V.Operand<any> = V.Operand<any>,
 >(
   state: F
-): BooleanSchemas<F, C> => {
-  const key = scalarInternKey(state);
-  return lazyScalarSchemas<BooleanSchemas<F, C>>({
-    base: state.base,
-    create: () => v.boolean(state),
-    update: () =>
-      internUpdate(key, () =>
+): BooleanSchemas<F, C> =>
+  internedScalarSchemas<BooleanSchemas<F, C>>(
+    interners,
+    scalarInternKey(state),
+    {
+      base: state.base,
+      create: () => v.boolean(state),
+      update: () =>
         state.array
           ? buildBooleanListUpdateSchema(state.base)
-          : buildBooleanUpdateSchema(state.base)
-      ) as never,
-    filter: () =>
-      internFilter(key, () =>
+          : buildSetUpdate(state.base),
+      filter: () =>
         state.array
           ? buildBooleanListFilterSchema(state.base)
-          : buildBooleanFilterSchema(state.base)
-      ) as never,
-  });
-};
+          : buildBooleanFilterSchema(state.base),
+    }
+  );

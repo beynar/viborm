@@ -1,6 +1,7 @@
 import type { ScalarState } from "@schema/scalars/common";
 import { lazyScalarSchemas } from "../lazy";
 import v, { type V } from "../primitives/v";
+import { buildSetUpdate, type SetUpdateSchema } from "./family";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -27,14 +28,6 @@ type BlobFilterSchema<S extends V.Schema> = NegatableFilterSchema<
 >;
 
 // =============================================================================
-// UPDATE TYPES
-// =============================================================================
-
-type BlobUpdateSchema<S extends V.Schema> = V.Union<
-  readonly [V.ShorthandUpdate<S>, V.Object<{ set: S }, { partial: false }>]
->;
-
-// =============================================================================
 // SCHEMA BUILDERS
 // =============================================================================
 
@@ -49,19 +42,6 @@ const buildBlobFilterSchema = <S extends V.Schema>(
   return buildNegatableFilterSchema<S, BlobFilterBase<S>>(filter, schema);
 };
 
-const buildBlobUpdateSchema = <S extends V.Schema>(
-  schema: S
-): BlobUpdateSchema<S> =>
-  v.union([
-    v.shorthandUpdate(schema),
-    v.object(
-      {
-        set: schema,
-      },
-      { partial: false }
-    ),
-  ]);
-
 // =============================================================================
 // BLOB SCHEMA BUILDER
 // =============================================================================
@@ -69,7 +49,7 @@ const buildBlobUpdateSchema = <S extends V.Schema>(
 export interface BlobSchemas<F extends ScalarState<"blob">> {
   base: F["base"];
   create: V.Blob<F>;
-  update: BlobUpdateSchema<F["base"]>;
+  update: SetUpdateSchema<F["base"]>;
   filter: BlobFilterSchema<F["base"]>;
 }
 
@@ -79,7 +59,7 @@ export const buildBlobSchema = <F extends ScalarState<"blob">>(
   return lazyScalarSchemas<BlobSchemas<F>>({
     base: state.base,
     create: () => v.blob(state),
-    update: () => buildBlobUpdateSchema<F["base"]>(state.base),
+    update: () => buildSetUpdate<F["base"]>(state.base),
     filter: () => buildBlobFilterSchema<F["base"]>(state.base),
   });
 };
