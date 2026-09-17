@@ -38,7 +38,8 @@ export function lazyRecord<T extends object>(
   return target;
 }
 
-type ScalarSchemas = {
+/** The four variants every scalar field owns. */
+export type ScalarSchemas = {
   readonly base: unknown;
   readonly create: unknown;
   readonly update: unknown;
