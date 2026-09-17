@@ -22,30 +22,45 @@ import {
 } from "@tests/fixtures/query-scope";
 import type { JsonValue } from "@validation";
 import { createSchemaRegistry } from "@validation";
-import {
-  materializePhysicalDecimal,
-  materializePhysicalWidenedSum,
-  toDecimal,
-} from "@validation/primitives/decimal-codec";
 import { validateJson } from "@validation/primitives/json";
 import { isRecord } from "@validation/value-guards";
 import { describe, expect, test, vi } from "vitest";
 
 /**
- * The codec's three public-Decimal entries, spied so a construction can be
- * counted. Each delegates to the real implementation, so nothing this file
+ * Every public Decimal that leaves the value module, counted AT the value
+ * module.
+ *
+ * `decimal-value.ts` keeps its class module-private and publishes exactly two
+ * ways to reach a new instance: the constructor it exports as `Decimal`, and
+ * `fromCanonical`, the grammar-skipping decode seam. Wrapping both counts every
+ * Decimal handed to the rest of VibORM, whatever route the caller took —
+ * including a route nobody has written yet. Counting at the CODEC instead would
+ * count the three functions that happen to construct one today and stay silent
+ * for a fourth.
+ *
+ * Both wrappers delegate to the real implementation, so nothing this file
  * exercises behaves differently for being counted.
  */
-vi.mock("@validation/primitives/decimal-codec", async (importOriginal) => {
+const decimalConstructions = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("@validation/primitives/decimal-value", async (importOriginal) => {
   const actual =
     await importOriginal<
-      typeof import("@validation/primitives/decimal-codec")
+      typeof import("@validation/primitives/decimal-value")
     >();
   return {
     ...actual,
-    materializePhysicalDecimal: vi.fn(actual.materializePhysicalDecimal),
-    materializePhysicalWidenedSum: vi.fn(actual.materializePhysicalWidenedSum),
-    toDecimal: vi.fn(actual.toDecimal),
+    Decimal: new Proxy(actual.Decimal, {
+      construct(target, args) {
+        decimalConstructions.count += 1;
+        const [value] = args;
+        return new target(value);
+      },
+    }),
+    fromCanonical: (canonical: string) => {
+      decimalConstructions.count += 1;
+      return actual.fromCanonical(canonical);
+    },
   };
 });
 
@@ -232,24 +247,13 @@ function requireDecimal(value: unknown): Decimal {
  * How many public Decimals `run` CONSTRUCTS.
  *
  * The value's state is private, so a construction cannot be observed on the
- * instance. It is observed at the codec instead: these three functions are the
- * only ones that build a public Decimal, each wraps the one construction seam,
- * and every caller in the engine reaches the value type through them.
+ * instance. It is observed at the value module's two exits instead, which is
+ * every construction the rest of VibORM can perform.
  */
 function countDecimalConstructions(run: () => void): number {
-  const spies = [
-    vi.mocked(toDecimal),
-    vi.mocked(materializePhysicalDecimal),
-    vi.mocked(materializePhysicalWidenedSum),
-  ];
-  for (const spy of spies) spy.mockClear();
+  decimalConstructions.count = 0;
   run();
-  return spies.reduce(
-    (total, spy) =>
-      total +
-      spy.mock.results.filter((result) => result.value !== undefined).length,
-    0
-  );
+  return decimalConstructions.count;
 }
 
 /** Overwrite one stored aggregate leaf, as a hostile store would hold it. */

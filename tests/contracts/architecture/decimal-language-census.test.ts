@@ -564,6 +564,43 @@ export type Money = Decimal;
     ).toEqual([]);
   });
 
+  it("counts the decode seam and a sibling's spelling of the module", () => {
+    // The class is module-private, so `fromCanonical` is the OTHER way to a new
+    // instance — a module that imports it can build a second Decimal per leaf
+    // without ever naming the constructor. And the specifier is matched by its
+    // last segment: a module in a sibling directory spells the same file
+    // `"../primitives/decimal-value"`, which a closed list of today's three
+    // spellings would not recognise.
+    const seam = `import { fromCanonical } from "@validation/primitives/decimal-value";
+export const one = () => fromCanonical("1");
+`;
+    expect(ormOwnedDecimalWrapperEntries("src/client/money.ts", seam)).toEqual([
+      "src/client/money.ts decimalRuntimeImport 1",
+    ]);
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-codec.ts",
+        seam
+      )
+    ).toEqual([]);
+
+    const sibling = `import { Decimal } from "../primitives/decimal-value";
+export const zero = new Decimal(0);
+`;
+    expect(
+      ormOwnedDecimalWrapperEntries("src/client/money.ts", sibling)
+    ).toEqual(["src/client/money.ts decimalRuntimeImport 1"]);
+
+    // The grammar and the canonical-text reader are not construction: a module
+    // that imports one of those cannot produce a value.
+    const grammar = `import { canonicalizeDecimalInput } from "@validation/primitives/decimal-value";
+export const one = canonicalizeDecimalInput("1");
+`;
+    expect(
+      ormOwnedDecimalWrapperEntries("src/client/money.ts", grammar)
+    ).toEqual([]);
+  });
+
   it("requires exactly the root Decimal constructor export", () => {
     expect(ormOwnedDecimalWrapperEntries("src/index.ts", "")).toEqual([
       "src/index.ts decimalConstructorExportCount 1",

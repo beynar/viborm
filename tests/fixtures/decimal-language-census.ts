@@ -110,11 +110,17 @@ const DECIMAL_CODEC_MODULE = "@validation/primitives/decimal-codec";
  * look for a second import of a package.
  */
 const DECIMAL_VALUE_OWNER = "src/validation/primitives/decimal-value.ts";
-const DECIMAL_VALUE_MODULE_SPELLINGS: ReadonlySet<string> = new Set([
-  "@validation/primitives/decimal-value",
-  "./decimal-value",
-  "./validation/primitives/decimal-value.js",
-]);
+/**
+ * Every way the value module can be NAMED, matched by its last segment.
+ *
+ * A closed list of the three specifiers that exist today would answer `false`
+ * for `"../primitives/decimal-value"` — a sibling directory's spelling of the
+ * same file — and a second construction site is exactly what this detector is
+ * for. The extension is optional because the root entry writes `.js`.
+ */
+const DECIMAL_VALUE_MODULE_SPECIFIER = /(?:^|\/)decimal-value(?:\.js)?$/;
+const namesDecimalValueModule = (specifier: string): boolean =>
+  DECIMAL_VALUE_MODULE_SPECIFIER.test(specifier);
 /** The modules that legitimately import the class at RUNTIME, not as a type. */
 const DECIMAL_VALUE_RUNTIME_IMPORTERS: ReadonlySet<string> = new Set([
   DECIMAL_DESCRIPTOR_OWNER,
@@ -1257,14 +1263,29 @@ function classOwnsDecimalValue(
   });
 }
 
-/** Whether an import declaration binds the `Decimal` class itself. */
+/**
+ * The value module's two ways OUT to a new instance.
+ *
+ * The class is module-private, so a `Decimal` can only be reached through the
+ * exported constructor or through `fromCanonical`, the decode seam that skips
+ * the grammar. A module that imports either one at runtime can build the value
+ * type; a module that imports the grammar or the canonical-text reader cannot.
+ */
+const DECIMAL_CONSTRUCTION_BINDINGS: ReadonlySet<string> = new Set([
+  "Decimal",
+  "fromCanonical",
+]);
+
+/** Whether an import declaration binds one of those two. */
 function importsDecimalBinding(node: ts.ImportDeclaration): boolean {
   const bindings = node.importClause?.namedBindings;
   if (bindings === undefined || !ts.isNamedImports(bindings)) return false;
   return bindings.elements.some(
     (element) =>
       !element.isTypeOnly &&
-      (element.propertyName?.text ?? element.name.text) === "Decimal"
+      DECIMAL_CONSTRUCTION_BINDINGS.has(
+        element.propertyName?.text ?? element.name.text
+      )
   );
 }
 
@@ -1280,7 +1301,7 @@ export function ormOwnedDecimalWrapperEntries(
       !(
         ts.isImportDeclaration(statement) &&
         ts.isStringLiteral(statement.moduleSpecifier) &&
-        DECIMAL_VALUE_MODULE_SPELLINGS.has(statement.moduleSpecifier.text)
+        namesDecimalValueModule(statement.moduleSpecifier.text)
       )
     ) {
       continue;
@@ -1303,7 +1324,7 @@ export function ormOwnedDecimalWrapperEntries(
       ts.isImportDeclaration(node) &&
       !node.importClause?.isTypeOnly &&
       ts.isStringLiteral(node.moduleSpecifier) &&
-      DECIMAL_VALUE_MODULE_SPELLINGS.has(node.moduleSpecifier.text) &&
+      namesDecimalValueModule(node.moduleSpecifier.text) &&
       importsDecimalBinding(node)
     ) {
       add(counts, "decimalRuntimeImport");
@@ -1356,7 +1377,7 @@ export function ormOwnedDecimalWrapperEntries(
         !node.isTypeOnly &&
         node.moduleSpecifier !== undefined &&
         ts.isStringLiteral(node.moduleSpecifier) &&
-        DECIMAL_VALUE_MODULE_SPELLINGS.has(node.moduleSpecifier.text) &&
+        namesDecimalValueModule(node.moduleSpecifier.text) &&
         hasRuntimeNamedExport;
       const exportsNamedDecimal =
         !node.isTypeOnly &&
