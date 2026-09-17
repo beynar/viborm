@@ -2040,9 +2040,13 @@ other type. It is not `DECIMAL_ERROR` in `primitives/decimal.ts`: that one
 refuses a FIELD INPUT and returns issues, and its caller is `v.decimal()`. This
 one refuses a VALUE at the constructor, where there is no validation result to
 return and no field in sight, and it is the reason the boundary above can stop
-inspecting what a decimal looks like. The two sentences describe the same
-accepted family, and `canonicalizeDecimalInput` is their single owner: the
-constructor throws exactly where that function answers `undefined`.
+inspecting what a decimal looks like. The two refusals describe the same
+accepted family, and `canonicalizeDecimalInput` is that family's single owner:
+the constructor throws exactly where that function answers `undefined`. They say
+so in one SENTENCE too — `decimal-value.ts` exports `DECIMAL_INPUT_REFUSAL` and
+`DECIMAL_ERROR` is built from it, so the wording cannot drift at one boundary
+and not the other; `decimal.core.test.ts` pins that the issue message and the
+`TypeError` message are the same string.
 
 **`RangeError("Division by zero")` in `div`.** Unique coverage: a quotient with
 no value at all. Nothing else in the type can fail — `plus`, `minus`, `times`,

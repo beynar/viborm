@@ -31,6 +31,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import v from "@validation/primitives/v";
 import { getScalarSchemas } from "@validation/scalars";
+import { isRecord } from "@validation/value-guards";
 import { describe, expect, test } from "vitest";
 
 const parse = (value: unknown) =>
@@ -47,6 +48,9 @@ const accepted = (value: unknown): string => {
 };
 
 const refused = (value: unknown): boolean => "issues" in parse(value);
+
+/** Construct, for a refusal the constructor is meant to throw. */
+const construct = (value: string): Decimal => new Decimal(value);
 
 const inDomain = (
   precision: number,
@@ -116,6 +120,30 @@ describe("decimal validation", () => {
     expect(refused(null)).toBe(true);
     expect(refused(true)).toBe(true);
     expect(refused({})).toBe(true);
+  });
+
+  test("refuses in the same words the constructor does", () => {
+    // Two boundaries, one accepted family: `v.decimal()` returns issues and
+    // `new Decimal()` throws, and both refuse exactly where
+    // `canonicalizeDecimalInput` answers `undefined`. The sentence is the value
+    // module's, imported rather than copied — a caller who reads it from one
+    // and meets it at the other is reading one claim, not two that match today.
+    const result = parse("1e3");
+    if (!("issues" in result)) throw new Error("Expected `1e3` to be refused.");
+    const [issue] = result.issues;
+    if (!isRecord(issue) || typeof issue.message !== "string") {
+      throw new Error("Expected an issue carrying a message.");
+    }
+    let thrown: unknown;
+    try {
+      construct("1e3");
+    } catch (error) {
+      thrown = error;
+    }
+    if (!(thrown instanceof TypeError)) {
+      throw new Error("Expected the constructor to refuse `1e3`.");
+    }
+    expect(issue.message).toBe(thrown.message);
   });
 
   test("accepts a number, and names the double it was actually given", () => {

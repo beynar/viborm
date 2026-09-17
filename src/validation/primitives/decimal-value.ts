@@ -176,7 +176,18 @@ function roundQuotient(
     : quotient;
 }
 
-const DECIMAL_INPUT_REFUSAL =
+/**
+ * The ONE sentence that names the accepted family, wherever it is refused.
+ *
+ * The constructor throws it and `v.decimal()` returns it as its issue message,
+ * because they admit exactly the same values — `canonicalizeDecimalInput` is
+ * the single owner of that grammar and both refuse where it answers
+ * `undefined`. Exported so the field boundary next door spells it by reference:
+ * two copies of a sentence are two things to keep in step, and a caller who
+ * reads the message at one boundary and meets it at the other would be reading
+ * two claims that only look like one.
+ */
+export const DECIMAL_INPUT_REFUSAL =
   "Expected an exact decimal: a Decimal, a string like '-12.345' (sign, digits, at most one dot, no exponent), or a finite number";
 
 /**

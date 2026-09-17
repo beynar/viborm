@@ -13,7 +13,7 @@ import {
   describeDescriptorRefusal,
   toDecimal,
 } from "./decimal-codec";
-import type { Decimal } from "./decimal-value";
+import { DECIMAL_INPUT_REFUSAL, type Decimal } from "./decimal-value";
 import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 
 // =============================================================================
@@ -86,13 +86,14 @@ export interface DecimalSchema<TInput = DecimalInput, TOutput = DecimalOutput>
     | undefined;
 }
 
+/**
+ * The FIELD boundary's refusal, in the value module's own words.
+ *
+ * The two boundaries accept the same family — this one returns issues and the
+ * constructor throws — so they say the same thing, and they say it once.
+ */
 const DECIMAL_ERROR: ValidationFailure = Object.freeze({
-  issues: Object.freeze([
-    Object.freeze({
-      message:
-        "Expected an exact decimal: a Decimal, a string like '-12.345' (sign, digits, at most one dot, no exponent), or a finite number",
-    }),
-  ]),
+  issues: Object.freeze([Object.freeze({ message: DECIMAL_INPUT_REFUSAL })]),
 });
 
 const DECIMAL_VALUE_ERROR =
