@@ -2,11 +2,12 @@
  * G4-02 independent review — B-4 statement context threading.
  *
  * The unit makes `statementContext()` answer the caller's trusted context for
- * EVERY statement. The shipped executor does not: `statementExecutionContext`
- * (src/query-engine/pattern/execute/values.ts:280) returns the operation's
- * context only while the step's model equals the context's model, and otherwise
- * calls `deriveStatementExecutionContext`, which mints a TRUSTED derived context
- * carrying the nested model's name AND the same resolved extension chain.
+ * EVERY statement. The V1 executor did not: `statementExecutionContext`
+ * (src/query-engine/pattern/execute/values.ts:280 at e8114ed9, retired under
+ * D-15) returned the operation's context only while the step's model equalled
+ * the context's model, and otherwise called `deriveStatementExecutionContext`,
+ * which minted a TRUSTED derived context carrying the nested model's name AND
+ * the same resolved extension chain.
  *
  * This probe reads the per-statement `context.model` sequence a relation-bearing
  * root update produces on each engine.

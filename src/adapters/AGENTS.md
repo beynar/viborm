@@ -3,6 +3,15 @@
 **Location:** `src/adapters/`  
 **Layer:** L7 - Database-Specific SQL (see [root AGENTS.md](../../AGENTS.md))
 
+> **Three provenance citations in this layer name V1 files that no longer exist.**
+> The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
+> whole and all of `query-engine/operations/` bar `groupby-fields.ts`.
+> `database-adapter.ts:664` and `databases/mysql/mysql-adapter.ts:886` cite
+> `junctionDuplicateSkip` in `builders/many-to-many-utils.ts`, and
+> `adapter-capabilities.ts:42` cites `buildBulkLimitWhere` in
+> `operations/bulk-limit.ts`. Each records WHAT V1 did and where the seam came
+> from; read it in git history (`e8114ed9`), not on disk.
+
 ## Purpose
 
 ALL database-specific SQL generation lives here. Query engine calls adapter methods to build dialect-correct SQL.

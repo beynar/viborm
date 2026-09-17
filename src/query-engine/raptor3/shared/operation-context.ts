@@ -327,12 +327,13 @@ export class OperationContext {
    * The attribution ONE statement executes under. A statement compiled for a
    * nested record names that record's model, so a provider failure, a statement
    * transform and an observer name the model whose table the statement already
-   * named — the shipped rule exactly (`statementExecutionContext`,
-   * `src/query-engine/pattern/execute/values.ts`): the operation's own context
-   * while the models agree, and otherwise the SAME context re-attributed by the
-   * snapshot owner, which keeps the correlation id, instrumentation and resolved
-   * extension chain (`deriveStatementExecutionContext`). Without a caller
-   * context the candidate keeps its own minted attribution.
+   * named. The rule: the operation's own context while the models agree, and
+   * otherwise the SAME context re-attributed by the snapshot owner, which keeps
+   * the correlation id, instrumentation and resolved extension chain
+   * (`deriveStatementExecutionContext`). Without a caller context this engine
+   * keeps its own minted attribution. (It is the V1 rule verbatim; V1 spelled it
+   * in `statementExecutionContext`, retired with the pattern experiment under
+   * D-15 and readable at `e8114ed9`.)
    */
   private statementContext(
     model: AnyModel,

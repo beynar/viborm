@@ -1,0 +1,39 @@
+biome check — pattern retirement (D-15), base e8114ed9
+
+Command: npx biome check <the 15 source/harness/script files this unit edited>
+Result:  17 diagnostics. Biome --write was NEVER run on a whole file.
+
+Every diagnostic is pre-existing at HEAD. Proof, per file: this unit's hunks
+are listed beside every reported coordinate, and none overlaps.
+
+scripts/measure-raptor3-baseline.mjs:2:1 assist/source/organizeImports  FIXABLE 
+scripts/measure-raptor3-baseline.mjs:164:7 lint/complexity/useSimplifiedLogicExpression  FIXABLE 
+scripts/measure-raptor3-baseline.mjs:407:29 lint/style/useNumericSeparators  FIXABLE 
+scripts/measure-raptor3-baseline.mjs:407:36 lint/style/useNumericSeparators  FIXABLE 
+scripts/measure-raptor3-baseline.mjs:409:39 lint/style/useNumericSeparators  FIXABLE 
+scripts/measure-raptor3-baseline.mjs:447:7 lint/performance/useTopLevelRegex
+scripts/measure-raptor3-baseline.mjs:554:51 lint/performance/useTopLevelRegex
+src/query-engine/raptor3/shared/operation-context.ts:1:1 assist/source/organizeImports  FIXABLE 
+src/query-engine/raptor3/shared/operation-context.ts:257:5 lint/style/noParameterProperties
+src/query-engine/raptor3/shared/operation-context.ts:259:5 lint/style/noParameterProperties
+src/query-engine/raptor3/shared/operation-context.ts:260:5 lint/style/noParameterProperties
+src/query-engine/raptor3/shared/operation-context.ts:270:5 lint/style/noParameterProperties
+src/query-engine/raptor3/shared/operation-context.ts format
+tests/raptor3/g4/review/unit02/statement-context.review.test.ts:16:1 assist/source/organizeImports  FIXABLE 
+tests/raptor3/g4/review/unit02/statement-context.review.test.ts:94:31 lint/performance/useTopLevelRegex
+tests/raptor3/g4/review/unit02/statement-context.review.test.ts format
+vitest.workspace.ts:1:1 assist/source/organizeImports  FIXABLE 
+
+Classes, all recorded by the cutover as pre-existing (note 3.7):
+  assist/source/organizeImports  — the unsorted manifest import lists
+  lint/performance/useTopLevelRegex
+  lint/style/noParameterProperties, lint/style/useNumericSeparators
+  lint/complexity/useSimplifiedLogicExpression
+  format — trailing commas in multi-line import lists; one method chain
+
+scripts/measure-raptor3-baseline.mjs is the only file where line numbers moved.
+This unit's diff there is PURE DELETION (HEAD lines 114-122, 356, 370-384):
+ scripts/measure-raptor3-baseline.mjs | 25 -------------------------
+ 1 file changed, 25 deletions(-)
+The four reported coordinates (:164, :407-409, :447, :554) map to HEAD :174,
+:417-419, :457, :564 — all outside the deleted ranges.

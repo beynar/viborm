@@ -1,4 +1,4 @@
-# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-17, 02:00)
+# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-17, 03:05)
 
 ## Outcome
 
@@ -30,13 +30,24 @@ the candidate after the cutover and is a follow-up to re-point. The cutover
 deletes 33 legacy owners (28,740 lines) and 197 legacy or two-sided tests
 (86,498 lines); the candidate is 15 files and about 11,700 lines.
 
-**Shipping.** Commit 3 carries pass 2 and the attempt-6 package. The C-01
-cutover then runs as its own unit (brief `g4/briefs/cutover-execution.md`):
-the measured diff applied to the main tree, the six two-sided harness modes
-retired, the whole surviving estate re-run, an independent review, commit 4.
-Nothing is pushed by this program; the push, the release note for the
-`expressions.integerDivide` adapter member and the later retirement of
-`pattern/` are Arnaud's.
+**Shipping, done locally.** Commit 3 (`5a37bcd7`) carries pass 2 and the
+attempt-6 package. Commit 4 (`e8114ed9`, D-10) is the C-01 cutover: the
+candidate is the only engine behind the unchanged public API, 33 legacy
+owners and 213 legacy or two-sided test files are gone, `buildStatement()`
+and `QueryEngine.build()` answer the one statement an operation compiles to
+(D-14), a `QueryEngine` built without a client provisions its own route,
+and the differential lanes are kept one-sided at their full counts. Commit
+5 (D-15, pending its independent re-check at the time of writing) retires
+the `pattern/` experiment and the V1 estate it kept alive: 111 production
+files / 41,272 lines, the whole `builders/` layer, the V1 parser tree, all
+of `write-engine/` but the typed parse boundary; charged production
+**11,732 token-LOC = 0.235 of the frozen baseline** (plan §7 target ≤ 0.60,
+met by a wide margin; before the retirement the honest number was 0.877,
+the census having excluded the experiment), the whole-estate typecheck at
+**zero** diagnostics, bundles byte-identical, the core lane at the base's
+red set. Nothing is pushed; the push, the release note for the two public
+contract changes (`expressions.integerDivide`, the `buildStatement`/`build`
+answer) and the D-16 decisions are Arnaud's.
 
 ## Validation
 
@@ -48,10 +59,11 @@ Nothing is pushed by this program; the push, the release note for the
 | Campaigns (six lanes) | 15 families, 265,000 cells, 795,000 exact replays, 0 skips; G4 read and write families 250 children each on seeds 20000–124999 |
 | Replays | 7 corpora green, 2 G4 read children reproduced by their child command (byte-identical to the retained archives), 9 G3-era inputs refused as stale |
 | Structural measurement | 28 cases / 60 replays, instrumentation reversed, identity restored |
-| Support | receipts self-test, driver integration, credential-free selectors, typecheck = the two Pattern diagnostics only; source-cost measured in an identity-equal lane; the CLI self-test re-run alone after the campaigns (its watchdog cell is load-sensitive) |
+| Support | receipts self-test, driver integration, credential-free selectors; typecheck = the two Pattern diagnostics at attempts 5–6, ZERO after the pattern retirement; source-cost measured in an identity-equal lane; the CLI self-test re-run alone after the campaigns (its watchdog cell is load-sensitive) |
 | Retention | 1,320 child corpora restored and hashed (54.0 GB restored from 1.05 GB of archives), lane copies released |
 | Size (candidate-only package) | engine bundle gzip 0.2377 (≤ 0.75), public PostgreSQL fixtures 0.6984 / 0.6986 (≤ 1.00); engine bundle byte-identical to identity 2 |
-| Census | root review D: complete charged candidate 14,680 token-lines = 27.3 % of the shipped 53,787; the pass added +22 then +0 charged token-lines; first-party source-cost measurement in the package |
+| Census | root review D: complete charged candidate 14,680 token-lines = 27.3 % of the shipped 53,787; after the cutover 31,664 charged token-LOC (0.635 of the frozen baseline), after the pattern retirement 11,732 (0.235) |
+| Post-cutover estate | 59 fixed modes, 12 PostgreSQL, 11 MySQL, support, coverage policy, taxonomy census green; `pnpm test:core` 6 files / 11 tests red (base 5 / 42) — the D-16 cells; provider lanes red on D-16 cells only (61 local, 13 + 13 Docker) |
 | Performance (plan §7, stage 2d) | 5 pass, 3 block (preparation 1.19–1.40×), 9 inconclusive after the repeat (5 precision-limited, 4 relation-read cells 2–7 % above parity), 2 not measurable, 1 contract divergence; accepted under D-9 |
 
 Six qualification attempts were needed; each earlier attempt is kept whole

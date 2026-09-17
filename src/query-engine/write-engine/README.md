@@ -1,5 +1,14 @@
 # Query Engine Write Engine
 
+> **RETIRED.** The engine this document describes no longer exists. C-01 (the
+> Raptor 3 cutover, `e8114ed9`) deleted 25 of its files and the pattern
+> retirement (D-15) deleted the rest; `write-engine/` now holds exactly one
+> file, `parse-boundary.ts` — the typed parse boundary the shipped engine still
+> uses. This document is kept because eleven plans under `docs/architecture/`
+> cite it as the record of V1's doctrine. It is history: no sentence below
+> describes code on disk. The shipped engine's guide is
+> [`../raptor3/AGENTS.md`](../raptor3/AGENTS.md).
+
 The write engine compiles validated mutations into a guard-free planning
 fragment and one selected final fragment. [ATOM.md](./ATOM.md) is the normative
 architecture reference.

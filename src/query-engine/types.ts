@@ -61,12 +61,25 @@ export interface PreparedBatchOperation<T = unknown> {
   parseResult: (results: QueryResult<unknown>[]) => T;
 }
 
+/**
+ * What a prepared guard publishes when its premise does not hold: the typed
+ * failure taxonomy plus the `raceable` bit fixed by the guard's premise class.
+ * `batch-error-attribution.ts` is the one algorithm that reads it, and the one
+ * place it becomes an `Error`.
+ */
+export interface PreparedGuardFailure {
+  readonly kind: "nestedWrite" | "notFound" | "query";
+  readonly message: string;
+  readonly relation?: string;
+  readonly raceable: boolean;
+}
+
 /** Declarative ownership for one assertion query in a prepared operation. */
 export interface PreparedBatchGuard {
   readonly queryIndex: number;
   readonly premise: "exists" | "notExists";
   readonly probe: import("@sql").Sql;
-  readonly failure: import("./write-engine/OperationFragment").Failure;
+  readonly failure: PreparedGuardFailure;
   readonly model: string;
   readonly operation: Operation;
 }

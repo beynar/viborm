@@ -1,0 +1,336 @@
+{
+ "method": "import-graph reachability from the tsdown entry points, with and without the pattern/ experiment as an extra seed",
+ "base": "e8114ed9daa808b38234d80cf30547943b013e29",
+ "entries": 28,
+ "entryFiles": [
+  "benchmarks/internal/operation.ts",
+  "src/adapters/index.ts",
+  "src/cache/drivers/cloudflare-kv.ts",
+  "src/cache/drivers/memory.ts",
+  "src/cache/exports.ts",
+  "src/cli/index.ts",
+  "src/client/exports.ts",
+  "src/config.ts",
+  "src/drivers/bun-sql/index.ts",
+  "src/drivers/bun-sqlite/index.ts",
+  "src/drivers/d1/index.ts",
+  "src/drivers/exports.ts",
+  "src/drivers/libsql/index.ts",
+  "src/drivers/mysql2/index.ts",
+  "src/drivers/neon-http/index.ts",
+  "src/drivers/pg/index.ts",
+  "src/drivers/pglite/index.ts",
+  "src/drivers/planetscale/index.ts",
+  "src/drivers/postgres/index.ts",
+  "src/drivers/sqlite3/index.ts",
+  "src/index.ts",
+  "src/instrumentation/exports.ts",
+  "src/migrations/index.ts",
+  "src/migrations/storage/fs.ts",
+  "src/schema/exports.ts",
+  "src/schema/json/index.ts",
+  "src/sql/sql.ts",
+  "src/validation/index.ts"
+ ],
+ "reachableFromEntries": 486,
+ "reachableFromEntriesAllFiles": 488,
+ "reachableWithPattern": 530,
+ "reachableWithPatternAllFiles": 532,
+ "patternFiles": 19,
+ "patternLines": 12731,
+ "patternFileList": [
+  {
+   "file": "src/query-engine/pattern/cells.ts",
+   "lines": 335
+  },
+  {
+   "file": "src/query-engine/pattern/construct-read.ts",
+   "lines": 1527
+  },
+  {
+   "file": "src/query-engine/pattern/construct.ts",
+   "lines": 1870
+  },
+  {
+   "file": "src/query-engine/pattern/decode.ts",
+   "lines": 311
+  },
+  {
+   "file": "src/query-engine/pattern/execute/admission.ts",
+   "lines": 86
+  },
+  {
+   "file": "src/query-engine/pattern/execute/batch.ts",
+   "lines": 621
+  },
+  {
+   "file": "src/query-engine/pattern/execute/index.ts",
+   "lines": 229
+  },
+  {
+   "file": "src/query-engine/pattern/execute/retry.ts",
+   "lines": 35
+  },
+  {
+   "file": "src/query-engine/pattern/execute/segments-layout.ts",
+   "lines": 112
+  },
+  {
+   "file": "src/query-engine/pattern/execute/segments.ts",
+   "lines": 408
+  },
+  {
+   "file": "src/query-engine/pattern/execute/transaction.ts",
+   "lines": 220
+  },
+  {
+   "file": "src/query-engine/pattern/execute/values.ts",
+   "lines": 441
+  },
+  {
+   "file": "src/query-engine/pattern/fragment.ts",
+   "lines": 180
+  },
+  {
+   "file": "src/query-engine/pattern/ids.ts",
+   "lines": 49
+  },
+  {
+   "file": "src/query-engine/pattern/match.ts",
+   "lines": 687
+  },
+  {
+   "file": "src/query-engine/pattern/pack.ts",
+   "lines": 3467
+  },
+  {
+   "file": "src/query-engine/pattern/pattern.ts",
+   "lines": 386
+  },
+  {
+   "file": "src/query-engine/pattern/schedule.ts",
+   "lines": 1107
+  },
+  {
+   "file": "src/query-engine/pattern/sugar.ts",
+   "lines": 660
+  }
+ ],
+ "retainedOnlyViaPattern": [
+  "src/query-engine/JunctionStatements.ts",
+  "src/query-engine/builders/aggregate-utils.ts",
+  "src/query-engine/builders/polymorphic-collection-read-builder.ts",
+  "src/query-engine/builders/projection-select.ts",
+  "src/query-engine/builders/select-builder.ts",
+  "src/query-engine/builders/set-builder.ts",
+  "src/query-engine/operations/aggregate-input.ts",
+  "src/query-engine/operations/aggregate.ts",
+  "src/query-engine/operations/bulk-limit.ts",
+  "src/query-engine/operations/count.ts",
+  "src/query-engine/operations/create-many-portability.ts",
+  "src/query-engine/operations/create.ts",
+  "src/query-engine/operations/delete.ts",
+  "src/query-engine/operations/find-common.ts",
+  "src/query-engine/operations/find-unique.ts",
+  "src/query-engine/operations/groupby-having.ts",
+  "src/query-engine/operations/groupby.ts",
+  "src/query-engine/operations/index.ts",
+  "src/query-engine/operations/mutation-identity.ts",
+  "src/query-engine/operations/mutation-projection-fold.ts",
+  "src/query-engine/operations/update.ts",
+  "src/query-engine/operations/upsert.ts",
+  "src/query-engine/write-engine/link-target-groups.ts",
+  "src/query-engine/write-engine/series-result-read.ts",
+  "src/query-engine/write-engine/target-projection.ts"
+ ],
+ "retainedOnlyViaPatternDetail": [
+  {
+   "file": "src/query-engine/JunctionStatements.ts",
+   "lines": 569
+  },
+  {
+   "file": "src/query-engine/builders/aggregate-utils.ts",
+   "lines": 158
+  },
+  {
+   "file": "src/query-engine/builders/polymorphic-collection-read-builder.ts",
+   "lines": 244
+  },
+  {
+   "file": "src/query-engine/builders/projection-select.ts",
+   "lines": 1837
+  },
+  {
+   "file": "src/query-engine/builders/select-builder.ts",
+   "lines": 565
+  },
+  {
+   "file": "src/query-engine/builders/set-builder.ts",
+   "lines": 254
+  },
+  {
+   "file": "src/query-engine/operations/aggregate-input.ts",
+   "lines": 105
+  },
+  {
+   "file": "src/query-engine/operations/aggregate.ts",
+   "lines": 153
+  },
+  {
+   "file": "src/query-engine/operations/bulk-limit.ts",
+   "lines": 114
+  },
+  {
+   "file": "src/query-engine/operations/count.ts",
+   "lines": 103
+  },
+  {
+   "file": "src/query-engine/operations/create-many-portability.ts",
+   "lines": 14
+  },
+  {
+   "file": "src/query-engine/operations/create.ts",
+   "lines": 353
+  },
+  {
+   "file": "src/query-engine/operations/delete.ts",
+   "lines": 140
+  },
+  {
+   "file": "src/query-engine/operations/find-common.ts",
+   "lines": 159
+  },
+  {
+   "file": "src/query-engine/operations/find-unique.ts",
+   "lines": 85
+  },
+  {
+   "file": "src/query-engine/operations/groupby-having.ts",
+   "lines": 430
+  },
+  {
+   "file": "src/query-engine/operations/groupby.ts",
+   "lines": 322
+  },
+  {
+   "file": "src/query-engine/operations/index.ts",
+   "lines": 43
+  },
+  {
+   "file": "src/query-engine/operations/mutation-identity.ts",
+   "lines": 416
+  },
+  {
+   "file": "src/query-engine/operations/mutation-projection-fold.ts",
+   "lines": 366
+  },
+  {
+   "file": "src/query-engine/operations/update.ts",
+   "lines": 185
+  },
+  {
+   "file": "src/query-engine/operations/upsert.ts",
+   "lines": 110
+  },
+  {
+   "file": "src/query-engine/write-engine/link-target-groups.ts",
+   "lines": 158
+  },
+  {
+   "file": "src/query-engine/write-engine/series-result-read.ts",
+   "lines": 459
+  },
+  {
+   "file": "src/query-engine/write-engine/target-projection.ts",
+   "lines": 513
+  }
+ ],
+ "retainedOnlyViaPatternLines": 7855,
+ "srcFilesOnDisk": 549,
+ "unreachableFromAnySeed": [
+  {
+   "file": "src/migrations/push/executor.ts",
+   "lines": 28
+  },
+  {
+   "file": "src/migrations/push/index.ts",
+   "lines": 17
+  },
+  {
+   "file": "src/migrations/storage/index.ts",
+   "lines": 18
+  },
+  {
+   "file": "src/query-engine/raptor3/program/index.ts",
+   "lines": 62
+  },
+  {
+   "file": "src/query-engine/raptor3/program/program.ts",
+   "lines": 576
+  },
+  {
+   "file": "src/schema/scalars/bigint/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/blob/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/boolean/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/datetime/index.ts",
+   "lines": 6
+  },
+  {
+   "file": "src/schema/scalars/decimal/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/enum/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/int/index.ts",
+   "lines": 2
+  },
+  {
+   "file": "src/schema/scalars/json/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/number/index.ts",
+   "lines": 2
+  },
+  {
+   "file": "src/schema/scalars/point/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/string/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/schema/scalars/vector/index.ts",
+   "lines": 3
+  },
+  {
+   "file": "src/standard-schema-spec.d.ts",
+   "lines": 9
+  },
+  {
+   "file": "src/standardSchema.ts",
+   "lines": 71
+  }
+ ],
+ "unresolvedLocalSpecifiers": [
+  {
+   "file": "src/cli/utils.ts",
+   "specs": [
+    "./src/db"
+   ]
+  }
+ ]
+}

@@ -13,64 +13,26 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/architecture/system-clock.core.test.ts",
   "tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts",
   "tests/contracts/engine/query/bind-budget.core.test.ts",
-  "tests/contracts/engine/query/blob-result-parser.core.test.ts",
-  "tests/contracts/engine/query/bulk-create-plan.core.test.ts",
   "tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts",
   "tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts",
-  "tests/contracts/engine/query/consumable-result-rows.core.test.ts",
-  "tests/contracts/engine/query/count-result-carrier.core.test.ts",
-  "tests/contracts/engine/query/cursor-pagination-sql.core.test.ts",
-  "tests/contracts/engine/query/cursor-order-normalization-boundaries.core.test.ts",
-  "tests/contracts/engine/query/decimal-cache-identity.core.test.ts",
-  "tests/contracts/engine/query/decimal-capture-materialization.core.test.ts",
   "tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts",
-  "tests/contracts/engine/query/decimal-list-container.core.test.ts",
-  "tests/contracts/engine/query/decimal-relation-key-write.core.test.ts",
   "tests/contracts/engine/query/default-insert-sql.core.test.ts",
   "tests/contracts/engine/query/field-reference-sql.core.test.ts",
   "tests/contracts/engine/query/for-update-dialects.core.test.ts",
   "tests/contracts/engine/query/geopoint-sql.core.test.ts",
   "tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts",
-  "tests/contracts/engine/query/junction-conflict-target.core.test.ts",
-  "tests/contracts/engine/query/junction-statements.core.test.ts",
   "tests/contracts/engine/query/lateral-joins.core.test.ts",
-  "tests/contracts/engine/query/list-update-container.core.test.ts",
   "tests/contracts/engine/query/model-key-catalog.core.test.ts",
-  "tests/contracts/engine/query/mutation-operation-boundaries.core.test.ts",
   "tests/contracts/engine/query/namespace-qualification.core.test.ts",
   "tests/contracts/engine/query/nested-captured-target-signature.core.test.ts",
-  "tests/contracts/engine/query/nested-writes.core.test.ts",
   "tests/contracts/engine/query/operand-callback-sql.core.test.ts",
   "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
   "tests/contracts/engine/query/orderby-relation-depth.core.test.ts",
-  "tests/contracts/engine/query/own-write-target.core.test.ts",
   "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-collection-bind.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-inverse-read-sql.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-read-sql.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-row-mutation-intents.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-result-parser.core.test.ts",
-  "tests/contracts/engine/query/polymorphic-storage-grouping.core.test.ts",
-  "tests/contracts/engine/query/query-builder-coverage-boundaries.core.test.ts",
   "tests/contracts/engine/query/query-inspection.core.test.ts",
-  "tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts",
-  "tests/contracts/engine/query/query-result-coverage-boundaries.core.test.ts",
-  "tests/contracts/engine/query/relation-filter-nullability-planning.core.test.ts",
-  "tests/contracts/engine/query/relation-mutation-program.core.test.ts",
-  "tests/contracts/engine/query/relation-nullability-parity.core.test.ts",
-  "tests/contracts/engine/query/request-result-shape-contracts.core.test.ts",
   "tests/contracts/engine/query/result-aliases.core.test.ts",
-  "tests/contracts/engine/query/result-identity-fast-path.core.test.ts",
-  "tests/contracts/engine/query/result-parser-architecture-gates.core.test.ts",
-  "tests/contracts/engine/query/result-parser-contracts.core.test.ts",
-  "tests/contracts/engine/query/scalar-result-contracts.core.test.ts",
-  "tests/contracts/engine/query/select-builder-boundaries.core.test.ts",
   "tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts",
-  "tests/contracts/engine/query/sql-generation.core.test.ts",
   "tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts",
-  "tests/contracts/engine/query/target-constraint.core.test.ts",
-  "tests/contracts/engine/query/target-predicate-footprint.core.test.ts",
-  "tests/contracts/engine/query/vector-distance-result-parser.core.test.ts",
 ]);
 
 /**
@@ -84,20 +46,9 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
  */
 export const WRITE_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/engine/query/nested-create-many.core.test.ts",
-  "tests/contracts/engine/write/architecture-gates.core.test.ts",
   "tests/contracts/engine/write/atomic-unit-batch.core.test.ts",
-  "tests/contracts/engine/write/compound-relation-adoption.core.test.ts",
-  "tests/contracts/engine/write/create-race-pin.core.test.ts",
   "tests/contracts/engine/write/dead-symbol-gate.core.test.ts",
-  "tests/contracts/engine/write/fragment-validator.core.test.ts",
-  "tests/contracts/engine/write/generated-output-boundary.core.test.ts",
   "tests/contracts/engine/write/parse-boundary-gate.core.test.ts",
-  "tests/contracts/engine/write/race-retry-classification.core.test.ts",
-  "tests/contracts/engine/write/relation-membership-contracts.core.test.ts",
-  "tests/contracts/engine/write/relation-target-coverage.core.test.ts",
-  "tests/contracts/engine/write/series-result-read.core.test.ts",
-  "tests/contracts/engine/write/target-projection.core.test.ts",
-  "tests/contracts/engine/write/write-shared-coverage.core.test.ts",
 ]);
 
 export const WRITE_ENGINE_EXTENDED_COVERAGE_TESTS = Object.freeze([
@@ -126,11 +77,11 @@ export const WRITE_ENGINE_COVERAGE_TESTS = Object.freeze([
 
 /**
  * Keep each coverage worker far below the 1536 MiB process ceiling. The core
- * slices preserve the literal admission order above; the mocked Neon transport
- * remains isolated because it installs module-level provider fakes.
+ * admission is one group now that the V1 write engine and its gates are retired
+ * (four files); the mocked Neon transport remains isolated because it installs
+ * module-level provider fakes.
  */
 export const WRITE_ENGINE_COVERAGE_TEST_GROUPS = Object.freeze([
-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(0, 8)),
-  Object.freeze(WRITE_ENGINE_CORE_TESTS.slice(8)),
+  Object.freeze([...WRITE_ENGINE_CORE_TESTS]),
   Object.freeze([...WRITE_ENGINE_EXTENDED_COVERAGE_TESTS]),
 ]);

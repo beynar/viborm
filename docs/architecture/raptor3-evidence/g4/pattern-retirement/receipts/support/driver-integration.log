@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-client| tests/contracts/public-client/official-statement-instrumentation.core.test.ts (11 tests) 37ms
+ ✓ |layer-client| tests/contracts/public-client/statement-transforms-integration.core.test.ts (5 tests) 2ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  02:33:09
+   Duration  1.22s (transform 642ms, setup 9ms, collect 1.07s, tests 40ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.00s wall, 462.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

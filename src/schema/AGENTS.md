@@ -3,6 +3,13 @@
 **Location:** `src/schema/`  
 **Layer:** L2-L5 - Schema Definition (see [root AGENTS.md](../../AGENTS.md))
 
+> **One provenance citation in this layer names a V1 file that no longer exists.**
+> The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
+> whole. `field-ref.ts:31` carries an editor link,
+> `{@link file://../query-engine/builders/where-builder.ts}`, which now resolves to
+> nothing: it records WHERE V1 decided the SAME-MODEL rule for a field reference,
+> so read it in git history (`e8114ed9`), not on disk.
+
 ## Purpose
 
 Defines database schema using type-safe builders (scalars, models, relations) that enable fully-typed queries without code generation.

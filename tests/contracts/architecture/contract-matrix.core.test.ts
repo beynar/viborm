@@ -37,9 +37,6 @@ const runtimeOwners: ReadonlyArray<{
   },
   { prefix: "tests/unit/schema-json/", layer: "schema-json" },
   { prefix: "tests/contracts/architecture/", layer: "query-engine" },
-  // The pattern engine is a query-engine component; its suites own no layer of
-  // their own because they share the layer's type core.
-  { prefix: "tests/pattern/", layer: "query-engine" },
   { prefix: "tests/contracts/engine/", layer: "query-engine" },
   { prefix: "tests/contracts/adapters/", layer: "adapters" },
   { prefix: "tests/contracts/drivers/", layer: "drivers" },

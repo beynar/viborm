@@ -9,6 +9,13 @@ than a selectable alternative, and the legacy engine it replaced has been
 deleted. It is still not a fallback, and nothing here is exported from the
 package entry.
 
+> **Provenance citations below name V1 files that no longer exist.** The pattern
+> retirement (Arnaud's decision D-15) deleted the `pattern/` experiment and every
+> owner it alone kept alive — `builders/`, `operations/` (bar `groupby-fields.ts`),
+> `result/`'s parser tree and all of `write-engine/` except `parse-boundary.ts`.
+> A `file:line` reference to one of them records WHAT V1 did and where the parity
+> argument came from; read it in git history (`e8114ed9`), not on disk.
+
 G1-01 compares structured commands (`commands/`) with a scoped relational
 program (`program/`) on the same S1–S4 public recipes. `shared/` may contain
 genuinely shared query/projection and boundary work; charge its full cost to

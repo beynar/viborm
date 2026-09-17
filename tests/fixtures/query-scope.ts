@@ -14,9 +14,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters";
-import type { AnyDriver } from "@drivers";
 import { createQueryScope } from "@query-engine/context";
-import { ResultParser } from "@query-engine/result/ResultParser";
 import type { QueryScope } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
@@ -58,17 +56,4 @@ export function indexFor(model: AnyModel): ResolvedRelationIndex {
     );
   }
   return relations;
-}
-
-/** A result parser over a model prepared by {@link prepareSchema}. */
-export function parserFor(
-  adapter: DatabaseAdapter,
-  model: AnyModel,
-  driver?: AnyDriver
-): ResultParser {
-  return new ResultParser(
-    { adapter, relations: indexFor(model) },
-    model,
-    driver
-  );
 }

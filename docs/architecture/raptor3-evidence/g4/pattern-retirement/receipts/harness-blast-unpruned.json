@@ -1,0 +1,681 @@
+{
+ "count": 86,
+ "lines": 30945,
+ "files": [
+  {
+   "file": "benchmarks/read-fastpath-parse.bench.ts",
+   "lines": 87,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/drivers/transaction-lifecycle.core.test.ts",
+   "lines": 737,
+   "direct": [
+    "src/query-engine/skippable-write.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/blob-result-parser.core.test.ts",
+   "lines": 84,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/bulk-create-plan.core.test.ts",
+   "lines": 379,
+   "direct": [
+    "src/query-engine/builders/insert-row-shapes.ts",
+    "src/query-engine/builders/values-builder.ts",
+    "src/query-engine/operations/create.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/consumable-result-rows.core.test.ts",
+   "lines": 442,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/count-result-carrier.core.test.ts",
+   "lines": 146,
+   "direct": [
+    "src/query-engine/operations/count.ts",
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/cursor-order-normalization-boundaries.core.test.ts",
+   "lines": 162,
+   "direct": [
+    "src/query-engine/operations/cursor-order.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/cursor-pagination-sql.core.test.ts",
+   "lines": 202,
+   "direct": [
+    "src/query-engine/operations/find-pagination.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/decimal-cache-identity.core.test.ts",
+   "lines": 157,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/decimal-capture-materialization.core.test.ts",
+   "lines": 293,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts",
+    "src/query-engine/write-engine/series-result-read.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/decimal-list-container.core.test.ts",
+   "lines": 348,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/decimal-relation-key-write.core.test.ts",
+   "lines": 160,
+   "direct": [
+    "src/query-engine/builders/values-builder.ts",
+    "src/query-engine/write-engine/fragment-builders.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/geopoint-sql.core.test.ts",
+   "lines": 553,
+   "direct": []
+  },
+  {
+   "file": "tests/contracts/engine/query/junction-conflict-target.core.test.ts",
+   "lines": 384,
+   "direct": [
+    "src/query-engine/builders/many-to-many-utils.ts",
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/JunctionStatements.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/junction-statements.core.test.ts",
+   "lines": 276,
+   "direct": [
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/JunctionStatements.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/list-update-container.core.test.ts",
+   "lines": 297,
+   "direct": [
+    "src/query-engine/builders/set-builder.ts",
+    "src/query-engine/builders/where-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/mutation-operation-boundaries.core.test.ts",
+   "lines": 134,
+   "direct": [
+    "src/query-engine/operations/delete.ts",
+    "src/query-engine/operations/groupby.ts",
+    "src/query-engine/operations/groupby-having.ts",
+    "src/query-engine/operations/update.ts",
+    "src/query-engine/operations/upsert.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/nested-writes.core.test.ts",
+   "lines": 70,
+   "direct": [
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/builders/relation-mutation-parser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/own-write-target.core.test.ts",
+   "lines": 39,
+   "direct": [
+    "src/query-engine/TargetConstraint.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-collection-bind.core.test.ts",
+   "lines": 131,
+   "direct": [
+    "src/query-engine/builders/relation-data-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-inverse-read-sql.core.test.ts",
+   "lines": 376,
+   "direct": [
+    "src/query-engine/builders/orderby-builder.ts",
+    "src/query-engine/builders/select-builder.ts",
+    "src/query-engine/builders/where-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-read-sql.core.test.ts",
+   "lines": 930,
+   "direct": [
+    "src/query-engine/builders/orderby-builder.ts",
+    "src/query-engine/builders/select-builder.ts",
+    "src/query-engine/builders/where-builder.ts",
+    "src/query-engine/operations/mutation-projection-fold.ts",
+    "src/query-engine/write-engine/shared.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-result-parser.core.test.ts",
+   "lines": 799,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-row-mutation-intents.core.test.ts",
+   "lines": 150,
+   "direct": [
+    "src/query-engine/builders/polymorphic-mutation.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/polymorphic-storage-grouping.core.test.ts",
+   "lines": 144,
+   "direct": [
+    "src/query-engine/builders/polymorphic-mutation.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/query-builder-coverage-boundaries.core.test.ts",
+   "lines": 1020,
+   "direct": [
+    "src/query-engine/builders/aggregate-utils.ts",
+    "src/query-engine/builders/distance-builder.ts",
+    "src/query-engine/builders/geo-point-builder.ts",
+    "src/query-engine/builders/many-to-many-utils.ts",
+    "src/query-engine/builders/orderby-builder.ts",
+    "src/query-engine/builders/polymorphic-collection-filter-builder.ts",
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/builders/relation-mutation-parser.ts",
+    "src/query-engine/builders/select-builder.ts",
+    "src/query-engine/builders/set-builder.ts",
+    "src/query-engine/builders/sort-order-builder.ts",
+    "src/query-engine/builders/values-builder.ts",
+    "src/query-engine/builders/where-builder.ts",
+    "src/query-engine/builders/where-unique-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/query-operation-coverage-boundaries.core.test.ts",
+   "lines": 841,
+   "direct": [
+    "src/query-engine/operations/aggregate-input.ts",
+    "src/query-engine/operations/bulk-limit.ts",
+    "src/query-engine/operations/create.ts",
+    "src/query-engine/operations/cursor-condition.ts",
+    "src/query-engine/operations/cursor-order.ts",
+    "src/query-engine/operations/find-common.ts",
+    "src/query-engine/operations/find-pagination.ts",
+    "src/query-engine/operations/find-unique.ts",
+    "src/query-engine/operations/groupby.ts",
+    "src/query-engine/operations/groupby-having.ts",
+    "src/query-engine/operations/mutation-identity.ts",
+    "src/query-engine/operations/mutation-projection-fold.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/query-result-coverage-boundaries.core.test.ts",
+   "lines": 431,
+   "direct": [
+    "src/query-engine/result/decimal-result-decode.ts",
+    "src/query-engine/result/ResultParser.ts",
+    "src/query-engine/result/result-parser-contract.ts",
+    "src/query-engine/result/result-row-parser.ts",
+    "src/query-engine/result/scalar-result-parser.ts",
+    "src/query-engine/result/scalar-structured-parser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/relation-filter-nullability-planning.core.test.ts",
+   "lines": 106,
+   "direct": [
+    "src/query-engine/builders/where-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/relation-mutation-program.core.test.ts",
+   "lines": 724,
+   "direct": [
+    "src/query-engine/builders/relation-mutation-parser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/relation-nullability-parity.core.test.ts",
+   "lines": 96,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/request-result-shape-contracts.core.test.ts",
+   "lines": 385,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/result-identity-fast-path.core.test.ts",
+   "lines": 333,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/result-parser-architecture-gates.core.test.ts",
+   "lines": 129,
+   "direct": [
+    "src/query-engine/result/scalar-result-parser.ts",
+    "src/query-engine/result/scalar-structured-parser.ts",
+    "src/query-engine/result/ResultParser.ts",
+    "src/query-engine/result/result-row-parser.ts",
+    "src/query-engine/result/relation-result-parser.ts",
+    "src/query-engine/result/result-aggregate-parser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/result-parser-contracts.core.test.ts",
+   "lines": 1076,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/scalar-result-contracts.core.test.ts",
+   "lines": 919,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/select-builder-boundaries.core.test.ts",
+   "lines": 115,
+   "direct": [
+    "src/query-engine/builders/select-builder.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/sql-generation.core.test.ts",
+   "lines": 1775,
+   "direct": [
+    "src/query-engine/builders/distinct-builder.ts",
+    "src/query-engine/builders/orderby-builder.ts",
+    "src/query-engine/builders/relation-orderby-builder.ts",
+    "src/query-engine/builders/sort-order-builder.ts",
+    "src/query-engine/builders/where-builder.ts",
+    "src/query-engine/builders/where-unique-builder.ts",
+    "src/query-engine/operations/aggregate.ts",
+    "src/query-engine/operations/groupby.ts",
+    "src/query-engine/operations/groupby-having.ts",
+    "src/query-engine/operations/upsert.ts",
+    "src/query-engine/builders/include-query.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/target-constraint.core.test.ts",
+   "lines": 659,
+   "direct": [
+    "src/query-engine/operations/mutation-identity.ts",
+    "src/query-engine/TargetConstraint.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/target-predicate-footprint.core.test.ts",
+   "lines": 144,
+   "direct": [
+    "src/query-engine/TargetConstraint.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/query/vector-distance-result-parser.core.test.ts",
+   "lines": 243,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/compound-locate-prototype.test.ts",
+   "lines": 246,
+   "direct": [
+    "src/query-engine/write-engine/OperationExecutor.ts",
+    "src/query-engine/write-engine/OperationFragment.ts",
+    "src/query-engine/write-engine/Part.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/compound-relation-adoption.core.test.ts",
+   "lines": 21,
+   "direct": [
+    "src/query-engine/write-engine/relation-membership.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/create-race-pin.core.test.ts",
+   "lines": 99,
+   "direct": [
+    "src/query-engine/write-engine/create-race-pin.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/fragment-validator.core.test.ts",
+   "lines": 559,
+   "direct": [
+    "src/query-engine/write-engine/FragmentValidator.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/generated-output-boundary.core.test.ts",
+   "lines": 198,
+   "direct": [
+    "src/query-engine/write-engine/generated-output-boundary.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/link-in-list-fold.test.ts",
+   "lines": 819,
+   "direct": [
+    "src/query-engine/write-engine/link-target-groups.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/mutation-dependency-fold.test.ts",
+   "lines": 1276,
+   "direct": [
+    "src/query-engine/operations/mutation-projection-fold.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/nested-arm-dispatch.test.ts",
+   "lines": 1200,
+   "direct": [
+    "src/query-engine/write-engine/shared.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/race-retry-classification.core.test.ts",
+   "lines": 103,
+   "direct": [
+    "src/query-engine/write-engine/OperationFragment.ts",
+    "src/query-engine/write-engine/race-retry.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/relation-membership-contracts.core.test.ts",
+   "lines": 520,
+   "direct": [
+    "src/query-engine/builders/polymorphic-mutation.ts",
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/write-engine/OperationFragment.ts",
+    "src/query-engine/write-engine/Part.ts",
+    "src/query-engine/write-engine/relation-membership.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/relation-target-coverage.core.test.ts",
+   "lines": 212,
+   "direct": [
+    "src/query-engine/builders/relation-data-builder.ts",
+    "src/query-engine/write-engine/link-target-groups.ts",
+    "src/query-engine/write-engine/relation-nullability.ts",
+    "src/query-engine/write-engine/target-projection.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/series-result-read.core.test.ts",
+   "lines": 469,
+   "direct": [
+    "src/query-engine/write-engine/StepScope.ts",
+    "src/query-engine/write-engine/series-result-read.ts",
+    "src/query-engine/write-engine/target-projection.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/target-projection.core.test.ts",
+   "lines": 357,
+   "direct": [
+    "src/query-engine/write-engine/target-projection.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/engine/write/write-shared-coverage.core.test.ts",
+   "lines": 287,
+   "direct": [
+    "src/query-engine/write-engine/shared.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/public-client/client-omit-closure.core.test.ts",
+   "lines": 252,
+   "direct": []
+  },
+  {
+   "file": "tests/contracts/public-client/default-omit-bulk-projection.core.test.ts",
+   "lines": 52,
+   "direct": []
+  },
+  {
+   "file": "tests/contracts/public-client/errors/failure-classification.test.ts",
+   "lines": 327,
+   "direct": [
+    "src/query-engine/write-engine/race-retry.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/public-client/errors/prisma-codes.test.ts",
+   "lines": 305,
+   "direct": [
+    "src/query-engine/write-engine/shared.ts"
+   ]
+  },
+  {
+   "file": "tests/contracts/public-client/polymorphic-client-omit.core.test.ts",
+   "lines": 392,
+   "direct": []
+  },
+  {
+   "file": "tests/fixtures/planning-published.ts",
+   "lines": 28,
+   "direct": [
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/fixtures/query-scope.ts",
+   "lines": 74,
+   "direct": [
+    "src/query-engine/result/ResultParser.ts"
+   ]
+  },
+  {
+   "file": "tests/fixtures/routed-fragment-atom.ts",
+   "lines": 28,
+   "direct": [
+    "src/query-engine/write-engine/OperationExecutor.ts",
+    "src/query-engine/write-engine/record-series.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/construct/harness.ts",
+   "lines": 208,
+   "direct": [
+    "src/query-engine/pattern/cells.ts",
+    "src/query-engine/pattern/construct.ts",
+    "src/query-engine/pattern/pattern.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/construct/members.core.test.ts",
+   "lines": 94,
+   "direct": [
+    "src/query-engine/pattern/construct.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/construct/reference-row.core.test.ts",
+   "lines": 173,
+   "direct": [
+    "src/query-engine/pattern/cells.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/construct/refusals.core.test.ts",
+   "lines": 219,
+   "direct": []
+  },
+  {
+   "file": "tests/pattern/construct/root.core.test.ts",
+   "lines": 278,
+   "direct": []
+  },
+  {
+   "file": "tests/pattern/construct/to-many.core.test.ts",
+   "lines": 260,
+   "direct": []
+  },
+  {
+   "file": "tests/pattern/construct/to-one.core.test.ts",
+   "lines": 373,
+   "direct": []
+  },
+  {
+   "file": "tests/pattern/construct/variants.core.test.ts",
+   "lines": 239,
+   "direct": [
+    "src/query-engine/pattern/cells.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/admission.core.test.ts",
+   "lines": 101,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/batch.core.test.ts",
+   "lines": 196,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/differential.core.test.ts",
+   "lines": 414,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts",
+    "src/query-engine/pattern/execute/batch.ts",
+    "src/query-engine/pattern/fragment.ts",
+    "src/query-engine/write-engine/OperationExecutor.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/faults.core.test.ts",
+   "lines": 204,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/fixtures.ts",
+   "lines": 561,
+   "direct": [
+    "src/query-engine/pattern/fragment.ts",
+    "src/query-engine/write-engine/OperationFragment.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/retry.core.test.ts",
+   "lines": 171,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/segments.core.test.ts",
+   "lines": 174,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/execute/transaction.core.test.ts",
+   "lines": 231,
+   "direct": [
+    "src/query-engine/pattern/execute/index.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/generator/generator.core.test.ts",
+   "lines": 500,
+   "direct": []
+  },
+  {
+   "file": "tests/pattern/generator/invalid.ts",
+   "lines": 1220,
+   "direct": [
+    "src/query-engine/pattern/cells.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/pack/smoke-pattern.ts",
+   "lines": 96,
+   "direct": [
+    "src/query-engine/pattern/pattern.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/schedule/dataflow.core.test.ts",
+   "lines": 317,
+   "direct": [
+    "src/query-engine/pattern/schedule.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/schedule/fixture.ts",
+   "lines": 155,
+   "direct": [
+    "src/query-engine/pattern/pattern.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/schedule/fragments.core.test.ts",
+   "lines": 196,
+   "direct": [
+    "src/query-engine/pattern/schedule.ts"
+   ]
+  },
+  {
+   "file": "tests/pattern/schedule/legality.core.test.ts",
+   "lines": 265,
+   "direct": [
+    "src/query-engine/pattern/schedule.ts"
+   ]
+  }
+ ]
+}

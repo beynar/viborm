@@ -1,0 +1,79 @@
+{
+ "reference": "g4/cutover-execution/receipts/round3/bundles-after.json",
+ "totalDifferingFields": 4,
+ "fixtures": {
+  "engine": {
+   "runtimeBytes": 329134,
+   "gzipBytes": 92390,
+   "sha256": "1e0a7878b90fad06e5d7381d66de4da5f7c4586e1f89fe2401cd10b04930d4be",
+   "modules": 176,
+   "differingFields": [
+    "module[107] src/validation/relations/order-by.ts differs",
+    "module[165] src/query-engine/raptor3/shared/operation-context.ts differs"
+   ]
+  },
+  "pg-simple": {
+   "runtimeBytes": 624922,
+   "gzipBytes": 184023,
+   "sha256": "231a3b64644f49adb716157d4b25a8a22171b14d0a7914c62a1a833e848a7605",
+   "modules": 310,
+   "differingFields": [
+    "module count 310 != 311"
+   ]
+  },
+  "pg-relations": {
+   "runtimeBytes": 625203,
+   "gzipBytes": 184152,
+   "sha256": "b10a9bdd8452e2724e1d98a0fd6f09a4716dedd527bb86226b0c6306f64fddc7",
+   "modules": 310,
+   "differingFields": [
+    "module count 310 != 311"
+   ]
+  }
+ },
+ "verdict": "All three fixtures byte-identical to the post-cutover bundles: runtimeBytes, gzipBytes and sha256 all equal. The four differing fields are pre-minification module metadata only.",
+ "explainedDifferences": [
+  {
+   "fixture": "engine",
+   "field": "modules[107].renderedLength",
+   "now": 3571,
+   "ref": 3490,
+   "delta": 81,
+   "cause": "src/validation/relations/order-by.ts docblock restated (the deleted V1 mirror of MAX_RELATION_ORDER_DEPTH). Comments are stripped by the minifier, so runtimeBytes/sha256 are unchanged."
+  },
+  {
+   "fixture": "engine",
+   "field": "modules[165].renderedLength",
+   "now": 60727,
+   "ref": 60668,
+   "delta": 59,
+   "cause": "src/query-engine/raptor3/shared/operation-context.ts docblock restated (the pattern/execute/values.ts provenance mention the brief asked to restate)."
+  },
+  {
+   "fixture": "pg-simple",
+   "field": "modules",
+   "now": 310,
+   "ref": 311,
+   "cause": "src/query-engine/write-engine/OperationFragment.ts (renderedLength 837, renderedExports [createFailureError]) is gone; createFailureError now renders inside src/query-engine/batch-error-attribution.ts, whose renderedLength grew 3494 -> 4359 (+865). Minified output identical."
+  },
+  {
+   "fixture": "pg-relations",
+   "field": "modules",
+   "now": 310,
+   "ref": 311,
+   "cause": "identical to pg-simple."
+  }
+ ],
+ "writeEngineModulesRendered": {
+  "engine": [
+   "src/query-engine/write-engine/parse-boundary.ts"
+  ],
+  "pg-simple": [
+   "src/query-engine/write-engine/parse-boundary.ts"
+  ],
+  "pg-relations": [
+   "src/query-engine/write-engine/parse-boundary.ts"
+  ]
+ },
+ "note": "The top-level g4/cutover-execution/receipts/bundles-after.json is the round-1/2 measurement, superseded by D-14 (round 3). round3/bundles-after.json is the post-cutover authority and is what this compares against."
+}

@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 2ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 550ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |layer-write-engine| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 5ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed (50)
+   Start at  03:28:22
+   Duration  1.61s (transform 611ms, setup 11ms, collect 935ms, tests 557ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.33s wall, 438.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

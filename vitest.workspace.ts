@@ -235,12 +235,7 @@ export default defineWorkspace([
   ]),
   layerProject("schema-json", ["tests/unit/schema-json/**/*.core.test.ts"]),
   layerProject("query-engine", [...QUERY_ENGINE_CORE_TESTS]),
-  // The pattern engine's own estate (docs/architecture/pattern-engine-ideal-state.md
-  // §13): the oracle harness, the payload generator, per-unit fixtures and the
-  // differentials. Glob-admitted deliberately — every file here is provider-free
-  // by construction (it runs on the planning driver or the simulated driver).
-  layerProject("pattern", ["tests/pattern/**/*.core.test.ts"]),
-  // The write core is its own layer rather than 56 more files inside
+  // The write core is its own layer rather than more files inside
   // layer-query-engine, which is already the widest layer in the estate.
   // `pnpm test:core` selects `layer-*`, so a new layer name is admitted for
   // free, and each engine half then owns a whole 30 second layer budget instead

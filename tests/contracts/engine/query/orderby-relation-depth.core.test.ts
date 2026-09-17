@@ -48,14 +48,12 @@ const parentChainOrderBy = (hops: number): Record<string, unknown> => {
 };
 
 describe("orderBy relation-depth deterministic contracts", () => {
-  test("validation and engine pin the same cap, and it is 8", () => {
-    const validationCap = readDepthCap("src/validation/relations/order-by.ts");
-    const engineCap = readDepthCap(
-      "src/query-engine/builders/relation-orderby-builder.ts"
-    );
-
-    expect(validationCap).toBe(engineCap);
-    expect(validationCap).toBe(8);
+  test("one owner pins the cap, and it is 8", () => {
+    // Until the pattern retirement the V1 join builder carried a second
+    // MAX_RELATION_ORDER_DEPTH that had to stay equal to this one. That builder
+    // is gone: the validation schema is the only owner, and the rejection cells
+    // below exercise the cap through the public route rather than a mirror.
+    expect(readDepthCap("src/validation/relations/order-by.ts")).toBe(8);
   });
 
   test("a 9-hop chain is rejected before provider dispatch", async () => {

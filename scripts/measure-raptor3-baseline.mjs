@@ -111,15 +111,6 @@ function classify(file) {
       "Whole shared owner changed by G3 preparation; charged without a proportional monolith discount",
     ];
   }
-  if (file.startsWith("src/query-engine/pattern/")) {
-    return ["excluded-experiment", "Pattern is not the public operation route"];
-  }
-  if (file === "src/query-engine/builders/projection-select.ts") {
-    return [
-      "excluded-experiment",
-      "Only experimental projection-shaped exports consume this implementation; shared modules' ordinary exports use buildSelectWithAliases",
-    ];
-  }
   if (file.startsWith("src/query-engine/")) {
     return [
       "charged-engine",
@@ -353,7 +344,6 @@ const report = {
       files.filter(
         (file) =>
           file.file.startsWith("src/query-engine/") &&
-          !file.file.includes("/pattern/") &&
           !file.file.startsWith(candidateRoot)
       )
     ),
@@ -367,21 +357,6 @@ const report = {
       ])
     ),
     mixedOwners: [
-      {
-        file: "src/query-engine/builders/select-builder.ts",
-        disposition: "charged whole",
-        experimentalExports: [
-          "buildProjectionSelect",
-          "buildProjectionSelectWithAliases",
-          "ProjectionSelectOptions",
-        ],
-      },
-      {
-        file: "src/query-engine/operations/mutation-projection-fold.ts",
-        disposition: "charged whole",
-        experimentalExports: ["buildProjectionMutationFold"],
-        experimentalPrivateSupport: ["returningProjectedColumns"],
-      },
       {
         file: "src/adapters/adapter-core-types.ts",
         disposition: "charged whole",

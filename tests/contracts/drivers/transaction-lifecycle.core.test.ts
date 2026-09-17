@@ -11,8 +11,6 @@ import {
   Client as PlanetScaleClient,
   type Config as PlanetScaleConfig,
 } from "@planetscale/database";
-import { sql } from "@sql";
-import { executeSkippableWrite } from "@src/query-engine/skippable-write";
 import { describe, expect, test, vi } from "vitest";
 
 interface Deferred {
@@ -604,133 +602,7 @@ describe("provider transaction cleanup", () => {
       "session-3",
     ]);
   });
-
-  test("PlanetScale duplicate recovery rolls back one savepoint and continues", async () => {
-    const requests: string[] = [];
-    const driver = createPlanetScaleSavepointDriver(requests, "unique");
-
-    await driver.withTransaction(async (tx) => {
-      await expect(
-        executeSkippableWrite(tx, sql.raw`INSERT DUPLICATE`, {
-          operation: "createMany",
-        })
-      ).resolves.toEqual({ rows: [], rowCount: 0 });
-      await expect(
-        executeSkippableWrite(tx, sql.raw`INSERT FRESH`, {
-          operation: "createMany",
-        })
-      ).resolves.toMatchObject({ rowCount: 1 });
-    });
-
-    expect(requests.map(statementKind)).toEqual([
-      "SET_SINGLE",
-      "BEGIN",
-      "SAVEPOINT",
-      "DUPLICATE",
-      "ROLLBACK_TO_SAVEPOINT",
-      "RELEASE_SAVEPOINT",
-      "SAVEPOINT",
-      "FRESH",
-      "RELEASE_SAVEPOINT",
-      "COMMIT",
-    ]);
-  });
-
-  test("PlanetScale unrelated insert failure aborts the outer transaction", async () => {
-    const requests: string[] = [];
-    const driver = createPlanetScaleSavepointDriver(requests, "foreign-key");
-
-    await expect(
-      driver.withTransaction((tx) =>
-        executeSkippableWrite(tx, sql.raw`INSERT UNRELATED_FAILURE`, {
-          operation: "createMany",
-        })
-      )
-    ).rejects.toMatchObject({ name: "ForeignKeyError" });
-
-    expect(requests.map(statementKind)).toEqual([
-      "SET_SINGLE",
-      "BEGIN",
-      "SAVEPOINT",
-      "UNRELATED_FAILURE",
-      "ROLLBACK_TO_SAVEPOINT",
-      "RELEASE_SAVEPOINT",
-      "ROLLBACK",
-    ]);
-  });
 });
-
-function createPlanetScaleSavepointDriver(
-  requests: string[],
-  failure: "unique" | "foreign-key"
-): PlanetScaleDriver {
-  let session = 0;
-  const fetch: NonNullable<PlanetScaleConfig["fetch"]> = async (
-    _input,
-    init
-  ) => {
-    if (typeof init?.body !== "string") {
-      throw new Error("PlanetScale request body was not JSON text");
-    }
-    const request: unknown = JSON.parse(init.body);
-    if (!isRecord(request) || typeof request.query !== "string") {
-      throw new Error("PlanetScale request was malformed");
-    }
-    requests.push(request.query);
-    const error =
-      request.query === "INSERT DUPLICATE" && failure === "unique"
-        ? {
-            code: "ALREADY_EXISTS",
-            message:
-              "Duplicate entry 'x' for key 'items.PRIMARY' (errno 1062) (sqlstate 23000)",
-          }
-        : request.query === "INSERT UNRELATED_FAILURE" &&
-            failure === "foreign-key"
-          ? {
-              code: "FAILED_PRECONDITION",
-              message:
-                "Cannot add or update a child row: a foreign key constraint fails (errno 1452) (sqlstate 23000)",
-            }
-          : undefined;
-    const payload = error
-      ? { error, session: `session-${++session}` }
-      : {
-          result: {
-            fields: [],
-            rows: [],
-            rowsAffected: "1",
-            insertId: "0",
-          },
-          session: `session-${++session}`,
-        };
-    return {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      json: async () => payload,
-      text: async () => JSON.stringify(payload),
-    };
-  };
-  return new PlanetScaleDriver({
-    client: new PlanetScaleClient({
-      url: "https://user:password@phase10.test/database",
-      fetch,
-    }),
-  });
-}
-
-function statementKind(statement: string): string {
-  if (statement === "SET transaction_mode = 'single'") return "SET_SINGLE";
-  if (statement.startsWith("ROLLBACK TO SAVEPOINT")) {
-    return "ROLLBACK_TO_SAVEPOINT";
-  }
-  if (statement.startsWith("RELEASE SAVEPOINT")) return "RELEASE_SAVEPOINT";
-  if (statement.startsWith("SAVEPOINT")) return "SAVEPOINT";
-  if (statement === "INSERT DUPLICATE") return "DUPLICATE";
-  if (statement === "INSERT FRESH") return "FRESH";
-  if (statement === "INSERT UNRELATED_FAILURE") return "UNRELATED_FAILURE";
-  return statement;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
