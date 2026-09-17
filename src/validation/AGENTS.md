@@ -123,10 +123,14 @@ ordering, pagination, cursor, and selection clauses describe a larger query.
 over a signed `BigInt` coefficient and a scale, the accepted literal grammar,
 canonicalization, exponent expansion, and the one canonical rendering. It has
 no statics and no configuration, its state is a private field the constructor
-alone installs, and it imports nothing. Three module-private seams — the brand
-check `isDecimal`, the canonical-text reader `canonicalDecimalText`, and the
-grammar-skipping `fromCanonical` — are exported for the codec and for nothing
-else; `src/index.ts` re-exports only the class.
+alone installs, and it imports nothing. Three seams are exported for the codec
+beside it and for nothing else: the input canonicaliser
+`canonicalizeDecimalInput`, the canonical-text reader `canonicalDecimalText` —
+which IS the brand answer, because the module-private `owns` is the only thing
+that can answer and it returns `undefined` for anything the constructor never
+built — and the grammar-skipping `fromCanonical`. `DECIMAL_INPUT_REFUSAL`, the
+one sentence both boundaries refuse in, goes to `primitives/decimal.ts` for the
+same reason. `src/index.ts` re-exports only the class.
 
 `primitives/decimal-codec.ts` owns both the one structural `DecimalDescriptor`
 shape and the one field-aware decimal codec. It owns the accepted

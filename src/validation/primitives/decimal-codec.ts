@@ -12,7 +12,8 @@
  * `Decimal | string | number` grammar, canonical private text, and the
  * construction seam this module decodes into. That module's `Decimal` has a
  * private field installed by its constructor and by nothing else, so a value
- * that answers its `isDecimal` was BUILT by it — it has no mutable statics, no
+ * whose `canonicalDecimalText` answers at all was BUILT by it — it has no
+ * mutable statics, no
  * second constructor, and no rendering an application can reach, so there is
  * nothing here to snapshot, bound, or defend against. Reading the canonical
  * text of a Decimal is reading the Decimal.

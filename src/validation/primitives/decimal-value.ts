@@ -22,8 +22,9 @@
  *
  * A `Decimal` VibORM constructs is trusted BY CONSTRUCTION. Its state is two
  * `#private` fields the constructor alone installs, so `#c in value` is an
- * unforgeable witness that a value belongs to this family — `isDecimal` is
- * `false` for `Object.create(Decimal.prototype)`, for a plain object carrying
+ * unforgeable witness that a value belongs to this family —
+ * `canonicalDecimalText` answers `undefined` for
+ * `Object.create(Decimal.prototype)`, for a plain object carrying
  * the same keys, for a `Proxy` around a real one, and for every other value
  * there is. No boundary above this one has to read, snapshot, or bound a
  * foreign numerical representation, and an instance carries no own property for

@@ -251,12 +251,10 @@ export class ResultParser {
    * representation that ADDRESSES SQL beside the public rows.
    *
    * The two are not the same value for every scalar. A decimal's public leaf is
-   * a fresh `Decimal`, an object whose equality, ordering and text are all
-   * application-observable; its identity is the codec's canonical private
-   * string. A caller that indexed rows by the public value would compare two
-   * equal decimals with `Object.is` and never match them, and would re-spell
-   * them into a later statement through a rendering an application's
-   * `Big.NE`/`Big.PE` can move. So this parses ONCE and keeps both.
+   * a fresh `Decimal`, an object whose equality is reference identity; its
+   * identity is the codec's canonical private string. A caller that indexed rows
+   * by the public value would compare two equal decimals with `Object.is` and
+   * never match them. So this parses ONCE and keeps both.
    */
   parseRowsWithRowKeys<T>(
     operation: Operation,

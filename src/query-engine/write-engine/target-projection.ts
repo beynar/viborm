@@ -282,8 +282,9 @@ export function readRowKey(
  * A DECIMAL row key reaches here as the codec's canonical private string, never
  * as the public `Decimal` — see {@link ResultParser.parseRowsWithRowKeys}. That
  * is the whole reason this file needs no decimal branch: the value is already
- * one spelling per value, and rendering a `Decimal` here instead would key on
- * `toString()`, which an application's own `Big.PE` moves.
+ * one spelling per value, and a decimal branch here would be a second owner of
+ * that spelling — while the public value cannot be keyed on as it stands,
+ * because its equality is reference identity.
  */
 export function rowKeyToken(
   model: Model<any>,

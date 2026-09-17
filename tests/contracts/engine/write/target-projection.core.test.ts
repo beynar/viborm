@@ -324,8 +324,7 @@ describe("decoded row-key indexing", () => {
     // Two Decimal instances of one value are NOT one key here — `Object.is`
     // says so — which is exactly why the parser hands this owner the canonical
     // private string instead. The canonical form is what makes two spellings of
-    // one number one key, and it is stable under any application-side
-    // `Big.NE`/`Big.PE`, which `Decimal#toString()` is not.
+    // one number one key.
     expect(rowKeysEqual(decimalPk, { id: "1.5" }, { id: "1.5" })).toBe(true);
     expect(rowKeyToken(decimalPk, { id: "1.5" })).toBe(
       rowKeyToken(decimalPk, { id: "1.5" })

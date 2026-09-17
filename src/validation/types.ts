@@ -21,11 +21,15 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
  * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
  *
- * The two VALUE types a result leaf can carry are preserved whole. A mapped
- * type over a class keeps only its members, which for `Decimal` drops the
- * private field the class is identified by — and a structural twin of a
- * `Decimal` is not a `Decimal`, so `const total: Decimal = row.total` would
- * stop compiling for every selected decimal.
+ * `Date` is the one VALUE type short-circuited here: mapping it would expand
+ * every member onto a fresh object type for no reader's benefit. The other
+ * value type a result leaf can carry, `Decimal`, needs no arm of its own and
+ * deliberately has none — `decimal-value.ts` publishes it as an INTERFACE
+ * beside a const holding the class, so the published instance type carries no
+ * private field for the mapped type below to drop and a selected decimal stays
+ * assignable to `Decimal`. A probe in
+ * `tests/types/client/decimal-update-public-boundary.core.types.ts` is where
+ * that stops compiling if the class ever becomes the published type.
  */
 export type Prettify<T> = T extends (...args: any[]) => any
   ? T // Preserve functions as-is
