@@ -40,21 +40,29 @@ const DOMAIN_PAD = 0x06;
 /** pad10*1's trailing bit, at the top of the block's last byte. */
 const FINAL_PAD = 0x80;
 
-/** The iota round constants, low half then high half of each round. */
-const ROUND_CONSTANTS = new DataView(
-  new Int32Array([
-    0x00_00_00_01, 0x00_00_00_00, 0x00_00_80_82, 0x00_00_00_00, 0x00_00_80_8a,
-    0x80_00_00_00, 0x80_00_80_00, 0x80_00_00_00, 0x00_00_80_8b, 0x00_00_00_00,
-    0x80_00_00_01, 0x00_00_00_00, 0x80_00_80_81, 0x80_00_00_00, 0x00_00_80_09,
-    0x80_00_00_00, 0x00_00_00_8a, 0x00_00_00_00, 0x00_00_00_88, 0x00_00_00_00,
-    0x80_00_80_09, 0x00_00_00_00, 0x80_00_00_0a, 0x00_00_00_00, 0x80_00_80_8b,
-    0x00_00_00_00, 0x00_00_00_8b, 0x80_00_00_00, 0x00_00_80_89, 0x80_00_00_00,
-    0x00_00_80_03, 0x80_00_00_00, 0x00_00_80_02, 0x80_00_00_00, 0x00_00_00_80,
-    0x80_00_00_00, 0x00_00_80_0a, 0x00_00_00_00, 0x80_00_00_0a, 0x80_00_00_00,
-    0x80_00_80_81, 0x80_00_00_00, 0x00_00_80_80, 0x80_00_00_00, 0x80_00_00_01,
-    0x00_00_00_00, 0x80_00_80_08, 0x80_00_00_00,
-  ]).buffer
-);
+/**
+ * The iota round constants, low half then high half of each round.
+ *
+ * Filled through the same little-endian writes every other buffer in this
+ * module is filled with. A typed array would lay its bytes out in the HOST's
+ * order, which is not what the read at the iota step asks for: the two would
+ * agree on a little-endian machine and disagree on every other one.
+ */
+const ROUND_CONSTANTS = new DataView(new ArrayBuffer(ROUNDS * 8));
+for (const [half, constant] of [
+  0x00_00_00_01, 0x00_00_00_00, 0x00_00_80_82, 0x00_00_00_00, 0x00_00_80_8a,
+  0x80_00_00_00, 0x80_00_80_00, 0x80_00_00_00, 0x00_00_80_8b, 0x00_00_00_00,
+  0x80_00_00_01, 0x00_00_00_00, 0x80_00_80_81, 0x80_00_00_00, 0x00_00_80_09,
+  0x80_00_00_00, 0x00_00_00_8a, 0x00_00_00_00, 0x00_00_00_88, 0x00_00_00_00,
+  0x80_00_80_09, 0x00_00_00_00, 0x80_00_00_0a, 0x00_00_00_00, 0x80_00_80_8b,
+  0x00_00_00_00, 0x00_00_00_8b, 0x80_00_00_00, 0x00_00_80_89, 0x80_00_00_00,
+  0x00_00_80_03, 0x80_00_00_00, 0x00_00_80_02, 0x80_00_00_00, 0x00_00_00_80,
+  0x80_00_00_00, 0x00_00_80_0a, 0x00_00_00_00, 0x80_00_00_0a, 0x80_00_00_00,
+  0x80_00_80_81, 0x80_00_00_00, 0x00_00_80_80, 0x80_00_00_00, 0x80_00_00_01,
+  0x00_00_00_00, 0x80_00_80_08, 0x80_00_00_00,
+].entries()) {
+  ROUND_CONSTANTS.setInt32(half * 4, constant, true);
+}
 
 /** Rho: the rotation each lane receives, indexed by `x + 5y`. */
 const ROTATIONS = new DataView(

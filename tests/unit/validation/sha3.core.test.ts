@@ -2,7 +2,10 @@
 // xorshift and the byte fill below are bit layouts, the same reason the
 // module under test carries the suppression.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sha3_512 as referenceSha3_512 } from "@noble/hashes/sha3.js";
+import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import { sha3_512 } from "@validation/primitives/sha3";
 import { describe, expect, test } from "vitest";
 
@@ -24,6 +27,10 @@ import { describe, expect, test } from "vitest";
  *      bytes, where the absorb loop changes shape and pad10*1 collapses into a
  *      single byte.
  */
+
+/** A typed array whose ELEMENTS are wider than one byte, in any spelling. */
+const MULTI_BYTE_TYPED_ARRAY =
+  /new (?:Big)?(?:Int|Uint|Float)(?:16|32|64)Array\b/;
 
 const encoder = new TextEncoder();
 const hex = (bytes: Uint8Array): string =>
@@ -133,6 +140,23 @@ describe("sha3-512", () => {
     const copy = Uint8Array.from(message);
     sha3_512(message);
     expect(Array.from(message)).toEqual(Array.from(copy));
+  });
+
+  test("writes every multi-byte table in the byte order it reads it in", () => {
+    // The one class of error neither arm above can see. A differential test
+    // runs on the host it is written on, and every host VibORM supports is
+    // little-endian; a table spelled as a multi-byte typed array is laid out in
+    // the HOST's byte order, while every read in the module asks for
+    // little-endian explicitly. The two agree here and would disagree on a
+    // big-endian runtime, digest by digest, with nothing red to show for it.
+    // So the fact is pinned in the SOURCE: the module fills its buffers with
+    // `DataView` writes that name their byte order, never with a typed array
+    // whose bytes are then reinterpreted.
+    const source = readFileSync(
+      join(SOURCE_ROOT, "validation", "primitives", "sha3.ts"),
+      "utf8"
+    );
+    expect(source).not.toMatch(MULTI_BYTE_TYPED_ARRAY);
   });
 
   test("returns 64 fresh bytes", () => {
