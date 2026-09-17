@@ -404,14 +404,14 @@ and, for a table that already holds text,
 
 ## Runtime Dependencies
 
-VibORM installs two runtime dependencies for the core package, and one CLI-only
-pair — and the built `dist/` imports NONE of them:
+VibORM installs one runtime dependency for the core package, and one CLI-only
+pair. No entry the client bundle reaches imports any of them; the CLI pair is
+imported by `dist/cli.mjs` and by nothing else:
 
 | Package | Why it is a dependency |
 |---|---|
 | `@standard-schema/spec` | Types only — the interface every validator here speaks |
-| `@opentelemetry/semantic-conventions` | Attribute names for the instrumentation layer |
-| `@clack/prompts`, `commander` | The CLI only |
+| `@clack/prompts`, `commander` | The CLI only, imported by `dist/cli.mjs` |
 
 There is no value-type dependency and no hash dependency: the exact decimal and
 SHA3-512 are VibORM's own, and the `v.*` validation primitives always were.

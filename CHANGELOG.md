@@ -116,7 +116,7 @@ A column that already holds text has two routes, and neither is silent.
 
 The exact decimal value type is now VibORM's own `Decimal` instead of
 decimal.js, and it brings no dependency with it: an immutable signed `BigInt`
-coefficient and a scale, about 2.9 KB minified against decimal.js's 32 KB.
+coefficient and a scale, where decimal.js was 32 KB minified.
 `Decimal` is still exported from `viborm`, still constructed once per selected
 leaf, and still satisfies `instanceof Decimal`. Nothing VibORM owns changed:
 `s.decimal({ precision, scale })`, the frozen descriptor, exact admission,

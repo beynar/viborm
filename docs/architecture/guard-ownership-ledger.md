@@ -2066,6 +2066,14 @@ non-array coefficient, a hostile `length`, a sparse index, a member that was not
 a single digit, an accessor that threw. None of them has a successor. A private
 field is installed by the constructor and by nothing else, so `#c in value` is
 the whole admission and `Object.create(Decimal.prototype)` — which passes
-`instanceof` — is refused by it. The render ceiling has no successor either: the
-accepted grammar admits no exponent, so a rendering is exactly as long as the
-digits the caller already allocated.
+`instanceof` — is refused by it. The render ceiling has no successor either, for
+a narrower reason than "a rendering is as long as the digits allocated": it
+bounded a FOREIGN value's exponent, and CONSTRUCTION bounds that now — the
+accepted grammar admits no exponent and `String(number)` is finite, so a value
+this module built carries exactly the digits it was handed. The length of
+`div(other, fractionDigits)` and `toFixed(dp)` output comes from the caller's
+own small integer argument instead, and is deliberately unguarded:
+`new Decimal("1").div("3", 20000)` renders 20,002 characters for the same reason
+`"0".repeat(20000)` does, it is unreachable from VibORM (no call site in `src/`
+divides or fixes a Decimal), and a ceiling there would be a guard on a caller's
+own arithmetic with no VibORM coverage to name.
