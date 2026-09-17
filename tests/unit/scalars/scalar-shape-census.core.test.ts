@@ -1,7 +1,7 @@
 /**
  * The exactness harness for the scalar operation-schema builders.
  *
- * `_scalar-shape-census.ts` records what the thirteen per-kind builders
+ * `_scalar-shape-census.ts` records what the fourteen per-kind builders
  * produce today, tree by tree. This suite is what makes that record a
  * CONTRACT: the consolidation of those builders into one parameterized family
  * plus a per-kind descriptor (footprint workstream 2) is behavior-preserving

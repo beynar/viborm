@@ -124,8 +124,11 @@ kind has: the ordered comparison filter (`in`/`notIn`/`lt`/`lte`/`gt`/`gte` then
 the arithmetic and set-only update bags, the list update bag, and the interned
 tail. A kind module names its member and list schemas and calls the family; it
 spells a shape for itself only where its language really differs — boolean has
-no order, blob and vector have no list arm, string narrows for a compact
-identifier, enum refuses ordering, decimal and json speak their own.
+no order, blob, vector and point have no list arm, enum refuses ordering,
+decimal and json speak their own, and string's ordered comparisons take the
+FIELD schema, not the member schema, with its entry order appending `equals`
+after the text predicates (the compact-identifier narrowing is a third, further
+difference).
 
 Two rules hold that ownership together.
 
@@ -134,7 +137,7 @@ The object validator iterates entries in insertion order and returns the FIRST
 issue, and `toJsonSchema` emits `properties` in that order. Today's order is an
 artifact of a module-level operator bag with `equals` appended after it; a
 rewrite that spells one canonical literal per kind would quietly reorder eight
-of the thirteen kinds. `tests/unit/scalars/_scalar-shape-census.ts` records the
+of the fourteen kinds. `tests/unit/scalars/_scalar-shape-census.ts` records the
 exact order of all twenty-four cases and is the pin.
 
 **The intern caches are PER KIND, and that is a correctness rule, not a

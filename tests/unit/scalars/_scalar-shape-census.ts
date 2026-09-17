@@ -6,7 +6,7 @@
  * object's entry keys IN INSERTION ORDER, and the schema `type` tag of every
  * operand. Nothing here asserts that a shape is right — the per-kind suites do
  * that. This is the EXACTNESS harness for the scalar-builder consolidation
- * (footprint workstream 2): thirteen hand-written builders collapse into one
+ * (footprint workstream 2): fourteen hand-written builders collapse into one
  * parameterized family plus a per-kind descriptor, and the one thing that may
  * not change while they do is this census.
  *

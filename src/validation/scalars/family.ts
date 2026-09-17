@@ -11,14 +11,17 @@ import {
 /**
  * The shapes every scalar kind shares, spelled ONCE.
  *
- * Eight of the thirteen scalar modules used to carry their own copy of the same
+ * Eight of the fourteen scalar modules used to carry their own copy of the same
  * four families — the ordered comparison filter, the list filter, one of the
  * two update bags, and the interned builder tail — differing only in the kind
  * name and the two primitive schemas that kind is made of. This module is the
  * single owner of those four shapes; a kind module names its primitives and
  * calls the family, and keeps its own code only where its language really
- * differs (boolean has no ordering, string narrows for a compact identifier,
- * blob and vector have no list arm, decimal and json speak their own).
+ * differs: boolean has no ordering, blob, vector and point have no list arm,
+ * enum refuses ordering, decimal and json speak their own, and string's ordered
+ * comparisons take the FIELD schema rather than the member schema while its
+ * entry order appends `equals` after the text predicates — the
+ * compact-identifier narrowing is a third, further difference.
  *
  * ENTRY ORDER IS PART OF THE CONTRACT. The object validator iterates entries in
  * insertion order and returns the FIRST issue, and `toJsonSchema` emits
