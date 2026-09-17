@@ -39,15 +39,17 @@ describe("scalar operation-schema shape census", () => {
   });
 
   test("a bare value is the shorthand for `equals` and for `set`", () => {
-    // The validated OUTPUT, not the input: a bigint renders as text and a
-    // decimal as its canonical private text, and the shorthand must hand the
-    // operand exactly what the long form would.
+    // The validated OUTPUT, not the input: a decimal renders as its canonical
+    // private text, and the shorthand must hand the operand exactly what the
+    // long form would. A bigint is NOT text — `v.bigint()` admits and returns
+    // the bigint, which is what `bigint-scalar-schemas.core.test.ts` pins for
+    // every operand on that kind; only the provider codecs render it.
     const samples: Record<string, { input: unknown; output: unknown }> = {
       int: { input: 1, output: 1 },
       string: { input: "x", output: "x" },
       boolean: { input: true, output: true },
       enum: { input: "a", output: "a" },
-      bigInt: { input: 10n, output: "10" },
+      bigInt: { input: 10n, output: 10n },
       dateTime: {
         input: "2024-01-02T03:04:05.000Z",
         output: "2024-01-02T03:04:05.000Z",
