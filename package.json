@@ -210,6 +210,7 @@
     "@electric-sql/pglite": "^0.3.2",
     "@libsql/client": "^0.14.0",
     "@neondatabase/serverless": "^0.10.0",
+    "@noble/hashes": "^2.0.1",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/resources": "^2.4.0",
     "@opentelemetry/sdk-node": "^0.210.0",
@@ -250,7 +251,6 @@
   },
   "dependencies": {
     "@clack/prompts": "^0.7.0",
-    "@noble/hashes": "^2.0.1",
     "@opentelemetry/semantic-conventions": "^1.39.0",
     "@standard-schema/spec": "^1.0.0",
     "@types/big.js": "7.0.0",

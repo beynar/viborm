@@ -411,15 +411,13 @@ pair:
 |---|---|
 | `big.js` (pinned `7.0.1`) | The exact decimal value type. `Decimal` **is** `Big` |
 | `@types/big.js` (pinned `7.0.0`) | big.js ships no declarations, and VibORM's published `.d.mts` names the module — without the types a consumer would silently see `any` under `skipLibCheck`. That is why a `@types/*` package is a **runtime** dependency here and not a devDependency |
-| `@noble/hashes` | One narrow subpath (`sha3.js`, ~4.6 KB) for CUID2's digest — the only hash VibORM needs |
 | `@standard-schema/spec` | Types only — the interface every validator here speaks |
 | `@opentelemetry/semantic-conventions` | Attribute names for the instrumentation layer |
 | `@clack/prompts`, `commander` | The CLI only |
 
-`big.js` and `@noble/hashes` are the only two the built `dist/` imports at all
-(`valibot` and `arktype` are declared but never imported by it: the `v.*`
-primitives are VibORM's own, and a caller's `.schema()` brings its own
-validator).
+`big.js` is the only one the built `dist/` imports at all (`valibot` and
+`arktype` are declared but never imported by it: the `v.*` primitives are
+VibORM's own, and a caller's `.schema()` brings its own validator).
 
 What left the graph, and what replaced it:
 
@@ -429,6 +427,7 @@ What left the graph, and what replaced it:
 | `@paralleldrive/cuid2` | VibORM's own CUID2, byte-identical to it (proven by a differential test against the pinned package, which remains a devDependency for exactly that test) |
 | `nanoid` | VibORM's own NanoID |
 | `ulidx` | VibORM's own ULID, with unbiased randomness and the same monotonicity |
+| `@noble/hashes` | VibORM's own SHA3-512, proven byte-identical to it over the NIST known-answer vectors and 10,000 random messages (the package remains a devDependency for exactly that test) |
 
 Database drivers (`pg`, `mysql2`, `better-sqlite3`, …) are never dependencies:
 you install the one you use.

@@ -18,7 +18,6 @@
  * prefix it puts in front of the payload.
  */
 
-import { sha3_512 } from "@noble/hashes/sha3.js";
 import {
   applyIdPrefix,
   bytesToKsuid,
@@ -38,6 +37,7 @@ import {
   uuidV4Bytes,
   uuidV7Bytes,
 } from "@validation/primitives/id-formats";
+import { sha3_512 } from "@validation/primitives/sha3";
 
 const MILLISECONDS_PER_SECOND = 1000;
 
