@@ -1,6 +1,6 @@
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { createSchemaRegistry, parse, v } from "@validation";
+import { createSchemaRegistry, parse, toJsonSchema, v } from "@validation";
 import { describe, expect, test, vi } from "vitest";
 import { z } from "zod";
 
@@ -100,6 +100,33 @@ describe("scalar schema interning", () => {
       createSpy.mockRestore();
       updateSpy.mockRestore();
     }
+  });
+
+  /**
+   * The saving interning buys, and the one OUTPUT that would change without it.
+   *
+   * Two same-shape fields share one filter tree, so a converted document names
+   * that tree once and points both properties at it. Un-interned they would be
+   * two structurally identical `$defs` with two names — a public
+   * `toJsonSchema` difference, on top of the roughly 7.5 KB each retained
+   * filter tree costs. Whoever removes interning owes this test a replacement,
+   * not a deletion.
+   */
+  test("one definition serves every field that shares a filter", () => {
+    const where = registry.getModelSchemas(A).core.where;
+    const document = toJsonSchema(where) as {
+      $defs?: Record<string, unknown>;
+      properties?: Record<string, { $ref?: string; anyOf?: unknown[] }>;
+    };
+
+    const name = document.properties?.name;
+    const nick = document.properties?.nick;
+    expect(name).toBeDefined();
+    // `name` and `id` are both plain strings, `nick` is nullable: two shapes,
+    // and exactly one definition each rather than one per field.
+    expect(document.properties?.id).toEqual(name);
+    expect(nick).not.toEqual(name);
+    expect(JSON.stringify(name)).toContain("$defs");
   });
 
   test("shared filter validates identically for both models", () => {
