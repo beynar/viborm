@@ -20,6 +20,7 @@ import {
 } from "@schema/model";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { NativeType } from "@schema/scalars/native-types";
 import {
   CURSOR_CARRIER_PREFIX,
@@ -27,6 +28,7 @@ import {
   POLYMORPHIC_COLLECTION_ORPHANS_KEY,
 } from "@query-engine/result-aliases";
 import type { DriverResultParser } from "@drivers";
+import type { Operation } from "../../types";
 import { Sql, sql } from "@sql";
 import {
   decodePhysicalDateTime,
@@ -50,6 +52,7 @@ import {
   toDecimal,
   type DecimalDescriptor,
 } from "@validation/primitives/decimal-codec";
+import { parse } from "@validation";
 import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
@@ -95,6 +98,14 @@ export type Leaf = {
   dateTime?: DateTimePhysicalForm;
   enumValues?: ReadonlySet<string>;
   dimension?: number;
+  /**
+   * The field's OWN output schema (`s.json().schema(…)`), which only a `json`
+   * column declares. Read here, once per (adapter, model, field), exactly
+   * where the engine replaced read it once per compiled field chain
+   * (`result/ResultParser.ts:721`) — never per row, and never by a second
+   * walker of the projection looking for JSON fields.
+   */
+  jsonSchema?: StandardSchemaV1;
 };
 export type ProjectionShape =
   | {
@@ -618,6 +629,41 @@ export class Queries {
       throw new InvalidScalarResult(type, "provider scalar decoding failed");
     }
   }
+  /**
+   * ONE operation's raw result, through the same provider chain at the RESULT
+   * boundary that {@link providerValue} walks at the row-value boundary: the
+   * driver first (it owns what its own transport answers for a verb — the
+   * SQLite family normalises the shape of a `count`/`exist` answer whose alias
+   * a provider did not preserve), then the adapter (it owns the dialect's —
+   * PostgreSQL answers a COUNT as a bigint), then the engine's decoder, which
+   * is the caller of this function.
+   *
+   * The other half of D-17 (Arnaud's D-28): `DriverResultParser.parseResult` is
+   * a public driver contract — a driver may wrap the raw result of an operation
+   * ONCE, before decoding — and it reached nothing after the result engine was
+   * retired. Asked here, it is asked once per OPERATION, never per statement
+   * and never per member, and the same way for live and prepared execution
+   * (rule 7).
+   */
+  decodeResult(
+    raw: Input[],
+    operation: Operation,
+    decode: (rows: Input[]) => Input[]
+  ): Input[] {
+    const adapterDecode = (input: unknown): unknown =>
+      this.adapter.result.parseResult(
+        input,
+        operation,
+        (transformed?: unknown) =>
+          decode((transformed === undefined ? input : transformed) as Input[])
+      );
+    const driverParse = this.result?.parseResult;
+    return (
+      driverParse
+        ? driverParse(raw, operation, (input: unknown) => adapterDecode(input))
+        : adapterDecode(raw)
+    ) as Input[];
+  }
   alias(): string {
     return `q${this.nextAlias++}`;
   }
@@ -894,6 +940,7 @@ export class Queries {
           ? new Set(scalar.enumValues as readonly string[])
           : undefined,
       dimension: state.dimension,
+      jsonSchema: state.type === "json" ? state.schema : undefined,
     });
   }
   junctionWhere(
@@ -4145,13 +4192,27 @@ export class Queries {
       }),
     );
   }
-  decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
-    if (query.expectedRows && rows.length < query.expectedRows.count)
+  /**
+   * ONE statement's row-count contract, on the rows that statement answered.
+   *
+   * It is the one fact a terminal WINDOW owns rather than the operation:
+   * {@link Queries.selectSeries} stamps every bind-budget window with its own
+   * identity count and its own registered refusal, so a terminal split into
+   * windows is decided here, per window, while the window is still known. A
+   * total taken over the concatenation would compare a whole terminal with one
+   * window's count and could not raise that window's refusal at all
+   * (`OperationContext.publishedTerminal`, Arnaud's D-28).
+   */
+  assertExpectedRows(query: Query, rows: number): void {
+    if (query.expectedRows && rows < query.expectedRows.count)
       throw query.expectedRows.missing;
-    if (query.expectedRows && rows.length > query.expectedRows.count)
+    if (query.expectedRows && rows > query.expectedRows.count)
       throw new QueryEngineError(
-        "Raptor 3 createMany final read returned inconsistent row counts.",
+        "Raptor 3 createMany final read returned inconsistent row counts."
       );
+  }
+  decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
+    this.assertExpectedRows(query, rows.length);
     return this.decodeProjection(query.shape, rows, internal);
   }
   decodeProjection(
@@ -4470,8 +4531,12 @@ export class Queries {
           leaf.type,
           "the value is not a declared enum member",
         );
-      case "json":
-        return this.jsonValue(value);
+      case "json": {
+        const document = this.jsonValue(value);
+        return leaf.jsonSchema === undefined
+          ? document
+          : this.jsonValue(this.schemaValue(leaf.jsonSchema, document));
+      }
       case "blob":
         return decodeBlob(value);
       case "vector": {
@@ -4603,6 +4668,34 @@ export class Queries {
       "json",
       "the value is outside the JSON value domain",
     );
+  }
+  /**
+   * The field's own output schema, run at that same boundary (Arnaud's D-33).
+   *
+   * `s.json().schema(…)` is a Standard Schema the CALLER wrote, and the engine
+   * replaced ran it on every read of the field
+   * (`result/scalar-structured-parser.ts:78`). Restored here, at the one decode
+   * boundary, so every provider and every route answers the same way — and
+   * once per VALUE, never per member of it, because {@link jsonValue} is what
+   * descends.
+   *
+   * The engine is only the caller. `parse` is the estate's one owner of the
+   * invocation protocol — it refuses an asynchronous schema, catches one that
+   * throws, and refuses a malformed result — and the schema owns whether the
+   * document is admissible; the decoder inspects no issue and re-implements no
+   * validation. The refusal carries the registered sentence and NO issue
+   * detail: those messages describe a STORED document, which is not the
+   * caller's to read (the deleted `scalar-result-contracts.core.test.ts` ›
+   * "redacts custom JSON validation details").
+   */
+  private schemaValue(schema: StandardSchemaV1, document: unknown): unknown {
+    const validated = parse(schema, document);
+    if (validated.issues)
+      throw new InvalidScalarResult(
+        "json",
+        "custom output schema rejected the value",
+      );
+    return validated.value;
   }
 }
 

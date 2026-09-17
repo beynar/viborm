@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 24ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  22:02:55
+   Duration  1.13s (transform 632ms, setup 9ms, collect 951ms, tests 24ms, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-mKgrMT/vitest.json
+Vitest resources: 3.01s wall, 428.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p03-contracts contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-mKgrMT

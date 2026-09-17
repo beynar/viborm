@@ -1,0 +1,50 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (6 tests | 2 failed) 36ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value 17ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row 2ms
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value 3ms
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence 6ms
+     → expected 'Driver "sqlite3" returned a malformed…' to be 'Driver "better-sqlite3" returned a ma…' // Object.is equality
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects on the prepared route too 3ms
+     → expected QueryError: Query execution failed { …(4) } to be an instance of QueryEngineError
+   ✓ D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence
+AssertionError: expected 'Driver "sqlite3" returned a malformed…' to be 'Driver "better-sqlite3" returned a ma…' // Object.is equality
+
+Expected: [32m"Driver "[7mbetter-[27msqlite3" returned a malformed json scalar for operation "findUnique": custom output schema rejected the value."[39m
+Received: [31m"Driver "sqlite3" returned a malformed json scalar for operation "findUnique": custom output schema rejected the value."[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:225:51
+    223| 
+    224|     expect(refusal).toBeInstanceOf(QueryEngineError);
+    225|     expect((refusal as QueryEngineError).message).toBe(
+       |                                                   ^
+    226|       'Driver "better-sqlite3" returned a malformed json scalar for op…
+    227|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects on the prepared route too
+AssertionError: expected QueryError: Query execution failed { …(4) } to be an instance of QueryEngineError
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:249:21
+    247|       );
+    248| 
+    249|     expect(refusal).toBeInstanceOf(QueryEngineError);
+       |                     ^
+    250|     expect((refusal as QueryEngineError).message).toBe(
+    251|       'Driver "better-sqlite3" returned a malformed json scalar for op…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  21:19:21
+   Duration  1.50s (transform 871ms, setup 9ms, collect 1.30s, tests 36ms, environment 0ms, prepare 35ms)
+
+Vitest resources: 3.45s wall, 469.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

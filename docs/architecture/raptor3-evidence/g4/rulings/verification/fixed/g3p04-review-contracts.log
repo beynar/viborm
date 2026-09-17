@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 36ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:11:00
+   Duration  1.46s (transform 887ms, setup 9ms, collect 1.28s, tests 36ms, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-GGqp8o/vitest.json
+Vitest resources: 3.28s wall, 458.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p04-review-contracts contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-GGqp8o

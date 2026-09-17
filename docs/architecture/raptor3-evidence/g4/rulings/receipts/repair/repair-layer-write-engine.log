@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |layer-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 2ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 524ms
+ ✓ |layer-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |layer-write-engine| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 6ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed (50)
+   Start at  21:42:24
+   Duration  1.61s (transform 634ms, setup 10ms, collect 952ms, tests 532ms, environment 0ms, prepare 24ms)
+
+Vitest resources: 3.54s wall, 463.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

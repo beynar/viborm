@@ -1,0 +1,53 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 170ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 135ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 249ms
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests | 1 failed) 213ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-held-capture-race 80ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-empty-capture-race 69ms
+   × G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced 43ms
+     → Expected values to be strictly equal:
++ actual - expected
+
++ true
+- undefined
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 58ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests) 132ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts > G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced
+AssertionError: Expected values to be strictly equal:
++ actual - expected
+
++ true
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/transitions/junction-races-live.ts:321:20
+    319|               `Concurrent membership change on the singular polymorphi…
+    320|             );
+    321|             assert.equal(meta.raceable, empty ? true : undefined);
+       |                    ^
+    322|             assert(
+    323|               batchFailures.some(
+ ❯ Object.assert tests/raptor3/transitions/junction-races-live.ts:291:32
+ ❯ runJunctionRaceScenario tests/raptor3/transitions/junction-races-live.ts:442:11
+ ❯ tests/raptor3/transitions/junction-races-live-commands.test.ts:17:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  1 failed | 17 passed (18)
+   Start at  19:58:08
+   Duration  2.39s (transform 671ms, setup 11ms, collect 1.28s, tests 957ms, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-kiZr5E/vitest.json
+Vitest resources: 4.28s wall, 605.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-kiZr5E

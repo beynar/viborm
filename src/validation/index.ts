@@ -94,6 +94,10 @@ export function parse(
   try {
     const result = schema["~standard"].validate(value);
     if (isPromiseLike(result)) {
+      // The refused promise is still live. Without a handler its rejection
+      // would surface as an unhandled rejection, a process-level fault for a
+      // schema the caller was already told is unsupported (D-37).
+      result.then(undefined, () => undefined);
       return asyncValidationFailure;
     }
     if (!isRecord(result)) return malformedValidationFailure;

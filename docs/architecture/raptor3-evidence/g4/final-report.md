@@ -88,6 +88,28 @@ distinction. Rulings left to Arnaud: D-27, D-28, D-29, D-31, D-32
 (recorded in `g4.md`). The campaign qualification was not re-run for this
 commit, on Arnaud's instruction.
 
+**Rulings unit (2026-09-17 evening, commit 8).** Arnaud's rulings after commit 6
+were applied under the same discipline (`g4/rulings/**`: brief, note, two
+parallel independent reviews, a forced repair round, a re-check; D-33 authored
+and reviewed in parallel in its own worktree). D-28: the driver-level
+`parseResult` middleware has its consumer again at the one place a terminal
+window becomes a decoded result, asked once per operation on every route,
+with the chunked terminal's per-window row contract kept by one owner. D-29:
+a premise queued during planning rides the atomic unit it protects, and (D-36)
+an attempt rejected at a premise provably wrote nothing, so the pg
+captured-membership race converges. D-32: loss after observation of a
+captured membership re-plans once, with witnesses; the identity premises stay
+non-raceable (D-34). D-33: a `json().schema(…)` field's user schema runs at
+the one decode boundary on every provider, as the old engine did, through
+the estate's one invocation owner; D-37 handles the promise a refused async
+schema discards. Measured on the merged tree: typecheck **zero**; local
+provider lanes **0 red**; core lane **1 red (the pre-existing inventory cell)**; Docker pg **25 red, 0 regressions, 1 newly green** and
+mysql **165 red, 0 regressions** against commit 7's red sets; raptor3 fixed group
+**59 green, 0 red** (the regression the first run exposed on the chunked terminal
+read was bisected and repaired inside the unit). Size: production
++296/−42, tests +1,339/−66. Follow-up: D-35, the inert count/exists arm of the
+SQLite drivers' middleware, deleted in its own commit with a release note.
+
 ## Validation
 
 | Lane | Result (attempt 6, freeze-6 identity; attempt 5 identical in shape) |

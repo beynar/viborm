@@ -47,10 +47,44 @@ export class TransportAttempt {
     this.producers = undefined;
     return producers;
   }
-  /** The assertions recorded so far; this attempt keeps none of them. */
+  /**
+   * The premises the next dispatch does not carry the write for.
+   *
+   * A premise is proved inside the atomic unit that contains the write it
+   * protects, never in an earlier planning batch (Arnaud's D-29): proved early
+   * it would close the window it exists for before the write opens it. The
+   * queue's TRAILING premises are exactly those — nothing queued after them is
+   * theirs to protect yet — so they step out of this dispatch and lead the
+   * next one, in the order they were stated.
+   */
+  withholdPremises(): void {
+    const premises = this.premises;
+    if (!premises) return;
+    let first = this.pending.length;
+    while (first > 0 && premises.has(this.pending[first - 1]!)) first--;
+    this.withheld.push(...this.pending.splice(first));
+  }
+  /** The withheld premises, back at the head of the queue that stated them. */
+  restorePremises(): void {
+    if (this.withheld.length > 0)
+      this.pending.unshift(...this.withheld.splice(0));
+  }
+  private readonly withheld: BatchQuery[] = [];
+  /**
+   * The assertions recorded so far; this attempt keeps none of them, except a
+   * withheld premise's own, which travels with it to the dispatch that proves
+   * it.
+   */
   drainAssertedPremises(): Map<BatchQuery, AssertedPremise> {
     const premises = this.premises ?? new Map<BatchQuery, AssertedPremise>();
-    this.premises = undefined;
+    const kept = new Map<BatchQuery, AssertedPremise>();
+    for (const statement of this.withheld) {
+      const premise = premises.get(statement);
+      if (!premise) continue;
+      kept.set(statement, premise);
+      premises.delete(statement);
+    }
+    this.premises = kept.size > 0 ? kept : undefined;
     return premises;
   }
   /** The members declared so far; this attempt keeps none of them. */

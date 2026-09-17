@@ -22,8 +22,10 @@
 
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { s } from "@schema";
+import { MemoryCache } from "@src/cache/drivers/memory";
+import { cache } from "@src/cache/exports";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
@@ -60,31 +62,46 @@ const EXCLUDED_KEY = /"id" = \?/g;
 const FIRST_EXCLUDED_KEY = /NOT \(\s*"q\d+"\."id" = \?/i;
 /** The guard's own raceable sentence. */
 const ADDED_MEMBER = /member was added after the plan-time read/;
+/** Any premise, as the adapter marks one. */
+const PREMISE = /__viborm_assert__/;
 
 /**
  * A batch-only transport over a real SQLite database, which commits a competing
  * membership in the window the guard exists for: after the plan-time read, and
  * before the atomic unit that trusts it.
+ *
+ * Its two subclasses differ in ONE fact — whether a rejected batch can prove it
+ * rolled back — because that is the fact the progress companion of D-29 reads.
  */
-class StaleBatchSQLiteDriver extends RecordingSQLiteDriver {
+class PlantingBatchSQLiteDriver extends RecordingSQLiteDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
-  override readonly supportsOrderedCommittedSegments = true;
   /** How many atomic write batches lose the race; the world seeds with none. */
   plantsLeft = 0;
   planted = 0;
   private junction?: { table: string; board: string; card: string };
 
-  protected override async executeBatch<T>(
+  /** Each dispatched batch, in order, so its COMPOSITION can be pinned. */
+  readonly batches: string[][] = [];
+
+  override reset(): void {
+    super.reset();
+    this.batches.length = 0;
+  }
+
+  /**
+   * The window the guard exists for is between the plan-time membership read
+   * and the ATOMIC WRITE UNIT that trusts it, so the competing commit lands
+   * before a batch that mutates — never before a planning batch, which the
+   * plan would simply read (the hazard
+   * `tests/fixtures/drivers/batch-forced-pg.ts` documents for its own
+   * before-first-batch driver).
+   */
+  protected plantBeforeMutation(
     client: Database.Database,
     queries: BatchQuery[]
-  ): Promise<QueryResult<T>[]> {
-    // The window the guard exists for is between the plan-time membership read
-    // and the ATOMIC WRITE UNIT that trusts it, so the competing commit lands
-    // before a batch that mutates — never before a planning batch, which the
-    // plan would simply read (the hazard
-    // `tests/fixtures/drivers/batch-forced-pg.ts` documents for its own
-    // before-first-batch driver).
+  ): void {
+    this.batches.push(queries.map((query) => query.sql));
     if (
       this.plantsLeft > 0 &&
       queries.some((query) => MUTATION.test(query.sql))
@@ -92,19 +109,6 @@ class StaleBatchSQLiteDriver extends RecordingSQLiteDriver {
       this.plantsLeft--;
       this.plant(client);
     }
-    this.batchCalls++;
-    // An atomic batch that PROVES its rollback — the D1 shape, the transport
-    // where a rejected batch is known to have left nothing behind. Without that
-    // proof a rejected batch is `may-have-committed` and no recovery is
-    // allowed, which is the engine's rule, not this fixture's.
-    return this.transaction(client, async (transaction) => {
-      const responses: QueryResult<T>[] = [];
-      for (const query of queries)
-        responses.push(
-          await this.execute<T>(transaction, query.sql, query.params ?? [])
-        );
-      return responses;
-    });
   }
 
   /** The junction this schema derived, discovered once from the live database. */
@@ -147,14 +151,112 @@ class StaleBatchSQLiteDriver extends RecordingSQLiteDriver {
   }
 }
 
+/**
+ * An atomic batch that PROVES its rollback — the D1 shape, the transport where
+ * a rejected batch is known to have left nothing behind. Without that proof a
+ * rejected batch is `may-have-committed` and no recovery is allowed, which is
+ * the engine's rule, not this fixture's.
+ */
+class StaleBatchSQLiteDriver extends PlantingBatchSQLiteDriver {
+  override readonly supportsOrderedCommittedSegments = true;
+
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.plantBeforeMutation(client, queries);
+    this.batchCalls++;
+    return this.transaction(client, async (transaction) => {
+      const responses: QueryResult<T>[] = [];
+      for (const query of queries)
+        responses.push(
+          await this.execute<T>(transaction, query.sql, query.params ?? [])
+        );
+      return responses;
+    });
+  }
+}
+
+/**
+ * The same world on a WEAK native batch: it advertises no ordered committed
+ * segments, so a rejection after dispatch is `may-have-committed` unless the
+ * engine can prove otherwise — which is the only transport where D-29's
+ * progress companion decides anything. It keeps no loop of its own, because the
+ * BASE loop (`driver-transaction-base.ts`) is what attaches the statement index
+ * the proof reads; a fixture that loops itself attaches none and the arm is
+ * unreachable.
+ */
+class WeakBatchSQLiteDriver extends PlantingBatchSQLiteDriver {
+  /** Reject the batch's first write AT that statement, once. */
+  failAtFirstWrite = false;
+
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>[]> {
+    this.plantBeforeMutation(client, queries);
+    return this.transaction(client, (transaction) =>
+      super.executeBatch<T>(transaction, queries, context)
+    );
+  }
+
+  protected override async execute<T>(
+    client: Database.Database,
+    statement: string,
+    parameters: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    if (this.failAtFirstWrite && MUTATION.test(statement)) {
+      this.failAtFirstWrite = false;
+      throw new Error("Controlled rejection at the batch's first write");
+    }
+    return super.execute<T>(client, statement, parameters, context);
+  }
+}
+
+/** Counts what the client's own cache rail was asked to drop. */
+class RecordingCache extends MemoryCache {
+  readonly invalidations: string[] = [];
+
+  protected override async clear(prefix: string): Promise<void> {
+    this.invalidations.push(prefix);
+    return super.clear(prefix);
+  }
+}
+
 interface World {
   readonly driver: StaleBatchSQLiteDriver;
   readonly client: ReturnType<typeof buildClient>;
   close(): Promise<void>;
 }
 
-function buildClient(driver: StaleBatchSQLiteDriver) {
+/** The same world whose client carries its own cache rail. */
+interface CachedWorld {
+  readonly driver: WeakBatchSQLiteDriver;
+  readonly cacheDriver: RecordingCache;
+  readonly client: ReturnType<typeof buildCachedClient>;
+  settle(): Promise<void>;
+  close(): Promise<void>;
+}
+
+function buildClient(driver: PlantingBatchSQLiteDriver) {
   return createClient({ schema, driver });
+}
+
+function buildCachedClient(
+  base: ReturnType<typeof buildClient>,
+  cacheDriver: RecordingCache,
+  background: Promise<unknown>[]
+) {
+  return base.$extends(
+    cache({
+      driver: cacheDriver,
+      waitUntil(promise) {
+        background.push(promise);
+      },
+    })
+  );
 }
 
 let world: World | undefined;
@@ -164,12 +266,8 @@ afterEach(async () => {
   world = undefined;
 });
 
-async function createWorld(plantsLeft: number): Promise<World> {
-  const database = new Database(":memory:");
-  const driver = new StaleBatchSQLiteDriver({ client: database });
-  const client = buildClient(driver);
-  const migration = await syncLiveSchema(client);
-  if (!migration.applied) throw new Error("U6.5 world schema did not apply");
+/** One board holding two cards, one of them matching the filter. */
+async function seedWorld(client: ReturnType<typeof buildClient>) {
   await client.card.create({ data: { id: 1, label: "del-seed" } });
   await client.card.create({ data: { id: 2, label: "keep" } });
   await client.board.create({ data: { id: 1, name: "main" } });
@@ -177,6 +275,15 @@ async function createWorld(plantsLeft: number): Promise<World> {
     where: { id: 1 },
     data: { cards: { connect: [{ id: 1 }, { id: 2 }] } },
   });
+}
+
+async function createWorld(plantsLeft: number): Promise<World> {
+  const database = new Database(":memory:");
+  const driver = new StaleBatchSQLiteDriver({ client: database });
+  const client = buildClient(driver);
+  const migration = await syncLiveSchema(client);
+  if (!migration.applied) throw new Error("U6.5 world schema did not apply");
+  await seedWorld(client);
   driver.reset();
   driver.plantsLeft = plantsLeft;
   driver.planted = 0;
@@ -190,10 +297,67 @@ async function createWorld(plantsLeft: number): Promise<World> {
   };
 }
 
+/** The same world on the weak native batch, with the cache rail attached. */
+async function createCachedWeakWorld(plantsLeft: number): Promise<CachedWorld> {
+  const database = new Database(":memory:");
+  const driver = new WeakBatchSQLiteDriver({ client: database });
+  const base = buildClient(driver);
+  const migration = await syncLiveSchema(base);
+  if (!migration.applied)
+    throw new Error("U6.5 weak world schema did not apply");
+  await seedWorld(base);
+  const cacheDriver = new RecordingCache();
+  const background: Promise<unknown>[] = [];
+  const client = buildCachedClient(base, cacheDriver, background);
+  driver.reset();
+  driver.plantsLeft = plantsLeft;
+  driver.planted = 0;
+  cacheDriver.invalidations.length = 0;
+  return {
+    cacheDriver,
+    client,
+    driver,
+    async settle() {
+      await Promise.allSettled(background.splice(0));
+    },
+    async close() {
+      await base.$disconnect();
+      database.close();
+    },
+  };
+}
+
+/** The refusal an operation published, for the meta it carries. */
+async function refusalOf(run: () => PromiseLike<unknown>): Promise<Error> {
+  try {
+    await run();
+  } catch (failure) {
+    return failure as Error;
+  }
+  throw new Error("the operation published instead of refusing");
+}
+
+/** The public record-series report of a published failure, if it has one. */
+function progressOf(failure: Error): Record<string, unknown> | undefined {
+  return (
+    failure as {
+      meta?: { recordSeriesProgress?: Record<string, unknown> };
+    }
+  ).meta?.recordSeriesProgress;
+}
+
 const removeMatching = (client: World["client"]) =>
   client.board.update({
     where: { id: 1 },
     data: { cards: { deleteMany: { label: { startsWith: "del-" } } } },
+  });
+
+/** The same operation, asking the client's cache rail to invalidate. */
+const removeMatchingCached = (client: CachedWorld["client"]) =>
+  client.board.update({
+    cache: { autoInvalidate: true },
+    data: { cards: { deleteMany: { label: { startsWith: "del-" } } } },
+    where: { id: 1 },
   });
 
 /** The complement guards this operation emitted, one per plan-time capture. */
@@ -255,6 +419,69 @@ describe("integration — a captured member set asserts its own complement", () 
       remaining.cards.map((row) => row.id),
       [2]
     );
+  });
+
+  it("proves every premise inside the unit that carries its write", async () => {
+    // Arnaud's D-29. The plan-time membership read is preceded by another
+    // planning read (the parent's demanded values), and the operation has
+    // already queued the root's presence premise by then. That premise must
+    // not ride the planning round trip: proved there, it would be answered
+    // against a world the write has not reached, and the window every
+    // staleness premise exists for would close before it opened — which is
+    // exactly how the live `pg filtered m2m deleteMany staleness` cell used to
+    // miss its own race.
+    world = await createWorld(0);
+    await removeMatching(world.client);
+    const proving = world.driver.batches.filter((batch) =>
+      batch.some((sql) => PREMISE.test(sql))
+    );
+    assert.equal(proving.length, 1);
+    assert.ok(proving[0]!.some((sql) => MUTATION.test(sql)));
+    // And the planning reads that precede it are reads: no batch of this
+    // operation is dispatched before the unit.
+    assert.equal(world.driver.batches.indexOf(proving[0]!), 0);
+  });
+
+  it("reports no progress for a batch rejected at a premise, and keeps it for one rejected at a write", async () => {
+    // The D-29 progress companion, on the ONLY transport that can reach it: a
+    // WEAK native batch (no ordered committed segments) whose rejection carries
+    // the statement index the base loop attaches. The companion decides TWO
+    // public observables, so both are pinned here — the failure's own
+    // record-series report, and the client's cache rail, which the transport
+    // notifies through `ExecutionBinding.writeOutcome`
+    // (`g4/unit02/uncertain-outcome-meta.test.ts` cell 3 is the seam's own
+    // pin). A batch that rejected AT a premise with nothing but premises ahead
+    // of it wrote nothing: there is no progress to report and nothing to
+    // invalidate. A batch rejected AT a WRITE keeps the uncertainty it always
+    // had.
+    const premise = await createCachedWeakWorld(2);
+    try {
+      const refusal = await refusalOf(() =>
+        removeMatchingCached(premise.client)
+      );
+      await premise.settle();
+      assert.match(refusal.message, ADDED_MEMBER);
+      assert.equal(progressOf(refusal), undefined);
+      assert.deepEqual(premise.cacheDriver.invalidations, []);
+      // And the allowance was spendable at all because of it: an operation
+      // told it may have written is refused its recovery by progress alone
+      // (D-25), so it would never reach the second race.
+      assert.equal(premise.driver.planted, 2);
+    } finally {
+      await premise.close();
+    }
+    const write = await createCachedWeakWorld(0);
+    try {
+      write.driver.failAtFirstWrite = true;
+      const refusal = await refusalOf(() => removeMatchingCached(write.client));
+      await write.settle();
+      const progress = progressOf(refusal);
+      assert.ok(progress, `no record-series progress: ${refusal.message}`);
+      assert.equal(progress.mayHaveCommittedSegment, true);
+      assert.equal(write.cacheDriver.invalidations.length, 1);
+    } finally {
+      await write.close();
+    }
   });
 
   it("spends the allowance once: a second consecutive race propagates", async () => {

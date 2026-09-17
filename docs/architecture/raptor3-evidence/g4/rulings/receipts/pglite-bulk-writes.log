@@ -1,0 +1,5 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 4.37s wall, 1674.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

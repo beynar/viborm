@@ -41,6 +41,7 @@ import {
   Queries,
   type PreparedProjection,
   type PreparedSelector,
+  type ProjectionShape,
   type Query,
   type Read,
   returningSafeProjection,
@@ -882,13 +883,69 @@ export class OperationContext {
     if (this.ownership === "batch-preparation") {
       throw this.incompletePreparation;
     }
+    const response = await this.answer(query, terminal, model);
+    return this.queries.decodeQuery(query, response.rows, internal);
+  }
+  /**
+   * One statement's raw provider answer. The dispatcher both readers share, so
+   * the terminal boundary ({@link publishedTerminal}) sees the rows the
+   * provider handed back and an internal read sees the same rows decoded.
+   */
+  private async answer(
+    query: Query,
+    terminal: boolean,
+    model?: AnyModel
+  ): Promise<QueryResult<Input>> {
     const context = model
       ? this.statementContext(model, this.operation)
       : this.attribution;
-    const response = await this.dispatch(1, terminal, () =>
+    return this.dispatch(1, terminal, () =>
       this.transport._execute<Input>(query.sql, context)
     );
-    return this.queries.decodeQuery(query, response.rows, internal);
+  }
+  /**
+   * The operation's ONE result boundary: the raw rows one projection answered,
+   * decoded through the driver's `parseResult` middleware and then the
+   * adapter's ({@link Queries.decodeResult}, Arnaud's D-28).
+   *
+   * Asked once per operation by each route's publisher and never per member or
+   * per statement: a publication split across several windows is a BIND-BUDGET
+   * split of ONE projection, so the middleware is asked about the operation's
+   * rows and the operation has one result whatever the provider's limit was. A
+   * set mutation that publishes an affected-row COUNT instead of rows is not
+   * asked at all: a row count is a fact of the transport, not a result window.
+   */
+  private publishedProjection(shape: ProjectionShape, rows: Input[]): Input[] {
+    return this.queries.decodeResult(rows, this.operation, (raw) =>
+      this.queries.decodeProjection(shape, raw)
+    );
+  }
+  /**
+   * The terminal boundary: one window per terminal statement, in dispatch
+   * order, published as ONE result ({@link publishedProjection}).
+   *
+   * Every window of a terminal carries the same SHAPE ({@link seriesQueries}
+   * hands each chunk `prepared.shape`), and none of them carries the
+   * operation's row count: {@link Queries.selectSeries} stamps each window
+   * with its own identity count and its own registered refusal. So that fact
+   * is decided per window, on the rows the PROVIDER answered, before the
+   * middleware is asked anything — a total over the concatenation would
+   * compare a whole terminal with one window's count, and a middleware that
+   * legitimately replaces the operation's rows must not be judged against a
+   * physical window count at all.
+   */
+  private publishedTerminal(
+    queries: readonly Query[],
+    windows: readonly Input[][]
+  ): Input[] {
+    const terminal = queries[0];
+    if (!terminal) return [];
+    for (const [index, statement] of queries.entries())
+      this.queries.assertExpectedRows(statement, windows[index]!.length);
+    return this.publishedProjection(
+      terminal.shape,
+      windows.length === 1 ? windows[0]! : windows.flat()
+    );
   }
   /**
    * One read's published result, live or packaged. A prepared read is one
@@ -900,8 +957,12 @@ export class OperationContext {
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
     if (this.ownership === "batch-preparation")
       return this.publishPrepared(read, missing);
-    const rows = await this.read(read.query, false, true);
-    return this.decideRead(read, missing, rows);
+    const response = await this.answer(read.query, true);
+    return this.decideRead(
+      read,
+      missing,
+      this.publishedTerminal([read.query], [response.rows])
+    );
   }
   /**
    * The batch-preparation arm of {@link publish}: queue this read's ONE
@@ -923,7 +984,7 @@ export class OperationContext {
       return this.decideRead(
         read,
         missing,
-        this.queries.decodeQuery(read.query, response.rows.map(record))
+        this.publishedTerminal([read.query], [response.rows.map(record)])
       );
     };
     return undefined;
@@ -957,15 +1018,35 @@ export class OperationContext {
     member?: Member
   ): Promise<Input[] | Input[][]> {
     const projections = Array.isArray(query) ? query : query ? [query] : [];
-    if (!this.usesBatch) {
-      const rows: Input[][] = [];
-      for (const projection of projections)
-        rows.push(await this.read(projection, true));
-      return Array.isArray(query) ? rows : (rows[0] ?? []);
+    // Arnaud's D-29, stated where planning reads become batches. A planning
+    // read is not the operation's atomic unit: it carries no premise of its
+    // own, and it must not turn the unit's premises into a batch that runs
+    // BEFORE the write they protect — which is exactly what closes the window
+    // a staleness premise exists for before the write opens it. So the unit's
+    // waiting premises step aside here, and the read travels with the unit
+    // only while the unit is being dispatched anyway (the values it reads are
+    // the ones those statements produce). With nothing else waiting it is what
+    // it is: a read, through the one owner of reads.
+    if (projections.length > 0) this.attemptStore?.withholdPremises();
+    try {
+      if (!this.usesBatch || this.queued.length === 0) {
+        const rows: Input[][] = [];
+        for (const projection of projections)
+          rows.push(await this.read(projection, true));
+        return Array.isArray(query) ? rows : (rows[0] ?? []);
+      }
+      return await this.flushQueued(projections, query, member);
+    } finally {
+      this.attemptStore?.restorePremises();
     }
+  }
+  private async flushQueued(
+    projections: Query[],
+    query: Query | Query[] | undefined,
+    member?: Member
+  ): Promise<Input[] | Input[][]> {
     const resultIndex = this.queued.length;
     for (const projection of projections) this.queue(projection.sql);
-    if (this.queued.length === 0) return [];
     const responses = await this.submit(false, member);
     return this.settleSubmitted(() => {
       try {
@@ -1095,9 +1176,35 @@ export class OperationContext {
         );
         if (producer) attempt.rejectedInsert = { error, producer };
       }
-      // A weak native batch cannot prove rollback merely by rejecting after dispatch.
+      // A weak native batch cannot prove rollback merely by rejecting after
+      // dispatch — but a batch that rejected AT A PREMISE, with nothing but
+      // premises ahead of it, dispatched no write at all, and the provider said
+      // where it stopped. There is nothing to roll back and nothing to be
+      // uncertain about. It is the companion of Arnaud's D-29: a premise now
+      // rides the unit it protects, so a unit that loses its race rejects at
+      // the premise, ahead of its own first write. A rejection at a WRITE keeps
+      // the uncertainty it always had, whatever its position
+      // (`g4/unit02/uncertain-outcome-meta.test.ts` cell 2).
+      // And it is asked only where it can DECIDE the allowance. An operation
+      // that has already acknowledged a segment is refused its recovery by
+      // progress alone (D-25), so the proof could buy it nothing — while the
+      // uncertainty such an operation reports for a LATER batch is a separate
+      // registered fact (`transitions/staleness-live-pg.ts`
+      // `g2-pg-series-parent-reference-reused`: "the acknowledged prefix and
+      // weak native dispatch uncertainty are distinct facts").
+      const rejectedIndex = isVibORMError(error)
+        ? error.meta.statementIndex
+        : undefined;
+      const rejectedBeforeAnyWrite =
+        typeof rejectedIndex === "number" &&
+        this.committedSegments === 0 &&
+        statements.every(
+          (statement, index) =>
+            index > rejectedIndex || assertionFailures.has(statement)
+        );
       if (
         members.length > 0 &&
+        !rejectedBeforeAnyWrite &&
         !this.driver.supportsOrderedCommittedSegments &&
         this.committedSegments === precedingSegments &&
         !(error instanceof UniqueConstraintError)
@@ -1361,31 +1468,29 @@ export class OperationContext {
     results: readonly QueryResult<unknown>[],
     resultIndex: number
   ): Input[] {
-    const output: Input[] = [];
-    for (const [offset, terminal] of queries.entries()) {
+    const windows: Input[][] = [];
+    for (const offset of queries.keys()) {
       const response = results[resultIndex + offset];
       if (!response)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the ${this.ownership === "batch-preparation" ? "prepared" : "terminal"} result for operation '${this.operation}'.`,
           { meta: this.errorMeta }
         );
-      output.push(
-        ...this.queries.decodeQuery(terminal, response.rows.map(record))
-      );
+      windows.push(response.rows.map(record));
     }
-    return output;
+    return this.publishedTerminal(queries, windows);
   }
   private async finishTerminals<T>(
     queries: readonly Query[],
     result: (rows: Input[]) => T
   ): Promise<T> {
     if (!this.usesBatch) {
-      const output: Input[] = [];
+      const windows: Input[][] = [];
       for (const terminal of queries)
-        output.push(
-          ...(await this.read(terminal, false, queries.length === 1))
+        windows.push(
+          (await this.answer(terminal, queries.length === 1)).rows.map(record)
         );
-      return result(output);
+      return result(this.publishedTerminal(queries, windows));
     }
     const resultIndex = this.queued.length;
     for (const terminal of queries) this.queue(terminal.sql);
@@ -1816,12 +1921,15 @@ export class OperationContext {
           { meta: this.errorMeta }
         );
       if (!projection) return { count: written };
-      const output: Input[] = [];
-      for (const result of results)
-        output.push(
-          ...q.decodeProjection(projection.shape, result.rows.map(record))
-        );
-      return this.published(output, single);
+      const raw: Input[] = [];
+      for (const result of results) raw.push(...result.rows.map(record));
+      // A grouped insert split by the provider's bind budget answers in
+      // several windows of the SAME projection and carries no per-window row
+      // count of its own — the shortfall above is this fold's own contract.
+      return this.published(
+        this.publishedProjection(projection.shape, raw),
+        single
+      );
     });
   }
   async updateMany(
@@ -1891,7 +1999,10 @@ export class OperationContext {
       (result) =>
         projection
           ? this.published(
-              q.decodeProjection(projection.shape, result.rows.map(record)),
+              this.publishedProjection(
+                projection.shape,
+                result.rows.map(record)
+              ),
               single
             )
           : { count: result.rowCount }
@@ -1962,7 +2073,10 @@ export class OperationContext {
       (result) =>
         projection
           ? this.published(
-              q.decodeProjection(projection.shape, result.rows.map(record)),
+              this.publishedProjection(
+                projection.shape,
+                result.rows.map(record)
+              ),
               single
             )
           : { count: result.rowCount }
@@ -2457,12 +2571,21 @@ export class OperationContext {
         `Concurrent membership change on the singular polymorphic member of relation '${edge.name}': ${captured ? "the captured membership is gone" : "another owner holds the target"}; retry to converge.`,
         edge.name
       );
+      // One sentence, one raceability answer (Arnaud's D-32). Both arms state
+      // a MEMBERSHIP fact this operation OBSERVED — the pair it captured is
+      // gone, or the slot it read empty is now held — and neither states an
+      // identity the caller named: the two rows this write connects are the
+      // ones the arguments spell, and the membership row is state the plan
+      // discovered. So the loss of an observed membership is a race like any
+      // other (rule 5, "initial absence and loss after observation are distinct
+      // failure roles" — distinct ROLES, one raceability): the unit aborts, the
+      // operation re-plans ONCE from the admitted values, and the fresh capture
+      // reads the membership the race produced and converges. A repeated race
+      // propagates this sentence, which is what it says to do.
+      failure.meta.raceable = true;
       if (captured)
         this.requirePresent(this.queries.junction(edge, captured), failure);
-      else {
-        failure.meta.raceable = true;
-        await this.requireAbsent(query, failure);
-      }
+      else await this.requireAbsent(query, failure);
     }
     return captured;
   }

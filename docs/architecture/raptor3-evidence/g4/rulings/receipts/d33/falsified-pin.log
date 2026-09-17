@@ -1,0 +1,126 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (6 tests | 6 failed) 35ms
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value 18ms
+     → expected +0 to be 2 // Object.is equality
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row 3ms
+     → expected 1 to be 2 // Object.is equality
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value 4ms
+     → expected 1 to be 5 // Object.is equality
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence 2ms
+     → expected undefined to be an instance of QueryEngineError
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects inside an array transaction, as the decoder's other refusals are refused there 4ms
+     → expected undefined to be an instance of QueryError
+   × D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run 4ms
+     → expected +0 to be 1 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the live route, once per value
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:155:24
+    153|     // Two rows read, two runs: once per decoded VALUE, and the schema…
+    154|     // only thing that can have produced `tag`.
+    155|     expect(schemaRuns).toBe(2);
+       |                        ^
+    156| 
+    157|     schemaRuns = 0;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output for a create's RETURNING row
+AssertionError: expected 1 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:194:24
+    192|       })
+    193|     ).toEqual({ payload: { n: 4, tag: "d33" } });
+    194|     expect(schemaRuns).toBe(2);
+       |                        ^
+    195|   });
+    196| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > publishes the schema's output on the prepared route, once per value
+AssertionError: expected 1 to be 5 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 5[39m
+[31m+ 1[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:221:24
+    219|     // Two rows + one row + one created row decoded, plus the create's…
+    220|     // admission run: the prepared route asks exactly as often as the …
+    221|     expect(schemaRuns).toBe(5);
+       |                        ^
+    222|   });
+    223| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a stored document the schema rejects, with the restored sentence
+AssertionError: expected undefined to be an instance of QueryEngineError
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:235:21
+    233|       );
+    234| 
+    235|     expect(refusal).toBeInstanceOf(QueryEngineError);
+       |                     ^
+    236|     expect((refusal as QueryEngineError).message).toBe(
+    237|       'Driver "sqlite3" returned a malformed json scalar for operation…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > refuses a document the schema rejects inside an array transaction, as the decoder's other refusals are refused there
+AssertionError: expected undefined to be an instance of QueryError
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:274:23
+    272|     // and the live route above publishes the restored sentence direct…
+    273|     for (const refusal of [schemaRefusal, intRefusal]) {
+    274|       expect(refusal).toBeInstanceOf(QueryError);
+       |                       ^
+    275|       expect((refusal as QueryError).message).toBe("Query execution fa…
+    276|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts > D-33 — a json().schema(…) field's schema runs at the decode boundary > materializes a cached read from its snapshot without a second run
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/raptor3/g4/parity/json-read-schema.test.ts:333:24
+    331|     expect(await cached.document.findMany(read)).toEqual(transformed);
+    332|     await settle();
+    333|     expect(schemaRuns).toBe(1);
+       |                        ^
+    334| 
+    335|     // The HIT answers from the snapshot, which holds the DECODED valu…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+   Start at  21:22:07
+   Duration  1.52s (transform 901ms, setup 12ms, collect 1.33s, tests 35ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.48s wall, 469.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

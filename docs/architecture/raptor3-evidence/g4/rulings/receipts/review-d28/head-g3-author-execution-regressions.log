@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-scratch-ra
+
+ ❯ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests | 1 failed) 39ms
+   ✓ G3-02 author execution regressions > reports a malformed result on the transport its plan uses, with the progress that transport has 25ms
+   × G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking 8ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+   ✓ G3-02 author execution regressions > refuses one indivisible over-budget insert at borrowed and native-batch dispatch 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts > G3-02 author execution regressions > keeps prepared cardinality independent of terminal query chunking
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  21:14:02
+   Duration  1.59s (transform 928ms, setup 12ms, collect 1.38s, tests 39ms, environment 0ms, prepare 28ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-yZJI5o/vitest.json
+Vitest resources: 3.77s wall, 469.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-rulings-tmp-ra/viborm-raptor3-g0-yZJI5o

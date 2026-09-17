@@ -1,0 +1,25 @@
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "r1",[22m
+[32m-   "r2",[39m
+[2m  ][22m
+
+ ❯ tests/raptor3/g4/parity/integration-membership-race.test.ts:230:12
+    228|     );
+    229| 
+    230|     assert.deepEqual(world.driver.planted, ["r1", "r2"]);
+       |            ^
+    231|     assert.equal(plans(world.driver), 2);
+    232|     // Nothing of ours was written: the abort rolled its atomic unit b…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  19:54:51
+   Duration  1.47s (transform 791ms, setup 9ms, collect 1.16s, tests 38ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.48s wall, 502.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,20 @@
+
+[test:all] provider-pglite: tests/providers/local/pglite-vector.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |provider-pglite| tests/providers/local/pglite-vector.test.ts (7 tests) 4165ms
+   ✓ PGlite vector distance ordering > orders nearest-first by l2 distance and honors take  849ms
+   ✓ PGlite vector distance ordering > orders farthest-first by l2 distance when distance sort is desc  580ms
+   ✓ PGlite vector distance ordering > orders nearest-first by cosine distance and honors take  592ms
+   ✓ PGlite vector distance ordering > selects l2 distance scores as numbers  532ms
+   ✓ PGlite vector distance ordering > orders by distance and returns matching selected scores  545ms
+   ✓ PGlite vector distance ordering > orders included docs nearest-first by vector distance and honors take  521ms
+   ✓ PGlite vector distance ordering > throws on vector dimension mismatch before execution  547ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  20:41:35
+   Duration  5.83s (transform 979ms, setup 9ms, collect 1.50s, tests 4.17s, environment 0ms, prepare 36ms)
+
+[test:all] provider-pglite: tests/providers/local/pglite-vector.test.ts: 8.02s wall, 1502.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

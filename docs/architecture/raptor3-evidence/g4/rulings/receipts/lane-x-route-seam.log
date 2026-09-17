@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-route-seam.test.ts (3 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:21:52
+   Duration  1.22s (transform 622ms, setup 9ms, collect 933ms, tests 8ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.23s wall, 491.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

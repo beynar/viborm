@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  21:04:13
+   Duration  2.09s (transform 1.15s, setup 14ms, collect 1.75s, tests 9ms, environment 0ms, prepare 40ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-Wq59UH/vitest.json
+Vitest resources: 4.77s wall, 446.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-history-analysis contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-Wq59UH

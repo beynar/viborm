@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 7ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:03:59
+   Duration  1.19s (transform 541ms, setup 13ms, collect 859ms, tests 7ms, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-XwTuub/vitest.json
+Vitest resources: 3.58s wall, 409.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 post-g3-schema-views contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-XwTuub

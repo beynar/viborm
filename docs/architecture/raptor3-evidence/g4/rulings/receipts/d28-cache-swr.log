@@ -1,0 +1,30 @@
+   ✓ official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/public-client/official-cache-swr.core.test.ts:550:48
+    548|       expect(state.scheduled).toEqual([]);
+    549|       if (scenario === "snapshot") {
+    550|         expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+       |                                                ^
+    551|         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoun…
+    552|         publishHostileJson = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  20:19:58
+   Duration  1.14s (transform 656ms, setup 9ms, collect 987ms, tests 22ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.03s wall, 456.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

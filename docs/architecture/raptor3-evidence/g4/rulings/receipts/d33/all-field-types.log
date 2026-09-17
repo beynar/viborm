@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ✓ |extended-local| tests/contracts/public-client/all-field-types.test.ts (8 tests) 739ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  21:31:56
+   Duration  2.34s (transform 946ms, setup 10ms, collect 1.44s, tests 739ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 4.25s wall, 1442.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

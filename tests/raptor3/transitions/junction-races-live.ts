@@ -318,7 +318,12 @@ export async function runJunctionRaceScenario(
               failure.message,
               `Concurrent membership change on the singular polymorphic member of relation 'items.book': ${detail}; retry to converge.`
             );
-            assert.equal(meta.raceable, empty ? true : undefined);
+            // Both arms of the capture carry the mark (Arnaud's D-32): the
+            // sentence states the loss of a MEMBERSHIP this operation
+            // observed, not of an identity the caller named. What the mark
+            // does NOT do is authorise a re-adoption here — see the
+            // `replaced` block below.
+            assert.equal(meta.raceable, true);
             assert(
               batchFailures.some(
                 (error) =>
@@ -353,7 +358,11 @@ export async function runJunctionRaceScenario(
         winners.length >= 1,
         "A race requires at least one actual successful adopter"
       );
-      if (planned && !empty)
+      // A SIMULTANEOUS race over a held target still has one winner: the two
+      // adopters captured the same owner, and the target-side UNIQUE or the
+      // premise arbitrates between them. The SEQUENTIAL `replaced` shape is
+      // the one Arnaud's D-32 changed, and it states its own outcome below.
+      if (planned && !empty && !replaced)
         assert.equal(
           winners.length,
           1,
@@ -380,26 +389,37 @@ export async function runJunctionRaceScenario(
           "Both actual native owner captures must have completed"
         );
         if (replaced) {
-          assert.deepEqual(winners, ["s1"]);
+          // Arnaud's D-32, re-expressed: the actor captured `s0`, the peer
+          // completed its own transfer, and the actor's atomic unit then
+          // aborted at the captured-membership premise. That premise states
+          // the loss of a MEMBERSHIP the plan observed, not of an identity the
+          // caller named — the two rows this write connects are the ones the
+          // arguments spell — so the operation re-plans ONCE from the admitted
+          // values, the fresh capture reads the peer's pair, and it transfers
+          // THAT. Both operations report success, and the slot is still
+          // singular: `requested.length === 1` above, held by the adopter that
+          // finished last.
+          assert.deepEqual(winners, ["s2", "s1"]);
           assert.deepEqual(observation.reachedCuts, [
             "peer-captured-s0",
             "actor-captured-s0-then-peer-settled",
           ]);
-          const failure = outcomes[0];
-          assert(failure?.kind === "failure");
-          assert.equal(failure.failure.name, "NestedWriteError");
-          assert.equal(failure.failure.code, "V7001");
-          assert.equal(
-            failure.failure.message,
-            "Concurrent membership change on the singular polymorphic member of relation 'items.book': the captured membership is gone; retry to converge."
-          );
-          const meta = z
-            .record(z.string(), z.unknown())
-            .parse(failure.failure.meta);
-          assert.equal(
-            meta.raceable,
-            undefined,
-            "The non-raceable captured-row guard must not request re-adoption"
+          assert.equal(nativeFailures.size, 0);
+          assert.equal(requested[0]!.holder, "s2");
+          // The ABORT is what separates convergence from a plan that never
+          // proved anything: the first attempt was rejected by an INDEXED
+          // native assertion, exactly as it was when the operation ended
+          // there. The sentence that rejection carries is pinned by the
+          // `NestedWriteError` branch above and, verbatim with its repeated
+          // race, by
+          // `tests/raptor3/g4/parity/integration-membership-race.test.ts`.
+          assert(
+            batchFailures.some(
+              (error) =>
+                error instanceof NestedWriteAssertionError &&
+                Number.isInteger(error.meta.statementIndex)
+            ),
+            "The captured-membership premise must have aborted the first attempt"
           );
         } else
           assert.deepEqual([...observation.reachedCuts].sort(), [

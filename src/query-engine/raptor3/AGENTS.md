@@ -153,8 +153,10 @@ and decoder shape. `lowerProjection` binds that description to fresh statement
 aliases for SELECT, RETURNING, recursive reads, and reference-value projection;
 `decodeProjection` consumes its shape without rebuilding SQL. When one mutation
 uses RETURNING plus a required stored-row continuation, both lowerings reuse the
-same prepared description while keeping distinct query-local aliases. Only
-`decodeQuery` consumes query-level row-count requirements. Do not assemble a
+same prepared description while keeping distinct query-local aliases. `Queries.assertExpectedRows` is
+the ONE owner of a query-level row-count requirement — `decodeQuery` asks it for
+a single-statement read and `publishedTerminal` asks it per terminal window,
+where the window's own count still is a fact. Do not assemble a
 SELECT merely to obtain decoder shape, re-prepare a continuation's projection,
 or remove a SELECT that verifies stored output.
 
@@ -840,7 +842,28 @@ Stating the scalar spelling for both is a `numeric[]` arriving as the array
 literal `{1.00,2.00}`, which the list codec refuses. **The transport is asked about a value exactly once, at the row
 boundary** (Arnaud's D-17): `Queries` holds the driver's `DriverResultParser`
 and `decodeScalar` runs driver → adapter → codec for a value the provider
-handed over directly, and never for one a JSON window already decoded. The
+handed over directly, and never for one a JSON window already decoded.
+**And about a RESULT exactly once, at the operation's own boundary** (Arnaud's
+D-28, the other half of the same contract): `Queries.decodeResult` runs the same
+chain one level up — driver `parseResult` → adapter `parseResult` → this
+engine's decoder — for the raw rows the operation's terminal statements
+answered. It is asked once per OPERATION, never per statement and never per
+member: a terminal or a grouped insert split across several windows is a
+BIND-BUDGET split of ONE projection, so every window decodes against the same
+shape. `publishedProjection` is that boundary's one shape, and its callers are
+the terminal boundary (`publishedTerminal`, which serves the live read, the
+prepared read, and the batch or live terminal whatever its window count) and the
+three set-mutation publications that answer through RETURNING. A set mutation
+that publishes an affected-row COUNT instead of rows is not asked: a row count
+is a fact of the transport, not a result window. **A window's ROW COUNT is the
+one fact it does not share with the operation**: `selectSeries` stamps each
+bind-budget window with its own identity count and its own registered refusal,
+so `Queries.assertExpectedRows` owns that fact and `publishedTerminal` asks it
+per window, on the rows the provider answered, before the middleware is asked
+anything — a count taken over the concatenation would compare a whole terminal
+with one window's contract, could not raise the short window's refusal at all,
+and would judge a middleware that legitimately replaced the operation's rows
+against a physical window count. The
 decoder owns the JSON VALUE DOMAIN (`bigint` → number when safe, non-finite and
 sparse refused, prototype-safe rebuild) and never re-parses. The SQL NULL and
 the absent column are answered on the RAW value, before any representation
@@ -849,6 +872,23 @@ writes a NOT NULL `json` column. Object shapes carry nullability — a carrier t
 statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
+**And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
+D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
+replaced ran it on every read (`result/ResultParser.ts:721` into
+`scalar-structured-parser.ts:78`), and the accepted cost is one run per JSON
+field per row read. The fact travels on the projection's own leaf —
+`Leaf.jsonSchema`, filled once per (adapter, model, field) by `Queries.leaf`
+beside `decimal`, `dateTime`, `enumValues` and `dimension` — so nothing walks a
+projection looking for JSON columns, and `decodeScalar`'s `json` arm asks it
+once per VALUE: the JSON value domain, then the schema, then the value domain
+again over the schema's OUTPUT, which is what keeps a transforming schema's
+answer inside the domain and prototype-safe. The engine is only the CALLER:
+`parse` (`validation/index.ts`) is the estate's one owner of that protocol —
+asynchronous schemas refused, a throwing schema caught, a malformed result
+refused — and a refusal is `InvalidScalarResult("json", "custom output schema
+rejected the value")` with NO issue detail, because those messages describe a
+STORED document. The cache route materializes from its snapshot, which holds
+the DECODED value, and therefore must never run the schema a second time.
 
 **A polymorphic membership the parent claims whose row is gone is refused, not
 read as absent.** A variant ROW carrier's arm is lowered as "claimed ⇒ a
@@ -970,7 +1010,17 @@ raceable assertion — and RACEABLE is read off the premise, not assumed: only a
 failure its own owner marked `meta.raceable` arms the re-plan, which is the
 estate's existing rule for this question, so a captured row's own presence
 guard, declared `raceable: false`, ends the operation instead of retrying it
-against whatever row now answers the selector) and the ENVELOPE restart
+against whatever row now answers the selector. What separates the two is
+IDENTITY, not observation (Arnaud's D-32): a captured MEMBERSHIP is state the
+plan discovered, and the rows a singular-junction transfer connects are the ones
+the arguments spelled, so both arms of `captureMembership` — the observed pair
+that is gone and the slot read empty that is now held — carry the mark and
+re-plan from fresh values, while the captured ROW's presence and the series'
+parent premise, which are the caller's own identities, do not. The mark alone
+never authorises an attempt: `submit` also asks whether this operation holds
+committed progress, so a premise proved in a batch that already acknowledged a
+segment — or whose rejection a weak transport cannot place — still ends the
+operation) and the ENVELOPE restart
 (`run`'s deferred arm, which runs
 the body once outside the region and again inside it). A re-plan is safe because
 admission is memoised one level above the body — `commands/index.ts`'s
@@ -1008,6 +1058,27 @@ another row makes that row's members read as additions to a set they were never
 in, and the operation would answer a raceable staleness instead of
 `parent record changed across a committed segment`. An interactive transaction
 needs none of this: its plan-time read took `FOR UPDATE`.
+
+A premise is proved inside the atomic unit that carries the write it protects,
+never in an earlier planning batch (Arnaud's D-29). The owner is `flush`, the
+one place planning reads become batches: a planning read carries no premise of
+its own, so the unit's waiting premises step aside (`withholdPremises`, which
+holds the queue's TRAILING premise run and returns it to the head of the next
+dispatch), and the read travels with the unit only while the unit is being
+dispatched anyway — the values it reads are the ones those statements produce,
+which is what a series under a freshly created parent depends on. With nothing
+else waiting a planning read is what it is: a read. Proved early, a premise is
+answered against a world the write has not reached, and the window every
+staleness premise exists for closes before it opens — measured live as the `pg
+filtered m2m deleteMany staleness` cell missing its own race. Its companion is
+the progress rule: a weak native batch cannot prove rollback by rejecting after
+dispatch, but a batch that rejected AT A PREMISE, with nothing but premises
+ahead of it, dispatched no write at all — the provider said where it stopped,
+and that is the proof. It is what lets the one recovery re-plan on a transport
+that acknowledges nothing, and it is asked only where it can DECIDE that
+allowance: an operation that has already acknowledged a segment is refused its
+recovery by progress alone, and the uncertainty it reports for a later batch
+stays the separate fact the estate pins.
 
 A suppressed INSERT suppresses the ROW, not the membership the member declared.
 A `skipDuplicates` member whose target row already exists still writes the

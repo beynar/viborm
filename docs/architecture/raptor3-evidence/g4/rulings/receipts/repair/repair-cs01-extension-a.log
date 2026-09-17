@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 37ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  21:41:07
+   Duration  1.37s (transform 810ms, setup 12ms, collect 1.19s, tests 37ms, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-iEV3Ig/vitest.json
+Vitest resources: 3.26s wall, 458.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs01-extension-a contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-iEV3Ig

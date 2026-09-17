@@ -1,0 +1,24 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-scratch-ra
+
+ ❯ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (5 tests | 1 failed) 32ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the live route 17ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the prepared route 3ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > is asked above parseField, with the provider's own rows 2ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > decodes what the middleware hands to next, not what the provider said 1ms
+   × D-28 — the driver parseResult middleware is a result consumer > sees a chunked terminal's rows once, in input order, on both routes 9ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts > D-28 — the driver parseResult middleware is a result consumer > sees a chunked terminal's rows once, in input order, on both routes
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  22:01:38
+   Duration  1.46s (transform 863ms, setup 9ms, collect 1.28s, tests 32ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.44s wall, 463.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

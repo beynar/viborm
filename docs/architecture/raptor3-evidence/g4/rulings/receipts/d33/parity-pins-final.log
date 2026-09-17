@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ✓ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (6 tests) 30ms
+ ✓ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (4 tests) 10ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  21:32:32
+   Duration  1.56s (transform 871ms, setup 11ms, collect 1.36s, tests 40ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 3.59s wall, 465.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

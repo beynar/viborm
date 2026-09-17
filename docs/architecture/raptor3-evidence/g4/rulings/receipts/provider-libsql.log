@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ↓ |provider-libsql| tests/providers/local/libsql-index-ddl.test.ts (117 tests | 117 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-returning-text.test.ts (158 tests | 158 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-scalars-upserts.test.ts (82 tests | 82 skipped)
+ ↓ |provider-libsql| tests/providers/local/libsql-parity-json.test.ts (233 tests | 233 skipped)
+ ✓ |provider-libsql| tests/providers/local/libsql.test.ts (9 tests) 99ms
+ ↓ |provider-libsql| tests/providers/local/libsql-nested-write.test.ts (73 tests | 73 skipped)
+
+ Test Files  1 passed | 5 skipped (6)
+      Tests  9 passed | 663 skipped (672)
+   Start at  20:29:30
+   Duration  2.05s (transform 1.02s, setup 11ms, collect 1.82s, tests 99ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.98s wall, 614.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

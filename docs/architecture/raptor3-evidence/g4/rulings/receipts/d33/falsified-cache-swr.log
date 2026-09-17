@@ -1,0 +1,41 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ❯ |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts (7 tests | 1 failed) 21ms
+   ✓ official cache stale-while-revalidate > returns a detached stale value and replays only the inner core executor 8ms
+   ✓ official cache stale-while-revalidate > keeps true and numeric stale windows and the exact chain scheduler 1ms
+   ✓ official cache stale-while-revalidate > hands claim acquisition to waitUntil before the stale response settles 1ms
+   ✓ official cache stale-while-revalidate > suppresses a later stale replay after the shared marker is acquired 1ms
+   × official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures 6ms
+     → expected +0 to be 1 // Object.is equality
+   ✓ official cache stale-while-revalidate > retains combined worker and cleanup failure for protected observation 1ms
+   ✓ official cache stale-while-revalidate > keeps array and statement-transform executions outside official SWR 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/official-cache-swr.core.test.ts > official cache stale-while-revalidate > contains provider, snapshot, set, and cleanup failures
+AssertionError: expected +0 to be 1 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/public-client/official-cache-swr.core.test.ts:550:48
+    548|       expect(state.scheduled).toEqual([]);
+    549|       if (scenario === "snapshot") {
+    550|         expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+       |                                                ^
+    551|         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoun…
+    552|         publishHostileJson = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  21:22:16
+   Duration  1.24s (transform 714ms, setup 10ms, collect 1.09s, tests 21ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.29s wall, 459.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

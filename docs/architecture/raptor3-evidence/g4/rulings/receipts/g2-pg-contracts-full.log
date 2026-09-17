@@ -1,0 +1,114 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts (3 tests) 217ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 150ms
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/keys-live-commands.test.ts (7 tests) 418ms
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts (3 tests | 1 failed) 268ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-held-capture-race 94ms
+   ✓ G2 live pg singular-junction races: commands > g2-junction-empty-capture-race 83ms
+   × G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced 69ms
+     → A captured held owner cannot be transferred successfully twice
+
+2 !== 1
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/occupancy-live-commands.test.ts (1 test) 66ms
+ ❯ |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts (2 tests | 1 failed) 103ms
+   ✓ G2 PostgreSQL native staleness: commands > g2-pg-captured-key-replaced 44ms
+   × G2 PostgreSQL native staleness: commands > g2-pg-series-parent-reference-reused 38ms
+     → The acknowledged prefix and weak native dispatch uncertainty are distinct facts
++ actual - expected
+
+  {
+    atomicity: 'segment',
+    committedSegments: 1,
+    committedWriteMembers: 1,
+    completedMembers: 0,
+-   mayHaveCommittedSegment: true,
+    memberPath: [
+      0
+    ],
+    phase: 'member',
+    totalMembers: 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/junction-races-live-commands.test.ts > G2 live pg singular-junction races: commands > g2-junction-captured-owner-replaced
+AssertionError: A captured held owner cannot be transferred successfully twice
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ Object.assert tests/raptor3/transitions/junction-races-live.ts:362:16
+    360|       );
+    361|       if (planned && !empty)
+    362|         assert.equal(
+       |                ^
+    363|           winners.length,
+    364|           1,
+ ❯ runJunctionRaceScenario tests/raptor3/transitions/junction-races-live.ts:458:11
+ ❯ tests/raptor3/transitions/junction-races-live-commands.test.ts:17:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts > G2 PostgreSQL native staleness: commands > g2-pg-series-parent-reference-reused
+AssertionError: The acknowledged prefix and weak native dispatch uncertainty are distinct facts
++ actual - expected
+
+  {
+    atomicity: 'segment',
+    committedSegments: 1,
+    committedWriteMembers: 1,
+    completedMembers: 0,
+-   mayHaveCommittedSegment: true,
+    memberPath: [
+      0
+    ],
+    phase: 'member',
+    totalMembers: 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,11 +1,10 @@[39m
+[2m  {[22m
+[2m    "atomicity": "segment",[22m
+[2m    "committedSegments": 1,[22m
+[2m    "committedWriteMembers": 1,[22m
+[2m    "completedMembers": 0,[22m
+[32m-   "mayHaveCommittedSegment": true,[39m
+[2m    "memberPath": [[22m
+[2m      0,[22m
+[2m    ],[22m
+[2m    "phase": "member",[22m
+[2m    "totalMembers": 1,[22m
+
+ ❯ Object.assert tests/raptor3/transitions/staleness-live-pg.ts:348:14
+    346|           "recordSeriesProgress" in meta
+    347|       );
+    348|       assert.deepEqual(
+       |              ^
+    349|         meta.recordSeriesProgress,
+    350|         {
+ ❯ runPgStalenessScenario tests/raptor3/transitions/staleness-live-pg.ts:426:18
+ ❯ tests/raptor3/transitions/staleness-live-pg-commands.test.ts:14:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 4 passed (6)
+      Tests  2 failed | 16 passed (18)
+   Start at  20:43:37
+   Duration  2.92s (transform 788ms, setup 15ms, collect 1.52s, tests 1.22s, environment 0ms, prepare 43ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-1GCbSR/vitest.json
+Vitest resources: 4.88s wall, 613.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-1GCbSR

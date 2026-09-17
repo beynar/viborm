@@ -1,0 +1,28 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings-d33
+
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 120ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 226ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 58ms
+ ✓ |raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 110ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 65ms
+ ✓ |raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 84ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 77ms
+ ✓ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 60ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 43ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 114ms
+ ✓ |raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 195ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 92ms
+ ✓ |raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 87ms
+ ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 51ms
+ ✓ |raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 85ms
+ ✓ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 102ms
+
+ Test Files  16 passed (16)
+      Tests  216 passed (216)
+   Start at  21:23:30
+   Duration  4.00s (transform 904ms, setup 23ms, collect 2.24s, tests 1.57s, environment 0ms, prepare 30ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp-d33/viborm-raptor3-g0-iL8t20/vitest.json
+Vitest resources: 5.95s wall, 725.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-contracts contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp-d33/viborm-raptor3-g0-iL8t20

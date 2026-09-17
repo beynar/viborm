@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 110ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  21:02:08
+   Duration  2.04s (transform 1.15s, setup 11ms, collect 1.72s, tests 110ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-HVVw5J/vitest.json
+Vitest resources: 4.37s wall, 463.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-operations contract gate verified. Evidence: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-HVVw5J

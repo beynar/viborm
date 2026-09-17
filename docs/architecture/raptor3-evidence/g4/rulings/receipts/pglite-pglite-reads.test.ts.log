@@ -1,0 +1,154 @@
+
+[test:all] provider-pglite: tests/providers/local/pglite-reads.test.ts
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ✓ |provider-pglite| tests/providers/local/pglite-reads.test.ts (141 tests) 66110ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > count applies ordered cursor input window  663ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > aggregate applies ordered cursor input window  494ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > count applies negative take input window  485ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > aggregate applies negative take input window  449ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > selected count uses the input window  469ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > aggregate _count object form counts non-null values per field  466ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > aggregate _count object form applies the input window  473ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > count honors supported relation order in input window  466ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > aggregate honors supported relation order in input window  456ms
+   ✓ PGlite Driver > PGlite count/aggregate input windows > unsupported to-many scalar relation order fails closed  455ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > distinct with orderBy keeps first row per group in user order  457ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > distinct with ascending orderBy  458ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > distinct ordered by the distinct column descending  468ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > distinct with orderBy and skip without take  466ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > top-level skip without take  475ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > nested include skip without take  464ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-key orderBy > array form orders by each key in turn  519ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-key orderBy > later keys break ties left by earlier keys  470ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-key orderBy > multi-key orderBy with take windows the ordered rows  459ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-key orderBy > multi-key orderBy with take and skip  458ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > findFirst distinct returns the first distinct row  465ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > string and array spellings agree on findFirst  461ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > string and array spellings agree on findMany  475ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > negative take flips the order before distinct, as on findMany  451ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > positive take keeps the forward window  510ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > take 0 is an empty window even with distinct  487ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > skip pages within the distinct set  460ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > distinct composes with where on findFirst  458ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > findFirst distinct + string shorthand > distinct on findFirst with no matching rows returns null  481ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-column distinct > keeps the first row per column combination in user order  464ms
+   ✓ PGlite Driver > PGlite distinct/skip windows > multi-column distinct > ascending order keeps the other duplicate  471ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'asc nulls first after null'  454ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'asc nulls last after null'  452ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'desc nulls first after null'  456ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'desc nulls last after null'  446ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'asc nulls first after non-null'  466ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'asc nulls last after non-null'  445ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'desc nulls first after non-null'  463ms
+   ✓ PGlite Driver > PGlite total cursor pagination > 'desc nulls last after non-null'  442ms
+   ✓ PGlite Driver > PGlite total cursor pagination > bare directions use one portable null default  462ms
+   ✓ PGlite Driver > PGlite total cursor pagination > cursor inclusion, skip, default order, and backward take share one boundary  445ms
+   ✓ PGlite Driver > PGlite total cursor pagination > first page and alternate-unique cursor share the canonical ID tie-break  453ms
+   ✓ PGlite Driver > PGlite total cursor pagination > mixed directions preserve key precedence  435ms
+   ✓ PGlite Driver > PGlite total cursor pagination > compound alternate cursor keeps canonical compound-ID precedence  894ms
+   ✓ PGlite Driver > PGlite total cursor pagination > forward and backward windows are symmetric  459ms
+   ✓ PGlite Driver > PGlite total cursor pagination > distinct ranking preserves reverse cursor skip and take  453ms
+   ✓ PGlite Driver > PGlite total cursor pagination > concatenated pages equal the one-shot total order  478ms
+   ✓ PGlite Driver > PGlite total cursor pagination > missing cursor consistently returns an empty window  458ms
+   ✓ PGlite Driver > PGlite total cursor pagination > count and aggregate consume the same null-aware cursor window  447ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > returns the last N per parent in logical order  473ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > composes with a nested where  475ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > composes with skip (skip counts from the end)  470ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > without an explicit orderBy pages the identity order  464ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > honors a descending orderBy  464ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > works in select position and through a to-one hop  456ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > pages a many-to-many relation through its junction  474ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > negative take > take 0 returns an empty relation window  520ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > pages a relation forward, three pages, cursor inclusive  466ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > cursor without skip includes the cursor row itself  463ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > pages each parent independently from one cursor  463ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > a cursor row that does not exist yields an empty window  466ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > combines with a negative take (pages backward from the cursor)  476ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > combines with a nested where  462ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > accepts a compound unique cursor  461ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > cursor > pages a many-to-many relation through its junction  464ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > keeps the first row of each group, per parent  469ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > honors the order when choosing the surviving row  472ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > take windows the distinct set, not the raw rows  484ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > skip windows the distinct set too  478ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > composes with a negative take  494ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > composes with a nested where  458ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > without an orderBy still deduplicates the group  471ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > multi-field distinct groups by the combination  466ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > deduplicates a many-to-many relation through its junction  467ms
+   ✓ PGlite Driver > PGlite nested relation pagination behavior > distinct > an unknown distinct field fails closed  460ms
+   ✓ PGlite Driver > PGlite omit > findMany drops exactly the omitted scalar  455ms
+   ✓ PGlite Driver > PGlite omit > findUnique / findFirst honor omit  449ms
+   ✓ PGlite Driver > PGlite omit > omit composes with include, and the relation keeps its own shape  462ms
+   ✓ PGlite Driver > PGlite omit > nested omit reduces the relation payload only  453ms
+   ✓ PGlite Driver > PGlite omit > omit at both levels applies independently  459ms
+   ✓ PGlite Driver > PGlite omit > create / update / upsert / delete honor omit  464ms
+   ✓ PGlite Driver > PGlite omit > create composes select with omit  463ms
+   ✓ PGlite Driver > PGlite omit > a bulk write with omit returns the projected rows, not a count  454ms
+   ✓ PGlite Driver > PGlite omit > a bulk write composes select with omit  472ms
+   ✓ PGlite Driver > PGlite omit > a bulk write WITHOUT a projection still counts  442ms
+   ✓ PGlite Driver > PGlite omit > select + omit returns the selected shape minus overlaps  461ms
+   ✓ PGlite Driver > PGlite omit > an omit that hides every field is refused  516ms
+   ✓ PGlite Driver > PGlite omit > a model-level omitted column never comes back  461ms
+   ✓ PGlite Driver > PGlite omit > neither select nor omit can re-include it  458ms
+   ✓ PGlite Driver > PGlite omit > a model-level omitted column cannot be selected through a relation  453ms
+   ✓ PGlite Driver > PGlite omit > client-level omit hides the field on every read of that model  453ms
+   ✓ PGlite Driver > PGlite omit > client-level omit reaches relation payloads  455ms
+   ✓ PGlite Driver > PGlite omit > a local omit: { field: false } re-includes a globally hidden field  465ms
+   ✓ PGlite Driver > PGlite omit > a local omit adds to the global one instead of replacing it  488ms
+   ✓ PGlite Driver > PGlite omit > an explicit select overrides the client default before local omit subtracts  475ms
+   ✓ PGlite Driver > PGlite omit > select + omit composes through a selected relation include and all omit layers  468ms
+   ✓ PGlite Driver > PGlite omit > client-level omit does not turn a bulk write into a row-returning one  454ms
+   ✓ PGlite Driver > PGlite omit > a client that configures nothing is unaffected  467ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > select _count returns exact counts, including zero  463ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > returns multiple counts with a long public relation name  444ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > includes a long relation under its exact public name  468ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > select _count on findUnique with zero relations  465ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > filtered _count only counts rows matching the where  458ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > _count alongside relation rows returns both  455ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation _count selection > _count inside include returns counts alongside relations  460ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > select _count: true counts every to-many relation  452ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > select _count: true equals the explicit object form  457ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > include _count: true counts every to-many relation  458ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > include _count: true sits alongside included relations  494ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > _count: true on findUnique counts for the single row  456ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > _count: true skips to-one relations (no list relation, no key)  470ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > _count: true shorthand > _count: true inside a nested include  449ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation orderBy > orderBy posts._count desc yields exact order  458ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation orderBy > orderBy posts._count asc yields exact order  454ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > relation orderBy > orderBy to-one relation scalar asc/desc  462ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-one relation filters > isNot with real conditions includes null-FK rows  464ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-one relation filters > findMany applies same-object is and isNot filters independent of key order  464ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-one relation filters > findMany combines null and object to-one filters  511ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and none filters independent of key order  470ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > findMany applies same-object some and every filters independent of key order  455ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches zero related rows  462ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches one related row  491ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > every with an empty condition matches several related rows  474ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > every matches vacuously for zero relations  449ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > none excludes any user with a matching relation  459ms
+   ✓ PGlite Driver > PGlite relation read/aggregate behavior > to-many relation filters on the read path > none with empty condition means zero relations  456ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > orders root rows by a two-hop to-one chain  459ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > orders root rows by a three-hop to-one chain  463ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > runs the sorting docs three-hop author chain example  465ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > places null relation-chain rows according to explicit nulls  459ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > orders a self-relation chain by parent.parent.name  454ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > rejects ordering through a to-many relation mid-chain  468ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > combines nested orderBy with take, skip, and scalar tiebreakers  450ms
+   ✓ PGlite Driver > PGlite nested relation orderBy behavior > orders included to-many rows by a nested relation chain  466ms
+   ✓ PGlite Driver > in/notIn filter execution > in with multiple values  463ms
+   ✓ PGlite Driver > in/notIn filter execution > in with a single value  451ms
+   ✓ PGlite Driver > in/notIn filter execution > in with an empty list matches nothing  455ms
+   ✓ PGlite Driver > in/notIn filter execution > notIn with multiple values  462ms
+   ✓ PGlite Driver > in/notIn filter execution > notIn with a single value  439ms
+   ✓ PGlite Driver > in/notIn filter execution > notIn with an empty list matches everything  460ms
+   ✓ PGlite Driver > in/notIn filter execution > groupBy having in  475ms
+
+ Test Files  1 passed (1)
+      Tests  141 passed (141)
+   Start at  20:36:47
+   Duration  67.61s (transform 868ms, setup 9ms, collect 1.30s, tests 66.11s, environment 0ms, prepare 26ms)
+
+[test:all] provider-pglite: tests/providers/local/pglite-reads.test.ts: 69.46s wall, 1784.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

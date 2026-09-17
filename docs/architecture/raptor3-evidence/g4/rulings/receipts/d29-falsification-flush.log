@@ -1,0 +1,18 @@
+
+ ❯ tests/raptor3/g4/parity/integration-staleness.test.ts:285:12
+    283|       batch.some((sql) => PREMISE.test(sql))
+    284|     );
+    285|     assert.equal(proving.length, 1);
+       |            ^
+    286|     assert.ok(proving[0]!.some((sql) => MUTATION.test(sql)));
+    287|     // And the planning reads that precede it are reads: no batch of t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  20:09:57
+   Duration  1.60s (transform 908ms, setup 8ms, collect 1.31s, tests 53ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 3.66s wall, 508.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

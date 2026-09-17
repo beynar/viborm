@@ -563,7 +563,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/decimal-having-operand.test.ts": 1,
   "tests/raptor3/g4/unit02/k-competing-refusals.test.ts": 4,
   "tests/raptor3/g4/unit02/k-refusal-order-history.test.ts": 3,
-  "tests/raptor3/g4/unit02/key-arithmetic.test.ts": 20,
+  "tests/raptor3/g4/unit02/key-arithmetic.test.ts": 21,
   "tests/raptor3/g4/unit02/lone-statement-transport.test.ts": 7,
   "tests/raptor3/g4/unit02/malformed-result-cuts.test.ts": 4,
   "tests/raptor3/g4/unit02/nested-key-refusal.test.ts": 6,

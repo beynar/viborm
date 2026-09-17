@@ -1,0 +1,37 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rulings
+
+ ❯ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests | 3 failed) 47ms
+   ✓ G3-02 execution boundary review > keeps standalone multi-statement createMany on its atomic batch route 21ms
+   × G3-02 execution boundary review > reads a supported incremented key when the public result omits it 13ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+   × G3-02 execution boundary review > reads through a supported compound key transition with omitted result keys 4ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+   ✓ G3-02 execution boundary review > reads a supported decimal key increment through its provider expression 4ms
+   ✓ G3-02 execution boundary review > partitions set inserts by compiled bind count and preserves result order 3ms
+   × G3-02 execution boundary review > partitions non-returning terminal reads by bind count and preserves input order 2ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > reads a supported incremented key when the public result omits it
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > reads through a supported compound key transition with omitted result keys
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts > G3-02 execution boundary review > partitions non-returning terminal reads by bind count and preserves input order
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+   Start at  21:03:17
+   Duration  1.82s (transform 1.08s, setup 10ms, collect 1.61s, tests 47ms, environment 0ms, prepare 35ms)
+
+JSON report written to /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-Q5TTBX/vitest.json
+Vitest resources: 3.96s wall, 467.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-rulings-tmp/viborm-raptor3-g0-Q5TTBX
