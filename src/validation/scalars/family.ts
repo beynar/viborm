@@ -279,16 +279,33 @@ export const createScalarInterners = (): ScalarInterners => ({
 });
 
 /**
+ * One variant's interned thunk, built in a scope of its OWN.
+ *
+ * Each call captures one cache, one key and one factory and nothing else. A
+ * thunk written inline beside its siblings would instead capture the whole
+ * builder record, and an unresolved variant would keep its resolved siblings'
+ * factories reachable — the release half of the invariant `lazy.ts` states.
+ *
+ * The `as never` is the one place the interner's `unknown` value meets a kind's
+ * CONDITIONAL variant type (`F["array"] extends true ? … : …`), which no
+ * ternary can be proved to inhabit. That seam already existed; it was spelled
+ * twice per kind, sixteen times over, and is spelled once here.
+ */
+const internedVariant =
+  (
+    intern: (key: string | null, build: () => unknown) => unknown,
+    key: string | null,
+    build: () => unknown
+  ): (() => never) =>
+  () =>
+    intern(key, build) as never;
+
+/**
  * The tail every interned kind shares: pay-per-use materialization of the three
  * variants, with `update` and `filter` interned under the field's key.
  *
  * `create` is NOT interned — it carries the field's own default, nullability
  * and arity, so two fields share nothing there, and it keeps its exact type.
- *
- * The two `as never` casts are the one place the interner's `unknown` value
- * meets a kind's CONDITIONAL variant type (`F["array"] extends true ? … : …`),
- * which no ternary can be proved to inhabit. That seam already existed; it was
- * spelled twice per kind, sixteen times over, and is spelled twice here.
  */
 export const internedScalarSchemas = <T extends ScalarSchemas>(
   interners: ScalarInterners,
@@ -303,6 +320,6 @@ export const internedScalarSchemas = <T extends ScalarSchemas>(
   lazyScalarSchemas<T>({
     base: builders.base,
     create: builders.create,
-    update: () => interners.update(key, builders.update) as never,
-    filter: () => interners.filter(key, builders.filter) as never,
+    update: internedVariant(interners.update, key, builders.update),
+    filter: internedVariant(interners.filter, key, builders.filter),
   });
