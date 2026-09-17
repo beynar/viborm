@@ -197,7 +197,17 @@ export type PushSchema<M extends V.Schema, L extends V.Schema> = UnionSchema<
   [M[" vibInferred"]["1"]] | L[" vibInferred"]["1"]
 >;
 
-/** `set`, `push` and `unshift`, each taking one value or a whole list. */
+/**
+ * `set`, `push` and `unshift`, each taking one value or a whole list.
+ *
+ * The arm tuple is `readonly`, which is what `v.union`'s `const` type parameter
+ * infers and what every kind but one already spelled for itself. String's
+ * private `StringListUpdateSchema` wrote the tuple mutable, so a string LIST
+ * field's `update` is the one type this consolidation respelled — an internal
+ * one: `StringSchemas` is reachable from no package entry, and the inferred
+ * input and output are identical either way, pinned by
+ * `tests/types/scalars/scalar-family-spellings.core.types.ts`.
+ */
 export type ListUpdateSchema<
   S extends V.Schema,
   M extends V.Schema,
