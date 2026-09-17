@@ -39,6 +39,9 @@ The `v.*` primitives solve interop, inference, and runtime validation. `SchemaRe
 | `types.ts` | VibSchema, InferInput/Output, SchemaRegistry contract | Rarely |
 | `primitives/` | Standard Schema V1 primitives (`v.*`) | Adding a primitive |
 | `scalars/` | Scalar-state to scalar operation schemas | Adding scalar operation behavior |
+| `scalars/family.ts` | The shapes more than one scalar kind shares, and the interned pay-per-use tail | Changing a shape several kinds have |
+| `scalars/intern.ts` | The scalar intern KEY (flag bits, identifier domain) and the cache factory | Changing what makes two fields the same shape |
+| `scalars/negatable-filter.ts` | The recursive `not` wrapper every scalar filter carries | Changing how `not` nests |
 | `relations/` | Relation operation schemas with target-model thunks | Changing nested relation inputs |
 | `relations/nested-data-projection.ts` | Which target schema a nested payload writes into, per edge | Changing what a nesting context omits |
 | `relations/to-one-mutation-schema.ts` | The to-one composition lattice and its `exactlyOne` mode | Changing accepted operation combinations |
@@ -112,6 +115,36 @@ four scalar records with `lazyScalarSchemas`; it uses shared accessor functions
 and releases each factory after that variant resolves. General lazy records and
 `v.lazy`/`v.lazyRef` also release a successful factory while retaining the
 resolved value.
+
+### One Family Per Shape, One Intern Cache Per Kind
+
+`scalars/family.ts` owns every operation-schema shape that more than one scalar
+kind has: the ordered comparison filter (`in`/`notIn`/`lt`/`lte`/`gt`/`gte` then
+`equals`), the list filter (`has`/`hasEvery`/`hasSome`/`isEmpty` then `equals`),
+the arithmetic and set-only update bags, the list update bag, and the interned
+tail. A kind module names its member and list schemas and calls the family; it
+spells a shape for itself only where its language really differs — boolean has
+no order, blob and vector have no list arm, string narrows for a compact
+identifier, enum refuses ordering, decimal and json speak their own.
+
+Two rules hold that ownership together.
+
+**Entry ORDER is observable, so the families keep the `.extend()` sequencing.**
+The object validator iterates entries in insertion order and returns the FIRST
+issue, and `toJsonSchema` emits `properties` in that order. Today's order is an
+artifact of a module-level operator bag with `equals` appended after it; a
+rewrite that spells one canonical literal per kind would quietly reorder eight
+of the thirteen kinds. `tests/unit/scalars/_scalar-shape-census.ts` records the
+exact order of all twenty-four cases and is the pin.
+
+**The intern caches are PER KIND, and that is a correctness rule, not a
+detail.** `scalarInternKey` spells only the flag bits — nullable, array,
+withTimezone, and a string's identifier domain — and carries no kind at all. One
+cache shared across kinds would hand an `s.number()` field the validator built
+for an `s.int()` field, and every shape assertion in the estate would still
+pass, because the two trees are structurally identical and differ only in which
+values they admit. `createScalarInterners()` mints a private pair per module;
+`tests/unit/scalars/scalar-family.core.test.ts` is what refuses to share it.
 
 Each public operation owns its exact args language. In particular, `exist`
 accepts only its optional `where` clause; it must not reuse `count`, whose
@@ -474,7 +507,8 @@ This is rare - the existing primitives cover most cases.
 
 | Change | Location |
 |--------|----------|
-| Scalar filter/create/update behavior | `src/validation/scalars/{type}.ts` |
+| Scalar filter/create/update behavior, one kind only | `src/validation/scalars/{type}.ts` |
+| A filter or update shape several scalar kinds share | `src/validation/scalars/family.ts` |
 | Relation nested create/update/filter behavior | `src/validation/relations/` |
 | Model where/create/update/select/orderBy behavior | `src/validation/model/core/` |
 | Operation args (`findMany`, `create`, etc.) | `src/validation/model/args/` |
