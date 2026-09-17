@@ -19,8 +19,8 @@ import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { ForeignKeyError } from "@errors";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "big.js";
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
 const PAST_DOUBLE = "99999999999999.99";

@@ -70,20 +70,16 @@ Keep audited input as a string or `Decimal` end to end.
 
 ### Equality in tests
 
-Compare decimal values with `.eq()`, `.cmp()`, or another big.js comparison
-method. Do not use `===`: every selected scalar and list member is a fresh value.
+Compare decimal values with `.eq()`, `.cmp()`, `.lt()` and the rest. Do not use
+`===`: every selected scalar and list member is a fresh value.
 
 VibORM constructs results with the one `Decimal` constructor exported from
 `viborm`. A returned value therefore satisfies both `instanceof Decimal` and
-`value.constructor === Decimal`. Construction from a string reads no `Decimal`
-static at all — `DP`, `RM`, `NE` and `PE` reach only arithmetic and formatting,
-and `strict` reaches only primitive-number input — so no application setting can
-turn a stored exact value into something else. Application arithmetic then uses
-the complete current `Decimal` configuration, while built-in field-domain
-validation, SQL, storage, cache identity, migrations, result decoding, and
-database rounding remain configuration-independent.
+`value.constructor === Decimal`. The class has no configuration at all — no
+statics, nothing an application can set — so there is nothing that could turn a
+stored exact value into something else, in either direction.
 
-Use big.js comparison methods for the semantic assertion:
+Use those comparison methods for the semantic assertion:
 
 ```ts
 expect(row.total.eq(new Decimal("1.2"))).toBe(true);
@@ -91,18 +87,20 @@ expect(row.total.constructor).toBe(Decimal);
 ```
 
 `Decimal#toJSON()` returns a string for ordinary application JSON. VibORM does
-not depend on JSON or structured cloning to preserve a Decimal prototype.
+not depend on JSON or structured cloning to preserve a Decimal prototype — and
+a `Decimal` is not structured-cloneable, because its state is private: send
+`value.toString()` across a worker or a `structuredClone`-based boundary and
+rebuild the value on the other side.
 
 ## Custom validation
 
 `.schema()` observes a `Decimal`, not the private canonical text. It may refine
-that value or return another complete, bounded big.js numerical representation.
-big.js has no constructor-history witness at all — it has no `isDecimal`, and
-every constructor it builds shares one prototype — so VibORM validates and
-snapshots the observable numerical representation instead of claiming historical
-provenance. The field descriptor is validated last, so a custom schema cannot
-return a string, number, an incomplete or malformed representation, a value
-whose exponent or digit count is outside the renderable ceiling, or a value
+that value, brand it, or return another `Decimal` — including an instance of a
+subclass. A `Decimal` carries its state in a private field that only the
+constructor installs, so VibORM asks whether the value WAS constructed rather
+than inspecting what it looks like: `Object.create(Decimal.prototype)` passes
+`instanceof` and is refused. The field descriptor is validated last, so a custom
+schema cannot return a string, a number, a value of any other type, or a value
 outside the field domain.
 
 ```ts
@@ -111,7 +109,7 @@ import { custom } from "valibot";
 
 const positiveAmount = s
   .decimal({ precision: 10, scale: 2 })
-  .schema(custom<Decimal>((value) => value.isPositive()));
+  .schema(custom<Decimal>((value) => value.gt(0)));
 ```
 
 A literal `.default(...)` runs this validation and transformation once when the
@@ -231,11 +229,11 @@ Cache snapshots, operation identity, cursors, and relation keys use canonical
 private strings. Every cache hit reconstructs fresh public `Decimal` instances;
 the cache never clones a Decimal prototype.
 
-big.js configuration (`Decimal.DP`, `RM`, `NE`, `PE`, `strict`) can affect
-custom `.schema()` code and arithmetic your application performs on returned
-values. It cannot change VibORM's built-in
-field-domain validation, SQL, storage, cache identity, migrations, result
-decoding, or half-even database arithmetic.
+There is no configuration to get wrong: the value type has no statics, so
+nothing an application sets can reach field-domain validation, SQL, storage,
+cache identity, migrations, result decoding, or half-even database arithmetic —
+and nothing can reach the arithmetic your application performs either. `div`
+takes its fraction digits and its rounding as arguments.
 
 ## Descriptor migrations
 

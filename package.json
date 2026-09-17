@@ -253,9 +253,7 @@
     "@clack/prompts": "^0.7.0",
     "@opentelemetry/semantic-conventions": "^1.39.0",
     "@standard-schema/spec": "^1.0.0",
-    "@types/big.js": "7.0.0",
     "arktype": "^2.2.3",
-    "big.js": "7.0.1",
     "commander": "^12.0.0",
     "valibot": "^1.2.0"
   },

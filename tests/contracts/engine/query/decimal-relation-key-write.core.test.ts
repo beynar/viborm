@@ -15,10 +15,10 @@ import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import { Decimal } from "@src/index";
 import { referenceSql } from "@src/query-engine/write-engine/fragment-builders";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createSchemaRegistry } from "@validation";
-import Decimal from "big.js";
 import { beforeAll, describe, expect, test } from "vitest";
 
 const MONEY = Object.freeze({ precision: 16, scale: 2 });

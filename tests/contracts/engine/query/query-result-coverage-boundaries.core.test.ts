@@ -31,13 +31,13 @@ import {
 } from "@query-engine/result/scalar-structured-parser";
 import { EMPTY_ROW_RESULT_KEY } from "@query-engine/result-aliases";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   indexFor,
   parserFor,
   prepareSchema,
 } from "@tests/fixtures/query-scope";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const SPARSE_RESULT_PATTERN = /sparse/i;

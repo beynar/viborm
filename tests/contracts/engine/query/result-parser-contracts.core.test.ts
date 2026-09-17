@@ -15,8 +15,8 @@ import {
   RELATION_COUNTS_RESULT_KEY,
 } from "@query-engine/result-aliases";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
-import Decimal from "big.js";
 import { describe, expect, test, vi } from "vitest";
 
 const MALFORMED_RESULT_PATTERN = /result|payload|rows/i;

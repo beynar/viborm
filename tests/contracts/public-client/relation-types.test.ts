@@ -9,9 +9,9 @@ import type { BatchPayload } from "@client/exports";
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { DbNull, s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Decimal from "big.js";
 import {
   afterAll,
   beforeAll,

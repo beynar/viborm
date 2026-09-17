@@ -8,10 +8,10 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
 import { parseResult } from "@query-engine/result/ResultParser";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parserFor, prepareSchema } from "@tests/fixtures/query-scope";
 import { type JsonValue, v } from "@validation";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const ENUM_ERROR_PATTERN = /enum/i;
@@ -812,10 +812,10 @@ describe("decimal results are fresh exact values", () => {
     // Canonicalization is what makes text equality a value equality: `-0.00`
     // and `0` name one number, so a row key built from either is one key.
     expect(decimalAt("money", "-0.00").eq(0)).toBe(true);
-    // big.js keeps a minus on zero — `new Decimal("-0").s` is -1 — so a
-    // positive sign here witnesses that canonicalization stripped the sign
-    // BEFORE construction rather than that the library dropped it.
-    expect(decimalAt("money", "-0.00").s).toBe(1);
+    // The canonical spelling is what reaches the constructor, so an unsigned
+    // rendering here witnesses that canonicalization stripped the sign BEFORE
+    // construction — the value type has no second rule of its own.
+    expect(decimalAt("money", "-0.00").toString()).toBe("0");
     expect(decimalAt("money", "-0").eq(0)).toBe(true);
   });
 

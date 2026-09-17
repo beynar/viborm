@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decimal } from "@schema/scalars";
+import { Decimal } from "@src/index";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { parse as parseSchema } from "@validation";
 import {
@@ -30,19 +31,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import v from "@validation/primitives/v";
 import { getScalarSchemas } from "@validation/scalars";
-import Decimal from "big.js";
-import { afterEach, describe, expect, test } from "vitest";
-
-/**
- * A Decimal CANDIDATE: big.js has no construction witness at all, so family
- * membership is the one prototype every one of its constructors shares.
- */
-const forge = (internals: Record<string, unknown>): unknown =>
-  Object.assign(Object.create(Decimal.prototype), internals);
-
-/** A genuinely constructed Decimal whose public internals were corrupted. */
-const tamper = (internals: Record<string, unknown>): Decimal =>
-  Object.assign(new Decimal(1), internals);
+import { describe, expect, test } from "vitest";
 
 const parse = (value: unknown) =>
   v.decimal()["~standard"].validate(value) as
@@ -67,17 +56,6 @@ const inDomain = (
   v.decimal({ decimal: { precision, scale } })["~standard"].validate(value) as
     | { value: string }
     | { issues: unknown[] };
-
-afterEach(() => {
-  // Every configuration test below mutates the constructor an application owns.
-  // big.js has no `set`, and no `defaults: true`: the five statics are restored
-  // one by one to the values big.js ships.
-  Decimal.DP = 20;
-  Decimal.RM = 1;
-  Decimal.NE = -7;
-  Decimal.PE = 21;
-  Decimal.strict = false;
-});
 
 describe("decimal validation", () => {
   test("accepts exact decimal literals and keeps every digit", () => {
@@ -187,248 +165,79 @@ describe("decimal value boundary", () => {
   test("accepts a Decimal and renders it exactly", () => {
     expect(accepted(new Decimal("1.2300"))).toBe("1.23");
     expect(accepted(new Decimal("-0"))).toBe("0");
-    // A Decimal built from exponent notation is valid when its expanded value
-    // fits; the raw exponent STRING stays outside the grammar.
-    expect(accepted(new Decimal("1e21"))).toBe("1000000000000000000000");
+    // A Decimal built from a double whose own spelling is exponential is valid
+    // once expanded; the exponent STRING stays outside the grammar on both
+    // sides of the boundary, so the constructor refuses it too.
+    expect(accepted(new Decimal(1e21))).toBe("1000000000000000000000");
     expect(refused("1e21")).toBe(true);
+    expect(() => new Decimal("1e21")).toThrow(TypeError);
     expect(accepted(new Decimal("9007199254740993"))).toBe("9007199254740993");
   });
 
-  test("accepts a Decimal from a second constructor", () => {
-    // big.js's clone is a ZERO-ARGUMENT call of the constructor itself. Its
-    // instances share the one prototype object, so the captured family admits
-    // them and a differently configured constructor is not a foreign value.
-    const Foreign = Decimal();
-    Foreign.DP = 3;
-    Foreign.RM = 3;
-    expect(accepted(new Foreign("123456789012345678901234567890.5"))).toBe(
-      "123456789012345678901234567890.5"
-    );
+  test("constructs no non-finite value at all", () => {
+    // The refusal is the constructor's: there is no NaN Decimal and no infinite
+    // Decimal to hand this codec, so `canonicalizeDecimal` never sees one and
+    // the application learns about it at its own construction site.
+    expect(() => new Decimal(Number.NaN)).toThrow(TypeError);
+    expect(() => new Decimal(Number.POSITIVE_INFINITY)).toThrow(TypeError);
+    expect(() => new Decimal(Number.NEGATIVE_INFINITY)).toThrow(TypeError);
+    expect(() => new Decimal("abc")).toThrow(TypeError);
   });
 
-  test("big.js constructs no non-finite value at all", () => {
-    // The refusal moved into the library: there is no NaN Decimal and no
-    // infinite Decimal to hand this codec, so `canonicalizeDecimal` never sees
-    // one and the application learns about it at its own construction site.
-    expect(() => new Decimal(Number.NaN)).toThrow();
-    expect(() => new Decimal(Number.POSITIVE_INFINITY)).toThrow();
-    expect(() => new Decimal(Number.NEGATIVE_INFINITY)).toThrow();
-    expect(() => new Decimal("abc")).toThrow();
-  });
-
-  test("admits a complete representation and refuses incomplete forgeries", () => {
-    // big.js exposes no construction witness at all — no `isDecimal`, no tag —
-    // and its second constructors are intentionally accepted, which rules out
-    // constructor identity too. The boundary therefore validates the complete
-    // observable numerical representation. Empty and incomplete candidates are
-    // refused; a complete valid representation is accepted.
+  test("admits what the constructor built, and nothing shaped like it", () => {
+    // The witness is CONSTRUCTION, not shape: the private field is installed by
+    // the constructor and by nothing else, so there is no representation to
+    // forge and nothing to snapshot. A prototype-only object passes
+    // `instanceof` and is still refused.
     const empty = Object.create(Decimal.prototype);
     expect(empty).toBeInstanceOf(Decimal);
     expect(refused(empty)).toBe(true);
+    expect(canonicalizeDecimalValue(empty)).toBeUndefined();
 
-    const represented = forge({ s: 1, e: 3, c: [1, 2, 3, 4] });
-    expect(represented).toBeInstanceOf(Decimal);
-    expect(accepted(represented)).toBe("1234");
-
-    const incomplete = forge({ s: 1, e: 0 });
-    expect(incomplete).toBeInstanceOf(Decimal);
-    expect(refused(incomplete)).toBe(true);
-
-    // An ordinary object carrying the same field names is not a candidate: it
-    // is outside the one prototype family, which is the only witness there is.
+    // An ordinary object carrying the internals a decimal might have is not a
+    // candidate either, in either direction.
     const ordinary = { s: 1, e: 0, c: [1] };
     expect(ordinary).not.toBeInstanceOf(Decimal);
     expect(refused(ordinary)).toBe(true);
     expect(canonicalizeDecimalValue(ordinary)).toBeUndefined();
+
+    // A SUBCLASS is admitted: the constructor ran, so the value is exact, and
+    // branding the value type is what a custom schema is allowed to do.
+    class Money extends Decimal {}
+    expect(accepted(new Money("1.50"))).toBe("1.5");
   });
 
-  test("refuses internals that are not the ones big.js builds", () => {
-    // The render is a DIGIT CONCATENATION over the candidate's own coefficient,
-    // so a forged member is written into the canonical text verbatim and the
-    // canonical reducer then passes that non-numeric text straight through.
-    expect(canonicalizeDecimal(tamper({ s: 1, e: 0, c: [Number.NaN] }))).toBe(
-      undefined // would have been "NaN"
-    );
-    // An empty coefficient renders no digits: empty text names no number.
-    expect(canonicalizeDecimal(tamper({ s: 1, e: 0, c: [] }))).toBe(undefined);
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: [1, -1] }))
-    ).toBeUndefined(); // would have been "1.-1"
-    // big.js packs ONE digit per member, so anything above nine is two
-    // characters of text rather than a digit.
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: [10] }))
-    ).toBeUndefined();
-    // A sign that is neither 1 nor -1 names no direction, and the render writes
-    // the value as positive — a number the candidate never carried.
-    expect(canonicalizeDecimal(tamper({ s: 0, e: 0, c: [1] }))).toBeUndefined();
-    // The coefficient is read as an array or not at all.
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: { slice: () => "1" } }))
-    ).toBeUndefined();
-  });
-
-  test("a trailing zero digit is not refused: it names the same number", () => {
-    // Under decimal.js a trailing zero WORD was a safety refusal — the loop
-    // that stripped it divided by ten forever. big.js's render is total, and
-    // a coefficient big.js would have written as [1] with e 1 renders from
-    // [1, 0] to the very same canonical text, so there is no unique coverage
-    // left to name and no guard here.
-    expect(canonicalizeDecimal(tamper({ s: 1, e: 1, c: [1, 0] }))).toBe(
-      canonicalizeDecimal(new Decimal("10"))
-    );
-    expect(canonicalizeDecimal(tamper({ s: 1, e: 0, c: [0, 0] }))).toBe("0");
-  });
-
-  test("refuses a forged internal WITHOUT rendering it", () => {
-    // The snapshot has to complete BEFORE any text is built, because none of
-    // these ever comes back to be judged afterwards.
-    //
-    //   c: [null]  — `null` is written into the digit text verbatim
-    //   e: 1.5     — a fractional exponent never terminates the zero-run that
-    //                the plain rendering repeats
-    //   1e9000000000 — a LEGITIMATE Decimal from the exported constructor,
-    //                  whose plain rendering is a nine-gigabyte string: an
-    //                  out-of-memory crash, not an answer. big.js clamps no
-    //                  exponent, so MAX_RENDER_EXPONENT is the only bound.
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: [null] }))
-    ).toBeUndefined();
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 1.5, c: [1] }))
-    ).toBeUndefined();
-    const huge = new Decimal("1e9000000000");
-    expect(huge).toBeInstanceOf(Decimal);
-    expect(huge.e).toBe(9_000_000_000);
-    expect(canonicalizeDecimal(huge)).toBeUndefined();
-    // The control: a thousand-digit value — the widest column PostgreSQL
-    // stores — still renders every digit.
-    expect(canonicalizeDecimal(new Decimal("1e999"))).toHaveLength(1000);
-
-    // One digit per coefficient member, so the bound is a DIGIT count:
-    // MAX_RENDER_EXPONENT + 1 = 1_000_001 is the widest renderable integer.
-    const tooManyDigits = new Array<number>(1_000_002);
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: tooManyDigits }))
-    ).toBeUndefined();
-
-    const hostileLength = new Proxy([1], {
-      get(target, property, receiver) {
-        if (property === "length") return "1";
-        return Reflect.get(target, property, receiver);
-      },
-    });
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: hostileLength }))
-    ).toBeUndefined();
-
-    const sparseDigits = new Array<number>(1);
-    expect(
-      canonicalizeDecimal(tamper({ s: 1, e: 0, c: sparseDigits }))
-    ).toBeUndefined();
-  });
-
-  test("snapshots coefficient digits before rendering trusted data", () => {
-    // No caller method participates in the snapshot: the codec reads each dense
-    // coefficient digit once into trusted storage and renders only that plain
-    // snapshot, so a caller-owned `slice` never runs.
-    let reads = 0;
-    let sliceCalls = 0;
-    const shifting: unknown[] = [1];
-    Object.defineProperty(shifting, "0", {
+  test("refuses a wrapper around a Decimal, however faithful", () => {
+    // A private field is not forwarded through a Proxy, so a proxy over a
+    // Decimal is not a Decimal — including a revoked one, which answers the
+    // brand check without trapping and is therefore a refusal rather than an
+    // exception escaping the result parser.
+    const value = new Decimal("1.5");
+    expect(refused(new Proxy(value, {}))).toBe(true);
+    const revocable = Proxy.revocable(value, {});
+    revocable.revoke();
+    expect(refused(revocable.proxy)).toBe(true);
+    expect(canonicalizeDecimalValue(revocable.proxy)).toBeUndefined();
+    const hostile = new Proxy(value, {
       get() {
-        reads += 1;
-        return reads === 1 ? 1 : Number.NaN;
+        throw new Error("get trap");
       },
-      enumerable: true,
-      configurable: true,
-    });
-    Object.defineProperty(shifting, "slice", {
-      value: () => {
-        sliceCalls += 1;
-        throw new Error("caller slice ran");
-      },
-      configurable: true,
-    });
-    const shifty = tamper({ s: 1, e: 0, c: shifting });
-    expect(canonicalizeDecimal(shifty)).toBe("1");
-    expect(reads).toBe(1);
-    expect(sliceCalls).toBe(0);
-  });
-
-  test("does not invoke a hostile coefficient iterator", () => {
-    let iteratorReads = 0;
-    const words = new Proxy([1], {
-      get(target, property, receiver) {
-        if (property === Symbol.iterator) {
-          iteratorReads += 1;
-          throw new Error("iterator trap");
-        }
-        return Reflect.get(target, property, receiver);
+      has() {
+        throw new Error("has trap");
       },
     });
-    const hostile = tamper({ c: words });
-    expect(canonicalizeDecimal(hostile)).toBe("1");
-    expect(iteratorReads).toBe(0);
+    expect(refused(hostile)).toBe(true);
   });
 
-  test("renders through no globally patched array iterator", () => {
-    // The snapshot is a fresh array, but `Array.prototype[Symbol.iterator]` is
-    // a global an application can replace: a render that walked the digits
-    // through it would be rendering whatever that hook yields, into the one
-    // canonical text cache keys, row keys, SQL literals and DDL defaults use.
-    const original = Array.prototype[Symbol.iterator];
-    let rendered: string | undefined;
-    let materialized: string | undefined;
-    try {
-      Object.defineProperty(Array.prototype, Symbol.iterator, {
-        configurable: true,
-        *value(this: unknown[]) {
-          for (let index = 0; index < this.length; index++) {
-            const member = this[index];
-            yield typeof member === "number" ? 9 : member;
-          }
-        },
-        writable: true,
-      });
-      rendered = canonicalizeDecimal(new Decimal("123.45"));
-      materialized = canonicalizeMaterializedDecimal(toDecimal("-1.5"));
-    } finally {
-      Object.defineProperty(Array.prototype, Symbol.iterator, {
-        configurable: true,
-        value: original,
-        writable: true,
-      });
-    }
-    expect(rendered).toBe("123.45");
-    expect(materialized).toBe("-1.5");
-  });
-
-  test("reads each hostile Decimal datum once", () => {
-    const reads = new Map<PropertyKey, number>();
-    const candidate = new Proxy(new Decimal("1"), {
-      get(target, property, receiver) {
-        if (property === "s" || property === "e" || property === "c") {
-          reads.set(property, (reads.get(property) ?? 0) + 1);
-        }
-        return Reflect.get(target, property, receiver);
-      },
+  test("an unconstructed Decimal-shaped value is refused at every boundary", () => {
+    // `"NaN"` or an empty spelling would otherwise become the ONE private
+    // representation cursors, row keys, cache keys, SQL literals and DDL
+    // defaults are all keyed on.
+    const forged = Object.assign(Object.create(Decimal.prototype), {
+      s: 1,
+      e: 0,
+      c: [Number.NaN],
     });
-
-    expect(canonicalizeDecimal(candidate)).toBe("1");
-    expect(reads).toEqual(
-      new Map<PropertyKey, number>([
-        ["s", 1],
-        ["e", 1],
-        ["c", 1],
-      ])
-    );
-  });
-
-  test("an invalid Decimal representation is refused at every boundary", () => {
-    // `"NaN"` would otherwise become the ONE private representation cursors,
-    // row keys, cache keys, SQL literals and DDL defaults are all keyed on.
-    const forged = forge({ s: 1, e: 0, c: [Number.NaN] });
     const schemas = getScalarSchemas(
       decimal({ precision: 10, scale: 2 })["~"].state
     );
@@ -448,37 +257,6 @@ describe("decimal value boundary", () => {
     expect(
       describeDescriptorRefusal("NaN", { precision: 10, scale: 2 })
     ).toBeUndefined();
-  });
-
-  test("turns hostile Decimal identification and snapshot phases into refusals", () => {
-    const revocable = Proxy.revocable(new Decimal("1"), {});
-    revocable.revoke();
-    expect(refused(revocable.proxy)).toBe(true);
-    expect(canonicalizeDecimalValue(revocable.proxy)).toBeUndefined();
-
-    let constructionReads = 0;
-    const hostileConstruction = new Proxy(new Decimal("1"), {
-      get(target, property, receiver) {
-        if (property === "s") {
-          constructionReads += 1;
-          throw new Error("construction trap");
-        }
-        return Reflect.get(target, property, receiver);
-      },
-    });
-    expect(refused(hostileConstruction)).toBe(true);
-    expect(constructionReads).toBe(1);
-
-    const hostileCheck = tamper({
-      s: 1,
-      e: 0,
-      c: new Proxy([1], {
-        get() {
-          throw new Error("check trap");
-        },
-      }),
-    });
-    expect(refused(hostileCheck)).toBe(true);
   });
 
   test("public parse contains external decimal-schema failures", () => {
@@ -525,7 +303,7 @@ describe("decimal value boundary", () => {
     expect(a.constructor).toBe(Decimal);
   });
 
-  test("renders every exponent and digit position from trusted data", () => {
+  test("renders every digit position from the value's own parts", () => {
     for (const { input, canonical } of [
       { input: "0", canonical: "0" },
       { input: "-0", canonical: "0" },
@@ -546,38 +324,15 @@ describe("decimal value boundary", () => {
     }
   });
 
-  test("never consults the forgeable own `constructor` property", () => {
-    // big.js writes `constructor` as an OWN property of every instance
-    // (`x.constructor = Big`), so it is forgeable in both directions and says
-    // nothing about the family. The captured prototype is the only witness.
-    const lying = Object.assign(new Decimal("1.25"), { constructor: Object });
-    expect(canonicalizeDecimal(lying)).toBe("1.25");
-    expect(canonicalizeDecimalValue(lying)).toBe("1.25");
-
-    const impostor = { s: 1, e: 0, c: [1], constructor: Decimal };
-    expect(canonicalizeDecimal(impostor)).toBeUndefined();
-    expect(canonicalizeDecimalValue(impostor)).toBeUndefined();
-  });
-
-  test("returns the exported constructor's configured arithmetic", () => {
-    // `Big.DP` is DECIMAL PLACES, not significant digits, and it reaches only
-    // division, sqrt and negative powers.
-    Decimal.DP = 3;
-    Decimal.RM = 0;
-    const value = toDecimal("1");
-    expect(value.div("3").toString()).toBe("0.333");
-    expect(Decimal.DP).toBe(3);
-    expect(Decimal.RM).toBe(0);
-  });
-
-  test("keeps big.js's ordinary enumerable value shape", () => {
+  test("carries no own property for an application to overwrite", () => {
+    // The two fields are private, so a caller that assigns over the internals
+    // a decimal library used to expose writes ordinary own properties that no
+    // reader of this value ever consults.
     const value = toDecimal("1.234");
-    const control = new Decimal("1.234");
-    // big.js writes an own `constructor` beside the three numeric internals.
-    expect(Object.keys(control)).toEqual(["s", "e", "c", "constructor"]);
-    expect(Object.keys(value)).toEqual(Object.keys(control));
-    expect(value).toEqual(control);
-    expect(value.eq(control)).toBe(true);
+    expect(Object.keys(value)).toEqual([]);
+    Object.assign(value, { s: -1, e: 9, c: [9] });
+    expect(canonicalizeMaterializedDecimal(value)).toBe("1.234");
+    expect(value.toString()).toBe("1.234");
   });
 
   test("canonicalizeDecimalValue admits only the Decimal family", () => {
@@ -587,92 +342,16 @@ describe("decimal value boundary", () => {
     expect(canonicalizeDecimalValue("1.2")).toBeUndefined();
     expect(canonicalizeDecimalValue(1.2)).toBeUndefined();
     expect(
-      canonicalizeDecimalValue(forge({ s: 1, e: 1_000_001, c: [1] }))
+      canonicalizeDecimalValue(Object.create(Decimal.prototype))
     ).toBeUndefined();
-  });
-});
-
-describe("big.js configuration cannot move a VibORM answer", () => {
-  // The public constructor is the application's to configure (plan 2.4), so
-  // every knob that could move a value is set hostile here and the same answers
-  // are demanded. big.js's five statics split cleanly: `NE`/`PE` move the
-  // library's own RENDERING, `DP`/`RM` move its division and rounding, and
-  // `strict` moves what its CONSTRUCTOR accepts. None of the three reaches a
-  // VibORM answer, and each half fails differently.
-  const SAMPLES = ["0.0000001", "1000000000000000000000", "9007199254740993"];
-  const answers = () => [
-    ...SAMPLES.map((text) => canonicalizeDecimal(text)),
-    ...SAMPLES.map((text) => canonicalizeDecimal(toDecimal(text))),
-    ...SAMPLES.map((text) => canonicalizeMaterializedDecimal(toDecimal(text))),
-    // biome-ignore lint/suspicious/useNumberToFixedDigitsArgument: big.js, not Number — zero-argument `toFixed()` is the whole value in normal notation, ignores NE/PE, and rounds nothing; a digit count would round it away.
-    ...SAMPLES.map((text) => toDecimal(text).toFixed()),
-    accepted("0.0000001"),
-    JSON.stringify(inDomain(30, 10, "0.0000001")),
-  ];
-
-  test("the application's rendering settings do not reach VibORM", () => {
-    const before = answers();
-    Decimal.NE = -3;
-    Decimal.PE = 3;
-    // Control: these settings really do move the rendering VibORM refuses to
-    // use — `toString`/`toJSON` follow NE and PE and emit exponent notation.
-    expect(new Decimal("9007199254740993").toString()).toBe(
-      "9.007199254740993e+15"
-    );
-    expect(new Decimal("0.0000001").toString()).toBe("1e-7");
-    expect(new Decimal("0.0000001").toJSON()).toBe("1e-7");
-    expect(answers()).toEqual(before);
-  });
-
-  test("the application's division settings do not reach VibORM", () => {
-    const before = answers();
-    Decimal.DP = 0;
-    Decimal.RM = 3;
-    // Control: division and rounding really do move under DP and RM.
-    expect(new Decimal("1").div("3").toString()).toBe("1");
-    expect(new Decimal("1.4").round().toString()).toBe("2");
-    expect(answers()).toEqual(before);
-  });
-
-  test("strict mode does not stop VibORM constructing or canonicalizing", () => {
-    const before = answers();
-    Decimal.strict = true;
-    // Control: strict mode really does reject a primitive number and refuse
-    // the implicit coercions an application might rely on.
-    expect(() => new Decimal(1.5)).toThrow();
-    expect(() => new Decimal("1.5").valueOf()).toThrow();
-    // VibORM constructs from canonical STRINGS only, which strict mode admits.
-    expect(answers()).toEqual(before);
-    expect(toDecimal("1.5").eq(new Decimal("1.5"))).toBe(true);
-    expect(accepted(new Decimal("1.50"))).toBe("1.5");
-  });
-
-  test("later arithmetic on a VibORM value follows the application's settings", () => {
-    // The other direction of the same contract: VibORM hands back an instance
-    // of the constructor the application owns, so the application's `DP`/`RM`
-    // govern every operation it performs on that instance afterwards.
-    const value = toDecimal("1");
-    Decimal.RM = 0;
-    Decimal.DP = 2;
-    expect(value.div("3").toString()).toBe("0.33");
-    Decimal.DP = 5;
-    expect(value.div("3").toString()).toBe("0.33333");
-  });
-
-  test("bounds the trusted cache renderer before it renders", () => {
-    const outsideBound = toDecimal("1");
-    Object.defineProperty(outsideBound, "e", { value: 1_000_001 });
-    expect(canonicalizeMaterializedDecimal(outsideBound)).toBeUndefined();
-
-    expect(canonicalizeMaterializedDecimal("1")).toBeUndefined();
-    const malformedExponent = toDecimal("1");
-    Object.defineProperty(malformedExponent, "e", { value: "0" });
-    expect(canonicalizeMaterializedDecimal(malformedExponent)).toBeUndefined();
   });
 
   test("never consults mutable Decimal prototype renderers", () => {
-    // ONE prototype object backs every big.js constructor, so replacing a
-    // method here replaces it for the whole family at once.
+    // ONE prototype object backs every instance, and it is an object an
+    // application can write to. The codec reads the value's private fields
+    // instead, so a patched renderer moves the application's own output and
+    // never the canonical text cache keys, row keys, SQL literals and DDL
+    // defaults are built from.
     const RENDERERS = ["toFixed", "toString", "valueOf", "toJSON"] as const;
     const descriptors = RENDERERS.map(
       (name) =>
@@ -690,12 +369,13 @@ describe("big.js configuration cannot move a VibORM answer", () => {
         });
       }
       // Control: the library's own rendering is now a lie.
-      expect(new Decimal("1").toFixed()).toBe("2");
       expect(new Decimal("1").toString()).toBe("2");
+      expect(JSON.stringify(new Decimal("1"))).toBe('"2"');
       expect(canonicalizeDecimal(new Decimal("1"))).toBe("1");
       expect(canonicalizeDecimal(new Decimal("-1"))).toBe("-1");
       expect(canonicalizeMaterializedDecimal(toDecimal("1"))).toBe("1");
       expect(canonicalizeMaterializedDecimal(toDecimal("-1"))).toBe("-1");
+      expect(canonicalizeDecimalValue(new Decimal("1.20"))).toBe("1.2");
     } finally {
       for (const [name, descriptor] of descriptors) {
         if (descriptor) {
@@ -703,6 +383,16 @@ describe("big.js configuration cannot move a VibORM answer", () => {
         }
       }
     }
+  });
+
+  test("has nothing an application can configure", () => {
+    // The whole class of "a global setting moved a stored value" defects is
+    // gone by construction: there is no static to set, in either direction.
+    expect(Object.getOwnPropertyNames(Decimal).sort()).toEqual([
+      "length",
+      "name",
+      "prototype",
+    ]);
   });
 });
 
@@ -792,8 +482,7 @@ describe("custom schema over the decimal value", () => {
     });
     expect(schema["~standard"].validate("1.50")).toEqual({ value: "1.5" });
     expect(seen[0]).toBeInstanceOf(Decimal);
-    // biome-ignore lint/suspicious/useNumberToFixedDigitsArgument: big.js, not Number — a digit count would round the value away.
-    expect((seen[0] as Decimal).toFixed()).toBe("1.5");
+    expect((seen[0] as Decimal).toString()).toBe("1.5");
   });
 
   test("the declared domain validates whatever the schema returned, LAST", () => {
@@ -805,16 +494,10 @@ describe("custom schema over the decimal value", () => {
     expect(schema["~standard"].validate("1.00")).toHaveProperty("issues");
   });
 
-  test("refuses a return that is not a complete Decimal representation", () => {
-    for (const returned of [
-      "1.5",
-      1.5,
-      { s: 1, e: 0, c: [1] },
-      forge({}),
-      forge({ s: 1, e: 0 }),
-      forge({ s: 1, e: 0, c: [10] }),
-      forge({ s: 1, e: 1_000_001, c: [1] }),
-    ]) {
+  test("refuses a return that is not a Decimal", () => {
+    // Three arms, because the family is decided by construction: a string, a
+    // number, and a value wearing the prototype the constructor never ran for.
+    for (const returned of ["1.5", 1.5, Object.create(Decimal.prototype)]) {
       const schema = v.decimal({
         decimal: { precision: 10, scale: 2 },
         schema: observe(() => ({ value: returned })),
@@ -1017,12 +700,11 @@ describe("provider physical representation", () => {
     expect(coefficient).toBeInstanceOf(Decimal);
     expect(coefficient?.eq("1.2")).toBe(true);
     expect(coefficientZero?.eq(0)).toBe(true);
-    // big.js carries a minus on zero (`new Decimal("-0").s` is -1), so a
-    // positive sign here says the codec spelled the canonical "0" it was given,
-    // not that the library lost the sign.
-    expect(coefficientZero?.s).toBe(1);
+    // Zero has no sign to carry: the canonical spelling the codec hands the
+    // constructor is "0", and the value renders it back unsigned.
+    expect(coefficientZero?.toString()).toBe("0");
     expect(zero?.eq(0)).toBe(true);
-    expect(zero?.s).toBe(1);
+    expect(zero?.toString()).toBe("0");
     expect(materializePhysicalDecimal(1.2, money, "text")).toBeUndefined();
     expect(
       materializePhysicalDecimal("99999999999999999", money, "coefficient")
@@ -1249,10 +931,10 @@ describe("the JSON list container", () => {
 describe("the documented value surface", () => {
   /**
    * The migration note is the only inventory an application has of the value
-   * surface it is porting to, and `big.js` is pinned exactly — so the note can
-   * only drift by being written wrong. It first claimed 25 methods and listed
-   * 24 names, silently omitting `add`, `sub` and `mul`, which a reader ported
-   * away from as removals although they exist as aliases.
+   * surface it is porting to, and the class is now VibORM's own — so the note
+   * and the prototype are two spellings of one fact and either can drift from
+   * the other. An earlier note claimed 25 methods and listed 24 names, silently
+   * omitting three that a reader then ported away from as removals.
    */
   const noteSection = (marker: string): string => {
     const changelog = readFileSync(
@@ -1279,13 +961,13 @@ describe("the documented value surface", () => {
     )
   );
 
-  test("lists exactly the prototype big.js ships", () => {
+  test("lists exactly the prototype VibORM ships", () => {
     expect([...documentedNames(noteSection("Kept:"))].sort()).toEqual(
       [...prototypeMembers].sort()
     );
   });
 
-  test("calls gone only what big.js genuinely dropped", () => {
+  test("calls gone only what the value type genuinely dropped", () => {
     const gone = [...documentedNames(noteSection("- **Gone:**"))];
     expect(gone.length).toBeGreaterThan(0);
     expect(gone.filter((name) => prototypeMembers.has(name))).toEqual([]);

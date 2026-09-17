@@ -23,10 +23,10 @@ import { type AnyFieldRef, FIELD_REF_BRAND } from "@schema/field-ref";
 import { decimal, int, number } from "@schema/scalars";
 import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { sql } from "@sql";
+import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type InferInput, type InferOutput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
-import Decimal from "big.js";
 import {
   type Brand,
   brand,
@@ -1181,9 +1181,9 @@ describe("Decimal Scalar", () => {
         expect(parse(schemas.base, "abc").issues).toBeDefined();
         expect(parse(schemas.base, Number.NaN).issues).toBeDefined();
         expect(parse(schemas.base, null).issues).toBeDefined();
-        // big.js constructs no NaN at all — `new Decimal(Number.NaN)` throws —
-        // so the Decimal-family value that reaches this boundary is a forged
-        // one with an incomplete representation.
+        // The constructor builds no NaN at all — `new Decimal(Number.NaN)`
+        // throws — so the Decimal-typed value that reaches this boundary is one
+        // wearing the prototype the constructor never ran for.
         expect(() => new Decimal(Number.NaN)).toThrow();
         expect(
           parse(schemas.base, Object.create(Decimal.prototype)).issues
@@ -1489,7 +1489,9 @@ describe("Decimal Scalar", () => {
     describe("whole-cent price validation", () => {
       const scalar = decimal(MONEY).schema(
         decimalValueSchema(
-          (value) => value.times(100).mod(1).eq(0),
+          // Whole cents: the value times a hundred is an integer, which is the
+          // same question as "rounding it to zero places changes nothing".
+          (value) => value.times(100).eq(value.times(100).toFixed(0)),
           "a price must be a whole number of cents"
         )
       );

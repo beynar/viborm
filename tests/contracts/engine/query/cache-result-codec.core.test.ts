@@ -13,6 +13,7 @@ import { ReadOperation } from "@query-engine/write-engine/ReadOperation";
 import { s } from "@schema";
 import type { Model } from "@schema/model";
 import { createOfficialCacheNamespace } from "@src/cache/key";
+import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   indexFor,
@@ -21,10 +22,32 @@ import {
 } from "@tests/fixtures/query-scope";
 import type { JsonValue } from "@validation";
 import { createSchemaRegistry } from "@validation";
+import {
+  materializePhysicalDecimal,
+  materializePhysicalWidenedSum,
+  toDecimal,
+} from "@validation/primitives/decimal-codec";
 import { validateJson } from "@validation/primitives/json";
 import { isRecord } from "@validation/value-guards";
-import Decimal from "big.js";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+
+/**
+ * The codec's three public-Decimal entries, spied so a construction can be
+ * counted. Each delegates to the real implementation, so nothing this file
+ * exercises behaves differently for being counted.
+ */
+vi.mock("@validation/primitives/decimal-codec", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@validation/primitives/decimal-codec")
+    >();
+  return {
+    ...actual,
+    materializePhysicalDecimal: vi.fn(actual.materializePhysicalDecimal),
+    materializePhysicalWidenedSum: vi.fn(actual.materializePhysicalWidenedSum),
+    toDecimal: vi.fn(actual.toDecimal),
+  };
+});
 
 const INCOMPLETE_CODEC_PATTERN = /incomplete/i;
 
@@ -206,37 +229,27 @@ function requireDecimal(value: unknown): Decimal {
 }
 
 /**
- * How many Decimals `run` CONSTRUCTS through the one exported constructor.
+ * How many public Decimals `run` CONSTRUCTS.
  *
- * A constructed value receives its coefficient by ordinary assignment, so one
- * accessor on the captured Decimal prototype observes each construction. The
- * setter installs the ordinary own property it replaced, so the counted
- * instance is byte-identical to an uncounted one.
+ * The value's state is private, so a construction cannot be observed on the
+ * instance. It is observed at the codec instead: these three functions are the
+ * only ones that build a public Decimal, each wraps the one construction seam,
+ * and every caller in the engine reaches the value type through them.
  */
 function countDecimalConstructions(run: () => void): number {
-  let count = 0;
-  // big.js names the coefficient `c`, and every construction path writes it
-  // exactly once — `parse` for a string or number, `n.c.slice()` for a copy.
-  const previous = Object.getOwnPropertyDescriptor(Decimal.prototype, "c");
-  Object.defineProperty(Decimal.prototype, "c", {
-    configurable: true,
-    set(this: object, value: unknown) {
-      count += 1;
-      Object.defineProperty(this, "c", {
-        value,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-    },
-  });
-  try {
-    run();
-  } finally {
-    if (previous) Object.defineProperty(Decimal.prototype, "c", previous);
-    else Reflect.deleteProperty(Decimal.prototype, "c");
-  }
-  return count;
+  const spies = [
+    vi.mocked(toDecimal),
+    vi.mocked(materializePhysicalDecimal),
+    vi.mocked(materializePhysicalWidenedSum),
+  ];
+  for (const spy of spies) spy.mockClear();
+  run();
+  return spies.reduce(
+    (total, spy) =>
+      total +
+      spy.mock.results.filter((result) => result.value !== undefined).length,
+    0
+  );
 }
 
 /** Overwrite one stored aggregate leaf, as a hostile store would hold it. */
@@ -368,40 +381,39 @@ describe("compiled detached cache result codec", () => {
     expect(first.ratio).toBe(1.5);
   });
 
-  test("snapshots from trusted internals, not mutable Decimal renderers", () => {
+  test("snapshots from the value's own parts, not mutable Decimal renderers", () => {
     const codec = codecFor(scalarModel, "findMany", {
       select: { decimal: true },
     });
-    const toFixedDescriptor = Object.getOwnPropertyDescriptor(
-      Decimal.prototype,
-      "toFixed"
-    );
-    const isNegDescriptor = Object.getOwnPropertyDescriptor(
-      Decimal.prototype,
-      "isNeg"
-    );
-    const isZeroDescriptor = Object.getOwnPropertyDescriptor(
-      Decimal.prototype,
-      "isZero"
+    // One prototype object backs every instance, and an application can write
+    // to it. A cache key rendered through it would be whatever the application
+    // put there.
+    const RENDERERS = ["toString", "toJSON", "valueOf"] as const;
+    const descriptors = RENDERERS.map(
+      (name) =>
+        [
+          name,
+          Object.getOwnPropertyDescriptor(Decimal.prototype, name),
+        ] as const
     );
     try {
-      Decimal.prototype.toFixed = () => "2";
-      Decimal.prototype.isNeg = () => true;
-      Decimal.prototype.isZero = () => false;
+      for (const name of RENDERERS) {
+        Object.defineProperty(Decimal.prototype, name, {
+          configurable: true,
+          writable: true,
+          value: () => "2",
+        });
+      }
       const snapshot = portableSnapshot(
         codec.snapshot([{ decimal: new Decimal("1.20") }])
       );
       expect(JSON.stringify(snapshot)).toContain('"1.2"');
       expect(JSON.stringify(snapshot)).not.toContain('"2"');
     } finally {
-      if (toFixedDescriptor) {
-        Object.defineProperty(Decimal.prototype, "toFixed", toFixedDescriptor);
-      }
-      if (isNegDescriptor) {
-        Object.defineProperty(Decimal.prototype, "isNeg", isNegDescriptor);
-      }
-      if (isZeroDescriptor) {
-        Object.defineProperty(Decimal.prototype, "isZero", isZeroDescriptor);
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor) {
+          Object.defineProperty(Decimal.prototype, name, descriptor);
+        }
       }
     }
   });
@@ -414,10 +426,13 @@ describe("compiled detached cache result codec", () => {
       codec.snapshot([{ decimal: new Decimal("7.5") }])
     );
     const hit = requireRecord(requireRows(codec.materialize(snapshot))[0]);
-    // big.js values are conventionally immutable, not frozen: a caller can
-    // still write the internals of the instance it was handed. The next hit
-    // reads the stored TEXT, so nothing it did survives.
-    Object.assign(requireDecimal(hit.decimal), { c: [9], e: 0 });
+    // The value's own state is private, so a caller writing the internals a
+    // decimal library used to expose writes ordinary own properties that
+    // nothing reads — and the next hit reads the stored TEXT regardless.
+    const handed = requireDecimal(hit.decimal);
+    expect(Object.keys(handed)).toEqual([]);
+    Object.assign(handed, { c: [9], e: 0 });
+    expect(handed.eq("7.5")).toBe(true);
 
     const next = requireRecord(requireRows(codec.materialize(snapshot))[0]);
     expect(requireDecimal(next.decimal).eq("7.5")).toBe(true);
@@ -429,15 +444,13 @@ describe("compiled detached cache result codec", () => {
     });
     // A parsed result carries the value object; a string, a number and a
     // decimal-shaped document are all incoherent results, not values to accept.
-    // The last two are the two halves of that admission: an ordinary object is
-    // outside the one prototype family big.js gives its values, and a candidate
-    // inside the family still carries only the representation it was given —
-    // `[12]` is two characters of text where big.js packs one digit.
+    // The last one wears the prototype and passes `instanceof`, and is still
+    // refused: the constructor never ran for it, so it has no value to read.
     for (const value of [
       "1.2",
       1.2,
       { s: 1, e: 0, c: [1, 2] },
-      Object.assign(Object.create(Decimal.prototype), { s: 1, e: 0, c: [12] }),
+      Object.create(Decimal.prototype),
     ]) {
       expectBoundary(() => codec.snapshot([{ decimal: value }]), "snapshot");
     }

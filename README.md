@@ -404,26 +404,23 @@ and, for a table that already holds text,
 
 ## Runtime Dependencies
 
-VibORM installs four runtime dependencies for the core package, and one CLI-only
-pair:
+VibORM installs two runtime dependencies for the core package, and one CLI-only
+pair — and the built `dist/` imports NONE of them:
 
 | Package | Why it is a dependency |
 |---|---|
-| `big.js` (pinned `7.0.1`) | The exact decimal value type. `Decimal` **is** `Big` |
-| `@types/big.js` (pinned `7.0.0`) | big.js ships no declarations, and VibORM's published `.d.mts` names the module — without the types a consumer would silently see `any` under `skipLibCheck`. That is why a `@types/*` package is a **runtime** dependency here and not a devDependency |
 | `@standard-schema/spec` | Types only — the interface every validator here speaks |
 | `@opentelemetry/semantic-conventions` | Attribute names for the instrumentation layer |
 | `@clack/prompts`, `commander` | The CLI only |
 
-`big.js` is the only one the built `dist/` imports at all (`valibot` and
-`arktype` are declared but never imported by it: the `v.*` primitives are
-VibORM's own, and a caller's `.schema()` brings its own validator).
+There is no value-type dependency and no hash dependency: the exact decimal and
+SHA3-512 are VibORM's own, and the `v.*` validation primitives always were.
 
 What left the graph, and what replaced it:
 
 | Removed | Replaced by |
 |---|---|
-| `decimal.js` | `big.js` — a deliberate API change, documented in the changelog |
+| `decimal.js` | VibORM's own `Decimal` over a `BigInt` coefficient — a deliberate API change, documented in the changelog |
 | `@paralleldrive/cuid2` | VibORM's own CUID2, byte-identical to it (proven by a differential test against the pinned package, which remains a devDependency for exactly that test) |
 | `nanoid` | VibORM's own NanoID |
 | `ulidx` | VibORM's own ULID, with unbiased randomness and the same monotonicity |

@@ -235,7 +235,6 @@ const LIBRARY_FIXTURES = [
   ["@paralleldrive/cuid2", "lib/cuid2.mjs"],
   ["nanoid", "lib/nanoid.mjs"],
   ["ulidx", "lib/ulidx.mjs"],
-  ["big.js", "lib/big.mjs"],
 ];
 
 /**
@@ -245,7 +244,10 @@ const LIBRARY_FIXTURES = [
  * bundle would fail to resolve, and a row that cannot be produced is reported
  * as absent rather than silently omitted.
  */
-const REMOVED_LIBRARY_FIXTURES = [["decimal.js", "lib/decimal.mjs"]];
+const REMOVED_LIBRARY_FIXTURES = [
+  ["decimal.js", "lib/decimal.mjs"],
+  ["big.js", "lib/big.mjs"],
+];
 
 const installedVersion = (name) => {
   const manifest = join(repoRoot, "node_modules", name, "package.json");

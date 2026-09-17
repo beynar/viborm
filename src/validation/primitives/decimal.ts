@@ -1,4 +1,3 @@
-import type Big from "big.js";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -14,6 +13,7 @@ import {
   describeDescriptorRefusal,
   toDecimal,
 } from "./decimal-codec";
+import type { Decimal } from "./decimal-value";
 import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
 
 // =============================================================================
@@ -29,7 +29,7 @@ import { buildSchema, fail, ok, standardSchemaFailure } from "./helpers";
  * (`0.1 + 0.2`) travels in with it — we name the double's own shortest exact
  * spelling rather than pretend otherwise, and the field's scale then refuses it.
  */
-export type DecimalInput = Big | string | number;
+export type DecimalInput = Decimal | string | number;
 
 /**
  * What a VALIDATED decimal is inside the engine: the canonical private string.
@@ -48,8 +48,8 @@ export type DecimalOutput = string;
  * primitive is also the unconstrained value grammar the codec is built on; the
  * PUBLIC surface, `s.decimal({ precision, scale })`, always declares one.
  */
-export interface DecimalOptions<TSchemaOut = Big>
-  extends ScalarOptions<Big, DecimalOutput, TSchemaOut> {
+export interface DecimalOptions<TSchemaOut = Decimal>
+  extends ScalarOptions<Decimal, DecimalOutput, TSchemaOut> {
   decimal?: DecimalDescriptor | undefined;
 }
 
@@ -96,7 +96,7 @@ const DECIMAL_ERROR: ValidationFailure = Object.freeze({
 });
 
 const DECIMAL_VALUE_ERROR =
-  "Expected a complete bounded big.js numerical representation: a custom decimal schema may refine or brand the value it is given, but not return a string, number, an incomplete decimal-like object, or one whose exponent or digit count is outside the renderable ceiling";
+  "Expected a Decimal: a custom decimal schema may refine or brand the value it is given, but not return a string, a number, or a value of any other type";
 
 /**
  * Validate a decimal and NORMALIZE it to its canonical string in one step, so

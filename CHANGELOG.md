@@ -114,45 +114,53 @@ A column that already holds text has two routes, and neither is silent.
 
 ### Decimal API change (breaking)
 
-The exact decimal value type is now [big.js](https://github.com/MikeMcl/big.js)
-`7.0.1` instead of decimal.js. `Decimal` is still exported from `viborm`, still
-constructed once per selected leaf, and still satisfies `instanceof Decimal` —
-but it is now the `Big` constructor, so the value surface it carries is
-big.js's, not decimal.js's. Nothing VibORM owns changed: `s.decimal({
-precision, scale })`, the frozen descriptor, exact admission, canonical
-identity, provider representations, DDL, filters, updates, aggregates and
-migrations all behave exactly as before, and the accepted input grammar
+The exact decimal value type is now VibORM's own `Decimal` instead of
+decimal.js, and it brings no dependency with it: an immutable signed `BigInt`
+coefficient and a scale, about 2.9 KB minified against decimal.js's 32 KB.
+`Decimal` is still exported from `viborm`, still constructed once per selected
+leaf, and still satisfies `instanceof Decimal`. Nothing VibORM owns changed:
+`s.decimal({ precision, scale })`, the frozen descriptor, exact admission,
+canonical identity, provider representations, DDL, filters, updates, aggregates
+and migrations all behave exactly as before, and the accepted input grammar
 (`"+1.5"`, `".5"`, `"1."` accepted; `"1e3"` refused) is unchanged.
 
 What changes for application code that does arithmetic on returned values:
 
-- **27 prototype members instead of ~130**, carrying 23 distinct operations.
-  Kept: `abs`, `add`, `cmp`, `div`, `eq`, `gt`, `gte`, `lt`, `lte`, `minus`,
-  `mod`, `mul`, `neg`, `plus`, `pow`, `prec`, `round`, `sqrt`, `sub`, `times`,
-  `toExponential`, `toFixed`, `toJSON`, `toNumber`, `toPrecision`, `toString`,
-  `valueOf`. Four of those are aliases: `add`, `sub` and `mul` are `plus`,
-  `minus` and `times`, and `toJSON` is `toString`.
-- **Gone:** `isZero`, `isNeg`, `isNaN`, `isFinite`, `floor`, `ceil`, `trunc`,
-  `toDP`, `toSD`, `dp`, `sd`, `ln`, `log`, `exp`, the trigonometric methods,
-  `toFraction`, `toNearest`, `clamp`, and the radix conversions.
-  `x.isZero()` becomes `x.eq(0)`; `x.isNeg()` becomes `x.s < 0` (or `x.lt(0)`,
-  which answers `false` for a negative zero).
-- **No NaN and no Infinity.** `new Decimal("abc")` and `new Decimal(NaN)`
-  throw where they used to produce a NaN value, `div(0)` throws "Division by
-  zero", `sqrt()` of a negative throws, and `pow` accepts integer exponents in
-  `±1e6` only.
-- **Configuration is static properties, not a setter.** `Decimal.set({...})` is
-  gone; use `Decimal.DP` (decimal places for `div`/`sqrt`/negative `pow`, not
-  significant digits), `Decimal.RM`, `Decimal.NE`, `Decimal.PE` and
-  `Decimal.strict`. `Decimal.DP = 20` is not `Decimal.precision = 20`: the
-  first counts places after the point, the second counted significant digits,
-  and they coincide only by accident.
-- **`toString()` can emit exponent notation**, following `NE` (-7) and `PE`
-  (21), as decimal.js's `toExpNeg`/`toExpPos` did. Zero-argument `toFixed()`
-  ignores both and never rounds.
-- **`@types/big.js` is a runtime dependency**, because big.js ships no
-  declarations and VibORM's published `.d.mts` names the module. Nothing to do
-  on your side; it installs with `viborm`.
+- **18 prototype members instead of ~130**, every one of them distinct.
+  Kept: `abs`, `cmp`, `div`, `eq`, `gt`, `gte`, `lt`, `lte`, `minus`, `neg`,
+  `plus`, `times`, `toFixed`, `toJSON`, `toNumber`, `toString`, `valueOf`,
+  and the constructor.
+- **No aliases.** decimal.js spelled three operations twice; only `plus`,
+  `minus` and `times` exist here.
+- **Gone:** `pow`, `sqrt`, `mod`, `prec`, `round`, `toExponential`,
+  `toPrecision`, `isZero`, `isNeg`, `isNaN`, `isFinite`, `floor`, `ceil`,
+  `trunc`, `toDP`, `toSD`, `dp`, `sd`, `ln`, `log`, `exp`, the trigonometric
+  methods, `toFraction`, `toNearest`, `clamp`, and the radix conversions.
+  `x.isZero()` becomes `x.eq(0)`; `x.isNeg()` becomes `x.lt(0)`; rounding to a
+  fixed number of places is `x.toFixed(n)`.
+- **No NaN and no Infinity.** `new Decimal("abc")`, `new Decimal(NaN)` and
+  `new Decimal(Infinity)` throw `TypeError` where decimal.js produced a NaN
+  value, and `div(0)` throws `RangeError("Division by zero")`.
+- **No configuration at all.** `Decimal.set({...})` is gone and nothing
+  replaces it: the class has no static properties, so nothing an application
+  sets can move a value in either direction. `div` takes its decimal places and
+  its rounding as arguments — `div(other, fractionDigits = 20, rounding =
+  "half-up")`, where `rounding` is `"half-up"` (ties away from zero, the
+  default and what decimal.js's default produced) or `"half-even"` (ties to the
+  even neighbour, what the SQL engines do). `toFixed` rounds half away from
+  zero.
+- **`toString()` never emits exponent notation.** There is no `toExpNeg` /
+  `toExpPos` equivalent and no threshold: the canonical text of a value is
+  every digit it has, which is also the text VibORM stores, compares and keys
+  cache entries on.
+- **`structuredClone` of a `Decimal` returns an empty object** rather than
+  throwing, because the value lives in private fields. It was already not
+  cloneable; it is now quietly not cloneable. Post `row.total.toString()`
+  across a worker or a `structuredClone`-based cache boundary and rebuild the
+  value on the other side. VibORM's own cache stores the canonical text, so
+  nothing internal is affected.
+- **No `@types/*` package.** The declarations are VibORM's own and ship with
+  it, so `dependencies` carries no type-only package.
 
 There is no compatibility shim, and a decimal.js instance is not accepted as
 input. Convert one at the boundary:
@@ -164,8 +172,9 @@ const converted = new Decimal(oldDecimalJsValue.toFixed());
 ```
 
 Use `toFixed()` with no argument rather than `toString()`: it is decimal.js's
-complete value in plain notation, so it cannot hand big.js an exponent form
-shaped by the old constructor's `toExpNeg`/`toExpPos`.
+complete value in plain notation, so it cannot hand the new constructor an
+exponent form shaped by the old constructor's `toExpNeg`/`toExpPos`, which the
+accepted grammar refuses.
 
 ## 0.1.0 - 2026-01-24
 

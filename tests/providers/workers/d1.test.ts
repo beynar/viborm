@@ -10,6 +10,7 @@ import {
   UnsupportedOperationError,
   VibORMError,
 } from "@src/errors";
+import { Decimal } from "@src/index";
 import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
 import { parse } from "@src/validation";
@@ -20,7 +21,6 @@ import {
   geoPointContract,
   setupGeoPointBehaviorSQLite,
 } from "@tests/contracts/drivers/behaviors/geopoint-behavior";
-import Decimal from "big.js";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv {

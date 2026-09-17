@@ -6,12 +6,12 @@ import {
 } from "@query-engine/result/ResultParser";
 import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import {
   indexFor,
   parserFor,
   prepareSchema,
 } from "@tests/fixtures/query-scope";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 const ENUM_ERROR = /enum/i;

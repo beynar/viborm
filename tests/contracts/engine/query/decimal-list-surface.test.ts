@@ -24,10 +24,10 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
-import Decimal from "big.js";
 import {
   afterAll,
   beforeAll,

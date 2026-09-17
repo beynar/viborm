@@ -301,7 +301,7 @@ bag, or an adapter-wide exact-decimal refusal.
 PostgreSQL stores `NUMERIC(p,s)`, MySQL stores `DECIMAL(p,s)`, and SQLite stores
 a checked scaled integer coefficient. Decimal lists use native numeric arrays
 on PostgreSQL and coefficient-string JSON containers on MySQL/SQLite. Public
-typed leaves are fresh big.js values; cache and identity remain canonical
+typed leaves are fresh `Decimal` values; cache and identity remain canonical
 strings. Raw SQL stays physical and receives no descriptor-aware scaling.
 
 `tests/contracts/architecture/decimal-language-census.test.ts` guards the six

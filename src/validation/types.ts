@@ -20,6 +20,12 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
  * Prettify forces TypeScript to fully evaluate the type.
  * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
+ *
+ * The two VALUE types a result leaf can carry are preserved whole. A mapped
+ * type over a class keeps only its members, which for `Decimal` drops the
+ * private field the class is identified by — and a structural twin of a
+ * `Decimal` is not a `Decimal`, so `const total: Decimal = row.total` would
+ * stop compiling for every selected decimal.
  */
 export type Prettify<T> = T extends (...args: any[]) => any
   ? T // Preserve functions as-is

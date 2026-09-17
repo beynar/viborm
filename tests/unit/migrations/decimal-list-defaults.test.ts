@@ -11,10 +11,10 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import { introspect } from "@migrations/push";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import Decimal from "big.js";
 import { describe, expect, it } from "vitest";
 
 const TABLE = "decimal_list_defaults";

@@ -12,7 +12,9 @@ import { expect, test } from "vitest";
  * The probe drives the whole client — migrations, create, findUnique, include,
  * both raw forms — against an in-memory `bun:sqlite`, so it covers the driver
  * as it is actually used rather than the provider API in isolation. Two value
- * families cross it that no fake can settle: a big.js `Decimal`, and a natively
+ * families cross it that no fake can settle: a `Decimal` over a BigInt
+ * coefficient, whose private fields and `static {}` block Bun must honour, and
+ * a natively
  * generated identifier in the 16-byte BLOB column its format chose.
  *
  * Skipped, not failed, when Bun is not installed.

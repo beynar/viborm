@@ -92,11 +92,6 @@ export default defineConfig({
     "commander",
     "pg",
     "@clack/prompts",
-    // Bundling this would inline one Big class per entry point, and a
-    // `Decimal` handed back by "viborm" would not be the one "viborm/schema"
-    // builds — `instanceof` fails across entries and there is no single public
-    // constructor identity. `external` is not derived from `dependencies`.
-    "big.js",
     // Peer dependencies
     "@electric-sql/pglite",
     "@cloudflare/workers-types",

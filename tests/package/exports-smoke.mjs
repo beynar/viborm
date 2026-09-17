@@ -10,7 +10,6 @@ import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import Decimal from "big.js";
 
 const NODE_PROTOCOL_PATTERN = /^node:/;
 const repositoryRoot = resolve(
@@ -130,15 +129,21 @@ for (const member of [
   requireRuntimeFunction(".", member);
   requireRuntimeFunction("./client", member);
 }
+// The decimal value type is the package's own class now, so there is no
+// installed package to compare it against: what the built entry must publish is
+// a CONSTRUCTOR whose instances belong to it.
 const packagedDecimal = runtimeExports.get(".")?.Decimal;
-if (packagedDecimal !== Decimal) {
+if (typeof packagedDecimal !== "function") {
+  throw new Error("Export . must publish the Decimal constructor");
+}
+if (!(new packagedDecimal("1.2") instanceof packagedDecimal)) {
   throw new Error(
-    "Export . must re-export the package-resolved big.js constructor by identity"
+    "Export . must construct values belonging to the published Decimal family"
   );
 }
-if (!(new packagedDecimal("1.2") instanceof Decimal)) {
+if (new packagedDecimal("1.20").toString() !== "1.2") {
   throw new Error(
-    "Export . must construct values belonging to the package-resolved Decimal family"
+    "The published Decimal must carry the canonical spelling its codec keys on"
   );
 }
 requireRuntimeAbsence(".", "defaultOmit");

@@ -18,9 +18,9 @@ import type {
 import type { Scalar, ScalarState } from "@schema/scalars";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Prettify } from "@validation";
+import type { Decimal } from "@validation/primitives/decimal-value";
 import type { EnumValues } from "@validation/primitives/enum";
 import type { GeoPoint } from "@validation/primitives/geo-point-codec";
-import type Big from "big.js";
 
 // =============================================================================
 // SCALAR OUTPUT TYPE MAPPING
@@ -43,7 +43,7 @@ type ScalarResultTypeMap = {
   // once per selected value at this boundary. A JS number could not carry what a
   // `NUMERIC(p,s)` column holds, and a string would make every comparison and
   // every sum the application's problem.
-  decimal: Big;
+  decimal: Decimal;
   boolean: boolean;
   datetime: Date; // Database results are Date objects, not ISO strings
   date: Date;
@@ -1086,7 +1086,7 @@ export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
               [F in keyof Args[K]]:
                 | (F extends ScalarKeys<T>
                     ? IsDecimalScalar<T[F]> extends true
-                      ? Big
+                      ? Decimal
                       : number
                     : number)
                 | null;

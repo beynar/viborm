@@ -1,5 +1,6 @@
 import { sql } from "@sql";
 import { MigrationError, VibORMErrorCode } from "@src/errors";
+import { Decimal } from "@src/index";
 import {
   assertManualStepwiseProof,
   assertTransactionalBoundaryHonored,
@@ -18,7 +19,6 @@ import {
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { invertOperations } from "@src/migrations/invert";
 import { SqlAssembly } from "@src/migrations/sql-assembly";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 import {
   mysqlEstateDriver,

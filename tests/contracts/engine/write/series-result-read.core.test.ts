@@ -3,6 +3,7 @@ import { TransactionError } from "@errors";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
+import { Decimal } from "@src/index";
 import { StepScope } from "@src/query-engine/write-engine/StepScope";
 import {
   buildSeriesResultReads,
@@ -13,7 +14,6 @@ import {
 import { sortCapturedRowKeys } from "@src/query-engine/write-engine/target-projection";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createSchemaRegistry } from "@validation";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 /** Read one public decimal leaf as the Decimal the result type promises. */

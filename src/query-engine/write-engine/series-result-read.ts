@@ -113,8 +113,7 @@ export function parseSeriesResultReads(
  *
  * These values address later SQL and decide which member a returned row is, so
  * they are the codec's canonical private text for a decimal — not the public
- * `Decimal`, whose equality is reference identity and whose rendering an
- * application's own big.js configuration can move. A row key spelled by the
+ * `Decimal`, whose equality is reference identity. A row key spelled by the
  * public value would fail to match itself.
  */
 export function parseSeriesRowKeys(

@@ -4,13 +4,13 @@ import { compileCacheResultCodec } from "@query-engine/result/cache-result-codec
 import { parseResult } from "@query-engine/result/ResultParser";
 import { buildExpectedResultShape } from "@query-engine/result/result-shape";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import {
   indexFor,
   parserFor,
   prepareSchema,
 } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
-import Decimal from "big.js";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -132,7 +132,7 @@ describe("decimal cache identity", () => {
   test("two spellings of one decimal filter validate to one cache key", () => {
     // The cache key hashes VALIDATED args (`PendingOperation.cacheKeyArgs`), and
     // validation emits the canonical private string — never a `Decimal`, whose
-    // own-property walk would key on big.js internals. So the instance a
+    // own-property walk sees no state at all. So the instance a
     // caller happened to spell the filter with cannot split an entry in two.
     const where = schemas.getModelSchemas(ledger).core.where;
     const keyFor = (amount: unknown) => {

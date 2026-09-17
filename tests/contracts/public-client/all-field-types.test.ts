@@ -13,9 +13,9 @@ const enumRequired = s.enum(["ACTIVE", "INACTIVE", "PENDING"]);
 import { createClient as PGliteCreateClient } from "@drivers/pglite";
 
 import { AnyNull, DbNull, JsonNull, s } from "@schema";
+import { Decimal } from "@src/index";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
-import Decimal from "big.js";
 import {
   afterAll,
   beforeAll,

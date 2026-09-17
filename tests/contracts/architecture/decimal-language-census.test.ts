@@ -79,7 +79,13 @@ const REJECTED_MODE_SPELLINGS = [
 
 const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
   "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
-  "src/validation/primitives/decimal-codec.ts expandExponentForm Number(exponentText)",
+  "src/validation/primitives/decimal-value.ts expandExponentForm Number(exponentText)",
+  // `toNumber()` is the value type's documented float boundary: an application
+  // asking for a double gets the double its canonical text names, and nothing
+  // in VibORM calls it. The conversion is the method's entire purpose, so the
+  // detector flags exactly the call the API promises. Exempted by exact
+  // spelling: a second Number() anywhere in that module still counts.
+  "src/validation/primitives/decimal-value.ts  Number(this.toString())",
   // An SRID is a spatial reference IDENTIFIER (4326 and friends), an unsigned
   // 32-bit integer, not a quantity: readSrid bounds it with Number.isSafeInteger
   // to 0..4294967295 and refuses anything else rather than publishing an
@@ -317,7 +323,7 @@ export const s = { decimal, money: decimal };
   });
 
   it("allows type-only Decimal exports from each shipped public entry", () => {
-    const rootWitness = `export { default as Decimal } from "big.js";
+    const rootWitness = `export { Decimal } from "./validation/primitives/decimal-value.js";
 export type { DecimalScalar } from "./schema/scalars";
 `;
     expect(secondDecimalModeEntries("src/index.ts", rootWitness)).toEqual([]);
@@ -487,48 +493,74 @@ describe("decimal-language census: no ORM-owned wrapper", () => {
     expect(census.ormOwnedWrapper).toEqual([]);
   });
 
-  it("detects a runtime zero-argument second constructor", () => {
-    const witness = `import Decimal from "big.js";
-const Exact = Decimal();
-`;
+  it("requires exactly one Decimal class, in the module that owns it", () => {
+    // The value type is VibORM's own now, so the duplication to look for is a
+    // second DECLARATION rather than a second import of a package. The owner
+    // is counted rather than admitted silently: a file that declares none, or
+    // two, is as wrong as a second owner elsewhere.
     expect(
       ormOwnedDecimalWrapperEntries(
-        "src/validation/primitives/decimal-codec.ts",
-        witness
+        "src/validation/primitives/decimal-value.ts",
+        ""
       )
     ).toEqual([
-      "src/validation/primitives/decimal-codec.ts decimalCloneCall 1",
+      "src/validation/primitives/decimal-value.ts decimalDeclarationCount 1",
+    ]);
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-value.ts",
+        "export class Decimal {}\n"
+      )
+    ).toEqual([]);
+    // The shipped spelling is a const over the implementation class, which is
+    // what keeps the private fields out of the published instance type. The
+    // const counts as the one declaration; a rejected wrapper NAME beside it is
+    // still a second owner, in the owning module as much as anywhere else.
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-value.ts",
+        "class ExactDecimal {}\nexport const Decimal: unknown = ExactDecimal;\n"
+      )
+    ).toEqual([]);
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-value.ts",
+        "class DecimalValue {}\nexport const Decimal: unknown = DecimalValue;\n"
+      )
+    ).toEqual([
+      "src/validation/primitives/decimal-value.ts declaration:DecimalValue 1",
+    ]);
+    expect(
+      ormOwnedDecimalWrapperEntries(
+        "src/validation/primitives/decimal-value.ts",
+        "export class Decimal {}\nconst Decimal = 1;\n"
+      )
+    ).toEqual([
+      "src/validation/primitives/decimal-value.ts decimalDeclarationCount 1",
     ]);
   });
 
-  it("detects a second constructor through a renamed Decimal import", () => {
-    const witness = `import ExactDecimal from "big.js";
-const Exact = ExactDecimal();
+  it("counts a runtime import of the class outside its two admitted readers", () => {
+    // The codec decodes into the class and the root entry re-exports it; every
+    // other module reads a `Decimal` as a TYPE, so a runtime import elsewhere
+    // is a second module able to construct one.
+    const witness = `import { Decimal } from "@validation/primitives/decimal-value";
+export const zero = new Decimal(0);
 `;
+    expect(
+      ormOwnedDecimalWrapperEntries("src/client/money.ts", witness)
+    ).toEqual(["src/client/money.ts decimalRuntimeImport 1"]);
     expect(
       ormOwnedDecimalWrapperEntries(
         "src/validation/primitives/decimal-codec.ts",
         witness
       )
-    ).toEqual([
-      "src/validation/primitives/decimal-codec.ts decimalCloneCall 1",
-    ]);
-  });
-
-  it("does not count an ordinary construction as a second constructor", () => {
-    // ARITY is the whole distinction in big.js: the same call expression with
-    // one argument builds a VALUE. A detector that counted it would report the
-    // codec's own construction path as an ORM-owned wrapper, and one that
-    // counted neither would be an absence assertion that cannot go red.
-    const witness = `import Decimal from "big.js";
-const value = Decimal("1.5");
-const constructed = new Decimal("1.5");
+    ).toEqual([]);
+    const typeOnly = `import type { Decimal } from "@validation/primitives/decimal-value";
+export type Money = Decimal;
 `;
     expect(
-      ormOwnedDecimalWrapperEntries(
-        "src/validation/primitives/decimal-codec.ts",
-        witness
-      )
+      ormOwnedDecimalWrapperEntries("src/client/money.ts", typeOnly)
     ).toEqual([]);
   });
 
@@ -539,24 +571,24 @@ const constructed = new Decimal("1.5");
     expect(
       ormOwnedDecimalWrapperEntries(
         "src/index.ts",
-        'export { default as Decimal } from "big.js";'
+        'export { Decimal } from "./validation/primitives/decimal-value.js";'
       )
     ).toEqual([]);
     expect(
       ormOwnedDecimalWrapperEntries(
         "src/index.ts",
-        'export { default as Decimal, default as Money } from "big.js";'
+        'export { Decimal, Decimal as Money } from "./validation/primitives/decimal-value.js";'
       )
     ).toEqual(["src/index.ts decimalConstructorExportSpelling 1"]);
   });
 
-  it("detects declarations and a big.js re-export outside the root", () => {
-    const witness = `import DecimalRuntime from "big.js";
+  it("detects declarations and a value-module re-export outside the root", () => {
+    const witness = `import { Decimal as DecimalRuntime } from "@validation/primitives/decimal-value";
 class Decimal {}
 interface DecimalWrapper {}
 type DecimalValue = string;
 const VibDecimal = class {};
-export { default as Decimal } from "big.js";
+export { Decimal } from "@validation/primitives/decimal-value";
 // class DecimalManager would be a second ORM-owned wrapper.
 `;
     expect(
@@ -572,7 +604,7 @@ export { default as Decimal } from "big.js";
   });
 
   it("detects constructor re-exports hidden behind another public name", () => {
-    const witness = `export { default as Money } from "big.js";
+    const witness = `export { Decimal as Money } from "@validation/primitives/decimal-value";
 export { Decimal as Exact } from "./values";
 `;
     expect(
@@ -580,8 +612,8 @@ export { Decimal as Exact } from "./values";
     ).toEqual(["src/client/money.ts decimalConstructorExport 2"]);
   });
 
-  it("does not treat type-only big.js exports as a constructor", () => {
-    const witness = `export type { default as DecimalType, Decimal as ExactDecimalType } from "big.js";
+  it("does not treat type-only value-module exports as a constructor", () => {
+    const witness = `export type { Decimal as DecimalType, Decimal as ExactDecimalType } from "@validation/primitives/decimal-value";
 export { type Decimal as ExactType } from "./values";
 `;
     expect(
@@ -589,8 +621,8 @@ export { type Decimal as ExactType } from "./values";
     ).toEqual([]);
   });
 
-  it("detects a renamed class that owns a big.js value", () => {
-    const witness = `import type Decimal from "big.js";
+  it("detects a renamed class that owns a Decimal value", () => {
+    const witness = `import type { Decimal } from "@validation/primitives/decimal-value";
 export class Money {
   constructor(readonly value: Decimal) {}
 }
@@ -600,8 +632,8 @@ export class Money {
     ).toEqual(["src/client/decimal-money.ts decimalValueCarrier:Money 1"]);
   });
 
-  it("detects a renamed class that owns an array of big.js values", () => {
-    const witness = `import type { Decimal as ExactDecimal } from "big.js";
+  it("detects a renamed class that owns an array of Decimal values", () => {
+    const witness = `import type { Decimal as ExactDecimal } from "@validation/primitives/decimal-value";
 export class MoneyLedger {
   readonly values: ExactDecimal[] = [];
 }
@@ -611,8 +643,8 @@ export class MoneyLedger {
     ).toEqual(["src/client/money-ledger.ts decimalValueCarrier:MoneyLedger 1"]);
   });
 
-  it("detects a renamed class that owns a ReadonlyArray of big.js values", () => {
-    const witness = `import type { default as ExactDecimal } from "big.js";
+  it("detects a renamed class that owns a ReadonlyArray of Decimal values", () => {
+    const witness = `import type { Decimal as ExactDecimal } from "@validation/primitives/decimal-value";
 export class MoneyLedger {
   readonly values: ReadonlyArray<ExactDecimal> = [];
 }
@@ -622,8 +654,8 @@ export class MoneyLedger {
     ).toEqual(["src/client/money-ledger.ts decimalValueCarrier:MoneyLedger 1"]);
   });
 
-  it("detects a renamed class whose parameter property owns big.js values", () => {
-    const witness = `import type { Decimal as ExactDecimal } from "big.js";
+  it("detects a renamed class whose parameter property owns Decimal values", () => {
+    const witness = `import type { Decimal as ExactDecimal } from "@validation/primitives/decimal-value";
 export class MoneyLedger {
   constructor(readonly values: readonly [ExactDecimal]) {}
 }

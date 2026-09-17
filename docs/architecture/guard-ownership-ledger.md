@@ -2024,3 +2024,44 @@ TEXT against TEXT is left alone in both directions, deliberately: a `nanoid`
 column stores exactly the string it shows, so comparing it with an ordinary
 string column asks the question it appears to ask. A refusal there would have no
 case to name.
+
+## The exact decimal value type (2026-09-17, workstream 1 of the footprint program)
+
+`src/validation/primitives/decimal-value.ts` is a NEW public value type, so it
+brings two refusals of its own. Both are recorded here because they are the only
+ones it has: everything else the old boundary refused is refused by construction
+now, and this entry names what that means as much as what was added.
+
+**`TypeError` in the constructor (`DECIMAL_INPUT_REFUSAL`).** Unique coverage: a
+caller who hands `new Decimal(…)` something that names no exact finite decimal —
+`NaN`, `Infinity`, a string outside the accepted literal grammar (including the
+exponent form `"1e3"`, which the grammar has always refused), or a value of any
+other type. It is not `DECIMAL_ERROR` in `primitives/decimal.ts`: that one
+refuses a FIELD INPUT and returns issues, and its caller is `v.decimal()`. This
+one refuses a VALUE at the constructor, where there is no validation result to
+return and no field in sight, and it is the reason the boundary above can stop
+inspecting what a decimal looks like. The two sentences describe the same
+accepted family, and `canonicalizeDecimalInput` is their single owner: the
+constructor throws exactly where that function answers `undefined`.
+
+**`RangeError("Division by zero")` in `div`.** Unique coverage: a quotient with
+no value at all. Nothing else in the type can fail — `plus`, `minus`, `times`,
+the comparisons, `abs`, `neg` and every rendering are total over the domain —
+and the zero divisor cannot be caught earlier, because `0`, `"-0.000"` and a
+`Decimal` zero are three spellings that only the constructor resolves.
+
+**No guard for `div`'s fraction-digit count, deliberately.** A count that is not
+a non-negative integer is refused by `BigInt(fractionDigits)` (which throws for
+a fractional number) and by `10n ** -1n` (which throws for a negative one), each
+with its own sentence. A guard there would have no unique coverage to name.
+
+**What construction replaced, rather than moved.** The old codec refused a
+foreign value nine ways — a sign that was neither direction, a non-integer
+exponent, an exponent or digit count outside a render ceiling, a missing or
+non-array coefficient, a hostile `length`, a sparse index, a member that was not
+a single digit, an accessor that threw. None of them has a successor. A private
+field is installed by the constructor and by nothing else, so `#c in value` is
+the whole admission and `Object.create(Decimal.prototype)` — which passes
+`instanceof` — is refused by it. The render ceiling has no successor either: the
+accepted grammar admits no exponent, so a rendering is exactly as long as the
+digits the caller already allocated.
