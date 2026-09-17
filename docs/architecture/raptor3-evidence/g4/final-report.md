@@ -107,8 +107,10 @@ provider lanes **0 red**; core lane **1 red (the pre-existing inventory cell)**;
 mysql **165 red, 0 regressions** against commit 7's red sets; raptor3 fixed group
 **59 green, 0 red** (the regression the first run exposed on the chunked terminal
 read was bisected and repaired inside the unit). Size: production
-+296/−42, tests +1,339/−66. Follow-up: D-35, the inert count/exists arm of the
-SQLite drivers' middleware, deleted in its own commit with a release note.
++296/−42, tests +1,339/−66. D-35 (commit 9): the inert count/exists arm of the SQLite
+drivers' middleware is deleted, with its release note in `CHANGELOG.md`;
+the decoder is the one owner of a count and an exists answer, and those
+answers are unchanged on every SQLite driver (production code lines net −10).
 
 ## Validation
 

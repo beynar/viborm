@@ -6,7 +6,9 @@ import {
   registerConsumableResultCandidate,
   resolveConsumableResultCandidate,
 } from "@drivers/consumable-result-candidate";
-import { Driver } from "@drivers/driver";
+import { Driver, type DriverResultParser } from "@drivers/driver";
+import { sqliteResultParser } from "@drivers/shared";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
 import { sql } from "@sql";
 import { describe, expect, test, vi } from "vitest";
@@ -172,6 +174,27 @@ describe("consumable provider result proof", () => {
         (_result, consumableRows) => consumableRows
       )
     ).resolves.toBeUndefined();
+  });
+
+  test("a shipped SQLite3 driver carrying a result middleware is borrowed", () => {
+    // Root `AGENTS.md` rule 5: consumable rows are the provider's own objects,
+    // so only a driver whose execution AND parser surfaces are exactly the
+    // shipped ones may claim them — a `parseResult` middleware is handed those
+    // rows. D-35 left the shipped SQLite parser with nothing of its own to say
+    // about a RESULT, and `SQLite3Driver` still reads its canonical identity
+    // from that parser, so the question the surface check asks is unchanged.
+    expect(resolveConsumableResultCandidate(new SQLite3Driver())).toBeDefined();
+
+    const wrapped = new SQLite3Driver();
+    const middleware: DriverResultParser = {
+      ...sqliteResultParser,
+      parseResult: (raw, operation, next) => next(raw, operation),
+    };
+    Object.defineProperty(wrapped, "result", {
+      configurable: true,
+      value: middleware,
+    });
+    expect(resolveConsumableResultCandidate(wrapped)).toBeUndefined();
   });
 
   test("withdraws proof when the active transport stops being eligible", async () => {

@@ -632,11 +632,14 @@ export class Queries {
   /**
    * ONE operation's raw result, through the same provider chain at the RESULT
    * boundary that {@link providerValue} walks at the row-value boundary: the
-   * driver first (it owns what its own transport answers for a verb — the
-   * SQLite family normalises the shape of a `count`/`exist` answer whose alias
-   * a provider did not preserve), then the adapter (it owns the dialect's —
-   * PostgreSQL answers a COUNT as a bigint), then the engine's decoder, which
-   * is the caller of this function.
+   * driver first (it owns what its own TRANSPORT answers for a verb; no shipped
+   * driver has anything to say there today — Arnaud's D-35 deleted the SQLite
+   * family's count/exists arm, which this engine never reached), then the
+   * adapter (it owns the DIALECT's — PostgreSQL answers a COUNT as a bigint,
+   * MySQL recovers a count whose alias its transport did not preserve), then
+   * the engine's decoder, which is the caller of this function and the one
+   * authority on what a `count`/`exist` answer means: it asks for `_count` and
+   * reads `_count` back.
    *
    * The other half of D-17 (Arnaud's D-28): `DriverResultParser.parseResult` is
    * a public driver contract — a driver may wrap the raw result of an operation

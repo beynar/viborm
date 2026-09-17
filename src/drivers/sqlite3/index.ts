@@ -74,6 +74,15 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static readonly canonicalExecute = SQLite3Driver.prototype.execute;
   private static readonly canonicalRunStatement =
     SQLite3Driver.prototype.runStatement;
+  /**
+   * The RESULT hook the shipped SQLite parser installs — none of its own since
+   * D-35, the engine's decoder owning what a `count`/`exist` answers. Read from
+   * that parser rather than written down here: `shared/sqlite-utils.ts` owns
+   * what this family's seam does to a raw result, and this class only asks
+   * whether the surface a caller can reach is still exactly it (root
+   * `AGENTS.md` rule 5 — a parser middleware sees the provider's own rows, so a
+   * driver carrying one keeps its transport borrowed).
+   */
   private static readonly canonicalDriverParseResult =
     sqliteResultParser.parseResult;
 

@@ -1,0 +1,2 @@
+TypeScript (whole estate, native): 5.67s wall, 4894.2 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+exit=0

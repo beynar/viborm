@@ -156,6 +156,37 @@ describe("the driver result seam is reached (D-17)", () => {
     await client.$disconnect();
   });
 
+  test("the count and the exists answer are the decoder's, not the seam's (D-35)", async () => {
+    // Until D-35 the shipped SQLite parser also carried a RESULT arm: for
+    // `count`/`exist` it offered `normalizeCountResult(raw)`, which recognises
+    // a single-column row named `0viborm_count_result` or `COUNT(…)`. This
+    // engine asks for `_count` and the SQLite providers preserve the alias, so
+    // the arm decided `undefined` on every real answer (measured on a live
+    // better-sqlite3: `g4/rulings/d35/receipts/arm-inert-before.log`) and was
+    // deleted. The rows below are that measured raw — an INTEGER column read
+    // with `safeIntegers`, hence BigInt — and the answers are unchanged, with
+    // the shipped parser installed and nothing of its own between the transport
+    // and the decoder. `driver-export-surface.core.test.ts` carries the same
+    // parser to sqlite3, bun-sqlite, d1 and libsql.
+    expect(sqliteResultParser.parseResult).toBeUndefined();
+
+    const counted = scripted([{ _count: 2n }], sqliteResultParser);
+    await expect(counted.client.parent.count({})).resolves.toBe(2);
+    await counted.client.$disconnect();
+
+    const present = scripted([{ _count: 1n }], sqliteResultParser);
+    await expect(
+      present.client.parent.exist({ where: { id: 1 } })
+    ).resolves.toBe(true);
+    await present.client.$disconnect();
+
+    const absent = scripted([{ _count: 0n }], sqliteResultParser);
+    await expect(
+      absent.client.parent.exist({ where: { id: 1 } })
+    ).resolves.toBe(false);
+    await absent.client.$disconnect();
+  });
+
   test("a JSON integer outside the safe range is refused, and a safe one is a number", async () => {
     const { client } = scripted([{ id: 1, meta: 42n }]);
     await expect(

@@ -18,8 +18,10 @@
  *     published as a boolean, because `next` chains through the adapter's
  *     `parseResult` into the engine's decoder;
  *  4. `next(transformed)` is honoured — the decoder reads what the middleware
- *     handed it, which is what makes the SQLite family's own count/exists
- *     normalisation a live contract rather than a dead one;
+ *     handed it, which is what lets a driver recover a result its own transport
+ *     reshaped (no driver the estate ships installs one: Arnaud's D-35 deleted
+ *     the SQLite family's count/exists arm, whose fact the engine's decoder
+ *     already owned);
  *  5. the CHUNKED terminal: an operation whose terminal read-back is split by
  *     the provider's bind budget is still ONE result — the middleware is asked
  *     once, about the operation's rows, in input order, on the live arm and on
@@ -284,9 +286,10 @@ describe("D-28 — the driver parseResult middleware is a result consumer", () =
 
     // `next(transformed)` chains through the adapter's own `parseResult` into
     // the engine's decoder, so a middleware that reshapes the provider's answer
-    // reshapes the published one — the mechanism the SQLite family's
-    // count/exists normalisation is written against
-    // (`drivers/shared/sqlite-utils.ts`).
+    // reshapes the published one — the mechanism a driver outside the estate
+    // needs to recover a result its transport reshaped. The SQLite family's own
+    // count/exists arm was written against it and is gone (D-35): the alias the
+    // engine asks for is the one authority on where a count lives.
     assert.deepEqual(await world.client.widget.findMany({}), [
       { id: 99, name: "substituted", rank: 0, active: true },
     ]);

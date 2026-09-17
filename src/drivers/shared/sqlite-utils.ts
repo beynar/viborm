@@ -4,10 +4,7 @@
  * Common result parser and parameter conversion for SQLite-based drivers.
  */
 
-import {
-  normalizeCountResult,
-  parseIntegerBoolean,
-} from "@adapters/shared/result-parsing";
+import { parseIntegerBoolean } from "@adapters/shared/result-parsing";
 import type { DriverResultParser } from "../driver";
 
 export type SQLiteBinaryValue = ArrayBuffer | ArrayBufferView;
@@ -38,19 +35,19 @@ export function convertValuesForSQLite(values: unknown[]): unknown[] {
 }
 
 /**
- * Shared result parser for SQLite drivers.
- * Handles:
- * - COUNT normalization (BigInt -> number)
+ * Shared result parser for the SQLite drivers. It speaks about ROW VALUES only:
  * - Boolean integer parsing (0/1 -> false/true)
+ * - `json` columns, which SQLite stores as TEXT
+ *
+ * It says nothing about a RESULT (Arnaud's D-35). A SQLite transport answers a
+ * `count`/`exist` in the shape the engine's own projection asked for — the
+ * engine aliases that column `_count` and reads `_count` back — so the meaning
+ * of a count and an exists answer has one authority, the engine's decoder, and
+ * this middleware has nothing to add at the result boundary. Recovering a count
+ * from a provider that did NOT preserve the alias is a dialect fact, stated
+ * once at the adapter seam by the provider that needs it (MySQL).
  */
 export const sqliteResultParser: DriverResultParser = {
-  parseResult: (raw, operation, next) => {
-    if (operation === "count" || operation === "exist") {
-      const normalized = normalizeCountResult(raw);
-      if (normalized !== undefined) return next(normalized, operation);
-    }
-    return next(raw, operation);
-  },
   parseField: (value, scalarType, next) => {
     if (scalarType === "boolean") {
       const parsed = parseIntegerBoolean(value);
