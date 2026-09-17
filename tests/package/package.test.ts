@@ -12,6 +12,10 @@ const scripts = [
     "imports every runtime export and resolves every type entry",
     "./exports-smoke.mjs",
   ],
+  [
+    "carries its published types on its own runtime dependencies",
+    "./dependency-types-smoke.mjs",
+  ],
   ["publishes exactly one Decimal constructor", "./decimal-identity-smoke.mjs"],
   [
     "matches the reviewed packed public surface golden",
