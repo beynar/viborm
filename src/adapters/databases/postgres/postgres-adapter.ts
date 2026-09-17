@@ -11,6 +11,7 @@ import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
+import { passThroughParseResult } from "../../adapter-result-parser";
 import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
@@ -29,7 +30,6 @@ import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
 } from "../../shared/geo-point";
-import { convertBigIntToNumber } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -640,7 +640,7 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   // ============================================================
   // RESULT PARSING
-  // PostgreSQL: Mostly passthrough - native JSON and boolean types
+  // PostgreSQL: passthrough - native JSON and boolean types
   // ============================================================
 
   result: DatabaseAdapter["result"] = {
@@ -653,18 +653,17 @@ export class PostgresAdapter implements DatabaseAdapter {
     // enum LIST comes back as the array's own text rather than a JS array.
     enumListRepresentation: "arrayText",
 
-    parseResult: (
-      raw: unknown,
-      _operation: import("../../../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ): unknown => {
-      // PostgreSQL returns bigint for COUNT - convert to number
-      const converted = convertBigIntToNumber(raw);
-      if (converted !== undefined) {
-        return converted;
-      }
-      return next();
-    },
+    // The contract's shape, deciding nothing. This leg used to offer
+    // `convertBigIntToNumber(raw)`, but `Queries.decodeResult` hands it the
+    // operation's ROW ARRAY, which is never a bigint, and an integer's width
+    // is a VALUE's fact that the engine's `int` codec owns - it turns a bigint
+    // or an integer text into a number and refuses one outside the safe range
+    // (`raptor3/shared/query.ts`). Measured on live PostgreSQL over seven
+    // operations and both routes, on `pg` and on `postgres.js`: 40 asks, 40
+    // `undefined` (Arnaud's D-40, `g4/rulings/o2/receipts/leg-probe-pg.log`
+    // and `leg-probe-postgresjs-2.log`), with `COUNT(*)` arriving as the text
+    // `"2"` on both transports.
+    parseResult: passThroughParseResult,
 
     parseRelation: (
       _value: unknown,

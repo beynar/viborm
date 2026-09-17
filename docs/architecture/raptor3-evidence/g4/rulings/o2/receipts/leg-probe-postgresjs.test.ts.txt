@@ -1,0 +1,15 @@
+/** D-40 PROBE — PostgreSQL over the postgres.js transport. Removed once its receipt is taken. */
+import { convertBigIntToNumber } from "@adapters/shared/result-parsing";
+import { it } from "vitest";
+import { runLegProbe } from "./o2-leg-probe";
+import { createPostgresDriver, describeIf } from "./postgres-fixtures";
+
+describeIf("D-40 probe — the PostgreSQL adapter parseResult leg on postgres.js", () => {
+  it("records every raw the bigint leg decides about", async () => {
+    await runLegProbe({
+      provider: "postgres.js",
+      driver: createPostgresDriver(),
+      legDecision: (raw) => convertBigIntToNumber(raw),
+    });
+  }, 120_000);
+});

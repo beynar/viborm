@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 71ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  01:16:17
+   Duration  2.48s (transform 1.21s, setup 11ms, collect 1.87s, tests 71ms, environment 0ms, prepare 34ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-LXVRNf/vitest.json
+Vitest resources: 5.58s wall, 485.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-pagination contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-LXVRNf

@@ -26,7 +26,10 @@
  *     the provider's bind budget is still ONE result — the middleware is asked
  *     once, about the operation's rows, in input order, on the live arm and on
  *     the batch/prepared arm, while each window's own row-count contract is
- *     decided per window (the repair round's F1).
+ *     decided per window (the repair round's F1);
+ *  6. what a window that answers SHORT therefore raises: its own registered
+ *     refusal, the one the caller can act on, decided before the result
+ *     boundary is reached at all (Arnaud's D-41).
  */
 
 import assert from "node:assert/strict";
@@ -36,6 +39,7 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "@drivers";
+import { QueryEngineError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -119,6 +123,34 @@ class ObservingChunkedBatchDriver extends ObservingChunkedDriver {
   override readonly supportsBatch = true;
 }
 
+/**
+ * The same chunked terminal on a transport whose SECOND window answers one row
+ * short — the shape a provider takes when a later row in the same call moved
+ * the key an earlier one reported. The row is dropped from the PROVIDER's
+ * answer, so nothing above the transport has been told the window is
+ * incomplete: the engine has to notice it from the window's own contract.
+ */
+class ObservingShortWindowDriver extends ObservingChunkedDriver {
+  protected override async execute<T>(
+    client: Database.Database,
+    statement: string,
+    parameters: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    const response = await super.execute<T>(
+      client,
+      statement,
+      parameters,
+      context
+    );
+    // `super.execute` has already counted this window, so the second terminal
+    // read is the one whose count has just reached two.
+    if (!TERMINAL_READS.test(statement) || this.terminalReads.length !== 2)
+      return response;
+    return { ...response, rows: response.rows.slice(1) };
+  }
+}
+
 interface World {
   readonly driver: ObservingDriver;
   readonly client: ReturnType<typeof buildClient>;
@@ -166,12 +198,17 @@ async function createWorld(batch: boolean): Promise<World> {
   };
 }
 
+/** The transport a chunked world runs on: each cell names its own. */
+type ChunkedTransport = new (
+  database: Database.Database
+) => ObservingChunkedDriver;
+
 /** The same world on a transport whose terminal read-back is chunked. */
-async function createChunkedWorld(batch: boolean): Promise<ChunkedWorld> {
+async function createChunkedWorld(
+  transport: ChunkedTransport
+): Promise<ChunkedWorld> {
   const database = new Database(":memory:");
-  const driver: ObservingChunkedDriver = batch
-    ? new ObservingChunkedBatchDriver(database)
-    : new ObservingChunkedDriver(database);
+  const driver = new transport(database);
   const client = buildClient(driver);
   const migration = await syncLiveSchema(client);
   if (!migration.applied)
@@ -199,6 +236,13 @@ const CHUNKED_ROWS = [
 
 /** The terminal read-back's own statements, as the provider received them. */
 const TERMINAL_READS = /^\s*SELECT[\s\S]*"d28_widgets"/i;
+
+/**
+ * The refusal `Queries.selectSeries` stamps on every createMany window it cuts
+ * (`shared/query.ts`), as opposed to the engine's internal row-count invariant.
+ */
+const SHORT_WINDOW_REFUSAL =
+  /createMany with 'select' could not read back one of the created rows/;
 
 describe("D-28 — the driver parseResult middleware is a result consumer", () => {
   it("sees each operation's raw result exactly once on the live route", async () => {
@@ -305,8 +349,11 @@ describe("D-28 — the driver parseResult middleware is a result consumer", () =
     // concatenation against window 0's contract refuses a legitimate operation
     // (the repair round's F1: three cells of `g3-execution-review` and one of
     // `g3-author-execution-regressions` measured it).
-    for (const batch of [false, true]) {
-      const chunked = await createChunkedWorld(batch);
+    for (const transport of [
+      ObservingChunkedDriver,
+      ObservingChunkedBatchDriver,
+    ]) {
+      const chunked = await createChunkedWorld(transport);
       world = chunked;
       const published = await chunked.client.widget.createMany({
         data: CHUNKED_ROWS,
@@ -336,5 +383,38 @@ describe("D-28 — the driver parseResult middleware is a result consumer", () =
       await chunked.close();
       world = undefined;
     }
+  });
+
+  it("raises a short window's own registered refusal, before the boundary", async () => {
+    // D-41. Because the count is decided per window, a terminal whose SECOND
+    // window answers one row short raises the refusal THAT window carries —
+    // `Queries.selectSeries` stamps createMany's registered sentence on every
+    // window it cuts — and the caller is told what happened to its rows. A
+    // total taken over the concatenation could only reach the engine's
+    // internal "inconsistent row counts" invariant, which names nothing the
+    // caller can act on.
+    const chunked = await createChunkedWorld(ObservingShortWindowDriver);
+    world = chunked;
+
+    let failure: unknown;
+    try {
+      await chunked.client.widget.createMany({
+        data: CHUNKED_ROWS,
+        select: { name: true, rank: true },
+      });
+    } catch (caught) {
+      failure = caught;
+    }
+
+    // The registered class and the registered sentence, as `selectSeries`
+    // stamps them — `TransactionError` is the sibling `updateMany` carries.
+    assert.ok(failure instanceof QueryEngineError, String(failure));
+    assert.match(failure.message, SHORT_WINDOW_REFUSAL);
+    // Both windows reached the provider: the refusal is the second window's,
+    // raised while that window was still known.
+    assert.equal(chunked.driver.terminalReads.length, 2);
+    // And it is raised BEFORE the result boundary: the middleware is never
+    // asked about a result the operation will not publish.
+    assert.deepEqual(chunked.driver.observed, []);
   });
 });

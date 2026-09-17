@@ -1,0 +1,177 @@
+/**
+ * D-40 PROBE — not a pin, a measurement.
+ *
+ * Puts a recorder ABOVE the SHIPPED adapter-level `parseResult` leg on a live
+ * provider and records, per route and per operation, the raw the leg was asked
+ * about, what the leg's own helper decides about that raw, whether the leg
+ * called `next`, and whether the leg returned `next`'s answer or its own.
+ *
+ * Receipts: `g4/rulings/o2/receipts/leg-probe-{pg,mysql}.log`. This file and
+ * its two entry points are removed once the receipts are taken.
+ */
+
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import type { AnyDriver } from "@drivers";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+const widget = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    rank: s.int(),
+    active: s.boolean(),
+  })
+  .map("o2_probe_widgets");
+
+const schema = { widget };
+
+interface Ask {
+  readonly route: string;
+  readonly operation: string;
+  readonly rawShape: string;
+  readonly raw: string;
+  readonly leg: string;
+  readonly nextCalls: number;
+  readonly nextArgument: string;
+  readonly returnedNextAnswer: boolean;
+}
+
+const show = (value: unknown): string =>
+  JSON.stringify(value, (_key, inner) =>
+    typeof inner === "bigint" ? `${inner}n` : inner
+  ) ?? String(value);
+
+const shapeOf = (value: unknown): string => {
+  if (Array.isArray(value))
+    return `array(${value.length})[${value
+      .map((row) =>
+        row !== null && typeof row === "object"
+          ? `{${Object.keys(row as object).join(",")}}`
+          : typeof row
+      )
+      .join("|")}]`;
+  if (value === null) return "null";
+  if (typeof value === "object")
+    return `object{${Object.keys(value as object).join(",")}}`;
+  return typeof value;
+};
+
+/**
+ * @param legDecision what the SHIPPED leg's own helper decides about this raw —
+ *   `normalizeCountResult(raw)` for MySQL, `convertBigIntToNumber(raw)` for
+ *   PostgreSQL — asked exactly as the leg asks it.
+ */
+export async function runLegProbe(options: {
+  readonly provider: string;
+  readonly driver: AnyDriver;
+  readonly legDecision: (raw: unknown, operation: string) => unknown;
+}): Promise<void> {
+  const { provider, driver, legDecision } = options;
+  const client = createClient({ schema, driver });
+  // `applied` is false when a previous probe run already left this table in
+  // place, so the reset below is what the probe actually needs, not the diff.
+  await syncLiveSchema(client);
+  await client.widget.deleteMany({});
+  assert.equal(await client.widget.count({}), 0, "probe table reset");
+
+  await client.widget.create({
+    data: { id: 1, name: "first", rank: 3, active: true },
+  });
+  await client.widget.create({
+    data: { id: 2, name: "second", rank: 5, active: false },
+  });
+
+  const asks: Ask[] = [];
+  let route = "live";
+  const shipped = driver.adapter.result.parseResult;
+  driver.adapter.result.parseResult = (raw, operation, next) => {
+    let nextCalls = 0;
+    let nextArgument = "not-called";
+    let nextAnswer: unknown;
+    const observed = (value?: unknown): unknown => {
+      nextCalls += 1;
+      nextArgument = value === undefined ? "next()" : `next(${show(value)})`;
+      nextAnswer = next(value);
+      return nextAnswer;
+    };
+    const returned = shipped(raw, operation, observed);
+    asks.push({
+      route,
+      operation,
+      rawShape: shapeOf(raw),
+      raw: show(raw),
+      leg: show(legDecision(raw, operation)) ?? "undefined",
+      nextCalls,
+      nextArgument,
+      returnedNextAnswer: nextCalls > 0 && Object.is(returned, nextAnswer),
+    });
+    return returned;
+  };
+
+  const liveAnswers = {
+    count: await client.widget.count({}),
+    filteredCount: await client.widget.count({ where: { rank: 5 } }),
+    countAll: await client.widget.count({ select: { _all: true } }),
+    existTrue: await client.widget.exist({ where: { rank: 5 } }),
+    existFalse: await client.widget.exist({ where: { rank: 99 } }),
+    aggregate: await client.widget.aggregate({ _sum: { rank: true } }),
+    findMany: (await client.widget.findMany({ orderBy: { id: "asc" } })).length,
+    findUnique: (await client.widget.findUnique({ where: { id: 1 } }))?.id,
+    create: (
+      await client.widget.create({
+        data: { id: 3, name: "third", rank: 7, active: true },
+      })
+    ).id,
+    update: (
+      await client.widget.update({ where: { id: 3 }, data: { rank: 9 } })
+    ).rank,
+  };
+
+  route = "prepared";
+  const prepared = await client.$transaction([
+    client.widget.count({}),
+    client.widget.count({ where: { rank: 5 } }),
+    client.widget.count({ select: { _all: true } }),
+    client.widget.exist({ where: { rank: 5 } }),
+    client.widget.exist({ where: { rank: 99 } }),
+    client.widget.aggregate({ _sum: { rank: true } }),
+    client.widget.findMany({ orderBy: { id: "asc" } }),
+    client.widget.findUnique({ where: { id: 1 } }),
+    client.widget.create({
+      data: { id: 4, name: "fourth", rank: 1, active: false },
+    }),
+    client.widget.update({ where: { id: 4 }, data: { rank: 11 } }),
+  ]);
+
+  for (const ask of asks) {
+    process.stdout.write(
+      `D40PROBE ${provider} route=${ask.route} op=${ask.operation} rawShape=${ask.rawShape} raw=${ask.raw} leg=${ask.leg} nextCalls=${ask.nextCalls} next=${ask.nextArgument} returnedNextAnswer=${ask.returnedNextAnswer}\n`
+    );
+  }
+  process.stdout.write(
+    `D40PROBE ${provider} liveAnswers=${JSON.stringify(liveAnswers)}\n`
+  );
+  process.stdout.write(
+    `D40PROBE ${provider} preparedAnswers=${JSON.stringify([
+      prepared[0],
+      prepared[1],
+      prepared[2],
+      prepared[3],
+      prepared[4],
+      prepared[5],
+      (prepared[6] as unknown[]).length,
+      (prepared[7] as { id: number } | null)?.id,
+      (prepared[8] as { id: number }).id,
+      (prepared[9] as { rank: number }).rank,
+    ])}\n`
+  );
+  const operations = new Set(asks.map((ask) => ask.operation));
+  process.stdout.write(
+    `D40PROBE ${provider} asks=${asks.length} operations=${[...operations].join(",")}\n`
+  );
+
+  driver.adapter.result.parseResult = shipped;
+  await client.$disconnect();
+}

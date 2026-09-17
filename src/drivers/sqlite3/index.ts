@@ -74,18 +74,6 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static readonly canonicalExecute = SQLite3Driver.prototype.execute;
   private static readonly canonicalRunStatement =
     SQLite3Driver.prototype.runStatement;
-  /**
-   * The RESULT hook the shipped SQLite parser installs — none of its own since
-   * D-35, the engine's decoder owning what a `count`/`exist` answers. Read from
-   * that parser rather than written down here: `shared/sqlite-utils.ts` owns
-   * what this family's seam does to a raw result, and this class only asks
-   * whether the surface a caller can reach is still exactly it (root
-   * `AGENTS.md` rule 5 — a parser middleware sees the provider's own rows, so a
-   * driver carrying one keeps its transport borrowed).
-   */
-  private static readonly canonicalDriverParseResult =
-    sqliteResultParser.parseResult;
-
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
@@ -221,13 +209,34 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     );
   }
 
+  /**
+   * Whether the surface a caller can reach on this instance is still the
+   * SHIPPED one.
+   *
+   * The result leg asks for the parser OBJECT, not for one of its hooks: a
+   * consumable result hands out the provider's own row objects, so a driver is
+   * stock only while `result` IS `sqliteResultParser` — the object
+   * `shared/sqlite-utils.ts` owns — and anything a caller put there instead,
+   * whatever hook it spells, is a middleware that will see those rows and
+   * keeps the transport borrowed (root `AGENTS.md` rule 5: a stock driver with
+   * "unchanged typed execution/parser surfaces", where "a parser middleware …
+   * stays borrowed"). Asking only about `parseResult` asked a narrower
+   * question, and since D-35 left the shipped parser with no result hook of its
+   * own it admitted every object that merely lacks one (Arnaud's D-39;
+   * `PGliteDriver.hasCanonicalProducerSurface` states the same rule over the
+   * surface PGlite ships).
+   *
+   * The adapter leg is unchanged, and is a different question: the adapter is
+   * this driver's own object, captured once at construction, so what is asked
+   * there is whether anything re-entered it afterwards.
+   */
   private static hasCanonicalProducerSurface(driver: SQLite3Driver): boolean {
     return (
       Object.getPrototypeOf(driver) === SQLite3Driver.prototype &&
       driver._execute === SQLite3Driver.canonicalExecuteEntry &&
       driver.execute === SQLite3Driver.canonicalExecute &&
       driver.runStatement === SQLite3Driver.canonicalRunStatement &&
-      driver.result.parseResult === SQLite3Driver.canonicalDriverParseResult &&
+      driver.result === sqliteResultParser &&
       driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
     );
   }

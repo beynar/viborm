@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 25ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  00:52:51
+   Duration  2.29s (transform 1.21s, setup 11ms, collect 1.97s, tests 25ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 4.70s wall, 457.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

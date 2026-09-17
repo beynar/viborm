@@ -1,0 +1,51 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ❯ |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts (6 tests | 2 failed) 45ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the live route 23ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > sees each operation's raw result exactly once on the prepared route 6ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > is asked above parseField, with the provider's own rows 2ms
+   ✓ D-28 — the driver parseResult middleware is a result consumer > decodes what the middleware hands to next, not what the provider said 1ms
+   × D-28 — the driver parseResult middleware is a result consumer > sees a chunked terminal's rows once, in input order, on both routes 9ms
+     → Raptor 3 createMany final read returned inconsistent row counts.
+   × D-28 — the driver parseResult middleware is a result consumer > raises a short window's own registered refusal, above the boundary 3ms
+     → The input did not match the regular expression /createMany with 'select' could not read back one of the created rows/. Input:
+
+'Raptor 3 createMany final read returned inconsistent row counts.'
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts > D-28 — the driver parseResult middleware is a result consumer > sees a chunked terminal's rows once, in input order, on both routes
+QueryEngineError: Raptor 3 createMany final read returned inconsistent row counts.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/driver-result-parser.test.ts > D-28 — the driver parseResult middleware is a result consumer > raises a short window's own registered refusal, above the boundary
+AssertionError: The input did not match the regular expression /createMany with 'select' could not read back one of the created rows/. Input:
+
+'Raptor 3 createMany final read returned inconsistent row counts.'
+
+
+[32m- Expected:[39m 
+/createMany with 'select' could not read back one of the created rows/
+
+[31m+ Received:[39m 
+"Raptor 3 createMany final read returned inconsistent row counts."
+
+ ❯ tests/raptor3/g4/parity/driver-result-parser.test.ts:405:12
+    403|     // stamps them — `TransactionError` is the sibling `updateMany` ca…
+    404|     assert.ok(failure instanceof QueryEngineError, String(failure));
+    405|     assert.match(
+       |            ^
+    406|       failure.message,
+    407|       /createMany with 'select' could not read back one of the created…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+   Start at  23:46:54
+   Duration  1.52s (transform 899ms, setup 8ms, collect 1.31s, tests 45ms, environment 0ms, prepare 38ms)
+
+Vitest resources: 3.42s wall, 488.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

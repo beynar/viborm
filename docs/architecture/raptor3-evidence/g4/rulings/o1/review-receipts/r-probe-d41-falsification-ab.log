@@ -1,0 +1,20 @@
+{
+  "asShipped": {
+    "label": "as shipped (per-window assertExpectedRows)",
+    "threw": true,
+    "class": "QueryEngineError",
+    "isQueryEngineError": true,
+    "message": "createMany with 'select' could not read back one of the created rows at the primary key it reported. A later row in the same call moved that row's primary key; use the '{ count }' form, or write those rows in separate calls.",
+    "terminalWindowsReachingProvider": 2,
+    "middlewareAsked": 0
+  },
+  "falsified": {
+    "label": "falsified (count over the concatenation)",
+    "threw": true,
+    "class": "QueryEngineError",
+    "isQueryEngineError": true,
+    "message": "Raptor 3 createMany final read returned inconsistent row counts.",
+    "terminalWindowsReachingProvider": 2,
+    "middlewareAsked": 1
+  }
+}

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o1
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  01:18:16
+   Duration  3.73s (transform 1.10s, setup 12ms, collect 1.67s, tests 22ms, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-fr1qfB/vitest.json
+Vitest resources: 7.61s wall, 457.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-result-progress contract gate verified. Evidence: /private/tmp/viborm-o1-tmp/viborm-raptor3-g0-fr1qfB

@@ -11,7 +11,10 @@ import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
-import type { AdapterResultParser } from "../../adapter-result-parser";
+import {
+  type AdapterResultParser,
+  passThroughParseResult,
+} from "../../adapter-result-parser";
 import { createNamedConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
@@ -31,10 +34,7 @@ import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
 } from "../../shared/geo-point";
-import {
-  normalizeCountResult,
-  parseIntegerBoolean,
-} from "../../shared/result-parsing";
+import { parseIntegerBoolean } from "../../shared/result-parsing";
 import {
   assembleDistinctOnEmulation,
   assembleSelectQuery,
@@ -1013,7 +1013,10 @@ export class MySQLAdapter implements DatabaseAdapter {
 
   // ============================================================
   // RESULT PARSING
-  // MySQL: normalize counts, booleans, and naive UTC datetimes.
+  // MySQL: booleans and naive UTC datetimes - both ROW VALUES.
+  // This adapter says nothing about a RESULT: the engine's decoder asks for
+  // the alias `_count` and reads it back, and mysql2 preserves that alias
+  // (Arnaud's D-40, measured live).
   // Relation carriers decode at the query-engine boundary that knows their
   // value is JSON, so the adapter never sniffs ordinary strings.
   // ============================================================
@@ -1026,20 +1029,12 @@ export class MySQLAdapter implements DatabaseAdapter {
     // the two are separate declarations.
     decimalListRepresentation: "coefficient",
 
-    parseResult: (
-      raw: unknown,
-      operation: import("../../../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ): unknown => {
-      // Normalize raw count expressions to VibORM's private result carrier.
-      if (operation === "count" || operation === "exist") {
-        const normalized = normalizeCountResult(raw);
-        if (normalized) {
-          return next(normalized);
-        }
-      }
-      return next();
-    },
+    // The contract's shape, deciding nothing on all 20 asks D-40 measured over
+    // seven operations and both routes on live MySQL - the `count`/`exist` arm
+    // was entered on 10 of them and answered `undefined` every time
+    // (`g4/rulings/o2/receipts/leg-probe-mysql.log`). A RESULT is the
+    // decoder's, and D-28's chain ends there.
+    parseResult: passThroughParseResult,
 
     parseRelation: (
       _value: unknown,

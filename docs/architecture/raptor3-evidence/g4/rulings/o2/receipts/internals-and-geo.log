@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ✓ |layer-adapters| tests/contracts/adapters/internals-and-geo.core.test.ts (20 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  20 passed (20)
+   Start at  23:58:01
+   Duration  325ms (transform 115ms, setup 8ms, collect 168ms, tests 7ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 2.22s wall, 353.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

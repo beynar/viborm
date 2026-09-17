@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3.test.ts (39 tests) 167ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts (150 tests | 1 skipped) 575ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-index-ddl.test.ts (126 tests) 1403ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-scalar-roundtrip.test.ts (180 tests) 517ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-nested-write.test.ts (85 tests) 432ms
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-returning-json.test.ts (176 tests) 368ms
+
+ Test Files  6 passed (6)
+      Tests  755 passed | 1 skipped (756)
+   Start at  00:53:58
+   Duration  7.94s (transform 2.06s, setup 35ms, collect 4.00s, tests 3.46s, environment 0ms, prepare 111ms)
+
+Vitest resources: 10.58s wall, 699.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

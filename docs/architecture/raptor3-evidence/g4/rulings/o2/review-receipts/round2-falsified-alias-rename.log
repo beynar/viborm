@@ -1,0 +1,107 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-o2
+
+ ❯ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests | 4 failed) 21ms
+   ✓ the decoder fails closed on a wrong provider row > a null _count carrier is a malformed row, not a null count 6ms
+   ✓ the decoder fails closed on a wrong provider row > a relation that is not an array raises the public class 1ms
+   ✓ the decoder fails closed on a wrong provider row > a document that is not a row raises the public class 1ms
+   ✓ the driver result seam is reached (D-17) > the driver's own json rule decodes a top-level document 1ms
+   ✓ the driver result seam is reached (D-17) > a driver rule that throws is a malformed value, not a raw SyntaxError 1ms
+   × the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35) 4ms
+     → expected +0 to be 2 // Object.is equality
+   ✓ the driver result seam is reached (D-17) > a JSON integer outside the safe range is refused, and a safe one is a number 1ms
+   × the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone 1ms
+     → expected +0 to be 2 // Object.is equality
+   × the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias 1ms
+     → expected +0 to be 2 // Object.is equality
+   × the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked 1ms
+     → expected +0 to be 2 // Object.is equality
+   ✓ one physical vocabulary > a decimal carried inside a window stays TEXT 1ms
+   ✓ one physical vocabulary > the cursor carrier has one home 1ms
+   ✓ one physical vocabulary > the registered _distance collision sentence, in both orders 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the driver result seam is reached (D-17) > the count and the exists answer are the decoder's, not the seam's (D-35)
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:193:5
+    191| 
+    192|     const counted = scripted([{ _count: 2n }], sqliteResultParser);
+    193|     await expect(counted.client.parent.count({})).resolves.toBe(2);
+       |     ^
+    194|     await counted.client.$disconnect();
+    195| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > PostgreSQL answers the count and the exists from the decoder alone
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:254:5
+    252|     // `postgres.js` actually answer: `COUNT(*)` as integer TEXT.
+    253|     const counted = scriptedPg([{ _count: "2" }]);
+    254|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |     ^
+    255|     await counted.$disconnect();
+    256| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > MySQL answers them from the decoder alone, and only under its own alias
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:288:5
+    286|     // The raw mysql2 answers, measured live.
+    287|     const counted = scriptedMysql([{ _count: 2 }]);
+    288|     await expect(counted.counted.count({})).resolves.toBe(2);
+       |     ^
+    289|     await counted.$disconnect();
+    290| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts > the adapter result seam decides nothing (D-40) > the three shipped adapters share one pass-through, and a custom adapter's own is still asked
+AssertionError: expected +0 to be 2 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 0[39m
+
+ ❯ tests/contracts/engine/query/parity-decoding.core.test.ts:358:5
+    356|     const custom = new CustomAdapter();
+    357|     const client = on(custom, "sqlite")([{ zz_count: 2 }]);
+    358|     await expect(client.counted.count({})).resolves.toBe(2);
+       |     ^
+    359|     await client.$disconnect();
+    360|     expect(custom.asked).toEqual([
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 9 passed (13)
+   Start at  01:03:43
+   Duration  1.39s (transform 792ms, setup 9ms, collect 1.22s, tests 21ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.33s wall, 452.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

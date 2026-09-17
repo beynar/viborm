@@ -459,22 +459,40 @@ describe("adapter result hooks", () => {
   const next = (value?: unknown): unknown =>
     value === undefined ? passthrough : value;
 
-  test("PostgreSQL converts top-level bigint and otherwise passes through", () => {
+  test("PostgreSQL passes every result through", () => {
+    // Until D-40 the first line answered 5: the leg offered
+    // `convertBigIntToNumber(raw)` for every verb. `Queries.decodeResult` hands
+    // this leg the operation's ROW ARRAY, so the bigint it tested for could not
+    // arrive — measured `undefined` on all 40 live asks, `pg` and `postgres.js`
+    // — and an integer's width is a VALUE's fact the engine's `int` codec owns.
     const result = new PostgresAdapter().result;
-    expect(result.parseResult(5n, "count", next)).toBe(5);
+    expect(result.parseResult(5n, "count", next)).toBe(passthrough);
+    expect(result.parseResult([{ _count: "5" }], "count", next)).toBe(
+      passthrough
+    );
     expect(result.parseResult(5, "count", next)).toBe(passthrough);
     expect(result.parseRelation({}, next)).toBe(passthrough);
     expect(result.parseField("value", "string", next)).toBe(passthrough);
   });
 
-  test("MySQL normalizes counts, booleans, and naive UTC datetimes", () => {
+  test("MySQL normalizes booleans and naive UTC datetimes, and passes results through", () => {
+    // Until D-40 the first two lines answered `[{ "0viborm_count_result": … }]`:
+    // the leg offered `normalizeCountResult(raw)` for `count`/`exist`. This
+    // engine names the column `_count` and mysql2 preserves that alias, so the
+    // leg was asked about `[{ _count: 2 }]` and decided nothing on all 20 live
+    // asks — its `count`/`exist` arm was entered on 10 of them and answered
+    // `undefined` every time; the key it produced is one the decoder cannot
+    // read either.
     const result = new MySQLAdapter().result;
-    expect(result.parseResult([{ "COUNT(*)": 2 }], "count", next)).toEqual([
-      { "0viborm_count_result": 2 },
-    ]);
-    expect(result.parseResult({ "COUNT(*)": 1 }, "exist", next)).toEqual([
-      { "0viborm_count_result": 1 },
-    ]);
+    expect(result.parseResult([{ "COUNT(*)": 2 }], "count", next)).toBe(
+      passthrough
+    );
+    expect(result.parseResult({ "COUNT(*)": 1 }, "exist", next)).toBe(
+      passthrough
+    );
+    expect(result.parseResult([{ _count: 2 }], "count", next)).toBe(
+      passthrough
+    );
     expect(result.parseResult([{ id: 1 }], "count", next)).toBe(passthrough);
     expect(result.parseResult([{ "COUNT(*)": 2 }], "findMany", next)).toBe(
       passthrough
@@ -495,6 +513,8 @@ describe("adapter result hooks", () => {
   });
 
   test("SQLite publishes physical promises and otherwise passes through", () => {
+    // The dialect whose result leg was ALWAYS the contract's pass-through, and
+    // after D-40 the shape all three share.
     const result = new SQLiteAdapter().result;
     expect(result.decimalRepresentation).toBe("coefficient");
     expect(result.decimalListRepresentation).toBe("coefficient");

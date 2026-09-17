@@ -11,7 +11,10 @@ import { createIdentifierQuoter } from "../../../sql/identifiers";
 import type { ArithmeticTarget } from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import type { QueryParts } from "../../adapter-query-parts";
-import type { AdapterResultParser } from "../../adapter-result-parser";
+import {
+  type AdapterResultParser,
+  passThroughParseResult,
+} from "../../adapter-result-parser";
 import { sqliteConstraintIdentities } from "../../constraint-identity";
 import {
   type DatabaseAdapter,
@@ -866,11 +869,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     // is read back in the vocabulary it was written in.
     dateTimeRepresentation: sqliteDateTimePhysicalForm,
 
-    parseResult: (
-      _raw: unknown,
-      _operation: import("../../../query-engine/types").Operation,
-      next: (value?: unknown) => unknown
-    ): unknown => next(),
+    parseResult: passThroughParseResult,
 
     parseRelation: (
       _value: unknown,

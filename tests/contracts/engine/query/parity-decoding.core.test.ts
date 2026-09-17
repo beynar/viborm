@@ -1,4 +1,7 @@
+import { passThroughParseResult } from "@adapters/adapter-result-parser";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver, type DriverResultParser } from "@drivers";
@@ -24,18 +27,20 @@ import { beforeAll, describe, expect, test } from "vitest";
 
 /** A driver that answers exactly the rows a cell hands it. */
 class ScriptedDriver extends Driver<null, null> {
-  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  readonly adapter: DatabaseAdapter;
   readonly statements: string[] = [];
   readonly result: DriverResultParser | undefined;
   private readonly rows: Record<string, unknown>[];
   constructor(
     rows: Record<string, unknown>[],
     dialect: Dialect = "sqlite",
-    result?: DriverResultParser
+    result?: DriverResultParser,
+    adapter: DatabaseAdapter = new SQLiteAdapter()
   ) {
     super(dialect, "scripted");
     this.rows = rows;
     this.result = result;
+    this.adapter = adapter;
   }
   protected async initClient() {
     return null;
@@ -85,7 +90,20 @@ const parent = s
   .map("parity_decode_parents");
 
 const schema = { parent, child };
-beforeAll(() => hydrateSchemaNames(schema));
+
+/**
+ * The D-40 cells count over a model with no provider-limited scalar, so the
+ * same schema admits the PostgreSQL and MySQL adapters as well as SQLite.
+ */
+const counted = s
+  .model({ id: s.int().id(), rank: s.int() })
+  .map("parity_decode_counted");
+const countedSchema = { counted };
+
+beforeAll(() => {
+  hydrateSchemaNames(schema);
+  hydrateSchemaNames(countedSchema);
+});
 
 const scripted = (
   rows: Record<string, unknown>[],
@@ -158,8 +176,9 @@ describe("the driver result seam is reached (D-17)", () => {
 
   test("the count and the exists answer are the decoder's, not the seam's (D-35)", async () => {
     // Until D-35 the shipped SQLite parser also carried a RESULT arm: for
-    // `count`/`exist` it offered `normalizeCountResult(raw)`, which recognises
-    // a single-column row named `0viborm_count_result` or `COUNT(…)`. This
+    // `count`/`exist` it offered `normalizeCountResult(raw)` — a shared helper
+    // D-40 has since deleted with its last caller — which recognised a
+    // single-column row named `0viborm_count_result` or `COUNT(…)`. This
     // engine asks for `_count` and the SQLite providers preserve the alias, so
     // the arm decided `undefined` on every real answer (measured on a live
     // better-sqlite3: `g4/rulings/d35/receipts/arm-inert-before.log`) and was
@@ -199,6 +218,148 @@ describe("the driver result seam is reached (D-17)", () => {
       huge.client.parent.findMany({ select: { id: true, meta: true } })
     ).rejects.toBeInstanceOf(QueryEngineError);
     await huge.client.$disconnect();
+  });
+});
+
+describe("the adapter result seam decides nothing (D-40)", () => {
+  /**
+   * The same scripted transport carrying a REAL provider adapter, so what
+   * answers is the shipped `parseResult` of that dialect and the decoder
+   * below it.
+   *
+   * Until D-40 MySQL's leg offered `normalizeCountResult(raw)` for
+   * `count`/`exist` and PostgreSQL's offered `convertBigIntToNumber(raw)` for
+   * every verb; both were measured answering `undefined` on every live
+   * operation of both routes (`g4/rulings/o2/receipts/leg-probe-*.log`),
+   * because the engine asks for the alias `_count` and `Queries.decodeResult`
+   * hands the leg a ROW ARRAY, which is never a bigint. That each adapter's
+   * member is now the contract's pass-through is pinned once, at the adapter
+   * seam, by `tests/contracts/adapters/internals-and-geo.core.test.ts`; the
+   * two provider cells below assert only what the DECODER answers with that
+   * adapter in the path.
+   */
+  const on =
+    (adapter: DatabaseAdapter, dialect: Dialect) =>
+    (rows: Record<string, unknown>[]) => {
+      const driver = new ScriptedDriver(rows, dialect, undefined, adapter);
+      return createClient({ schema: countedSchema, driver });
+    };
+
+  test("PostgreSQL answers the count and the exists from the decoder alone", async () => {
+    const scriptedPg = on(new PostgresAdapter(), "postgresql");
+
+    // The answers are the ones measured live, over the raw `pg` and
+    // `postgres.js` actually answer: `COUNT(*)` as integer TEXT.
+    const counted = scriptedPg([{ _count: "2" }]);
+    await expect(counted.counted.count({})).resolves.toBe(2);
+    await counted.$disconnect();
+
+    const present = scriptedPg([{ _count: "1" }]);
+    await expect(present.counted.exist({ where: { id: 1 } })).resolves.toBe(
+      true
+    );
+    await present.$disconnect();
+
+    const absent = scriptedPg([{ _count: "0" }]);
+    await expect(absent.counted.exist({ where: { id: 1 } })).resolves.toBe(
+      false
+    );
+    await absent.$disconnect();
+
+    // The bigint the deleted leg claimed to convert: the `int` codec owns that
+    // conversion, per VALUE, and it also refuses what the helper only fell
+    // through on.
+    const carried = scriptedPg([{ _count: 2n }]);
+    await expect(carried.counted.count({})).resolves.toBe(2);
+    await carried.$disconnect();
+
+    const unsafe = scriptedPg([{ _count: 2n ** 70n }]);
+    await expect(unsafe.counted.count({})).rejects.toBeInstanceOf(
+      QueryEngineError
+    );
+    await unsafe.$disconnect();
+  });
+
+  test("MySQL answers them from the decoder alone, and only under its own alias", async () => {
+    const scriptedMysql = on(new MySQLAdapter(), "mysql");
+
+    // The raw mysql2 answers, measured live.
+    const counted = scriptedMysql([{ _count: 2 }]);
+    await expect(counted.counted.count({})).resolves.toBe(2);
+    await counted.$disconnect();
+
+    const present = scriptedMysql([{ _count: 1 }]);
+    await expect(present.counted.exist({ where: { id: 1 } })).resolves.toBe(
+      true
+    );
+    await present.$disconnect();
+
+    const absent = scriptedMysql([{ _count: 0 }]);
+    await expect(absent.counted.exist({ where: { id: 1 } })).resolves.toBe(
+      false
+    );
+    await absent.$disconnect();
+
+    // The alias the engine asked for is the ONLY authority on where a count
+    // lives: the column `normalizeCountResult` used to RECOGNISE and the one it
+    // used to PRODUCE both fail closed, with the public class, exactly as they
+    // did before the deletion — the key it produced was one the decoder cannot
+    // read either.
+    const recognised = scriptedMysql([{ "COUNT(*)": 2 }]);
+    await expect(recognised.counted.count({})).rejects.toBeInstanceOf(
+      QueryEngineError
+    );
+    await recognised.$disconnect();
+
+    const produced = scriptedMysql([{ "0viborm_count_result": 2 }]);
+    await expect(produced.counted.count({})).rejects.toBeInstanceOf(
+      QueryEngineError
+    );
+    await produced.$disconnect();
+  });
+
+  /** An adapter from outside this estate, carrying a `parseResult` of its own. */
+  class CustomAdapter extends SQLiteAdapter {
+    readonly asked: { operation: string; raw: unknown }[] = [];
+    constructor() {
+      super();
+      this.result = {
+        ...this.result,
+        parseResult: (raw, operation, next) => {
+          this.asked.push({ operation, raw });
+          // Recovering a result its transport named otherwise — the reason the
+          // seam is an extension point and not an internal detail.
+          const rows = raw as Record<string, unknown>[];
+          return next(rows.map((row) => ({ _count: row.zz_count })));
+        },
+      };
+    }
+  }
+
+  test("the three shipped adapters share one pass-through, and a custom adapter's own is still asked", async () => {
+    // Arnaud's D-43: after D-40 the three shipped members were byte-identical,
+    // and one fact gets one owner — the constant declared beside the contract
+    // member it implements. Identity, not behavior: what each adapter's leg
+    // DOES is `internals-and-geo.core.test.ts`'s cell above.
+    expect(new SQLiteAdapter().result.parseResult).toBe(passThroughParseResult);
+    expect(new MySQLAdapter().result.parseResult).toBe(passThroughParseResult);
+    expect(new PostgresAdapter().result.parseResult).toBe(
+      passThroughParseResult
+    );
+
+    // Arnaud's D-42: what the cells above measure is a CHOICE of the shipped
+    // adapters, not a dead seam, and sharing one do-nothing member does not
+    // close it. `Queries.decodeResult` still asks the adapter it was given,
+    // once, with the operation's verb and its own rows, and still honours what
+    // that adapter hands `next` — here the alias its transport did not
+    // preserve, which is the recovery this contract exists for.
+    const custom = new CustomAdapter();
+    const client = on(custom, "sqlite")([{ zz_count: 2 }]);
+    await expect(client.counted.count({})).resolves.toBe(2);
+    await client.$disconnect();
+    expect(custom.asked).toEqual([
+      { operation: "count", raw: [{ zz_count: 2 }] },
+    ]);
   });
 });
 
