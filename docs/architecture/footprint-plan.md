@@ -71,18 +71,32 @@ Source lines: non-engine `src/` is 74,400 code + 21,100 comment lines. Target
 - **Comments are a lever for LOC, not bytes.** They are stripped by
   minification; cut them for readers, never count them as bundle savings.
 
-## Decision still open: `@noble/hashes`
+## Decided: in-house Keccak, `@noble/hashes` leaves
 
-It exists only for CUID2's SHA3-512 (4.6 KB minified). Options, in the order of
-my recommendation:
+Owner's decision (2026-09-17). SHA3-512 is implemented in VibORM: Keccak-f[1600]
+on 25 lanes of 64 bits, rate 72 bytes, pad `0x06 … 0x80`, one leaf module
+beside `id-formats.ts`, roughly 100 lines, using native `BigInt` lanes or two
+`Uint32` halves per lane, whichever measures smaller after minification.
 
-1. **Keep it.** A well-audited hash for 4.6 KB. Recommended.
-2. **Drop `.cuid()`.** Removes the dependency; breaking for CUID2 users.
-3. **In-house Keccak-f[1600].** ~100 lines, ~1.5 KB minified, net saving 3 KB,
-   and it is writing a cryptographic hash to shave 3 KB. The native-ids plan
-   ruled this out; nothing has changed.
+Conditions that make this acceptable, all mandatory:
 
-The program does not touch it until the owner picks one.
+- **Differential proof against the pinned `@noble/hashes`**, kept as a
+  devDependency for exactly this: byte-identical digests over the NIST
+  SHA3-512 known-answer vectors (empty message, `abc`, the 448- and 896-bit
+  messages, the million-`a` message) plus 10,000 random inputs of lengths 0
+  to 2,000 bytes crossing every rate boundary. The existing CUID2 differential
+  against `@paralleldrive/cuid2` stays and now exercises the in-house hash
+  end to end.
+- **Constant shape, no configuration**: one exported function
+  `sha3_512(bytes: Uint8Array): Uint8Array`, no streaming, no options.
+- **Runtime proof** on workerd and Bun through the existing `provider-d1` and
+  `provider-bun` lanes, which already mint a CUID2 inside the worker.
+- **Scope**: CUID2 is the only caller. Nothing else in VibORM may import it
+  without its own differential proof.
+
+Expected: −4.6 KB `@noble/hashes`, +≈1.5 KB in-house, net ≈ −3 KB minified and
+one fewer runtime dependency. Goes into workstream 1 with the Decimal work, so
+PR #43 lands with zero value-type or hash dependencies.
 
 ## Prerequisites (workstream 0)
 
@@ -105,7 +119,7 @@ source file, so integration is a fast-forward or a trivial merge.
 
 | # | Workstream | Files | State | Bundle | LOC |
 |---|---|---|---|---|---|
-| 1 | Own `Decimal` + drop valibot/arktype | `src/validation/primitives/decimal*.ts`, `src/index.ts`, `package.json`, decimal tests, CHANGELOG | not started; **fold into #43** | −4 KB, −2 deps | −300 to −500 (codec defenses) |
+| 1 | Own `Decimal` + in-house SHA3-512 + drop valibot/arktype | `src/validation/primitives/decimal*.ts`, a new `sha3.ts` leaf, `autogenerate.ts` import, `src/index.ts`, `package.json`, decimal + cuid tests, CHANGELOG | not started; **fold into #43** | −7 KB, −3 deps | −300 to −500 (codec defenses) |
 | 2 | Validation scalars | `src/validation/scalars/**`, `src/validation/lazy.ts` | not started | −25 to −30 KB | −1,800 |
 | 2b | Validation operation schemas | `src/validation/model/**`, `src/validation/relations/**` | **blocked on Raptor 3** | −30 to −40 KB | −2,500 |
 | 3 | Drivers | `src/drivers/**` | paused: worktree `viborm-fp-drivers`, 5 commits + 1 uncommitted file, unreviewed, −2 KB so far | −20 to −25 KB | −1,500 |
