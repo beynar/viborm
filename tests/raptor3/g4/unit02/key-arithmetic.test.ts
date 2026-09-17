@@ -555,6 +555,25 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
     });
   }
 
+  it("R-D3 is the EXPRESSION's refusal: a demanded whole value on the number key publishes under the same batch", async () => {
+    // `wholeValue` (`shared/query.ts`) is the one question: a literal or a
+    // `{ set }` envelope NAMES its value, so nothing has to travel through the
+    // integer-cast scratch and the refusal does not apply; only an operation
+    // (`{ increment }`, `{ multiply }` above) has a value the provider computes.
+    // Pinned by the parity repair round, which narrowed the refusal's domain
+    // from "any demanded non-int key" to "a demanded non-int EXPRESSION".
+    for (const update of [{ id: 9 }, { id: { set: 9 } }]) {
+      const candidate = await batchUpsert(update);
+      assert.equal(candidate.raised, undefined, JSON.stringify(update));
+      assert.equal(candidate.answer.startsWith("ok:"), true, candidate.answer);
+      assert.deepEqual(JSON.parse(candidate.answer.slice(3)), {
+        id: 9,
+        label: "a",
+      });
+      assert.deepEqual(candidate.rows, [{ id: 9, label: "a" }]);
+    }
+  });
+
   it("answers an INT key under the same batch profile on both engines", async () => {
     // The gap is exactly "non-`int` demanded expression", not "batch": the
     // integer arm is green on both engines on the same driver.

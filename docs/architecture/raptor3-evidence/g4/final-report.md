@@ -40,12 +40,14 @@ and the differential lanes are kept one-sided at their full counts. Commit
 5 (`356254a2`, D-15, reviewed and re-checked) retires
 the `pattern/` experiment and the V1 estate it kept alive: 111 production
 files / 41,272 lines, the whole `builders/` layer, the V1 parser tree, all
-of `write-engine/` but the typed parse boundary; charged production 11,732 token-LOC outside the engine plus 10,552 inside
-`raptor3/` = **22,284 token-LOC, 0.447 of the frozen baseline (49,887)**
-(plan §7 target ≤ 0.60, met; the census tool still classifies `raptor3/`
-as the excluded experiment, F-1, so its own headline of 0.235 leaves the
-engine out — corrected here; before the retirement the honest number was
-0.877), the whole-estate typecheck at
+of `write-engine/` but the typed parse boundary; `src/query-engine/**` at 14,511 token-LOC against the old engine's 46,021 =
+**0.315 of the frozen baseline** (plan §7 target ≤ 0.60, met; with the
+same 15 client and adapter integration files the baseline also charged,
+18,344 against 49,887 = 0.368). The census tool's own headline of 0.235
+is not this number: it still classifies `raptor3/` as the excluded
+experiment (F-1) and charges eleven shared files the baseline never did,
+so it measured the owners around the engine, not the engine — corrected
+here; before the retirement the honest number was 0.877, the whole-estate typecheck at
 **zero** diagnostics, bundles byte-identical, the core lane at the base's
 red set. Nothing is pushed; the push, the release note for the two public
 contract changes (`expressions.integerDivide`, the `buildStatement`/`build`
@@ -77,10 +79,10 @@ remaining Docker reds are the five kept-red registration cells, the D-29
 staleness window, a PostGIS-less container, the MySQL migration
 fingerprint mismatch, lock deadlocks and four namespace-containment cells,
 all red on the parent. Size: the parity work adds 2,083 lines and removes
-259 in production (guide +323) and adds 2,444 test lines; the engine
-program is **23,132 token-LOC = 0.464 of the frozen baseline** (raptor3
-10,552 → 11,399, the charged owners outside it unchanged at 11,733;
-target ≤ 0.60 met). The audit of the whole diff (`final2/audit.log`) found
+259 in production (guide +323) and adds 2,444 test lines; `src/query-engine/**`
+is **15,359 token-LOC = 0.334 of the old engine's 46,021** (raptor3 alone
+10,552 → 11,399; with the same client and adapter integration files the
+baseline charged, 19,192 against 49,887 = 0.385; target ≤ 0.60 met). The audit of the whole diff (`final2/audit.log`) found
 no TODO, no legacy branch re-created and one owner per transport-mode
 distinction. Rulings left to Arnaud: D-27, D-28, D-29, D-31, D-32
 (recorded in `g4.md`). The campaign qualification was not re-run for this
