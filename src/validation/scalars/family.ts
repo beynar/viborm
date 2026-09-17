@@ -30,6 +30,12 @@ import {
  * {@link buildNegatableFilterSchema}. `tests/unit/scalars/_scalar-shape-census.ts`
  * records the resulting order for all twenty-four cases.
  *
+ * A kind's MEMBER and LIST schemas — `v.integer()` and
+ * `v.integer({ array: true })`, and so on — carry no nullability and no arity
+ * of their own. The FIELD's schema is what `equals`, `set` and the shorthand
+ * take, so only those arms accept a `null`; `in`, the ordered comparisons and
+ * the list operators compare against a plain value.
+ *
  * Each family is a FACTORY that closes over its kind's primitives and returns
  * the per-field builder. That keeps the module-level bag built exactly once per
  * kind, as it was when each module declared its own, and it keeps every

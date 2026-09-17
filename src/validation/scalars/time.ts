@@ -14,15 +14,7 @@ import {
 } from "./family";
 import { scalarInternKey } from "./intern";
 
-/**
- * The two schemas every time operand is made of: one member and one list.
- *
- * Neither carries nullability or arity of its own. The FIELD's schema is what
- * `equals`, `set` and the shorthand take, so only those arms accept a `null`;
- * `in`, the ordered comparisons and the list operators compare against a plain
- * value. Everything else in this module is the shared family — spelled once in
- * `family.ts` and named here with this kind's primitives.
- */
+/** This kind's member and list schemas; `family.ts` explains what they are for. */
 const timeBase = v.isoTime();
 const timeList = v.isoTime({ array: true });
 
