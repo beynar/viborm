@@ -1,5 +1,5 @@
 import type { ScalarType } from "@schema/scalars/common";
-import { lazyScalarSchemas, type ScalarSchemas } from "../lazy";
+import { lazyScalarSchemas, type ScalarVariantSchemas } from "../lazy";
 import type { UnionSchema } from "../primitives/union";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner } from "./intern";
@@ -307,7 +307,7 @@ const internedVariant =
  * `create` is NOT interned — it carries the field's own default, nullability
  * and arity, so two fields share nothing there, and it keeps its exact type.
  */
-export const internedScalarSchemas = <T extends ScalarSchemas>(
+export const internedScalarSchemas = <T extends ScalarVariantSchemas>(
   interners: ScalarInterners,
   key: string | null,
   builders: {

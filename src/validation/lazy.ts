@@ -38,22 +38,30 @@ export function lazyRecord<T extends object>(
   return target;
 }
 
-/** The four variants every scalar field owns. */
-export type ScalarSchemas = {
+/**
+ * The four variants every scalar field owns.
+ *
+ * Named for the VARIANTS of one field, not for a model's scalars: the barrel
+ * already exports a `ScalarSchemas` from `./model`, which is the scalar schemas
+ * of a whole model. The two constrain unrelated shapes, so one name for both
+ * would be a duplicate export the day this module joins the barrel, and an
+ * auto-import that typechecks by accident until then.
+ */
+export type ScalarVariantSchemas = {
   readonly base: unknown;
   readonly create: unknown;
   readonly update: unknown;
   readonly filter: unknown;
 };
 
-type ScalarSchemaBuilders<T extends ScalarSchemas> = {
+type ScalarSchemaBuilders<T extends ScalarVariantSchemas> = {
   readonly base: T["base"];
   readonly create: () => T["create"];
   readonly update: () => T["update"];
   readonly filter: () => T["filter"];
 };
 
-type ScalarSchemaRecord<T extends ScalarSchemas> = Pick<
+type ScalarSchemaRecord<T extends ScalarVariantSchemas> = Pick<
   T,
   "base" | "create" | "update" | "filter"
 >;
@@ -67,7 +75,7 @@ type LazyState<T> = { build: () => T } | { value: T };
  * a closure per property and field. Each resolved variant drops its factory
  * while unresolved siblings remain lazy.
  */
-class LazyScalarSchemas<T extends ScalarSchemas>
+class LazyScalarSchemas<T extends ScalarVariantSchemas>
   implements ScalarSchemaRecord<T>
 {
   readonly base: T["base"];
@@ -102,7 +110,7 @@ class LazyScalarSchemas<T extends ScalarSchemas>
     });
   }
 
-  private static readCreate<T extends ScalarSchemas>(
+  private static readCreate<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["create"] {
     if ("value" in this.#create) return this.#create.value;
@@ -111,7 +119,7 @@ class LazyScalarSchemas<T extends ScalarSchemas>
     return value;
   }
 
-  private static readUpdate<T extends ScalarSchemas>(
+  private static readUpdate<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["update"] {
     if ("value" in this.#update) return this.#update.value;
@@ -120,7 +128,7 @@ class LazyScalarSchemas<T extends ScalarSchemas>
     return value;
   }
 
-  private static readFilter<T extends ScalarSchemas>(
+  private static readFilter<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["filter"] {
     if ("value" in this.#filter) return this.#filter.value;
@@ -130,7 +138,7 @@ class LazyScalarSchemas<T extends ScalarSchemas>
   }
 }
 
-export function lazyScalarSchemas<T extends ScalarSchemas>(
+export function lazyScalarSchemas<T extends ScalarVariantSchemas>(
   builders: ScalarSchemaBuilders<T>
 ): ScalarSchemaRecord<T> {
   return new LazyScalarSchemas(builders);
