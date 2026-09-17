@@ -1,0 +1,1 @@
+MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)

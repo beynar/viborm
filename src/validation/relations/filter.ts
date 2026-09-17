@@ -108,6 +108,29 @@ export type ToOneFilterSchema<
       ]
     >;
 
+/**
+ * A relation filter that names no quantifier is not a filter.
+ *
+ * `where: { posts: {} }` and `where: { author: {} }` state nothing about the
+ * relation, and an engine that reads them as silence lowers them to TRUE —
+ * which is how `deleteMany({ where: { posts: {} } })` came to delete every
+ * row. Unlike a scalar filter object, a relation filter schema is built per
+ * RELATION, so it can and does still name the slot in its own sentence.
+ */
+const TO_MANY_QUANTIFIERS = ["some", "every", "none"] as const;
+const TO_ONE_QUANTIFIERS = ["is", "isNot"] as const;
+
+const requireRelationQuantifier = (
+  resolved: ResolvedSlot,
+  quantifiers: readonly string[]
+): ((value: Record<string, unknown>) => string | undefined) => {
+  const refusal = `Relation filter '${resolved.slot.field}' requires one of: ${quantifiers.join(", ")}.`;
+  return (value) =>
+    quantifiers.some((quantifier) => value[quantifier] !== undefined)
+      ? undefined
+      : refusal;
+};
+
 /** The keys that spell the explicit `{ is, isNot }` filter. */
 const EXPLICIT_TO_ONE_FILTER_KEYS = new Set(["is", "isNot"]);
 
@@ -130,18 +153,21 @@ export const toOneFilterFactory = <
   targetSchemas: T
 ): ToOneFilterSchema<Source, Key, S> => {
   const isOptional = slotMayBeEmpty(resolved);
-  const filterObject = v.object({
-    is: () =>
-      v.maybeNullable(
-        targetSchemas().core.where,
-        isOptional as MayBeEmpty<Source, Key, S>
-      ),
-    isNot: () =>
-      v.maybeNullable(
-        targetSchemas().core.where,
-        isOptional as MayBeEmpty<Source, Key, S>
-      ),
-  });
+  const filterObject = v.object(
+    {
+      is: () =>
+        v.maybeNullable(
+          targetSchemas().core.where,
+          isOptional as MayBeEmpty<Source, Key, S>
+        ),
+      isNot: () =>
+        v.maybeNullable(
+          targetSchemas().core.where,
+          isOptional as MayBeEmpty<Source, Key, S>
+        ),
+    },
+    { refuse: requireRelationQuantifier(resolved, TO_ONE_QUANTIFIERS) }
+  );
 
   // The target `where` is reached through a thunk: building it here would
   // resolve the target model's schemas while this one is still under
@@ -192,12 +218,15 @@ export const toManyFilterFactory = <
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
-  _state: S,
+  resolved: ResolvedSlot,
   targetSchemas: T
 ): ToManyFilterSchema<S> => {
-  return v.object({
-    some: () => targetSchemas().core.where,
-    every: () => targetSchemas().core.where,
-    none: () => targetSchemas().core.where,
-  });
+  return v.object(
+    {
+      some: () => targetSchemas().core.where,
+      every: () => targetSchemas().core.where,
+      none: () => targetSchemas().core.where,
+    },
+    { refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS) }
+  ) as unknown as ToManyFilterSchema<S>;
 };

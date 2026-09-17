@@ -3,8 +3,13 @@ import {
   getAdapterInternals
 } from "@adapters/adapter-internals";
 import type { AnyDriver } from "@drivers";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
-import { deriveStatementExecutionContext } from "@drivers/execution-context";
+import {
+  bindExecutionTransactionPhases,
+  deriveStatementExecutionContext
+} from "@drivers/execution-context";
+import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
   BatchQuery,
   QueryExecutionContext,
@@ -12,6 +17,7 @@ import type {
 } from "@drivers/types";
 import {
   attachRecordSeriesProgress,
+  isVibORMError,
   NestedWriteAssertionError,
   NestedWriteError,
   QueryEngineError,
@@ -21,7 +27,7 @@ import {
   UnsupportedOperationError
 } from "@errors";
 import type { AnyModel } from "@schema/model";
-import { Sql, sql } from "@sql";
+import { type Sql, sql } from "@sql";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit
@@ -37,7 +43,8 @@ import {
   type PreparedSelector,
   type Query,
   type Read,
-  returningSafeProjection
+  returningSafeProjection,
+  wholeValue,
 } from "./query";
 import {
   type EngineSchema,
@@ -50,6 +57,17 @@ import { type Membership, physicalField } from "./storage";
 import { TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
+
+/**
+ * The single-row mutations whose returned identity a batch-only, non-returning
+ * driver cannot resolve inside its own atomic unit (the shipped
+ * `ATOMIC_RESOLUTION_OPERATIONS`).
+ */
+const ATOMIC_RESOLUTION_OPERATIONS: ReadonlySet<string> = new Set([
+  "update",
+  "delete",
+  "upsert"
+]);
 
 export type MemberRollback = <T>(
   execute: (driver: AnyDriver) => Promise<T>,
@@ -161,6 +179,31 @@ export class OperationContext {
   private committedSegments = 0;
   private mayHaveCommittedSegment: true | undefined;
   private completedMembers = 0;
+  /**
+   * The shipped `hasCommittedRecordSeriesProgress` (`write-engine/routing.ts:197`),
+   * and the ONE fact the recovery allowance is refused on (Arnaud's D-25).
+   *
+   * An operation that has acknowledged nothing can be re-planned: a fresh
+   * occurrence tree over the same ADMITTED values re-reads committed state and
+   * converges. One that has, or may have, committed a segment cannot — a
+   * re-plan would write it twice. Dynamic member ADMISSION is not progress:
+   * nothing was acknowledged by admitting a member, and requiring it here is
+   * what made a raceable assertion over a captured member set unrecoverable.
+   */
+  private get committedProgress(): boolean {
+    return this.committedSegments > 0 || this.mayHaveCommittedSegment === true;
+  }
+  /**
+   * Has this operation admitted a DYNAMIC member — one whose defaults and
+   * transforms ran against a row this attempt read?
+   *
+   * It is not progress, and D-25 removed it from the progress rule above. It
+   * still bounds the recovery that REPLAYS the tree that ran: a replayed
+   * member would have to be admitted a second time, and admitted values are
+   * never validated or transformed again (rule 10). The recovery that
+   * RE-PLANS is not bounded by it — a fresh occurrence tree derives its
+   * members from the committed state it re-reads.
+   */
   private memberAdmissionStarted = false;
   /**
    * The transport window of the operation's OWN set-oriented statement, while
@@ -300,7 +343,7 @@ export class OperationContext {
     this.usesBatch =
       this.ownership === "batch-preparation" ||
       (this.ownership === "standalone" && !this.driver.supportsTransactions);
-    this.queries = new Queries(schema, this.driver.adapter);
+    this.queries = new Queries(schema, this.driver.adapter, this.driver.result);
   }
   get attribution(): QueryExecutionContext {
     return (
@@ -352,10 +395,16 @@ export class OperationContext {
     context: QueryExecutionContext = this.attribution,
     member?: Member
   ): BatchQuery {
-    const query = {
-      ...this.transport._prepare(statement, context),
+    const prepared = this.transport._prepare(statement, context);
+    // The DRIVER owns this query's identity. When observers are installed it
+    // DEFERS the statement transform and registers the typed `Sql` against the
+    // object it returned (`drivers/driver-transaction-base.ts:246-264`), which
+    // the statement onion reads back before dispatch — so a snapshot that does
+    // not carry the provenance silently drops every deferred transform.
+    const query = transferPreparedStatement(prepared, {
+      ...prepared,
       context
-    };
+    });
     this.attempt.pending.push(query);
     if (member) this.attempt.recordMember(member);
     return query;
@@ -542,24 +591,71 @@ export class OperationContext {
         : undefined;
     }
     if (this.ownership !== "standalone") return undefined;
+    // This transaction is the ONLY place this operation can learn whether its
+    // writes became durable, so the client's cache rail is bound to its phases
+    // here — the five steps of the shipped `runTransactionScope`
+    // (`write-engine/OperationExecutor.ts:1130-1187`), owned by the context
+    // because only the context opens the region.
+    const attribution = this.writeOutcome
+      ? bindExecutionTransactionPhases(this.attribution, {
+          readyToCommit: () => {
+            this.regionPhase = "ready";
+          },
+          committed: () => {
+            this.regionPhase = "committed";
+          },
+        })
+      : this.attribution;
     return (execute) =>
-      this.driver.withTransaction(execute, undefined, this.attribution);
+      this.driver.withTransaction(execute, undefined, attribution);
+  }
+  /** How far the region this operation opened got, as its driver reported it. */
+  private regionPhase: "pending" | "ready" | "committed" = "pending";
+  private openRegionPhase(): void {
+    this.regionPhase = "pending";
   }
   /** Run the operation inside the one region it owns. */
   private async withinRegion<T>(
     region: (execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>,
     body: () => Promise<T>
   ): Promise<T> {
-    return (await region(async (transaction) => {
-      this.transport = transaction;
-      this.ownRegionOpen = true;
-      try {
-        return await body();
-      } finally {
-        this.transport = this.driver;
-        this.ownRegionOpen = false;
-      }
-    })) as T;
+    this.openRegionPhase();
+    let value: T;
+    try {
+      value = (await region(async (transaction) => {
+        this.transport = transaction;
+        this.ownRegionOpen = true;
+        try {
+          return await body();
+        } finally {
+          this.transport = this.driver;
+          this.ownRegionOpen = false;
+        }
+      })) as T;
+    } catch (error) {
+      // The phase the region REACHED is the certainty: a driver that never
+      // separated commit from success reports none, and this operation then
+      // says nothing rather than guessing.
+      const certainty =
+        this.regionPhase === "committed"
+          ? "committed"
+          : this.regionPhase === "ready"
+            ? "may-have-committed"
+            : undefined;
+      if (!certainty) throw error;
+      const primary = isVibORMError(error)
+        ? attachCommitCertainty(error, certainty)
+        : error;
+      await this.stateWriteOutcome(
+        this.regionPhase === "committed"
+          ? this.writeOutcome?.committedSegment
+          : this.writeOutcome?.mayBeVisible,
+        primary
+      );
+      throw primary;
+    }
+    await this.stateWriteOutcome(this.writeOutcome?.committedSegment);
+    return value;
   }
   /**
    * ONE rule for the physical envelope: it opens at the first statement that is
@@ -593,9 +689,10 @@ export class OperationContext {
     try {
       if (this.ownership === "batch-preparation") return await body();
       if (isReadOperation(this.operation)) return await body();
+      if (!single) this.requireAtomicUnit();
       const region = this.region();
-      if (!region) return await body();
-      if (!single) return await this.withinRegion(region, body);
+      if (!region) return await this.batchAttempt(body);
+      if (!single) return await this.regionAttempt(region, body);
       this.envelope = "deferred";
       try {
         return await body();
@@ -603,7 +700,7 @@ export class OperationContext {
         if (error !== this.requiresEnvelope) throw error;
       }
       this.restart();
-      return await this.withinRegion(region, body);
+      return await this.regionAttempt(region, body);
     } catch (error) {
       if (
         error instanceof InvalidScalarResult ||
@@ -616,6 +713,42 @@ export class OperationContext {
         );
       throw error;
     }
+  }
+  /**
+   * The pre-dispatch capability gate, on the construction path and before the
+   * operation's FIRST statement — the position of the shipped
+   * `assertRoutedAtomicResolution` (`write-engine/routing.ts:104-164`).
+   *
+   * A form the physical-envelope rule has already ruled out of ONE statement
+   * needs an atomic unit. A driver with neither transactions nor batch has
+   * none, and a batch-only driver that cannot RETURN cannot resolve a
+   * single-row mutation's identity inside its own unit — its public result is
+   * parsed after the batch commits and that parse cannot be rolled back. Both
+   * are one class and one `meta`, and neither reaches the provider: the
+   * decision read of an `upsert` used to dispatch first and surface the
+   * provider's own error instead of this refusal.
+   */
+  private requireAtomicUnit(): void {
+    if (this.ownership !== "standalone") return;
+    const driver = this.driver;
+    const meta = { driver: driver.driverName, operation: this.operation };
+    if (!(driver.supportsTransactions || driver.supportsBatch))
+      throw new TransactionError(
+        `Driver "${driver.driverName}" supports neither transactions nor atomic batch execution.`,
+        { meta }
+      );
+    if (
+      driver.supportsBatch &&
+      !driver.supportsTransactions &&
+      !driver.adapter.capabilities.supportsReturning &&
+      ATOMIC_RESOLUTION_OPERATIONS.has(this.operation)
+    )
+      throw new TransactionError(
+        this.operation === "upsert"
+          ? "cannot execute non-returning upsert writes atomically because public result parsing cannot be rolled back after an atomic batch commits"
+          : `Driver '${driver.driverName}' cannot execute '${this.operation}' because public result parsing cannot be rolled back.`,
+        { meta }
+      );
   }
   /**
    * Every provider round trip crosses here, so the envelope rule has exactly one
@@ -636,11 +769,104 @@ export class OperationContext {
     return execute();
   }
   /** Discard the un-executed plan so the body can be constructed again. */
-  private restart(): void {
-    this.attemptStore = new TransportAttempt();
+  private restart(attempt = new TransportAttempt()): void {
+    this.attemptStore = attempt;
     this.continuationList = undefined;
     this.memberAdmissionStarted = false;
     this.envelope = "open";
+  }
+  /**
+   * The command interpreter's ONE replacement of both attempt regions, held by
+   * the owner that opens the region so it can spend the recovery allowance
+   * without knowing how a command attempt is built. It answers the replacement
+   * transport region once, and `undefined` ever after.
+   */
+  attachRecovery(replace: () => TransportAttempt | undefined): void {
+    this.replaceAttempt = replace;
+  }
+  private replaceAttempt?: () => TransportAttempt | undefined;
+  private recoverySpent = false;
+  /**
+   * The ONE recovery allowance, spent here and nowhere else.
+   *
+   * The interpreter owns HOW both attempt regions are replaced; this owner
+   * states WHETHER they may be, because a recovery is a fact about the
+   * operation, not about the interpreter that happens to be running it: a
+   * re-plan builds a NEW interpreter (D-25), and a fresh interpreter must not
+   * bring a fresh allowance with it.
+   */
+  spendRecovery(): TransportAttempt | undefined {
+    if (this.recoverySpent) return undefined;
+    const replacement = this.replaceAttempt?.();
+    if (!replacement) return undefined;
+    this.recoverySpent = true;
+    return replacement;
+  }
+  /**
+   * May a replacement attempt replay IN PLACE?
+   *
+   * Only where this operation opened no region of its own. A region the
+   * rejection aborted answers no further statement, so there the recovery is
+   * {@link run}'s — a FRESH region — and never a replay inside the failed one.
+   */
+  get replaysInPlace(): boolean {
+    return !this.ownRegionOpen;
+  }
+  /**
+   * The operation's region, and the ONE recovery allowance that belongs to the
+   * owner that opens it.
+   *
+   * A lost create race destroys the region it was rejected in, so the recovery
+   * cannot be a replay inside it: it is a fresh region running the same body,
+   * which is exactly what the shipped `executeRoutedOperation` did
+   * (`write-engine/routing.ts:180-208`, "Re-planning re-reads committed state,
+   * so the loser now takes its adopt arm and converges"). The attribution and
+   * the correlation id are this operation's own and do not change;
+   * {@link recoveryRejection} has already answered that nothing was
+   * acknowledged, and the interpreter answers the allowance exactly once.
+   */
+  private async regionAttempt<T>(
+    region: (
+      execute: (driver: AnyDriver) => Promise<unknown>
+    ) => Promise<unknown>,
+    body: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await this.withinRegion(region, body);
+    } catch (error) {
+      if (this.recoveryRejection(error)?.kind !== "insert") throw error;
+      const replacement = this.spendRecovery();
+      if (!replacement) throw error;
+      this.restart(replacement);
+      return await this.withinRegion(region, body);
+    }
+  }
+  /**
+   * The batch route's own recovery: ONE re-plan, from the admitted values.
+   *
+   * A raceable atomic assertion aborted the whole unit before anything was
+   * acknowledged, so this operation may be planned again — and it must be
+   * planned AGAIN rather than replayed, because the tree that ran carries the
+   * members it captured and a series occurrence is expanded exactly once. The
+   * body re-derives the occurrence tree from the same ADMITTED arguments
+   * (`commands/index.ts`), so nothing is re-validated and no transform runs
+   * twice (rule 10), and the fresh plan-time read sees the committed state the
+   * race produced and converges (Arnaud's D-25).
+   *
+   * An INSERT rejection is not this arm's: with no region open the interpreter
+   * adopts the winner's row in place ({@link replaysInPlace}), which keeps "a
+   * missing winner never authorises a new INSERT" where it is decided.
+   */
+  private async batchAttempt<T>(body: () => Promise<T>): Promise<T> {
+    try {
+      return await body();
+    } catch (error) {
+      if (this.recoveryRejection(error)?.kind !== "assertion") throw error;
+      const replacement = this.spendRecovery();
+      if (!replacement) throw error;
+      this.restart(replacement);
+      return await body();
+    }
   }
   /**
    * One read. `model` is the model the statement addresses when that is not the
@@ -844,11 +1070,20 @@ export class OperationContext {
         );
       // Atomic rejection is retryable only with exact effect attribution and a
       // direct provider cause. Cleanup aggregation retains an extra cause link.
+      // And only while no dynamic member has been admitted: THIS route's
+      // recovery is the interpreter's in-place REPLAY of the tree that ran
+      // ({@link replaysInPlace}, the only arm reachable where the operation
+      // opened no region), which a dynamically admitted member makes impossible
+      // — its defaults and transforms already ran once against a row this
+      // attempt read, and admitted values are never produced twice (rule 10).
+      // The bound belongs to the site that RECORDS the producer, which is why
+      // {@link recoveryRejection} asks about attribution and progress alone.
+      // The non-batch attribution in {@link insert} carries no such bound: the
+      // recovery IT feeds re-enters a fresh region with a fresh plan (D-25).
       if (
         this.driver.supportsBatch &&
-        this.committedSegments === 0 &&
+        !this.committedProgress &&
         !this.memberAdmissionStarted &&
-        !this.mayHaveCommittedSegment &&
         error instanceof UniqueConstraintError &&
         error.meta.commitCertainty === undefined &&
         error.originalCause &&
@@ -907,10 +1142,23 @@ export class OperationContext {
           attributedError = failure;
           if (
             this.driver.supportsBatch &&
-            this.committedSegments === 0 &&
-            !this.memberAdmissionStarted &&
-            !this.mayHaveCommittedSegment &&
-            error.meta.commitCertainty === undefined
+            !this.committedProgress &&
+            error.meta.commitCertainty === undefined &&
+            // Only a premise its own owner declared RACEABLE may be answered by
+            // another attempt. The mark is the estate's existing rule for
+            // exactly this question ("the `raceable` mark is what lets the
+            // routed retry re-plan and converge", `batch-error-attribution.ts`;
+            // `errors/base.ts` "the retry layer … re-runs the SPECIFIC raceable
+            // ones by their own marking"), and it is fixed by the guard's
+            // premise class (`query-engine/types.ts`). A non-raceable premise —
+            // the captured row's own presence — is a statement about IDENTITY:
+            // re-planning it would retry against whatever row now answers the
+            // selector, which is the one thing a captured-row replacement must
+            // not do (`write-engine/ATOM.md` §"A conditional-skip batch arm",
+            // `transitions/conditional-upsert.ts` "Captured-row replacement or
+            // deletion must not permit a retry against another identity").
+            isVibORMError(failure) &&
+            failure.meta.raceable === true
           )
             this.atomicAssertionRejection = failure;
         }
@@ -964,7 +1212,19 @@ export class OperationContext {
     | { readonly kind: "assertion" }
     | { readonly kind: "insert"; readonly producer: object }
     | undefined {
-    if (this.ownership !== "standalone" || !this.usesBatch) return undefined;
+    // Rule 10: authority is not capability. The allowance asks who was rejected
+    // and how far this operation got — never which transport carried it, which
+    // is what let the shipped `routing.ts:180-208` replace a region the
+    // transport opened. Attribution and progress are ALL it asks (Arnaud's
+    // D-25): whether a rejected INSERT may be answered at all is decided where
+    // the producer is RECORDED — bounded by member admission on the route whose
+    // recovery REPLAYS in place ({@link submit}), unbounded on the route that
+    // RE-PLANS ({@link insert}), which is what D-25 allows.
+    if (this.ownership !== "standalone") return undefined;
+    if (this.committedProgress) return undefined;
+    // An ATOMIC ASSERTION is answered by a fresh PLAN over the same admitted
+    // arguments, which re-reads committed state (D-25), so dynamic member
+    // admission does not bound it: the new tree admits its own members.
     if (this.atomicAssertionRejection === error) return { kind: "assertion" };
     const producer = this.rejectedProducer(error);
     return producer ? { kind: "insert", producer } : undefined;
@@ -1158,11 +1418,13 @@ export class OperationContext {
     if (this.preparedParser === undefined) return undefined;
     if (this.attemptStore?.hasAssertedPremises) return undefined;
     return {
-      queries: this.queued.map((query) => ({
-        sql: query.sql,
-        params: query.params ?? [],
-        context: query.context ?? this.attribution
-      })),
+      queries: this.queued.map((query) =>
+        transferPreparedStatement(query, {
+          sql: query.sql,
+          params: query.params ?? [],
+          context: query.context ?? this.attribution
+        })
+      ),
       ...(this.preparedGuardList?.length
         ? { guards: this.preparedGuardList }
         : {}),
@@ -1373,13 +1635,20 @@ export class OperationContext {
     skipDuplicates = false,
     single?: () => Error
   ): Promise<unknown> {
-    if (rows.length === 0) return this.emptyBulkResult(projection);
+    // A DIRECT empty `createMany` is Prisma's documented `{ count: 0 }` no-op.
+    // A batch-PREPARED one is a different question, and the shipped engine
+    // refused it: `$transaction([createMany({ data: [] })])` built its plan
+    // during array preparation and `buildCreateManyPlan` raised "No data to
+    // insert for createMany." there (`assertBatchPreparable`). The mode is the
+    // fact, and this is the owner that holds it — admission cannot, because the
+    // same payload is admitted on both routes.
+    if (rows.length === 0) {
+      if (this.ownership === "batch-preparation")
+        throw new QueryEngineError("No data to insert for createMany.");
+      return this.emptyBulkResult(projection);
+    }
     const q = this.queries;
     const adapter = this.driver.adapter;
-    if (skipDuplicates && rows.some((row) => Object.keys(row).length === 0))
-      throw new UnsupportedOperationError(
-        "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
-      );
     const buildInsert = (
       columns: readonly string[],
       members: readonly Input[],
@@ -1527,10 +1796,26 @@ export class OperationContext {
         });
     }
     return this.setMutations(statements, (results) => {
-      if (!projection)
-        return {
-          count: results.reduce((count, result) => count + result.rowCount, 0)
-        };
+      const written = results.reduce(
+        (count, result) => count + result.rowCount,
+        0
+      );
+      // An affected-row count is EXECUTION semantics, not a provider opinion
+      // this operation forwards: a driver that acknowledges FEWER rows than
+      // were submitted has not written the request, and the operation says so
+      // instead of publishing the shortfall as its answer. `skipDuplicates` is
+      // the one admitted shape whose shortfall IS the answer. A count ABOVE the
+      // submitted rows is not this owner's to refuse — MySQL's duplicate clause
+      // counts two per replaced row and a trigger inflates the same number —
+      // and the estate pins that a driver's own window survives unchanged
+      // (`query-interceptors-array.core.test.ts` "preserves single,
+      // multi-statement, guard, and raw result windows").
+      if (!skipDuplicates && written < rows.length)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' reported ${written} of ${rows.length} inserted rows for operation '${this.operation}'.`,
+          { meta: this.errorMeta }
+        );
+      if (!projection) return { count: written };
       const output: Input[] = [];
       for (const result of results)
         output.push(
@@ -1549,9 +1834,7 @@ export class OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const assignments = Object.entries(values).map(([field, value]) =>
-      q.updateAssignment(model, field, value)
-    );
+    const assignments = this.updateAssignments(model, values);
     if (projection && !adapter.capabilities.supportsReturning) {
       const identities = await this.captureMutationIdentities(
         model,
@@ -1909,11 +2192,23 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const written = { ...values };
+    // What this update PUBLISHES to its dependents: the values it observed,
+    // never the payload it submitted. The payload is the update language and
+    // `Queries.prepareUpdate` is its one interpreter (U4); the question "which
+    // value will this field hold?" is the key-reconciliation reader's, and
+    // `CommandAttempt.read` already answers it from `Assignments.stated` for
+    // every field this update does not observe.
+    const published: Input = {};
     if (this.usesBatch) {
       for (const field of demanded) {
         const value = values[field];
-        if (value === null || typeof value !== "object" || value instanceof Sql)
-          continue;
+        // A payload that NAMES a value — a literal, a bound expression, or the
+        // `{ set: … }` envelope — leaves nothing for the provider to evaluate,
+        // so it needs no scratch and no capability refusal: the reader resolves
+        // the same value the row's own write submits. Only an OPERATION
+        // (`{ increment: 2 }`) has a value that exists after the provider
+        // computes it, and only that value has to travel through the scratch.
+        if (wholeValue(value)) continue;
         const state = physicalField(this.schema, model, field).scalar["~"]
           .state;
         // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
@@ -1957,7 +2252,7 @@ export class OperationContext {
             )
           )
         );
-        written[field] = adapter.expressions.cast(
+        written[field] = published[field] = adapter.expressions.cast(
           references.read(scratchId, key),
           "integer"
         );
@@ -1990,7 +2285,7 @@ export class OperationContext {
         );
         if (!rows[0])
           throw new TypeError("UPDATE did not produce the required record");
-        return { ...written, ...rows[0] };
+        return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
         this.transport._execute<Input>(
@@ -2005,10 +2300,10 @@ export class OperationContext {
         throw new TypeError(
           "UPDATE RETURNING did not produce the required record"
         );
-      return { ...written, ...rows[0] };
+      return { ...published, ...rows[0] };
     }
     await this.effect(statement, context, member);
-    return written;
+    return published;
   }
   async associate(
     edge: Membership,
@@ -2300,6 +2595,52 @@ export class OperationContext {
     await this.effect(
       a.mutations.update(q.table(edge.target), sql.join(values, ", "), where),
       this.statementContext(edge.target, "update"),
+      member
+    );
+  }
+  /** One admitted payload, one prepared update: `Queries` is the sole interpreter. */
+  private updateAssignments(model: AnyModel, values: Input): Sql[] {
+    return Object.entries(values).map(([field, value]) =>
+      this.queries.updateAssignment(model, field, value)
+    );
+  }
+  /**
+   * A nested `updateMany` / `deleteMany` as ONE correlated statement.
+   *
+   * The membership and the member filter are both predicates this statement
+   * carries, so the operation needs no planning read: the provider answers
+   * `WHERE fk = parent AND filter` after every earlier statement of the body
+   * has run, which is the shipped `buildUpdateMany` / `buildDeleteMany` shape
+   * (`write-engine/RelationWritePart.ts:484-504`, `:674-693`) and rule 6's
+   * "keep scalar bulk work set-oriented". Zero matched rows is a silent
+   * success, so there is no postcondition to state.
+   */
+  async mutateMembers(
+    edge: Membership,
+    parent: Input,
+    selector: PreparedSelector,
+    values: Input | undefined,
+    member: Member
+  ): Promise<void> {
+    const q = this.queries;
+    const a = this.driver.adapter;
+    const model = edge.target;
+    const filter = q.lowerMutationLimit(model, selector, undefined).where;
+    const where = a.operators.and(
+      // The target's own table name is the correlation alias, exactly as the
+      // shipped builders passed `getTableName(childScope.model)`.
+      q.memberWhere(edge, parent, model["~"].names.sql!),
+      ...(filter ? [filter] : [])
+    );
+    await this.effect(
+      values
+        ? a.mutations.update(
+            q.table(model),
+            sql.join(this.updateAssignments(model, values), ", "),
+            where
+          )
+        : a.mutations.delete(q.table(model), where),
+      this.statementContext(model, values ? "updateMany" : "deleteMany"),
       member
     );
   }

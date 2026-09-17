@@ -1,0 +1,418 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts (6 tests | 1 failed) 369ms
+   ✓ maps every new G3 ID to the frozen family and quota schedule 48ms
+   ✓ rejects non-G3 public recipes and shrinks only through admitted inputs 18ms
+   ✓ G3 generated C08 smoke: sqlite-interactive > executes a source-bound public recipe and exactly replays it 29ms
+   ✓ G3 generated C08 smoke: sqlite-atomic-batch > executes a source-bound public recipe and exactly replays it 11ms
+   × executes and exactly replays the representative C08-C11 SQLite matrix 255ms
+     → g3-generated-recurrence:final-world
++ actual - expected
+
+  {
+    books: [
+      {
++       code: 'old-c-0',
+-       code: 'new-c-0',
+        isbn: 'isbn-8015-0',
++       region: 'old-r-0',
++       title: 'before'
+-       region: 'new-r-0',
+-       title: 'after'
+      },
+      {
++       code: 'old-c-1',
+-       code: 'new-c-1',
+        isbn: 'isbn-8015-1',
++       region: 'old-r-1',
++       title: 'before'
+-       region: 'new-r-1',
+-       title: 'after'
+      }
+    ],
++   chapters: []
+-   chapters: [
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0',
+-       parentId: null,
+-       title: 'chapter-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0-f0',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-leaf-0-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0-f1',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-leaf-0-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1-f0',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-leaf-1-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1-f1',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-leaf-1-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s2',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-2'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0',
+-       parentId: null,
+-       title: 'chapter-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0-f0',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-leaf-0-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0-f1',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-leaf-0-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1-f0',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-leaf-1-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1-f1',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-leaf-1-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s2',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-2'
+-     }
+-   ]
+  }
+
+   ✓ fails closed for an unknown G3 recipe or lane 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts > executes and exactly replays the representative C08-C11 SQLite matrix
+AssertionError: g3-generated-recurrence:final-world
++ actual - expected
+
+  {
+    books: [
+      {
++       code: 'old-c-0',
+-       code: 'new-c-0',
+        isbn: 'isbn-8015-0',
++       region: 'old-r-0',
++       title: 'before'
+-       region: 'new-r-0',
+-       title: 'after'
+      },
+      {
++       code: 'old-c-1',
+-       code: 'new-c-1',
+        isbn: 'isbn-8015-1',
++       region: 'old-r-1',
++       title: 'before'
+-       region: 'new-r-1',
+-       title: 'after'
+      }
+    ],
++   chapters: []
+-   chapters: [
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0',
+-       parentId: null,
+-       title: 'chapter-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0-f0',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-leaf-0-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s0-f1',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-leaf-0-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1',
+-       parentId: 'c-8015-0-s0',
+-       title: 'chapter-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1-f0',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-leaf-1-0'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s1-f1',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-leaf-1-1'
+-     },
+-     {
+-       bookCode: 'new-c-0',
+-       bookRegion: 'new-r-0',
+-       id: 'c-8015-0-s2',
+-       parentId: 'c-8015-0-s1',
+-       title: 'chapter-2'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0',
+-       parentId: null,
+-       title: 'chapter-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0-f0',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-leaf-0-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s0-f1',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-leaf-0-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1',
+-       parentId: 'c-8015-1-s0',
+-       title: 'chapter-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1-f0',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-leaf-1-0'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s1-f1',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-leaf-1-1'
+-     },
+-     {
+-       bookCode: 'new-c-1',
+-       bookRegion: 'new-r-1',
+-       id: 'c-8015-1-s2',
+-       parentId: 'c-8015-1-s1',
+-       title: 'chapter-2'
+-     }
+-   ]
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "books": [[22m
+[2m      {[22m
+[32m-       "code": "new-c-0",[39m
+[31m+       "code": "old-c-0",[39m
+[2m        "isbn": "isbn-8015-0",[22m
+[32m-       "region": "new-r-0",[39m
+[32m-       "title": "after",[39m
+[31m+       "region": "old-r-0",[39m
+[31m+       "title": "before",[39m
+[2m      },[22m
+[2m      {[22m
+[32m-       "code": "new-c-1",[39m
+[31m+       "code": "old-c-1",[39m
+[2m        "isbn": "isbn-8015-1",[22m
+[32m-       "region": "new-r-1",[39m
+[32m-       "title": "after",[39m
+[32m-     },[39m
+[32m-   ],[39m
+[32m-   "chapters": [[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s0",[39m
+[32m-       "parentId": null,[39m
+[32m-       "title": "chapter-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s0-f0",[39m
+[32m-       "parentId": "c-8015-0-s0",[39m
+[32m-       "title": "chapter-leaf-0-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s0-f1",[39m
+[32m-       "parentId": "c-8015-0-s0",[39m
+[32m-       "title": "chapter-leaf-0-1",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s1",[39m
+[32m-       "parentId": "c-8015-0-s0",[39m
+[32m-       "title": "chapter-1",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s1-f0",[39m
+[32m-       "parentId": "c-8015-0-s1",[39m
+[32m-       "title": "chapter-leaf-1-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s1-f1",[39m
+[32m-       "parentId": "c-8015-0-s1",[39m
+[32m-       "title": "chapter-leaf-1-1",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-0",[39m
+[32m-       "bookRegion": "new-r-0",[39m
+[32m-       "id": "c-8015-0-s2",[39m
+[32m-       "parentId": "c-8015-0-s1",[39m
+[32m-       "title": "chapter-2",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s0",[39m
+[32m-       "parentId": null,[39m
+[32m-       "title": "chapter-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s0-f0",[39m
+[32m-       "parentId": "c-8015-1-s0",[39m
+[32m-       "title": "chapter-leaf-0-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s0-f1",[39m
+[32m-       "parentId": "c-8015-1-s0",[39m
+[32m-       "title": "chapter-leaf-0-1",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s1",[39m
+[32m-       "parentId": "c-8015-1-s0",[39m
+[32m-       "title": "chapter-1",[39m
+[31m+       "region": "old-r-1",[39m
+[31m+       "title": "before",[39m
+[2m      },[22m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s1-f0",[39m
+[32m-       "parentId": "c-8015-1-s1",[39m
+[32m-       "title": "chapter-leaf-1-0",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s1-f1",[39m
+[32m-       "parentId": "c-8015-1-s1",[39m
+[32m-       "title": "chapter-leaf-1-1",[39m
+[32m-     },[39m
+[32m-     {[39m
+[32m-       "bookCode": "new-c-1",[39m
+[32m-       "bookRegion": "new-r-1",[39m
+[32m-       "id": "c-8015-1-s2",[39m
+[32m-       "parentId": "c-8015-1-s1",[39m
+[32m-       "title": "chapter-2",[39m
+[32m-     },[39m
+[2m    ],[22m
+[31m+   "chapters": [],[39m
+[2m  }[22m
+
+ ❯ Object.assert tests/raptor3/g3/generation/recurrence-scenario.ts:88:14
+     86|         "g3-generated-recurrence:initial-world"
+     87|       );
+     88|       assert.deepEqual(
+       |              ^
+     89|         observation.final,
+     90|         world.final,
+ ❯ Object.assert tests/raptor3/harness/sqlite-world.ts:421:19
+ ❯ verifyG3SQLiteCell tests/raptor3/g3/generation/sqlite-campaign.ts:55:17
+ ❯ tests/raptor3/g3/generation/generated-smoke.test.ts:280:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  14:52:28
+   Duration  6.79s (transform 3.53s, setup 26ms, collect 5.60s, tests 369ms, environment 0ms, prepare 144ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Gir4Us/vitest.json
+Vitest resources: 15.94s wall, 492.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Gir4Us

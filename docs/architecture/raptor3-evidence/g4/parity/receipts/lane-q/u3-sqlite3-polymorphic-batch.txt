@@ -1,0 +1,40 @@
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy a non-grouped column is rejected 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy a grouped column still works 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _count on a field 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _count _all 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > orderBy _sum 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate in filter 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate in with empty list matches nothing 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate notIn with empty list matches everything 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate equals null uses IS NULL 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having aggregate not null uses IS NOT NULL 7ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > where filters rows before grouping 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take with orderBy limits groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take and skip with orderBy window the groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > take and skip with aggregate orderBy window the groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > multi-field by groups on the field combination 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > multi-field by supports having on aggregates 3ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > OR of two single-group conditions matches both groups 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > OR with a single unmatchable arm keeps only the other 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND of the same two conditions matches nothing 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND accepts a bare object as well as an array 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR evaluates the inner conjunction 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > AND nested inside OR fails the arm when one conjunct misses 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of an aggregate condition selects the complement 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array negates each arm and ANDs the negations (Prisma parity) 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array with one unmatchable arm keeps the other complement 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array on a `by` field agrees with the same NOT array in where 4ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT array of a single item matches the object form 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT of a multi-key object negates that object's conjunction 7ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > NOT inside OR restores the excluded group 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > a combinator conjoins with sibling field-keyed conditions 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > a field-keyed condition inside an OR arm still requires `by` 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR matches no group, exactly like empty OR in where 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR is false, not absent, when conjoined with a sibling 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in AND poisons the conjunction 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR nested in OR contributes nothing but is not vacuous 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty OR under NOT is true and keeps every group 1ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND and empty NOT stay true and keep every group 2ms
+   ✓ SQLite3 Driver > SQLite3 Prisma parity > groupBy ordering and having > having boolean combinators > empty AND still conjoins its sibling rather than erasing it 2ms
+   ✓ SQLite3 Driver > SQLite3 polymorphic collection reads > total and filtered counts, and count ordering 5ms
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-polymorphic-batch.test.ts > SQLite3 Driver > SQLite3 polymorphic relations > empty storage is optional but orphaned membership is invalid

@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 115ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  14:50:31
+   Duration  4.31s (transform 2.45s, setup 20ms, collect 3.86s, tests 115ms, environment 0ms, prepare 57ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fOwJsQ/vitest.json
+Vitest resources: 10.21s wall, 425.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p04-contracts contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-fOwJsQ

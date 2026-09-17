@@ -229,10 +229,32 @@ describe("Raw JSON Scalar", () => {
       expect(result.value).toEqual({ equals: data });
     });
 
-    test("runtime: path filter passes through", () => {
+    test("runtime: a path alone states no operation", () => {
+      // `path` SCOPES a filter; it does not state one. A filter that carries
+      // only a path used to lower to TRUE, which is how
+      // `deleteMany({ where: { data: { path: ['a'] } } })` removed every row.
       const result = parse(schemas.filter, { path: ["user", "name"] });
+      expect(result.issues?.[0]?.message).toBe(
+        "Filter must contain at least one operation."
+      );
+    });
+
+    test("runtime: a path beside an operation passes through", () => {
+      const result = parse(schemas.filter, {
+        path: ["user", "name"],
+        equals: "Ada",
+      });
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ path: ["user", "name"] });
+      expect(result.value).toEqual({ path: ["user", "name"], equals: "Ada" });
+    });
+
+    test("runtime: a string path is parsed into segments", () => {
+      const result = parse(schemas.filter, {
+        path: "$.user.name",
+        equals: "A",
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value).toEqual({ path: ["user", "name"], equals: "A" });
     });
 
     test("runtime: string_contains filter passes through", () => {
@@ -501,9 +523,12 @@ describe("Custom Schema JSON Scalar", () => {
     });
 
     test("runtime: JSON filters still work", () => {
-      const result = parse(schemas.filter, { path: ["name"] });
+      const result = parse(schemas.filter, {
+        path: ["name"],
+        equals: validUser,
+      });
       if (result.issues) throw new Error("Expected success");
-      expect(result.value).toEqual({ path: ["name"] });
+      expect(result.value).toEqual({ path: ["name"], equals: validUser });
     });
   });
 });

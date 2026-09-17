@@ -1,0 +1,13 @@
+=== 16:07:25 final verification 2 on 7586608b9 ===
+typecheck exit=0 diagnostics=0
+core exit=1 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯  Test Files 2 failed | 398 passed (400)  Tests 2 failed | 8386 passed (8388) 
+provider-local exit=0  Test Files 7 passed | 5 skipped (12)  Tests 764 passed | 664 skipped (1428) 
+provider-pg exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 26 ⎯⎯⎯⎯⎯⎯⎯  Test Files 2 failed | 2 passed (4)  Tests 26 failed | 425 passed | 7 skipped (458) 
+provider-mysql exit=1 ⎯⎯⎯⎯⎯⎯ Failed Tests 165 ⎯⎯⎯⎯⎯⎯  Test Files 6 failed | 2 passed (8)  Tests 165 failed | 575 passed | 1 skipped (741) 
+=== 16:10:53 group estate finished ===
+pg: base red=57 parity red=26 REGRESSIONS=0
+mysql: base red=218 parity red=165 REGRESSIONS=1
+g2-transport exit=0 Vitest resources: 4.18s wall, 647.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. Raptor 3 g2-transport contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-zLcyQr 
+=== 16:15:11 group fixed finished ===
+fixed: 59 green, 0 red
+=== 16:15:11 final verification 2 done ===

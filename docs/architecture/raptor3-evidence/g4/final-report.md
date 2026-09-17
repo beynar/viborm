@@ -1,4 +1,4 @@
-# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-17, 03:05)
+# G4 final report — Raptor 3 complete envelope, qualification, performance passes and cutover (2026-09-17, 15:30)
 
 ## Outcome
 
@@ -37,17 +37,54 @@ owners and 213 legacy or two-sided test files are gone, `buildStatement()`
 and `QueryEngine.build()` answer the one statement an operation compiles to
 (D-14), a `QueryEngine` built without a client provisions its own route,
 and the differential lanes are kept one-sided at their full counts. Commit
-5 (D-15, pending its independent re-check at the time of writing) retires
+5 (`356254a2`, D-15, reviewed and re-checked) retires
 the `pattern/` experiment and the V1 estate it kept alive: 111 production
 files / 41,272 lines, the whole `builders/` layer, the V1 parser tree, all
-of `write-engine/` but the typed parse boundary; charged production
-**11,732 token-LOC = 0.235 of the frozen baseline** (plan §7 target ≤ 0.60,
-met by a wide margin; before the retirement the honest number was 0.877,
-the census having excluded the experiment), the whole-estate typecheck at
+of `write-engine/` but the typed parse boundary; charged production 11,732 token-LOC outside the engine plus 10,552 inside
+`raptor3/` = **22,284 token-LOC, 0.447 of the frozen baseline (49,887)**
+(plan §7 target ≤ 0.60, met; the census tool still classifies `raptor3/`
+as the excluded experiment, F-1, so its own headline of 0.235 leaves the
+engine out — corrected here; before the retirement the honest number was
+0.877), the whole-estate typecheck at
 **zero** diagnostics, bundles byte-identical, the core lane at the base's
 red set. Nothing is pushed; the push, the release note for the two public
 contract changes (`expressions.integerDivide`, the `buildStatement`/`build`
 answer) and the D-16 decisions are Arnaud's.
+
+**Parity program (2026-09-17, after the cutover).** The 115 D-16 differences
+were repaired at their owners in two reviewed lanes plus an integration
+unit ([raptor3-parity-plan.md](../raptor3-parity-plan.md), `g4/parity/**`):
+admission refuses empty filter objects and owns the JSON path grammar,
+`groupBy.by` and the default-only `skipDuplicates` rule; a mutation's
+relation-filter correlation names the mutated table; the update language
+is interpreted once; a decimal keeps its spelling inside a JSON window and
+the decoder reaches the adapter/driver result chain; nested set mutations
+are one statement again; the one-recovery allowance is a committed-progress
+fact spent by the owner that opened the region; a suppressed INSERT
+suppresses the row, not the membership; polymorphic integrity is probed on
+the junction; the route keeps the driver's prepared-statement provenance,
+publishes commit certainty and hands a one-statement write's package to
+the array owner. Measured on the merged tree (`g4/parity/verification/final2/`,
+2026-09-17 16:07–16:15): typecheck **zero** diagnostics; the local provider
+lanes **0 red**; the core lane **2 red** (the pre-existing inventory cell
+and the cache-SWR cell under D-28); the Docker lanes against the pristine
+parent commit: pg **26 red, 0 regressions** (parent 57), mysql **165 red,
+0 regressions** (parent 218; the diff flags one `ER_LOCK_DEADLOCK`
+concurrency cell that the repair round measured 3/3 red on the parent and
+the reviewer reproduced); the raptor3 fixed group **59 green, 0 red**
+(it was 52/59 after the merge; the repair round fixed three causes). The
+remaining Docker reds are the five kept-red registration cells, the D-29
+staleness window, a PostGIS-less container, the MySQL migration
+fingerprint mismatch, lock deadlocks and four namespace-containment cells,
+all red on the parent. Size: the parity work adds 2,083 lines and removes
+259 in production (guide +323) and adds 2,444 test lines; the engine
+program is **23,132 token-LOC = 0.464 of the frozen baseline** (raptor3
+10,552 → 11,399, the charged owners outside it unchanged at 11,733;
+target ≤ 0.60 met). The audit of the whole diff (`final2/audit.log`) found
+no TODO, no legacy branch re-created and one owner per transport-mode
+distinction. Rulings left to Arnaud: D-27, D-28, D-29, D-31, D-32
+(recorded in `g4.md`). The campaign qualification was not re-run for this
+commit, on Arnaud's instruction.
 
 ## Validation
 

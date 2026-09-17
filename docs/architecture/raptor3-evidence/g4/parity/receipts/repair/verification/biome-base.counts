@@ -1,0 +1,7 @@
+   1 noCommaOperator
+   8 noMisplacedAssertion
+   5 noParameterProperties
+   1 noUnusedImports
+   3 organizeImports
+   1 useDefaultSwitchClause
+  12 useTopLevelRegex

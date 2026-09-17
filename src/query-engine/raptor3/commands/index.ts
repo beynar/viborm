@@ -16,7 +16,7 @@ import {
   isReadOperation,
   type Operation,
 } from "../shared/schema";
-import { Commands } from "./commands";
+import { Commands, type PhysicalPlan } from "./commands";
 
 /** The admitted operation an `…OrThrow` verb shares its whole envelope with. */
 function admittedOperation(operation: Operations): Operation | undefined {
@@ -141,7 +141,11 @@ export function createCommandEngine(config: EngineConfig) {
   // by identity across transaction scoping (`TransactionBoundDriver` copies
   // `baseDriver.adapter`), so the statement and shape prepared here are valid for
   // every binding of this driver's lineage.
-  const queries = new Queries(schema, config.driver.adapter);
+  const queries = new Queries(
+    schema,
+    config.driver.adapter,
+    config.driver.result
+  );
   const resolve = (operation: Operations): Operation => {
     const admitted = admittedOperation(operation);
     if (!admitted)
@@ -176,12 +180,27 @@ export function createCommandEngine(config: EngineConfig) {
       if (value) return context.run(() => context.publish(value, missing));
       // The physical form is constructed BEFORE the envelope decision and runs
       // once, whichever envelope the rule chooses.
-      const plan = new Commands(context).plan(
+      let planned: PhysicalPlan | undefined = new Commands(context).plan(
         model,
         args(),
         rawArgs as Arguments
       );
-      return context.run(plan.run, plan.single);
+      const single = planned.single;
+      // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
+      // recovery both re-enter this body, and a recovery re-plans from the same
+      // ADMITTED arguments — never re-validated, never re-transformed (rule 10,
+      // Arnaud's D-25) — because the tree that ran carries the members it
+      // captured and a series occurrence is expanded exactly once. The first
+      // attempt consumes the plan built above, which is also the plan that
+      // answered the envelope question, so nothing is constructed twice to
+      // START an operation.
+      return context.run(() => {
+        const plan =
+          planned ??
+          new Commands(context).plan(model, args(), rawArgs as Arguments);
+        planned = undefined;
+        return plan.run();
+      }, single);
     };
     return {
       get args() {
@@ -210,8 +229,6 @@ export function createCommandEngine(config: EngineConfig) {
         // operation that publishes no single query still answers for the
         // payload it was handed, exactly as `prepareBatch` does.
         args();
-        const value = read();
-        if (!value) return undefined;
         const context = new OperationContext(
           schema,
           config.driver,
@@ -221,7 +238,29 @@ export function createCommandEngine(config: EngineConfig) {
           true,
           attribution
         );
-        context.publishPrepared(value, missing);
+        const value = read();
+        if (value) {
+          context.publishPrepared(value, missing);
+          return context.preparedBatch();
+        }
+        // D-20: a WRITE whose plan is one statement publishes the same package
+        // (`prepareBatch` would publish it too), so the array owner parses it
+        // through its own `parseResult` seam and interceptor onion instead of
+        // through the batch. It is not a second preparation: this is the
+        // preparation, and `Commands.plan` states the ONE-statement
+        // admissibility itself. Preparation reaches no driver and queues
+        // synchronously, so the package is in hand when this returns; anything
+        // it would refuse — a capability gate, the dynamic-planning sentinel —
+        // is refused again, and reported, by the arm that actually runs the
+        // operation, which is the only arm a caller takes once no single
+        // package is published.
+        const plan = new Commands(context).plan(
+          model,
+          args(),
+          rawArgs as Arguments
+        );
+        if (!plan.single) return undefined;
+        plan.run().catch(() => undefined);
         return context.preparedBatch();
       },
       async prepareBatch(attribution?) {

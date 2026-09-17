@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts (2 tests) 198ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  14:26:23
+   Duration  1.90s (transform 1.00s, setup 10ms, collect 1.52s, tests 198ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 4.05s wall, 451.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

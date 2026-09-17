@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-admission.core.test.ts (75 tests) 55ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-lowering.core.test.ts (20 tests) 11ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (9 tests) 7ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-preparation.core.test.ts (36 tests) 13ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-assignments.core.test.ts (6 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts (2 tests) 4ms
+
+ Test Files  6 passed (6)
+      Tests  148 passed (148)
+   Start at  15:26:12
+   Duration  1.73s (transform 785ms, setup 14ms, collect 1.47s, tests 96ms, environment 0ms, prepare 28ms)
+
+Vitest resources: 3.77s wall, 575.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

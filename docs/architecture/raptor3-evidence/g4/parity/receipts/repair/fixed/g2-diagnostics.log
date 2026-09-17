@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 109ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  15:32:08
+   Duration  1.48s (transform 811ms, setup 9ms, collect 1.23s, tests 109ms, environment 0ms, prepare 26ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-7H1MXi/vitest.json
+Vitest resources: 3.41s wall, 492.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-diagnostics disputed behavior reproduced (not accepted). Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-7H1MXi

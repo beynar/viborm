@@ -206,7 +206,13 @@ it("CS-01 A reads compound final keys while keeping injected keys private", asyn
   }
 });
 
-async function runMissingFinalRow(batch: boolean): Promise<void> {
+/** The correlated child DELETE U6.2 compiles for a nested `deleteMany`. */
+const CORRELATED_CHILD_DELETE =
+  /^DELETE FROM "cs01_selection_nodes" WHERE \("cs01_selection_nodes"\."parentId" = \?/;
+/** A read that addresses the children — the member capture U6.2 removed. */
+const CHILD_MEMBER_READ = /^SELECT\b[\s\S]*WHERE[\s\S]*"parentId"/;
+
+async function runMissingFinalRow(batch: boolean): Promise<string[]> {
   const world = await selfNodeWorld(batch);
   try {
     world.database.exec(`
@@ -235,12 +241,18 @@ async function runMissingFinalRow(batch: boolean): Promise<void> {
       /updateMany with 'select' could not read back one of the updated rows/
     );
     if (batch) {
+      // U6.2 (parity, `raptor3-parity-plan.md`): a nested `deleteMany` whose
+      // data carries no relation write is ONE correlated statement at its own
+      // position in its parent member's body, not a captured series with
+      // members of its own. The operation's members are therefore the two
+      // root rows — it was three while the nested set mutation was a member —
+      // and the caller pins the plan that makes the count what it is.
       assert.deepEqual(failure.meta.recordSeriesProgress, {
         atomicity: "segment",
         phase: "result",
-        committedSegments: 3,
-        committedWriteMembers: 3,
-        completedMembers: 3,
+        committedSegments: 2,
+        committedWriteMembers: 2,
+        completedMembers: 2,
       });
       assert.deepEqual(
         world.database
@@ -264,6 +276,7 @@ async function runMissingFinalRow(batch: boolean): Promise<void> {
         ]
       );
     }
+    return world.driver.statements.map(({ sql }) => sql);
   } finally {
     await world.client.$disconnect();
     world.database.close();
@@ -275,7 +288,18 @@ it("CS-01 A refuses a missing terminal row and rolls back interactively", async 
 });
 
 it("CS-01 A reports acknowledged member progress when a terminal row is missing", async () => {
-  await runMissingFinalRow(true);
+  const dispatched = await runMissingFinalRow(true);
+  // The plan behind the two members: one correlated DELETE per root member,
+  // and no read of the children to delete them (U6.2).
+  const deletes = dispatched.filter((sql) => sql.startsWith("DELETE"));
+  assert.equal(deletes.length, 2);
+  for (const statement of deletes)
+    assert.match(statement, CORRELATED_CHILD_DELETE);
+  assert.equal(
+    dispatched.some((sql) => CHILD_MEMBER_READ.test(sql)),
+    false,
+    "the nested deleteMany reads no member to delete it"
+  );
 });
 
 it("CS-01 A preserves the createMany terminal underflow error contract", async () => {

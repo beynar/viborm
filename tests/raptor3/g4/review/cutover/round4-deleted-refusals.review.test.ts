@@ -1,6 +1,13 @@
 /**
  * C-01 cutover round-4 review probe (independent reviewer, not a registered mode).
  *
+ * REPAIRED by parity lane Q / U1 (2026-09-17). Every cell below found a
+ * registered READ-path refusal that the cutover tree had stopped raising, and
+ * asserted the fail-OPEN behaviour as the finding's evidence. U1 moved those
+ * refusals to the admission boundary (rule 5), so each cell now asserts the
+ * refusal it was written to document. The call sites are unchanged: this file
+ * still restates the base cells through the PUBLIC client.
+ *
  * Round 4 restores the fifteen class-A suites and deletes, cell by cell, "the
  * cells that are red against the new engine". Note R4.5 and the commit-message
  * draft describe every one of those 240 cells as an "SQL-text, message-text,
@@ -38,6 +45,11 @@ const author = s
 const schema = { author };
 hydrateSchemaNames(schema);
 
+/** The one sentence every empty-filter arm below answers. */
+const NO_OPERATION = /must contain at least one operation/;
+/** Escapes a reason string so it can be matched literally. */
+const REGEX_METACHARACTERS = /[.*+?^${}()|[\]\\]/g;
+
 const opened: Database.Database[] = [];
 const clients: { $disconnect(): Promise<unknown> }[] = [];
 
@@ -71,7 +83,7 @@ async function outcome(run: () => PromiseLike<unknown>) {
 }
 
 describe("round-4 review — deleted class-A cells that pinned a READ-path refusal", () => {
-  it("does not refuse the six non-portable JSON string paths the base refused", async () => {
+  it("refuses the six non-portable JSON string paths the base refused", async () => {
     const client = await world();
     // The base cell: `expect(() => getSql(...)).toThrow(message)` for each pair.
     const paths: readonly [string, string][] = [
@@ -90,20 +102,18 @@ describe("round-4 review — deleted class-A cells that pinned a READ-path refus
           select: { name: true },
         })
       );
-    // Every one resolves: no refusal at all, and the malformed path is simply
-    // not applied — the predicate compares the whole document instead.
-    for (const [path] of paths) {
+    // Every one refuses, with its own reason, before any statement.
+    for (const [path, reason] of paths) {
       const result = seen[path] as { ok?: unknown; error?: string };
-      assert.equal(
-        result.error,
-        undefined,
-        `${path} refused with ${result.error}`
+      assert.equal(result.ok, undefined, `${path} resolved`);
+      assert.match(
+        String(result.error),
+        new RegExp(reason.replace(REGEX_METACHARACTERS, "\\$&"))
       );
-      assert.deepEqual(result.ok, []);
     }
   });
 
-  it("does not refuse a JSON filter that carries only a path, and answers every row", async () => {
+  it("refuses a JSON filter that carries only a path", async () => {
     const client = await world();
     // The base cell: "json filter with only a path fails closed".
     const result = await outcome(() =>
@@ -112,22 +122,29 @@ describe("round-4 review — deleted class-A cells that pinned a READ-path refus
         select: { name: true },
       })
     );
-    assert.equal(result.error, undefined);
-    assert.deepEqual(result.ok, [{ name: "Ada" }, { name: "Bob" }]);
+    assert.equal(result.ok, undefined);
+    assert.match(String(result.error), NO_OPERATION);
   });
 
-  it("does not refuse an empty scalar filter, and answers every row", async () => {
+  it("refuses an empty scalar filter", async () => {
     const client = await world();
     // The base cell: "empty accepted scalar filter fails closed", which pinned
-    // `Filter for field 'name' must contain at least one operation`.
+    // `Filter for field 'name' must contain at least one operation`. The
+    // admission owner is interned per scalar type and cannot name the field,
+    // so the field moved into the ValidationError's issue path.
     const result = await outcome(() =>
       client.author.findMany({ where: { name: {} }, select: { name: true } })
     );
-    assert.equal(result.error, undefined);
-    assert.deepEqual(result.ok, [{ name: "Ada" }, { name: "Bob" }]);
+    assert.equal(result.ok, undefined);
+    assert.match(String(result.error), NO_OPERATION);
+    // …and the empty `where` still matches everything.
+    assert.deepEqual(
+      await outcome(() => client.author.findMany({ select: { name: true } })),
+      { ok: [{ name: "Ada" }, { name: "Bob" }] }
+    );
   });
 
-  it("carries the empty-scalar-filter fail-open into deleteMany and updateMany", async () => {
+  it("carries the empty-scalar-filter refusal into deleteMany and updateMany", async () => {
     const client = await world();
     const updated = await outcome(() =>
       client.author.updateMany({
@@ -135,18 +152,21 @@ describe("round-4 review — deleted class-A cells that pinned a READ-path refus
         data: { name: "overwritten" },
       })
     );
-    assert.deepEqual(updated, { ok: { count: 2 } });
+    assert.equal(updated.ok, undefined);
+    assert.match(String(updated.error), NO_OPERATION);
     const deleted = await outcome(() =>
       client.author.deleteMany({ where: { name: {} } })
     );
-    assert.deepEqual(deleted, { ok: { count: 2 } });
+    assert.equal(deleted.ok, undefined);
+    assert.match(String(deleted.error), NO_OPERATION);
+    // Nothing was written or removed.
     assert.deepEqual(
       await outcome(() => client.author.findMany({ select: { name: true } })),
-      { ok: [] }
+      { ok: [{ name: "Ada" }, { name: "Bob" }] }
     );
   });
 
-  it("answers a string JSON path and the equivalent array path differently", async () => {
+  it("answers a string JSON path and the equivalent array path identically", async () => {
     const client = await world();
     // The base cell: "json string paths compile to the same SQL as the array
     // form" — the two spellings were one query.
@@ -163,7 +183,6 @@ describe("round-4 review — deleted class-A cells that pinned a READ-path refus
       })
     );
     assert.deepEqual(arrayForm, { ok: [{ name: "Ada" }] });
-    assert.notDeepEqual(stringForm, arrayForm);
-    assert.deepEqual(stringForm, { ok: [] });
+    assert.deepEqual(stringForm, arrayForm);
   });
 });

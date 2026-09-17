@@ -108,7 +108,7 @@ const toManySchemas = <
 ) => {
   const state = relation["~"].state as S;
   return {
-    filter: v.lazy(() => toManyFilterFactory(state, targetSchemas)),
+    filter: v.lazy(() => toManyFilterFactory(resolved, targetSchemas)),
     create: v.lazy(() =>
       toManyCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
     ),

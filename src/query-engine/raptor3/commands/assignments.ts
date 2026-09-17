@@ -24,18 +24,6 @@ function literal(value: unknown): FieldValue {
   return { kind: "literal", value };
 }
 
-/**
- * The final field a scalar payload requests, read from the ONE owner of "does
- * this payload name a whole value?" (`Queries`' {@link wholeValue}). A payload
- * that names an operator instead is held unchanged: this owner keeps the value
- * only for key reconciliation, and an operator record is deliberately not a
- * literal here.
- */
-function scalarAssignment(value: unknown): unknown {
-  const whole = wholeValue(value);
-  return whole ? whole.value : value;
-}
-
 /** One row's requested final fields and exact symbolic consumers. */
 export class Assignments {
   readonly demands = new Set<string>();
@@ -52,9 +40,43 @@ export class Assignments {
     readonly deferred = false
   ) {
     for (const [field, value] of Object.entries(values)) {
-      this.writes.set(field, literal(scalarAssignment(value)));
+      this.writes.set(field, literal(value));
       if (explicit[field] !== undefined) this.requested.add(field);
     }
+  }
+  /**
+   * The VALUE a stored payload names, or `undefined` when it names an
+   * OPERATION instead (`{ increment: 2 }`).
+   *
+   * `Assignments` stores the ADMITTED payload verbatim — that payload is what
+   * the row's own write submits, and `Queries.prepareUpdate` is its ONE
+   * interpreter. Reading the value out of the update envelope is a question
+   * only the key-reconciliation readers ask ("which value will this key
+   * hold?"), so the answer is computed HERE, lazily, and never written back:
+   * unwrapping at storage time made `prepareUpdate` interpret a second time,
+   * which is `Unknown update operation: z` for a JSON document and a silent
+   * rewrite for a document that carries its own `set` key.
+   *
+   * The envelope exists only in the UPDATE language. A create's payload is
+   * already the value, so a created document spelled `{ set: … }` is that
+   * document and nothing is unwrapped.
+   */
+  private named(assignment: FieldValue): FieldValue | undefined {
+    if (assignment.kind !== "literal" || this.operation !== "update")
+      return assignment;
+    const whole = wholeValue(assignment.value);
+    return whole ? { ...assignment, value: whole.value } : undefined;
+  }
+  /**
+   * What this field will hold, as far as the payload states it: the named
+   * value when there is one, and otherwise the payload itself — an operator's
+   * result is not knowable before the provider computes it, and the reader
+   * that consumes this one keeps the shipped behaviour for that shape.
+   */
+  stated(field: string): FieldValue | undefined {
+    const assignment = this.writes.get(field);
+    if (assignment === undefined) return undefined;
+    return this.named(assignment) ?? assignment;
   }
   field(field: string): FieldValue {
     this.demands.add(field);
@@ -69,7 +91,7 @@ export class Assignments {
     const assignment = this.writes.get(field);
     if (assignment?.kind === "field")
       return assignment.producer.known(assignment.field);
-    return assignment;
+    return assignment && this.named(assignment);
   }
   writesField(field: string): boolean {
     return this.writes.has(field);
@@ -87,12 +109,15 @@ export class Assignments {
     this.requested.add(field);
   }
   requireLiteral(field: string, relation: string): void {
-    const value = this.writes.get(field);
+    const assignment = this.writes.get(field);
+    if (!assignment || assignment.kind === "field") return;
+    // The relation key must be given a VALUE. `{ set: 'x' }` names one and is
+    // legal (the sentence says so); `{ increment: 1 }` names an operation the
+    // relation write cannot reconcile, and a whole object is not a key.
+    const value = this.named(assignment);
     if (
-      !value ||
-      value.kind === "field" ||
-      value.value === null ||
-      typeof value.value !== "object"
+      value?.kind === "literal" &&
+      (value.value === null || typeof value.value !== "object")
     )
       return;
     this.reject(
@@ -143,9 +168,14 @@ export class Assignments {
       left.field === right.field
     )
       return true;
-    const a = left.kind === "literal" ? left : left.producer.known(left.field);
+    const a =
+      left.kind === "literal"
+        ? this.named(left)
+        : left.producer.known(left.field);
     const b =
-      right.kind === "literal" ? right : right.producer.known(right.field);
+      right.kind === "literal"
+        ? this.named(right)
+        : right.producer.known(right.field);
     return (
       a?.kind === "literal" &&
       b?.kind === "literal" &&

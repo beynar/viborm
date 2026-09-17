@@ -1,6 +1,7 @@
 // Mutation operation args schema factories
 
 import type { AnyModel } from "@schema/model";
+import { isRecord } from "@validation/value-guards";
 import v, { type V } from "../../primitives/v";
 import type { CoreSchemas } from "../core";
 import type { ScalarSchemas } from "../index";
@@ -53,6 +54,34 @@ export const getCreateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
 // =============================================================================
 
 /**
+ * The ONE owner of "a default-only row cannot be skipped".
+ *
+ * `skipDuplicates` needs a conflict target to suppress on, and a row with no
+ * explicit value has nothing to name: no dialect has a portable
+ * `INSERT … DEFAULT VALUES ON CONFLICT DO NOTHING` shape. The fact is a fact
+ * about the ADMITTED payload, so it is asked wherever the verb appears — the
+ * root args below, a nested `createMany` inside a `create` or an `update`, and
+ * a polymorphic collection group — rather than at the set-oriented physical
+ * owner, which a nested `createMany` never reaches (it is expanded row by row
+ * into `create` records long before).
+ */
+export const refuseDefaultOnlySkipDuplicates = (
+  value: Record<string, unknown>
+): string | undefined => {
+  if (value.skipDuplicates !== true) return undefined;
+  const rows = value.data;
+  if (!Array.isArray(rows)) return undefined;
+  const defaultOnly = rows.some(
+    (row) =>
+      isRecord(row) &&
+      Object.values(row).every((member) => member === undefined)
+  );
+  return defaultOnly
+    ? "createMany with skipDuplicates cannot include a row with no explicit scalar values; no portable duplicate-only DEFAULT VALUES primitive exists."
+    : undefined;
+};
+
+/**
  * CreateMany args: { data: create[], skipDuplicates?, select? }
  *
  * IMPLICIT RETURNING (the replacement for the removed `createManyAndReturn`):
@@ -96,7 +125,7 @@ export const getCreateManyArgs = <
           select: v.lazyRef(() => core.scalarSelect),
           omit: v.lazyRef(() => core.omit),
         },
-        { atLeast: ["data"] }
+        { atLeast: ["data"], refuse: refuseDefaultOnlySkipDuplicates }
       ),
       model,
       "createMany"

@@ -7,6 +7,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import type { OperationContext } from "../shared/operation-context";
 import {
+  type PreparedSelector,
   returningSafeProjection,
   type SelectorFacts,
 } from "../shared/query";
@@ -84,7 +85,13 @@ export interface MembershipRequirement {
 export interface JunctionCapture {
   readonly kind: "junction";
   readonly edge: Junction;
-  readonly address: Selection;
+  /**
+   * The located row this capture waits for. A capture whose junction values are
+   * the member's OWN spelled key waits for nothing: it addresses the slot
+   * directly, which is the shipped transfer's `values` address
+   * (`write-engine/junction-singular-transfer.ts`, `JunctionTransferAddress`).
+   */
+  readonly address?: Selection;
   readonly values: Record<string, FieldValue>;
   readonly final: Assignments;
 }
@@ -129,6 +136,27 @@ export interface Deletion {
   kind: "delete";
   located: Selection;
   origin: Origin;
+}
+/**
+ * A nested set mutation: the ONE correlated statement a nested
+ * `updateMany`/`deleteMany` needs when its physical form expresses the whole
+ * operation. The membership and the member filter are both predicates the
+ * provider evaluates at this statement's own position in the body, so there is
+ * no planning read to go stale, nothing to capture, and nothing for the
+ * dependency analyser to refuse. It is a WRITE like any other, with the
+ * unknown row-set footprint the shipped `appendTarget("updateMany", unknown)`
+ * registered, so a LATER read on the same model is still analysed against it.
+ */
+export interface SetMutation {
+  readonly kind: "set";
+  readonly edge: Membership;
+  readonly parent: Assignments;
+  readonly model: AnyModel;
+  readonly selector: PreparedSelector;
+  /** The admitted scalar assignments; absent names a `deleteMany`. */
+  readonly values?: Input;
+  readonly operation: "updateMany" | "deleteMany";
+  readonly origin: Origin;
 }
 export interface SelectedSeries {
   readonly selection: Selection;
@@ -177,7 +205,7 @@ export interface DependencyRead {
 }
 interface DependencyWrite {
   readonly occurrence: CommandOccurrence;
-  readonly command?: RecordCommand | Deletion | Link | Removal;
+  readonly command?: RecordCommand | Deletion | Link | Removal | SetMutation;
   readonly membership?: MembershipPublication;
 }
 interface BranchPath {
@@ -206,6 +234,7 @@ export type Command = (
   | Link
   | Removal
   | Deletion
+  | SetMutation
   | RecordSeriesCommand
   | SeriesCapture
   | SeriesOccurrence
@@ -384,10 +413,11 @@ export class Commands {
       return command.target.command.series.selection.origin;
     if (command.kind === "selectedSeries")
       return command.series.selection.origin;
-    if (command.kind === "junction") return command.address.origin;
+    if (command.kind === "junction") return command.address?.origin;
     if (
       command.kind === "record" ||
       command.kind === "delete" ||
+      command.kind === "set" ||
       command.kind === "lookup"
     )
       return command.origin;
@@ -591,6 +621,10 @@ export class Commands {
       const model =
         mutation.kind === "delete" ? mutation.located.model : mutation.model;
       if (model !== scope.model) continue;
+      // A set mutation names no row it wrote — the shipped footprint is
+      // `unknownConstraint` (`OwnWriteSteps.ts:186-191`) — so it has no located
+      // row to prove a later read of the same model disjoint from it.
+      const located = mutation.kind === "set" ? undefined : mutation.located;
       if (
         mutation.kind === "record" &&
         mutation.fields.operation !== "create" &&
@@ -611,9 +645,9 @@ export class Commands {
             ? mutation.fields.known(field)
             : undefined;
         const selected =
-          mutation.located?.facts.exact &&
+          located?.facts.exact &&
           !(mutation.kind === "record" && mutation.fields.writesField(field))
-            ? mutation.located
+            ? located
             : undefined;
         const known =
           value?.kind === "literal"
@@ -632,8 +666,12 @@ export class Commands {
       if (disjoint) continue;
       const origin = lookup.origin;
       const operation =
-        mutation.origin?.operation ??
-        (mutation.kind === "delete" ? "delete" : mutation.fields.operation);
+        mutation.kind === "set"
+          ? mutation.operation
+          : (mutation.origin?.operation ??
+            (mutation.kind === "delete"
+              ? "delete"
+              : mutation.fields.operation));
       owner.refusal ??= new NestedWriteError(
         `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier '${operation}' target write in the same nested write. Split these operations into separate queries.`,
         origin.relation,
@@ -729,6 +767,7 @@ export class Commands {
         (command.fields.operation === "create" ||
           command.fields.writtenFields().length)) ||
       command.kind === "delete" ||
+      command.kind === "set" ||
       command.kind === "link" ||
       command.kind === "remove"
     ) {

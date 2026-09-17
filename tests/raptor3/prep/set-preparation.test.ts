@@ -188,7 +188,19 @@ describe("G3P-03 scalar set mutation", () => {
 });
 
 describe("G3P-03 existing array-owner composition", () => {
-  it("keeps an empty set package complete with a zero-width result window", async () => {
+  // D-31 (Arnaud's integrator, 2026-09-17): this cell pinned a zero-width
+  // package for an empty `createMany`, which is candidate-only behaviour. The
+  // parity program restored the shipped engine's public refusal on the same
+  // seam — `$transaction([createMany({ data: [] })])` built its plan during
+  // array preparation and `buildCreateManyPlan` raised there
+  // (`bulk-insert-row-shapes.core.test.ts`) — and where a registered pin of
+  // candidate-only behaviour conflicts with a restored public refusal, the
+  // refusal wins and the pin is re-expressed. The subject is unchanged: an
+  // array whose member submits no row. Its answer is now the refusal, raised
+  // before the array reaches a driver, and the DIRECT call keeps Prisma's
+  // documented no-op — the one fact that makes the preparation seam, not the
+  // payload, the thing this cell measures.
+  it("refuses an empty set package at preparation, before any batch", async () => {
     const database = new Database(":memory:");
     database.exec(`
       CREATE TABLE g3p03_set_records(
@@ -208,25 +220,32 @@ describe("G3P-03 existing array-owner composition", () => {
           prepareCandidateBatch(candidate, "setRecord", "createMany", args),
       });
     try {
-      const emptyCount = await prepareCandidateBatch(
-        candidate,
-        "setRecord",
-        "createMany",
-        { data: [] }
-      );
-      assert.ok(emptyCount);
-      assert.equal(emptyCount.queries.length, 0);
-      assert.deepEqual(emptyCount.parseResult([]), { count: 0 });
+      await expect(
+        prepareCandidateBatch(candidate, "setRecord", "createMany", {
+          data: [],
+        })
+      ).rejects.toThrow("No data to insert for createMany.");
 
-      const emptySelected = await prepareCandidateBatch(
-        candidate,
-        "setRecord",
-        "createMany",
-        { data: [], select: { id: true, label: true } }
+      await expect(
+        prepareCandidateBatch(candidate, "setRecord", "createMany", {
+          data: [],
+          select: { id: true, label: true },
+        })
+      ).rejects.toThrow("No data to insert for createMany.");
+
+      // The same payload on the DIRECT route is still the no-op, with the same
+      // zero-width result window the package used to publish.
+      assert.deepEqual(
+        await candidate.execute("setRecord", "createMany", { data: [] }),
+        { count: 0 }
       );
-      assert.ok(emptySelected);
-      assert.equal(emptySelected.queries.length, 0);
-      assert.deepEqual(emptySelected.parseResult([]), []);
+      assert.deepEqual(
+        await candidate.execute("setRecord", "createMany", {
+          data: [],
+          select: { id: true, label: true },
+        }),
+        []
+      );
 
       await expect(
         transactionArray(client, [
@@ -235,14 +254,14 @@ describe("G3P-03 existing array-owner composition", () => {
             data: [{ id: 1, cohort: "kept", label: "inserted", score: 10 }],
           }),
         ])
-      ).resolves.toEqual([[], { count: 1 }]);
+      ).rejects.toThrow("No data to insert for createMany.");
 
-      assert.equal(driver.batches.length, 1);
-      assert.equal(driver.batches[0]!.length, 1);
-      assert.match(driver.batches[0]![0]!.sql, /^INSERT\b/);
+      // The array refused while it was being prepared, so the sibling member
+      // that CAN be written never reached the driver either.
+      assert.equal(driver.batches.length, 0);
       assert.deepEqual(
         database.prepare("SELECT * FROM g3p03_set_records").all(),
-        [{ id: 1, cohort: "kept", label: "inserted", score: 10 }]
+        []
       );
     } finally {
       await client.$disconnect();

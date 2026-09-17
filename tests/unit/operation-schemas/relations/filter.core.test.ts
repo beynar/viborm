@@ -450,12 +450,21 @@ describe("ToOne Filter - shorthand desugaring (Post.author)", () => {
     }
   });
 
-  test("runtime: `{}` reads as the vacuous explicit filter", () => {
+  test("runtime: `{}` is refused — it states no quantifier", () => {
+    // `{}` still READS as the explicit filter (no key falls outside
+    // `is`/`isNot`), and that filter now has to state one of them: a relation
+    // filter that quantifies nothing lowered to TRUE, which is how
+    // `deleteMany({ where: { author: {} } })` deleted every row.
     const result = parse(schema, {});
-    expect(result.issues).toBeUndefined();
-    if (!result.issues) {
-      expect(result.value).toEqual({});
-    }
+    expect(result.issues).toBeDefined();
+    expect(result.issues?.[0]?.message).toBe(
+      "Relation filter 'author' requires one of: is, isNot."
+    );
+  });
+
+  test("runtime: `{ is: undefined }` is the same empty filter", () => {
+    const result = parse(schema, { is: undefined });
+    expect(result.issues).toBeDefined();
   });
 
   test("runtime: a mix of explicit and shorthand keys is rejected", () => {

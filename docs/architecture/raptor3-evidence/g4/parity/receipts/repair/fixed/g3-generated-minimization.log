@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g3/generation/failure-minimization.test.ts (1 test) 29ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:33:07
+   Duration  1.47s (transform 851ms, setup 10ms, collect 1.29s, tests 29ms, environment 0ms, prepare 31ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-T3PuNS/vitest.json
+Vitest resources: 3.48s wall, 472.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-generated-minimization contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-T3PuNS

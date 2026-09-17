@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 37ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  16:13:47
+   Duration  1.67s (transform 976ms, setup 9ms, collect 1.47s, tests 37ms, environment 0ms, prepare 36ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-p6hmiA/vitest.json
+Vitest resources: 3.84s wall, 472.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3-execution-review contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-p6hmiA

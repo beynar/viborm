@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 95ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  14:58:20
+   Duration  2.97s (transform 1.52s, setup 26ms, collect 2.36s, tests 95ms, environment 0ms, prepare 62ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Zx1wBV/vitest.json
+Vitest resources: 6.60s wall, 463.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 cs03-member-scope contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Zx1wBV

@@ -36,10 +36,17 @@ export class CommandAttempt {
   bind(fields: Assignments, values: Input): void {
     this.bindings.set(fields, values);
   }
+  /**
+   * The runtime VALUE of one field: a bound row value, else what the payload
+   * states. `stated` is the key-reconciliation reader — it resolves the update
+   * envelope — while {@link values} submits the admitted payload verbatim, so
+   * a referenced key crosses as `'u1'` and the row's own write still carries
+   * `{ set: 'u1' }` to its one interpreter.
+   */
   read(fields: Assignments, field: string): unknown {
     const bound = this.bindings.get(fields);
     if (bound && Object.hasOwn(bound, field)) return bound[field];
-    const value = fields.contributions().get(field);
+    const value = fields.stated(field);
     return value
       ? this.resolveValue(value)
       : fields.captured && this.read(fields.captured, field);

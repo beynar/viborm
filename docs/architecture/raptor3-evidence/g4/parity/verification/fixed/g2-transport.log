@@ -1,0 +1,242 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |raptor3| tests/raptor3/g2-transport.test.ts (16 tests | 16 failed) 119ms
+   × G2 key-transition transport: scripted-returning-weak > publishes the final key and reference to the consumer 40ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected and completes a healthy later call 3ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected-after-commit and completes a healthy later call 6ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call 7ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors 3ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > preserves two failed calls and a healthy third call 4ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-publication 4ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-attribution 2ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > publishes the final key and reference to the consumer 1ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected and completes a healthy later call 2ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call 2ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call 1ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > queues both selected records and explores both first actors 1ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call 1ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-publication 1ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+   × G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution 2ms
+     → g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > publishes the final key and reference to the consumer
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > publishes the final key and reference to the consumer
+AssertionError: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.finish tests/raptor3/transport/driver.ts:331:14
+    329|     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    330|     for (const script of this.actorScripts)
+    331|       assert.equal(
+       |              ^
+    332|         this.positions.get(script.name),
+    333|         script.replies.length,
+ ❯ tests/raptor3/transport/world.ts:610:14
+ ❯ Recorder.control tests/raptor3/harness/recorder.ts:156:14
+ ❯ runTransportWorld tests/raptor3/transport/world.ts:565:3
+ ❯ checked tests/raptor3/g2-transport.test.ts:48:20
+ ❯ tests/raptor3/g2-transport.test.ts:130:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/16]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-rejected-after-commit and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves consumer-malformed and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-rejected-after-commit and completes a healthy later call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves consumer-malformed and completes a healthy later call
+AssertionError: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.finish tests/raptor3/transport/driver.ts:331:14
+    329|     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    330|     for (const script of this.actorScripts)
+    331|       assert.equal(
+       |              ^
+    332|         this.positions.get(script.name),
+    333|         script.replies.length,
+ ❯ tests/raptor3/transport/world.ts:610:14
+ ❯ Recorder.control tests/raptor3/harness/recorder.ts:156:14
+ ❯ runTransportWorld tests/raptor3/transport/world.ts:565:3
+ ❯ checked tests/raptor3/g2-transport.test.ts:48:20
+ ❯ tests/raptor3/g2-transport.test.ts:138:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/16]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > queues both selected records and explores both first actors
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > queues both selected records and explores both first actors
+AssertionError: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.finish tests/raptor3/transport/driver.ts:331:14
+    329|     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    330|     for (const script of this.actorScripts)
+    331|       assert.equal(
+       |              ^
+    332|         this.positions.get(script.name),
+    333|         script.replies.length,
+ ❯ tests/raptor3/transport/world.ts:610:14
+ ❯ Recorder.control tests/raptor3/harness/recorder.ts:156:14
+ ❯ runTransportWorld tests/raptor3/transport/world.ts:565:3
+ ❯ checked tests/raptor3/g2-transport.test.ts:48:20
+ ❯ tests/raptor3/g2-transport.test.ts:143:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/16]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > preserves two failed calls and a healthy third call
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > preserves two failed calls and a healthy third call
+AssertionError: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.finish tests/raptor3/transport/driver.ts:331:14
+    329|     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    330|     for (const script of this.actorScripts)
+    331|       assert.equal(
+       |              ^
+    332|         this.positions.get(script.name),
+    333|         script.replies.length,
+ ❯ tests/raptor3/transport/world.ts:610:14
+ ❯ Recorder.control tests/raptor3/harness/recorder.ts:156:14
+ ❯ runTransportWorld tests/raptor3/transport/world.ts:565:3
+ ❯ checked tests/raptor3/g2-transport.test.ts:48:20
+ ❯ tests/raptor3/g2-transport.test.ts:157:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/16]⎯
+
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-publication
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-weak > rejects and exactly replays wrong-attribution
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-publication
+ FAIL  |raptor3| tests/raptor3/g2-transport.test.ts > G2 key-transition transport: scripted-returning-ack > rejects and exactly replays wrong-attribution
+AssertionError: g3-transport:reply-consumption; Unconsumed explicit replies: actor-1
+
+1 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 1[39m
+
+ ❯ ScriptedTransport.finish tests/raptor3/transport/driver.ts:331:14
+    329|     if (this.harnessFailure !== undefined) throw this.harnessFailure;
+    330|     for (const script of this.actorScripts)
+    331|       assert.equal(
+       |              ^
+    332|         this.positions.get(script.name),
+    333|         script.replies.length,
+ ❯ tests/raptor3/transport/world.ts:610:14
+ ❯ Recorder.control tests/raptor3/harness/recorder.ts:156:14
+ ❯ runTransportWorld tests/raptor3/transport/world.ts:565:3
+ ❯ checked tests/raptor3/g2-transport.test.ts:48:20
+ ❯ tests/raptor3/g2-transport.test.ts:168:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/16]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  16 failed (16)
+   Start at  14:58:46
+   Duration  3.32s (transform 1.87s, setup 20ms, collect 2.89s, tests 119ms, environment 0ms, prepare 44ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-1Ftm78/vitest.json
+Vitest resources: 6.17s wall, 479.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-1Ftm78

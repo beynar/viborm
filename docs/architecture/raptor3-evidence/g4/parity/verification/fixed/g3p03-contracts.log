@@ -1,0 +1,27 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests | 1 failed) 60ms
+   ✓ G3P-03 scalar set mutation > keeps scalar INSERT, UPDATE and DELETE set-oriented with counts and returning 16ms
+   × G3P-03 existing array-owner composition > keeps an empty set package complete with a zero-width result window 9ms
+     → No data to insert for createMany.
+   ✓ G3P-03 existing array-owner composition > merges two complete candidate packages with isolated scratch and result windows 16ms
+   ✓ G3P-03 existing array-owner composition > refuses the whole native array when one selected-series member is incomplete 9ms
+   ✓ G3P-03 existing array-owner composition > attributes a nested package failure to its exact member statement 6ms
+   ✓ G3 scalar updateMany package result > prepares and returns selected rows through the existing array owner 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3| tests/raptor3/prep/set-preparation.test.ts > G3P-03 existing array-owner composition > keeps an empty set package complete with a zero-width result window
+QueryEngineError: No data to insert for createMany.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  14:50:22
+   Duration  1.91s (transform 1.00s, setup 11ms, collect 1.49s, tests 60ms, environment 0ms, prepare 45ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Vl3EK4/vitest.json
+Vitest resources: 5.20s wall, 452.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 verification failed; diagnostics: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-Vl3EK4

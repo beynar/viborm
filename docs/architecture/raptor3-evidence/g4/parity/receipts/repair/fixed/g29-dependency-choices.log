@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 62ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  15:32:36
+   Duration  1.48s (transform 859ms, setup 9ms, collect 1.28s, tests 62ms, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-tIDyTK/vitest.json
+Vitest resources: 3.48s wall, 472.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g29-dependency-choices contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-tIDyTK

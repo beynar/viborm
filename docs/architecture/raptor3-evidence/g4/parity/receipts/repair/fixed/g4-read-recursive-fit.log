@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 34ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  15:34:51
+   Duration  1.87s (transform 1.11s, setup 13ms, collect 1.68s, tests 34ms, environment 0ms, prepare 32ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-DTRlb8/vitest.json
+Vitest resources: 3.92s wall, 470.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g4-read-recursive-fit contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-DTRlb8

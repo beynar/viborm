@@ -1,0 +1,114 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts (92 tests | 1 failed | 91 skipped) 241ms
+   ↓ MySQL2 Driver > MySQL2 createMany select fold > four same-shape rows are ONE statement, and the rows come back in input order
+   ↓ MySQL2 Driver > MySQL2 createMany select fold > row shapes that differ split into one statement per contiguous run, still in input order
+   ↓ MySQL2 Driver > MySQL2 createMany select fold > skipDuplicates with select is ONE statement whose rows are exactly the rows inserted
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit below the matching count removes exactly limit rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit equal to the matching count removes all of them
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit above the matching count is the uncapped delete
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit 0 removes nothing and reports count 0
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit without a where caps a whole-table delete
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit below the matching count updates exactly limit rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit at or above the matching count updates all of them
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit 0 changes nothing and reports count 0
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with an arithmetic update
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany limit composes with a relation filter
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany limit composes with a relation filter
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > updateMany with select returns exactly the capped rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > deleteMany with select returns exactly the capped rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > a select-carrying bulk write with limit 0 returns an empty row set
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > limit works on a model with a compound primary key
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > limit 0 is the same no-op inside $transaction([...])
+   ↓ MySQL2 Driver > MySQL2 bulk-write limit > a negative or fractional limit is rejected before any write
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > declares an atomic strategy for nested writes
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > rejects default-only createMany duplicate skipping before writing
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > rejects nested default-only duplicate skipping before the parent write
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > create derives to-one and to-many foreign keys
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > create connects and connect-or-creates nullable children
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > update creates, createManys, and connects children
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > update disconnects and sets nullable children
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > update and updateMany keep child mutations parent-correlated
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > delete and deleteMany keep child mutations parent-correlated
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-many upsert creates and updates the current parent's child
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-one upsert creates and updates the current target
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-one nested update modifies the connected author
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-one disconnect true nulls the foreign key, both rows survive
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true deletes the related row
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-one delete true (FK-holder side) nulls the FK then deletes the author
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > inverse-side to-one upsert: absent creates, found updates, witness survives
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > explicit join rows work as a practical many-to-many case
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > unsupported nested create keys reject before parent mutation
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > nested child failures roll back parent and prior children
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > to-many updates cannot target another parent's child
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > non-nullable child foreign keys reject disconnect atomically
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > nested create propagates foreign keys through mapped columns
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > nested create derives mapped foreign keys for createMany and connect
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > set keeping all required-FK children is a no-op and succeeds
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > set on required-FK children rejects only when rows would be orphaned
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > set disconnects only nullable-FK children leaving the set
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > connect with a list of targets reparents every one of them
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > a connect list with one absent target writes nothing
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > disconnect with a list nulls every one of them
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > a disconnect list naming ANOTHER parent's child nulls nothing
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > a create tree's connect list reparents every one of them
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-many relation inside `select` comes back, and the row is gone
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > a to-one relation inside `select` comes back, and the row is gone
+   ↓ MySQL2 Driver > MySQL2 nested write behavior > delete with a relation projection > the `include` spelling is unaffected
+   ↓ MySQL2 Driver > MySQL2 advanced nested write behavior > connectOrCreate create branch accepts recursive nested writes
+   ↓ MySQL2 Driver > MySQL2 advanced nested write behavior > top-level upsert guards gate nested update branch
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds a tagged interpolation and rows round-trip
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > binds multiple tagged interpolations in order
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRaw > accepts a prebuilt sql`` fragment
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $queryRawUnsafe > splices the statement verbatim and binds positional params
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRaw > mutates and answers the affected count, visible to the ORM read path
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > $executeRawUnsafe > mutates through a hand-written statement
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > update reports NotFoundError
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > direct mutation misses > delete reports NotFoundError
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > returns the matching row when found
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findFirstOrThrow > throws NotFoundError when nothing matches
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > returns the matching row when found
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > findUniqueOrThrow > throws NotFoundError when the id does not exist
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns true when a matching row exists
+   ↓ MySQL2 Driver > MySQL2 client raw/orThrow/exist behavior > exist > returns false when no row matches
+   ↓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > execute in declared order and return each public result
+   ↓ MySQL2 Driver > raw/model array transactions (Docker MySQL) > a later raw failure rolls model and raw writes back
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert creates the row when missing
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert updates the row when present
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > does not take the update branch for a conflict outside the requested target
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > unique upsert targets distinguish case, accents, and trailing spaces
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert returns the row when the update is a no-op
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > plain upsert create branch resolves auto-increment ids
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert update branch may rewrite the unique where field
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert supports select on both branches
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > upsert with include returns the relation payload on both branches
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > delete with include returns the relation payload
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent plain upserts of the same missing key both succeed
+   ↓ MySQL2 Driver > MySQL2 upsert atomicity behavior > concurrent fallback upserts of the same missing key both succeed
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing updates return their own writes while sharing one connection per operation
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > a replacement row survives a delete that locked and deleted the captured PK
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > interleaved auto-increment creates refetch their own inserted identities
+   ↓ MySQL2 Driver > mysql2 atomic non-returning mutation interleavings > competing upserts identify their branches and refetch their own updates
+   ↓ MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent upsert of a missing key converges to one row (tx)
+   × MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx) 240ms
+     → Transaction deadlock detected
+   ↓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of a held target leave one membership owned by an adopter that succeeded (tx)
+   ↓ MySQL2 Driver > mysql2 singular polymorphic slot transfer under concurrency > two adopters of an empty slot are arbitrated to one membership (tx)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-writes-raw.test.ts > MySQL2 Driver > mysql2 nested-write concurrency behavior > concurrent nested connectOrCreate of a missing key converges to one row (tx)
+TransactionError: Transaction deadlock detected
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ER_LOCK_DEADLOCK', errno: 1213, sqlState: '40001' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 91 skipped (92)
+   Start at  15:22:08
+   Duration  1.65s (transform 871ms, setup 9ms, collect 1.28s, tests 241ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.62s wall, 494.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

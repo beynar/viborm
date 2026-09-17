@@ -1,0 +1,58 @@
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > round-trips point writes and returning projections 204ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds 149ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point values through callback and array transactions 157ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > parses points in ordinary and variant relation graphs 155ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps cached point results detached and fresh 153ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > preserves point semantics through request and statement extensions 214ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > leaves tagged and unsafe raw point results physical 148ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering 153ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases 207ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint behavior > includes polygon boundaries and excludes holes 140ms
+   ✓ MySQL2 Driver > MySQL2 GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset  530ms
+   ✓ MySQL2 Driver > uses the GeoPoint spatial index only for positive indexable predicates  831ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic member junction storage > creates, enforces and converges the member tables 227ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct writes preserve the generated private storage pair 175ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > inverse create publishes a generated parent identity 140ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > direct and inverse reads correlate exact variants without N+1 190ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > target-local omit subtracts from polymorphic select 150ms
+   ↓ MySQL2 Driver > MySQL2 polymorphic relations > inverse reads use the generated discriminator/id index
+   ✓ MySQL2 Driver > MySQL2 polymorphic relations > empty storage is optional but orphaned membership is invalid 179ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > an empty collection reads as a fresh empty array, never null 173ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > mixed variants flatten in DECLARATION order, tagged correctly 187ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > equal ids in two target tables return two correctly tagged rows 168ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > order, window and distinct stay ARM-LOCAL 189ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a negative arm take restores the logical order 191ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > only narrows the returned variants without reordering 265ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > total and filtered counts, and count ordering 190ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > some / every / none over a MIXED-VARIANT truth table 184ms
+   × MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only 186ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > a singular inverse returns one row or null, and a plural one an array 190ms
+   × MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT 197ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection reads > parent ordering through a singular inverse keeps NULL placement 193ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a fresh owner writes memberships across several variants at once 178ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connect is idempotent for the same owner and target 194ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a plural member admits SEVERAL owners for one target 201ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a SINGULAR member replaces its slot instead of doubling it 203ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > connectOrCreate finds, then creates, without doubling either 200ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` clears every configured variant once, then refills 220ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set` of an already-owned SINGULAR target keeps the row 197ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > `set: []` empties every variant and deletes no target 197ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > disconnect removes this owner's membership and nothing else 209ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > update and updateMany reach only the connected targets 244ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > upsert creates then updates, scoped to this owner's membership 197ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > createMany writes one bulk group per variant 189ms
+   × MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once 209ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > delete and deleteMany are membership-scoped and cascade the membership 207ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse connect TRANSFERS the slot rather than inserting beside it 207ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse disconnect deletes THE junction row, and delete deletes the OWNER 227ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse composes vacate, supply and a modify of the SUPPLIED owner 210ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > a singular inverse upsert takes both arms through the membership 223ms
+   ✓ MySQL2 Driver > MySQL2 polymorphic collection writes > WRITE-THEN-READ crossover: the read half sees what the write half wrote 198ms
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection reads > an owner-scoped orphan fails the read, even hidden behind only
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:453:24
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection reads > a singular-inverse duplicate fails BEFORE the LIMIT
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-read-behavior.ts:530:7
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2.test.ts > MySQL2 Driver > MySQL2 polymorphic collection writes > duplicate singular createMany targets transfer once
+ ❯ tests/contracts/drivers/behaviors/polymorphic-collection-write-behavior.ts:567:35
+ Test Files  1 failed (1)
+      Tests  8 failed | 76 passed | 1 skipped (85)

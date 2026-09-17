@@ -21,6 +21,7 @@ import type {
   SelectedSeries,
   SeriesCapture,
   SeriesOccurrence,
+  SetMutation,
 } from "./commands";
 import {
   type BoundMembership,
@@ -59,6 +60,19 @@ const collectionMutationOrder: readonly string[] = [
   "create",
   "createMany",
 ];
+
+/** Two admitted unique selectors address the same row. */
+function sameTarget(
+  left: ReadonlyMap<string, unknown>,
+  right: ReadonlyMap<string, unknown>
+): boolean {
+  return (
+    left.size === right.size &&
+    [...left].every(
+      ([field, value]) => right.has(field) && Object.is(right.get(field), value)
+    )
+  );
+}
 
 /** One admitted relation body owns its order, parent, slot and supplied continuation. */
 export class RelationBody {
@@ -330,7 +344,10 @@ export class RelationBody {
       case "connect":
       case "connectOrCreate":
       case "upsert":
-      case "update":
+      case "update": {
+        // ATOM.md §12 "Same-operation duplicate": the rows this body's earlier
+        // `connectOrCreate` entries PROVABLY create.
+        const createdTargets: ReadonlyMap<string, unknown>[] = [];
         for (const [index, supplied] of entries(payload).entries()) {
           const source = entries(rawPayload)[index]!;
           const conditional: Input =
@@ -395,6 +412,30 @@ export class RelationBody {
             conditional.where as Input | undefined,
             nestedTargetAddressesConstraint(edge, verb)
           );
+          // ATOM.md §12: first-create-wins locally. An entry whose target an
+          // earlier entry of the SAME operation provably creates ADOPTS that
+          // row — the association is the earlier entry's — so it opens no
+          // second decision read, no found guard and no missing race pin: its
+          // producer is inside this operation. The two facts are the ones
+          // `CommandExecution.matchesSelectedConstraint` already reads together.
+          const addressed = ownSelector.uniqueValues;
+          if (verb === "connectOrCreate" && addressed) {
+            if (
+              createdTargets.some((earlier) => sameTarget(earlier, addressed))
+            )
+              continue;
+            if (
+              missing &&
+              [...addressed].every(([field, value]) => {
+                const proposed = missing.fields.known(field);
+                return (
+                  proposed?.kind === "literal" &&
+                  Object.is(proposed.value, value)
+                );
+              })
+            )
+              createdTargets.push(addressed);
+          }
           let selectionSource: SelectionSource = {
             kind: "query",
             where: conditional.where as Input | undefined,
@@ -531,6 +572,7 @@ export class RelationBody {
           this.supply(target);
         }
         break;
+      }
       case "set": {
         this.replaceMembership(edge, entries(payload), origin);
         break;
@@ -555,6 +597,40 @@ export class RelationBody {
                 ? undefined
                 : record(input.where)
               : record(input.where ?? input);
+          // Rule 6's first sentence: keep scalar bulk work set-oriented. The
+          // provider evaluates the membership and the member filter at this
+          // statement's own position, so a row-held membership whose payload
+          // names no relation needs no lookup, no series and no capture — the
+          // shipped `buildUpdateMany`/`buildDeleteMany` shape
+          // (`RelationWritePart.ts:484-504`, `:674-693`). A junction member set
+          // must still be materialised through the join table, and a
+          // relation-bearing `updateMany` still owns a record per member.
+          const context = this.commands.context;
+          if (
+            edge.kind === "reference" &&
+            (verb === "deleteMany" ||
+              !context.schema.namesRelation(edge.target, record(input.data)))
+          ) {
+            const mutation: SetMutation = {
+              kind: "set",
+              edge,
+              parent: parent.fields,
+              model: edge.target,
+              selector: context.queries.prepareSelector(edge.target, where),
+              ...(verb === "updateMany"
+                ? {
+                    values: context.schema.scalars(
+                      edge.target,
+                      record(input.data)
+                    ),
+                  }
+                : {}),
+              operation: verb,
+              origin,
+            };
+            this.commands.place(parent, mutation, "after", origin);
+            continue;
+          }
           const selection = this.commands.lookup(
             edge.target,
             {
@@ -843,6 +919,33 @@ export class RelationBody {
         };
         if (address !== source.located) this.requireLookup(address);
         this.requireLookup(captured);
+      } else if (
+        seriesMember &&
+        edge.uniqueSide === "target" &&
+        target.kind === "record" &&
+        edge.targetSide.members.every(
+          (pair) =>
+            target.fields.known(pair.referencedField)?.kind === "literal"
+        )
+      ) {
+        // A singular slot is a TRANSFER, and this member spells the target key
+        // itself, so the current owner is addressed directly — the shipped
+        // transfer's `values` address
+        // (`write-engine/junction-singular-transfer.ts`). It is captured at
+        // THIS member's own position, so a later member naming the same target
+        // observes the membership this one already moved.
+        captured = {
+          kind: "junction",
+          edge,
+          final: target.fields,
+          values: Object.fromEntries(
+            edge.targetSide.members.map((pair) => [
+              pair.junctionField,
+              target.fields.field(pair.referencedField),
+            ])
+          ),
+        };
+        this.commands.place(seriesMember, captured, "before");
       }
       const removals = source.body
         .map((candidate) => candidate.command)

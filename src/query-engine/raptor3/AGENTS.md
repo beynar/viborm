@@ -585,11 +585,15 @@ runtime member boundary reuses the same rule for dynamic series; do not add a
 payload walker, public permission, or operation-local policy flag.
 
 Failed-INSERT producer attribution is evidence, not replay authority. The scope
-is stated once, by `OperationContext.recoveryRejection`: it answers `undefined`
-unless the ownership is standalone AND the route is the physical batch, so
-borrowed and preparation-owned execution preserve the original failure and never
-replace an attempt. Its one caller, `CommandExecution.recover`, restarts at most
-once, and only for the exact rejected producer's own selected unique constraint.
+is stated once, by `OperationContext.recoveryRejection`, and that statement is
+the one in the parity lane X section below — an ATTRIBUTION and PROGRESS fact,
+never a transport fact. Borrowed and preparation-owned execution still preserve
+the original failure and never replace an attempt, and a replacement still
+restarts at most once, only for the exact rejected producer's own selected
+unique constraint. (The earlier wording of this paragraph — "unless the
+ownership is standalone AND the route is the physical batch", and "its one
+caller, `CommandExecution.recover`" — was made false by U6.4 and is struck: the
+allowance is spent by the owner that opened the region as well.)
 
 A selected static record series publishes terminal state, not each member's
 intermediate state. Retain complete identities only for successful roots, finish
@@ -746,3 +750,317 @@ belongs to the junction `delete` and to nothing else. The owner is the
 `disconnect`/`delete` arm of `RelationBody.relation`
 (`commands/relation-body.ts`), which places both commands with the same origin
 so the body keeps insertion order; no other verb or edge kind gains a statement.
+
+## Parity lane Q — admission, lowering, preparation, assignments, decoding
+
+These are the invariants the D-16 parity units U1–U5 restored (the plan is
+`docs/architecture/raptor3-parity-plan.md`; the lane note with every receipt is
+`docs/architecture/raptor3-evidence/g4/parity/lane-q-note.md`). They are
+contracts from here on.
+
+**An admitted payload is a complete fact; no preparer re-reads public syntax.**
+An empty filter object is not a filter: every scalar filter object refuses a
+payload that names no operation (`validation/scalars/negatable-filter.ts`), the
+JSON filter refuses one that carries only `path`/`mode` and an inert
+`insensitive`, and every relation filter that spells quantifiers — to-one,
+to-many and the polymorphic COLLECTION — refuses a payload that names none of
+them, in its own registered sentence. `where: {}` still matches everything — the rule
+is about a FILTER, not about a `where`. A JSON `path` is parsed into segments
+at admission, in both spellings, with the six grammar refusals and the one
+portable-path rule asked on every dialect; the preparer consumes segments only
+and the SQLite adapter's throw stays the defensive backstop it says it is.
+`groupBy`'s `by` is admitted as an array, a duplicate member and a grouped
+column named like a selected aggregate are refused there, and a default-only
+row under `skipDuplicates` is refused wherever the `createMany` verb is
+admitted — root, nested in a create, nested in an update, and a polymorphic
+collection group. At admission the
+subject is named by the ValidationError's issue PATH, not by the sentence: the
+per-scalar filter objects are interned per scalar type and cannot know which
+field they are validating. A relation filter's schema IS per relation, so those
+three sentences keep the slot name.
+
+**A lowered mutation's correlation names the table the statement mutates.** The
+unaliased UPDATE/DELETE target is addressable only by its NAME, so
+`lowerMutationLimit` lowers its selector with that name and declares it as the
+statement's mutation target; a bare column inside a correlated `EXISTS` binds
+to the CHILD table wherever both carry the name. The same threaded fact hides a
+subquery over the mutated table behind a derived table where
+`supportsMutationTargetInSubquery` is false (MySQL ERROR 1093). A raw `Sql`
+operand is parenthesised at the one operand owner: a caller's fragment is an
+expression, not a token.
+
+**A refusal that classifies the REQUEST is raised before one that classifies
+the PROVIDER.** The cursor-eligibility fact reaches the one order walker, so a
+`_distance` sort key raises the cursor sentence before `distanceExpression`
+consults `supportsVector`; `Queries.page` remains the single raise point for
+every other non-scalar key, and the sentence is stated once.
+
+**Polarity is a preparation fact.** `prepareWhere` threads it, each `not` flips
+it, and a relation arm's existing `inexact` fact IS its polarity — `none`,
+`isNot` and `every` consume their nested predicate under a negation. A bounded
+POSITIVE GeoPoint `distance` carries `probe: true` and lowering prepends the
+adapter's `withinBounds(geoBoundsForDistance(…))`: the box is implied by the
+comparison, so it is a conjunct the provider can answer from the spatial index,
+and a conjunct of a NEGATED predicate is a different question.
+
+**A prepared projection always names at least one column, and what it names is
+what the caller asked for.** An explicit empty or all-false `select` is the
+registered refusal; an empty DEFAULT projection takes the `EMPTY_ROW_RESULT_KEY`
+sentinel (a row still exists); a `_count` that counts nothing contributes no
+field. A grouped read computes its `by` SET once and hands it to `prepareHaving`
+and `groupOrderTerms`, which own the two registered membership sentences. A
+tagged polymorphic `_count` filter SELECTS an arm — `where.type` first, then
+`is`/`isNot` against that arm's target — and is never a scalar predicate over
+one of them; `countedMemberships` publishes the carrier fact it already
+computed so nothing classifies the slot twice.
+
+**`Queries.prepareUpdate` is the ONE interpreter of an admitted update
+payload.** `Assignments` stores that payload verbatim — it is what the row's own
+write submits — and the value inside a `{ set: … }` envelope is read lazily, by
+the key-reconciliation readers only (`known`, `equal`, `requireLiteral`,
+`stated`, which `CommandAttempt.read` consumes). The envelope exists only in the
+update language, so a CREATE's document spelled `{ set: … }` is that document.
+Unwrapping at storage time made the one interpreter run twice, which is
+`Unknown update operation: z` for a JSON document and a silent rewrite for a
+document that carries its own `set`. The physical owner reads the payload with
+the SAME question and never a shape test: `OperationContext.update` asks
+`wholeValue` whether the payload NAMES a value, and only a payload that names
+none — an OPERATION the provider computes — travels through the batch scratch
+or meets the scratch's `int`-only refusal. That update PUBLISHES what it
+OBSERVED, never what it submitted: the scratch expression and the `RETURNING`
+row, with every other field's value stated by the payload through
+`Assignments.stated`, so no envelope can reach a dependent as a value.
+
+**A projected scalar's physical form is stated once per (leaf, carrier).**
+`carriedValue` consumes the fact `projectedColumn` produced, in the SPELLING it
+produced: a decimal scalar crosses a JSON window as a text cast and a decimal
+LIST as the adapter's decimal array projection (`CAST(x AS TEXT[])` on
+PostgreSQL), because its codec reads an exact value only from that spelling.
+Stating the scalar spelling for both is a `numeric[]` arriving as the array
+literal `{1.00,2.00}`, which the list codec refuses. **The transport is asked about a value exactly once, at the row
+boundary** (Arnaud's D-17): `Queries` holds the driver's `DriverResultParser`
+and `decodeScalar` runs driver → adapter → codec for a value the provider
+handed over directly, and never for one a JSON window already decoded. The
+decoder owns the JSON VALUE DOMAIN (`bigint` → number when safe, non-finite and
+sparse refused, prototype-safe rebuild) and never re-parses. The SQL NULL and
+the absent column are answered on the RAW value, before any representation
+rule, so a provider that decodes `'null'` into the JSON null document still
+writes a NOT NULL `json` column. Object shapes carry nullability — a carrier the
+statement always builds cannot decode as `null` — members are read with
+`Object.hasOwn`, and the decoder's structural failures are
+`InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
+
+**A polymorphic membership the parent claims whose row is gone is refused, not
+read as absent.** A variant ROW carrier's arm is lowered as "claimed ⇒ a
+document, which is EMPTY when the row is gone; unclaimed ⇒ null", and the one
+decoder that owns the arm shape refuses the empty one from the arm's own
+selected keys — no private carrier column (Arnaud's D-19). The COLLECTION
+orphan and the duplicate singular inverse are answered by a PROBE outside the
+arm's row subquery (Arnaud's D-26), stated below.
+
+**A membership is a fact about the junction, so it is probed on the junction.**
+A junction-carried variant slot emits ONE correlated integrity probe per
+CONFIGURED member — `COUNT(*)` over the member table whose target row does not
+exist — beside the arms and outside their row subqueries, so it is answered
+whatever `only` selected, including nothing at all: `only` selects what is READ,
+never what is TRUE. It rides the slot's own document under
+`result-aliases.ts`'s `POLYMORPHIC_COLLECTION_ORPHANS_KEY`, whose leading digit
+is what keeps it unreachable for a variant of the same name, and the ONE decoder
+arm that already owns the sentence refuses it before any arm is decoded
+(Arnaud's D-26). A SINGULAR polymorphic inverse gets the same treatment for the
+other integrity fact: its membership count is a sibling scalar subquery ahead of
+the row window's `WHERE` and `LIMIT` — which is the only place it can be
+answered, since a target filter or the `LIMIT 1` hides the second member — and a
+count above one emits a JSON ARRAY where the leaf owes one row object, the shape
+the decoder already refuses by name. Existence and membership are execution
+semantics (rule 4), so neither is a payload question, and an ordinary pair
+table's bytes are unchanged.
+
+**A private alias is not a contract.** The cursor predicate's carrier prefix has
+one home, `result-aliases.ts`'s `CURSOR_CARRIER_PREFIX` (Arnaud's D-21), which
+the engine and the ordering behaviour module both read; a witness that needs the
+statement's outer alias reads it out of the statement it just captured.
+
+## Parity lane X — execution, membership, races, route seam
+
+These eight invariants were restored by the D-16 parity program
+(`docs/architecture/raptor3-parity-plan.md`, decisions D-17..D-24), each against
+a red estate cell. They are contracts from here on.
+
+A junction side is chosen by the asking SLOT, never by the model. A self
+junction names one model on both endpoints and only its two fields tell the
+directions apart, so `buildMembershipView` orients with
+`opposite === edge.endpoints[1]` — the same identity the foreign-key arm two
+lines above it already uses. Deriving the orientation from
+`topology.source.model === source` is true for BOTH legs of a self relation and
+silently answers the wrong collection.
+
+A nested relation mutation creates a PLANNING READ only when its physical form
+cannot express the operation as one correlated statement. A nested
+`updateMany`/`deleteMany` on a ROW-HELD membership whose payload names no
+relation is one `set` command — one statement, `WHERE fk = parent AND filter`,
+no lookup, no `SelectedSeries`, no capture (rule 6's "keep scalar bulk work
+set-oriented", the shipped `RelationWritePart.buildUpdateMany`/`buildDeleteMany`).
+A junction member set and a relation-bearing `updateMany` still capture, because
+one statement cannot express them. The `set` command is a WRITE with no read: it
+registers the unknown row-set footprint the shipped `appendTarget(unknown)`
+registered, so a LATER read of the same model is still analysed against it, and
+`readTarget`'s refusal is untouched — it fires exactly when a planning read that
+does exist follows a sibling write it cannot be proven disjoint from.
+
+The capture phase runs before the effect phase, and that is MEASURED, not
+stylistic. A capture flushes, and on the batch route a flush COMMITS everything
+queued before it — so a capture placed after a sibling effect makes that effect
+DURABLE, and a planning refusal the capture then raises can no longer undo it
+(`tests/raptor3/post-prep/g29-dependency-boundaries.test.ts` measures exactly
+this: with the two passes merged into the declared body order, the earlier
+sibling `create` commits at `committedSegments: 1` before the member lookup
+refuses). Sibling order is restored where it was actually inverted — by
+compiling a set mutation as ONE statement instead of a capture — never by moving
+the captures that remain. Do not merge the passes.
+
+Within one relation body, a `connectOrCreate` entry whose target an earlier
+entry PROVABLY creates is that earlier entry's association: first-create-wins
+locally and the later entry adopts the row (ATOM.md §12), so it opens no second
+decision read, no found guard and no missing race pin — its producer is inside
+the same operation. The two facts are `PreparedSelector.uniqueValues` and
+`Assignments.known`, the pair `CommandExecution.matchesSelectedConstraint`
+already reads together.
+
+The one-recovery allowance is an ATTRIBUTION and PROGRESS fact, never a
+transport fact. `OperationContext.recoveryRejection` asks only whether this
+standalone operation's exact failed INSERT (or its atomic assertion) is the
+error in hand and whether anything has been acknowledged — the shipped
+`hasCommittedRecordSeriesProgress` (`write-engine/routing.ts:197`), which this
+context states once as `committedProgress`: `committedSegments === 0` and
+`!mayHaveCommittedSegment`. It no longer asks `usesBatch`, and — Arnaud's
+D-25 — it asks about ATTRIBUTION and PROGRESS only. (This SUPERSEDES the earlier
+sentence "it answers `undefined` unless the ownership is standalone AND the
+route is the physical batch".)
+
+A rejected INSERT is ATTRIBUTED under the bound its OWN route's recovery needs,
+and that bound belongs to the site that RECORDS the producer, never to the
+classifier that reads it. `submit`'s attribution arm — the BATCH route, whose
+recovery is the interpreter's in-place REPLAY of the tree that ran — records the
+producer only while no dynamic member has been admitted: that member's defaults
+and transforms already ran once against a row that attempt read, and admitted
+values are never produced twice (rule 10), so the producer is simply not
+recorded and `tests/raptor3/transitions/recovery-boundaries-live*.test.ts`
+(`g2-recovery-dynamic-member-admission`, an `atomic-batch` world) pins the
+original `UniqueConstraintError` from there. `insert`'s non-batch attribution
+carries no such bound, because the recovery IT feeds re-enters a FRESH region
+with a FRESH plan — the shape D-25 does not bound. An ATOMIC ASSERTION carries
+none either, and for the same reason: it is answered by a fresh plan over the
+same admitted arguments — a new occurrence tree that re-reads committed state —
+so the new tree admits its own members, and a series occurrence is still
+expanded exactly once because the occurrence is new. Restating any of this at
+`recoveryRejection` is a second reader of one fact with no answer of its own to
+change.
+
+Which recovery REPLAYS and which RE-PLANS is a fact about the ROUTE, not about
+the kind of rejection. Exactly one replays: `CommandExecution.recover`, the
+in-place path, available only where this operation opened no region of its own
+(`replaysInPlace`) — its `complete` loop re-runs the SAME occurrence tree, which
+is why a missing winner there is not permission to attempt the INSERT again. The
+other three RE-PLAN, because each re-enters the body `commands/index.ts` builds:
+the REGION re-entry (`regionAttempt` — the INSERT recovery on every
+transaction-capable provider, the shipped `executeRoutedOperation`,
+`write-engine/routing.ts:180-208`), the BATCH re-entry (`batchAttempt`, the
+raceable assertion — and RACEABLE is read off the premise, not assumed: only a
+failure its own owner marked `meta.raceable` arms the re-plan, which is the
+estate's existing rule for this question, so a captured row's own presence
+guard, declared `raceable: false`, ends the operation instead of retrying it
+against whatever row now answers the selector) and the ENVELOPE restart
+(`run`'s deferred arm, which runs
+the body once outside the region and again inside it). A re-plan is safe because
+admission is memoised one level above the body — `commands/index.ts`'s
+`admitted ??= schema.admit(…)` — so the second tree is built from the SAME
+admitted arguments — the ROOT admission runs once; a captured member of a
+selected series is admitted again by the re-plan, so a member's own defaults
+and transforms run once per ATTEMPT (the shipped whole-operation re-run
+behaved the same), and rule 10's "never invokes their transforms again" bounds
+the in-place replay, not the re-plan (ledger D-30); the
+first attempt consumes the plan that answered the envelope question, and any
+later one builds its own.
+
+The allowance is spent by the owner that opened the region the rejection
+destroyed, and the re-entry carries this operation's own attribution and
+correlation id unchanged — an aborted transaction answers no further statement,
+which is why a region's recovery is a FRESH one and never a replay inside it.
+`CommandExecution` keeps the ONE replacement method for both attempt regions;
+the allowance itself is the CONTEXT's (`spendRecovery`), answered once and
+`undefined` ever after, because a re-plan builds a new interpreter and a new
+interpreter must not bring a second allowance with it. A missing winner still
+propagates the original rejection and never authorises another INSERT.
+
+A captured member set is an assertion about every row that is NOT in it. On the
+batch route a selected series with a membership edge queues one raceable
+`requireAbsent` over "connected ∧ filter ∧ key ∉ captured" in the same batch, so
+a member committed between the plan-time read and the atomic unit ABORTS that
+unit instead of being silently missed (rule 5, "never cache observed absence");
+the one recovery above then re-plans against the larger set and converges. The
+guard is the captured set's own negation — it names the keys it captured — never
+a second reading of the filter. It rides BEHIND the premise it depends on: the
+membership correlates by VALUE, so the series' own parent premise — the one
+`executeSeries` asserts for every member — is queued first, at the position
+where the captured set is fixed. Without it a parent reference taken over by
+another row makes that row's members read as additions to a set they were never
+in, and the operation would answer a raceable staleness instead of
+`parent record changed across a committed segment`. An interactive transaction
+needs none of this: its plan-time read took `FOR UPDATE`.
+
+A suppressed INSERT suppresses the ROW, not the membership the member declared.
+A `skipDuplicates` member whose target row already exists still writes the
+membership it declared, against that existing row; on a singular junction that
+membership is a TRANSFER, so the member captures the current owner at its own
+body position from the key it SPELLS (a `JunctionCapture` with no located
+address — the shipped `JunctionTransferAddress.values`), and a later member
+naming the same target observes the membership the earlier one moved and is the
+exact-pair no-op. A member whose key the provider would generate names no
+existing row and writes nothing. The MEMBERSHIP, and only it: the member's
+nested RECORD writes belong to the row that was never created, so
+`adoptSuppressed` replays the membership kinds alone (`link`, `remove`,
+`junction` — a `membership` child is always placed `before`, so naming it there
+would be a guard with no coverage of its own) — which is what the shipped engine did, since
+`joinWhenTargetExists` is a leaf route no relation-bearing row takes
+(`junction-create-many-routing.ts:76-84`) and a skipped root in the series it
+does take stranded the rest of the member (`OperationExecutor.ts:894`). A
+`skipDuplicates` member is idempotent against an existing row.
+
+An affected-row count is this operation's answer, not the provider's opinion:
+`createMany` refuses a window that acknowledges FEWER rows than were submitted
+(`skipDuplicates` is the one shape whose shortfall IS the answer), and does not
+police a count ABOVE it, which a duplicate clause or a trigger may legitimately
+report.
+
+The DRIVER owns a prepared query's identity. Both internal snapshots of a batch
+query carry it through `transferPreparedStatement`, because when observers are
+installed the driver DEFERS the statement transform and registers the typed
+`Sql` against the object it returned; a snapshot that drops the provenance
+silently drops every deferred transform.
+
+The owner that opens a region is the owner that states what its phases proved.
+`region()` binds `readyToCommit`/`committed` onto the attribution whenever this
+operation carries the client's write-outcome rail, and `withinRegion` maps the
+phase the region REACHED onto the failure — `committed` or `may-have-committed`
+— attaches it with `attachCommitCertainty`, notifies the matching seam through
+`stateWriteOutcome` (which retains a listener failure beside the operation's
+own), and notifies `committedSegment` on success. A driver that never separated
+commit from success reports no phase and this operation then says nothing; the
+route's `!outcome.published` fallback is unchanged.
+
+One preparation answers both array-owner arms. `prepareSingle` publishes the
+package for any verb whose plan is ONE statement — the `single` admissibility
+`Commands.plan` already states — so a one-statement write is parsed through the
+owner's own `parseResult` seam and interceptor onion instead of through the
+batch. It is the same package `prepareBatch` would publish, not a second
+preparation.
+
+A capability a form NEEDS is asked once, on the construction path, before the
+operation's first statement: `OperationContext.requireAtomicUnit`, asked by
+`run` exactly when the physical-envelope rule has already ruled the form out of
+one statement. A driver with neither transactions nor batch has no atomic unit,
+and a batch-only non-returning driver cannot resolve a single-row mutation's
+identity inside its own unit. One class (`TransactionError`), one
+`meta { driver, operation }`, the two registered sentences, and no provider
+dispatch — the position of the shipped `assertRoutedAtomicResolution`.

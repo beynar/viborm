@@ -1,0 +1,30 @@
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:71:30
+     69|         throw new Error("Expected a TransactionError.");
+     70|       }
+     71|       expect(thrown.message).toBe(
+       |                              ^
+     72|         `Driver '${driver.driverName}' supports neither transactions n…
+     73|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'update' fails before dispatch
+ FAIL  |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts > operation executor atomic-capability refusal > operation 'upsert' fails before dispatch
+AssertionError: expected QueryError: Query execution failed { …(4) } to be an instance of TransactionError
+ ❯ tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts:67:22
+     65|       }
+     66| 
+     67|       expect(thrown).toBeInstanceOf(TransactionError);
+       |                      ^
+     68|       if (!(thrown instanceof TransactionError)) {
+     69|         throw new Error("Expected a TransactionError.");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  3 failed | 114 passed (117)
+      Tests  5 failed | 2762 passed (2767)
+   Start at  10:51:01
+   Duration  10.14s (transform 2.18s, setup 86ms, collect 7.33s, tests 1.94s, environment 0ms, prepare 129ms)
+
+Vitest resources: 12.05s wall, 872.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

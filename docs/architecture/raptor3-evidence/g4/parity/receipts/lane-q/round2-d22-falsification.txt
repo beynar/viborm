@@ -1,0 +1,42 @@
+Round 2 / R4 — the D-22 falsifier now falsifies.
+
+Experiment (scratch backup first, per the falsification rule: the file was
+copied to the session scratchpad and restored from that copy, never checked
+out): src/query-engine/raptor3/shared/query.ts, `prepareOperations`, the D-22
+arm reverted to the pre-D-22 upgrade-only rule
+
+-    const folded =
+-      state?.type === "json" && declared !== undefined
+-        ? declared === "insensitive"
+-        : insensitive || declared === "insensitive";
++    const folded = insensitive || declared === "insensitive";
+
+Run: TMPDIR=/private/tmp/viborm-parity-tmp-q node scripts/run-vitest-safe.mjs \
+  run --workspace vitest.workspace.ts --project=layer-query-engine \
+  tests/contracts/engine/query/parity-lowering.core.test.ts \
+  --rss-limit-mb=1536 --heap-limit-mb=768
+
+  × JSON mode precedence (D-22) > a JSON filter's own `default` wins against the inherited mode 5ms
+    → expected 'SELECT "q0"."id" AS "id", "q0"."name"…' not to be 'SELECT "q0"."id" AS "id", "q0"."name"…' // Object.is equality
+
+ FAIL  |layer-query-engine| tests/contracts/engine/query/parity-lowering.core.test.ts > JSON mode precedence (D-22) > a JSON filter's own `default` wins against the inherited mode
+AssertionError: expected 'SELECT "q0"."id" AS "id", "q0"."name"…' not to be 'SELECT "q0"."id" AS "id", "q0"."name"…' // Object.is equality
+ ❯ tests/contracts/engine/query/parity-lowering.core.test.ts:366:23
+    364|     const inherited = jsonStatement({});
+    365|     expect(inherited).toContain("lower(");
+    366|     expect(reset).not.toBe(inherited);
+       |                       ^
+    367|     expect(folds(reset)).toBeLessThan(folds(inherited));
+    368|     expect(reset).toContain("NOT");
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 19 passed (20)
+
+The scalar cell stays green under the revert, which is the point: the reverted
+rule IS the scalar rule, so only the JSON asymmetry may redden. Before the
+repair both cells asserted only that `lower(` appears at least once, and the
+file was 20/20 green under exactly this mutation (the reviewer's R4).
+
+Restore verified by md5: 037ee48748c228ded9823bd3e0d37438 (backup) ==
+037ee48748c228ded9823bd3e0d37438 (working file), and the D-22 arm is back at
+query.ts:1421-1424.

@@ -1,5 +1,6 @@
 import type { VariantRelationState } from "@schema/relation";
 import type { VariantEntries } from "@schema/relation/static-membership";
+import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
 import type {
@@ -218,7 +219,9 @@ export type PolymorphicCollectionUpdateSchema<Getters> = VibSchema<
  * One verb's tagged union, built the way the to-one families build theirs: one
  * `v.object` per configured public type, discriminated by a `type` literal.
  */
-type TaggedVerbOptions = { partial: false } | { atLeast: string[] };
+type TaggedVerbOptions = ({ partial: false } | { atLeast: string[] }) & {
+  refuse?: (value: Record<string, unknown>) => string | undefined;
+};
 
 function taggedVerb<State extends VariantRelationState>(
   publicTypes: readonly Extract<keyof VariantEntries<State>, string>[],
@@ -284,7 +287,11 @@ function collectionVerbs<
         data: () => v.array(schemaGetters[publicType]().core.create),
         skipDuplicates: v.boolean({ optional: true }),
       }),
-      { atLeast: ["type", "data"] }
+      // The same admission fact the root and nested `createMany` arms ask
+      // ({@link refuseDefaultOnlySkipDuplicates}): this group is the third
+      // place the verb is spelled, and a default-only row has no conflict
+      // target to suppress on here either.
+      { atLeast: ["type", "data"], refuse: refuseDefaultOnlySkipDuplicates }
     ),
     connect: tagged((publicType) => ({
       where: () => schemaGetters[publicType]().core.whereUnique,

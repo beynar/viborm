@@ -448,14 +448,24 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     expect(result.issues).toBeDefined();
   });
 
-  test("output: preserves by as string", () => {
+  test("output: normalises a single by to an array", () => {
+    // `by` is ONE admitted shape downstream: the grouped read reads
+    // `args.by` as the column set, and a bare string made it call `.map` on a
+    // string. Both spellings are the same fact, resolved here.
     const result = parse(schema, {
       by: "active",
     });
     expect(result.issues).toBeUndefined();
     if (!result.issues) {
-      expect(result.value.by).toBe("active");
+      expect(result.value.by).toEqual(["active"]);
     }
+  });
+
+  test("output: refuses a duplicate by member", () => {
+    const result = parse(schema, { by: ["active", "active"] });
+    expect(result.issues?.[0]?.message).toBe(
+      "GroupBy operation does not allow duplicate fields in 'by'"
+    );
   });
 
   test("output: preserves by as array", () => {

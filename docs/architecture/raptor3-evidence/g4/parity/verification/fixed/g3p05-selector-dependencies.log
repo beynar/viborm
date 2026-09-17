@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-parity-merge
+
+ ✓ |raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 125ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  14:51:09
+   Duration  2.44s (transform 1.27s, setup 40ms, collect 1.99s, tests 125ms, environment 0ms, prepare 66ms)
+
+JSON report written to /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-nSPl1K/vitest.json
+Vitest resources: 5.35s wall, 481.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g3p05-selector-dependencies contract gate verified. Evidence: /private/tmp/viborm-parity-tmp-merge/viborm-raptor3-g0-nSPl1K

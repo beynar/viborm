@@ -161,7 +161,11 @@ export function buildMembershipView(
     };
   }
   const topology = edge.topology;
-  const forward = topology.source.model === source;
+  // The SLOT decides, not the model: a self junction names one model on both
+  // sides and only its two fields tell the directions apart. `opposite` above
+  // already resolved that identity, and `endpoints[0]`/`endpoints[1]` are the
+  // slots `topology.source`/`topology.target` were built from.
+  const forward = opposite === edge.endpoints[1];
   return {
     ...base,
     kind: "junction",

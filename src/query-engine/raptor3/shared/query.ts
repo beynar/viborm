@@ -21,6 +21,12 @@ import {
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
 import type { NativeType } from "@schema/scalars/native-types";
+import {
+  CURSOR_CARRIER_PREFIX,
+  EMPTY_ROW_RESULT_KEY,
+  POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+} from "@query-engine/result-aliases";
+import type { DriverResultParser } from "@drivers";
 import { Sql, sql } from "@sql";
 import {
   decodePhysicalDateTime,
@@ -44,6 +50,7 @@ import {
   toDecimal,
   type DecimalDescriptor,
 } from "@validation/primitives/decimal-codec";
+import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
 import {
@@ -92,6 +99,13 @@ export type Leaf = {
 export type ProjectionShape =
   | {
       kind: "object";
+      /**
+       * `false` where the statement ALWAYS builds this document — a `_count`
+       * carrier, an aggregate carrier. A provider `null` there is a malformed
+       * row, not an absent relation. Left unset (nullable) everywhere a row
+       * may genuinely be absent: a to-one relation, a variant arm.
+       */
+      nullable?: boolean;
       fields: Record<string, ProjectionShape | Leaf>;
     }
   | {
@@ -102,6 +116,8 @@ export type ProjectionShape =
     }
   | {
       kind: "variants";
+      /** The public slot, for the refusal that names it. */
+      relation: string;
       many: boolean;
       arms: Record<string, ProjectionShape>;
     }
@@ -128,17 +144,31 @@ interface PreparedRelationProjection {
   readonly arguments: RelationProjectionArguments;
   readonly projection: PreparedProjection;
 }
+/** One counted slot: its memberships, and the filter that narrows them. */
+export type PreparedCount = {
+  readonly relation: string;
+  /** Every membership the slot counts: one edge, or every variant arm. */
+  readonly edges: readonly Membership[];
+  readonly selector?: PreparedSelector;
+  /** A tagged `isNot` counts the arm's members the selector does NOT match. */
+  readonly negated?: true;
+};
 export type PreparedProjectionField =
   | { readonly kind: "scalar"; readonly name: string }
   | {
+      /**
+       * The sentinel column of an EMPTY default projection. A model whose
+       * every scalar is omitted still has rows, and `SELECT  FROM …` is a
+       * syntax error, so one constant column carries the row's existence. It
+       * is not in the decoder's shape, so the caller reads `{}`.
+       */
+      readonly kind: "sentinel";
+      readonly name: string;
+    }
+  | {
       readonly kind: "counts";
       readonly name: string;
-      readonly counts: readonly {
-        readonly relation: string;
-        /** Every membership the slot counts: one edge, or every variant arm. */
-        readonly edges: readonly Membership[];
-        readonly selector?: PreparedSelector;
-      }[];
+      readonly counts: readonly PreparedCount[];
     }
   | {
       readonly kind: "distance";
@@ -157,6 +187,15 @@ export type PreparedProjectionField =
       readonly arms: readonly ({
         readonly variant: string;
       } & PreparedRelationProjection)[];
+      /**
+       * Every CONFIGURED member of a junction-carried slot, selected or not:
+       * the subjects of the integrity probe (Arnaud's D-26). `only` selects
+       * what is READ, never what is TRUE, so this list is not the arms'.
+       */
+      readonly memberships: readonly {
+        readonly variant: string;
+        readonly edge: Membership;
+      }[];
     };
 export interface PreparedProjection {
   readonly model: AnyModel;
@@ -182,7 +221,9 @@ export interface PreparedProjection {
 export function returningSafeProjection(
   projection: PreparedProjection,
 ): boolean {
-  return projection.fields.every((field) => field.kind === "scalar");
+  return projection.fields.every(
+    (field) => field.kind === "scalar" || field.kind === "sentinel",
+  );
 }
 export interface Query {
   sql: Sql;
@@ -283,6 +324,15 @@ type PreparedPredicate =
       readonly operands?: readonly PreparedOperand[];
       readonly value?: unknown;
       readonly insensitive?: boolean;
+      /**
+       * Set on a bounded GeoPoint `distance` filter in POSITIVE polarity: the
+       * comparison implies the bounding box of its smallest finite upper
+       * bound, so the box is a conjunct the provider can answer from the
+       * spatial index. Under a negation the box would be part of what is
+       * negated, which is why polarity is a preparation fact and not a
+       * lowering guess.
+       */
+      readonly probe?: true;
     }
   | {
       readonly kind: "relation";
@@ -299,6 +349,53 @@ type PreparedPredicate =
 function states(predicate: PreparedPredicate): boolean {
   return predicate.kind !== "and" || predicate.predicates.some(states);
 }
+/**
+ * The smallest FINITE upper bound a distance filter states, or `undefined`
+ * when it states none. A bound of zero or less bounds nothing worth probing:
+ * the box degenerates to the point itself.
+ */
+function distanceUpperBound(value: unknown): number | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const { lt, lte } = value as { lt?: unknown; lte?: unknown };
+  const bounds = [lt, lte].filter(
+    (bound): bound is number => typeof bound === "number" && bound > 0,
+  );
+  return bounds.length === 0 ? undefined : Math.min(...bounds);
+}
+/**
+ * A membership the parent claims whose row is gone.
+ *
+ * The statement answers a claimed arm with a document and an unclaimed one
+ * with `null`, so an EMPTY document is the claim without the row. The test is
+ * the arm's own selected keys — a shape that requests fields and receives none
+ * — and never a private carrier column (Arnaud's D-19).
+ */
+function orphanedArm(carrier: unknown, arm: ProjectionShape): boolean {
+  if (arm.kind !== "object" || carrier === null || carrier === undefined)
+    return false;
+  const document: unknown =
+    typeof carrier === "string" ? JSON.parse(carrier) : carrier;
+  if (typeof document !== "object" || document === null) return false;
+  return (
+    Object.keys(document).length === 0 &&
+    Object.keys(arm.fields).length > 0
+  );
+}
+/**
+ * One member of a provider document, read with OWN-key semantics. An omitted
+ * field is absent, whatever `Object.prototype` happens to carry under that
+ * name.
+ */
+function own(source: Record<string, unknown>, key: string): unknown {
+  return Object.hasOwn(source, key) ? source[key] : undefined;
+}
+/**
+ * The ONE cursor-eligibility sentence, raised from the order walker for a key
+ * whose lowering would consult a provider capability, and from
+ * {@link Queries.page} for every other non-scalar key.
+ */
+const CURSOR_ORDER_REFUSAL =
+  "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.";
 /** A disjunction of nothing is FALSE; it is the one predicate that says so. */
 const VACUOUS_FALSE: PreparedPredicate = Object.freeze({
   kind: "always",
@@ -366,6 +463,9 @@ export class InvalidScalarResult extends TypeError {
 
 /** The public output name of a `_distance` projection, stated once. */
 const DISTANCE_FIELD = "_distance";
+/** The registered sentence for that name being claimed twice. */
+const DISTANCE_NAME_COLLISION =
+  "A distance result cannot be selected together with a model field named '_distance'.";
 const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
 const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
 const BOOLEAN_LEAF: Leaf = Object.freeze({
@@ -479,11 +579,44 @@ export function wholeValue(
 export class Queries {
   private nextAlias = 0;
   private readonly views: QueryViews;
+  /**
+   * The DRIVER's own representation rules (D-17). Scalar meaning is owned by
+   * the existing codecs, but "what shape does THIS transport hand back?" is
+   * owned by the driver and the adapter — SQLite stores `json` as TEXT and
+   * booleans as 0/1, MySQL hands back naive wall-clock datetimes — and that
+   * chain is declared, implemented by every adapter and driver, and was
+   * reached by nothing. The decoder asks it once per row value, at the row
+   * boundary, and never for a value a JSON window already decoded.
+   */
+  private readonly result: DriverResultParser | undefined;
   constructor(
     readonly schema: EngineSchema,
     readonly adapter: DatabaseAdapter,
+    result?: DriverResultParser,
   ) {
     this.views = schema.queryViews(adapter);
+    this.result = result;
+  }
+  /**
+   * One row value, through the provider chain the estate already declares:
+   * the driver first (it owns the transport's own spellings), then the
+   * adapter (it owns the dialect's), then the engine's strict codec, which is
+   * the caller of this function.
+   */
+  private providerValue(type: string, value: unknown): unknown {
+    const adapterDecode = (input: unknown): unknown =>
+      this.adapter.result.parseField(input, type, (transformed?: unknown) =>
+        transformed === undefined ? input : transformed,
+      );
+    const driverParse = this.result?.parseField;
+    try {
+      return driverParse
+        ? driverParse(value, type, (input: unknown) => adapterDecode(input))
+        : adapterDecode(value);
+    } catch (error) {
+      if (error instanceof InvalidScalarResult) throw error;
+      throw new InvalidScalarResult(type, "provider scalar decoding failed");
+    }
   }
   alias(): string {
     return `q${this.nextAlias++}`;
@@ -530,8 +663,17 @@ export class Queries {
   columnName(model: AnyModel, field: string): string {
     return physicalField(this.schema, model, field).name;
   }
+  /**
+   * A raw `Sql` operand is PARENTHESIZED. A caller's fragment is an
+   * expression, not a token: `views: { gte: ctx => ctx.sql\`SELECT MAX(...)\` }`
+   * composed as `"views" >= SELECT MAX(…)` is a syntax error on every dialect,
+   * and a fragment with its own operator would re-associate. The shipped
+   * engine wrapped at this same seam (`where-builder.ts:472`, applied `:492`).
+   */
   value(value: unknown): Sql {
-    return value instanceof Sql ? value : this.adapter.literals.value(value);
+    return value instanceof Sql
+      ? sql`(${value})`
+      : this.adapter.literals.value(value);
   }
   /**
    * The one destination-aware operand owner: filters, cursors, order operands,
@@ -548,10 +690,12 @@ export class Queries {
   private scalarValue(scalar: Scalar, value: unknown, field: string): Sql {
     const a = this.adapter;
     const state = scalar["~"].state;
-    if (value instanceof Sql)
+    if (value instanceof Sql) {
+      const fragment = sql`(${value})`;
       return state.type === "decimal" && state.array !== true
-        ? a.expressions.decimalCast(value, state.decimal)
-        : value;
+        ? a.expressions.decimalCast(fragment, state.decimal)
+        : fragment;
+    }
     const sentinel = jsonNullKindOf(value);
     if (sentinel) return sentinel === "DbNull" ? a.literals.null() : a.json.value(null);
     if (value === null || value === undefined) return a.literals.null();
@@ -688,6 +832,16 @@ export class Queries {
    */
   private carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
     if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
+    // A decimal crossed the projection in the spelling {@link projectedColumn}
+    // states — a text cast for a scalar, the adapter's decimal array
+    // projection for a list — and its codec reads an exact value only from
+    // that spelling: carried as a JSON number it is rounded by the container,
+    // and carried as a JSON array its members are. This is the same physical
+    // fact the projection stated, consumed rather than re-derived from the leaf.
+    if (leaf.type === "decimal")
+      return leaf.list
+        ? this.adapter.arrays.decimalProjection(expression)
+        : this.adapter.expressions.cast(expression, "text");
     if (leaf.list || leaf.type === "json" || leaf.type === "point" || leaf.type === "vector")
       return this.adapter.json.document(expression);
     if (leaf.type === "bigint")
@@ -1037,9 +1191,13 @@ export class Queries {
             }),
     });
   }
-  lowerSelector(selector: PreparedSelector, alias?: string): Sql | undefined {
+  lowerSelector(
+    selector: PreparedSelector,
+    alias?: string,
+    mutationTarget?: string,
+  ): Sql | undefined {
     return selector.predicate
-      ? this.lowerPredicate(selector.predicate, alias)
+      ? this.lowerPredicate(selector.predicate, alias, mutationTarget)
       : undefined;
   }
   lowerWhere(
@@ -1055,11 +1213,19 @@ export class Queries {
     limit: number | undefined
   ): { readonly where?: Sql; readonly suffix?: Sql } {
     const adapter = this.adapter;
+    // The UPDATE/DELETE target carries no alias, so it is addressable only by
+    // its NAME. Without that qualifier a correlated `EXISTS` emits the parent
+    // column bare and it rebinds to the CHILD table wherever both carry the
+    // name — `some` matches nothing, `none`/`every` match everything, and a
+    // `deleteMany` removes the complement of the intended set. The shipped
+    // engine passed the table name for exactly this reason
+    // (`operations/update.ts:79-90`, `delete.ts:85-92`).
+    const mutated = model["~"].names.sql!;
     if (limit === undefined)
-      return { where: this.lowerSelector(selector) };
+      return { where: this.lowerSelector(selector, mutated, mutated) };
     if (adapter.capabilities.supportsMutationRowLimit)
       return {
-        where: this.lowerSelector(selector),
+        where: this.lowerSelector(selector, mutated, mutated),
         suffix: adapter.clauses.limit(this.value(limit)),
       };
     const alias = this.alias();
@@ -1121,6 +1287,7 @@ export class Queries {
     facts: SelectorFacts,
     path: readonly Membership[],
     unique = false,
+    positive = true,
   ): PreparedPredicate {
     return Object.freeze({
       kind: "and",
@@ -1131,12 +1298,26 @@ export class Queries {
             return this.combine(
               field,
               entries(operand).map((clause) =>
-                this.prepareWhere(model, clause, facts, path),
+                this.prepareWhere(
+                  model,
+                  clause,
+                  facts,
+                  path,
+                  false,
+                  field === "NOT" ? !positive : positive,
+                ),
               ),
             );
           }
           if (model["~"].state.relations[field])
-            return this.prepareSlotPredicate(model, field, operand, facts, path);
+            return this.prepareSlotPredicate(
+              model,
+              field,
+              operand,
+              facts,
+              path,
+              positive,
+            );
           const key = findAddressableKey(model, field);
           if (key?.name)
             return Object.freeze({
@@ -1149,6 +1330,7 @@ export class Queries {
                     record(operand)[member],
                     facts,
                     unique,
+                    positive,
                   ),
                 ),
               ),
@@ -1159,6 +1341,7 @@ export class Queries {
             operand,
             facts,
             unique && key !== undefined,
+            positive,
           );
         }),
       ),
@@ -1170,6 +1353,7 @@ export class Queries {
     value: unknown,
     facts: SelectorFacts,
     key = false,
+    positive = true,
   ): PreparedPredicate {
     const scalar = Object.freeze({
       model,
@@ -1204,6 +1388,8 @@ export class Queries {
         ? Object.freeze({ kind: "column", scalar, key: true })
         : Object.freeze({ kind: "column", scalar }),
       value,
+      false,
+      positive,
     );
   }
   /**
@@ -1215,6 +1401,7 @@ export class Queries {
     target: PreparedTarget,
     value: unknown,
     insensitive = false,
+    positive = true,
   ): PreparedPredicate {
     const state = target.scalar?.physical.scalar["~"].state;
     const shorthand =
@@ -1226,9 +1413,25 @@ export class Queries {
       (state?.array === true && Array.isArray(value)) ||
       !addressesOperators(state, record(value));
     if (shorthand)
-      return this.prepareOperation(target, "equals", value, insensitive);
+      return this.prepareOperation(
+        target,
+        "equals",
+        value,
+        insensitive,
+        positive,
+      );
     const filter = record(value);
-    const folded = insensitive || filter.mode === "insensitive";
+    // D-22. A JSON filter's own `mode` wins in BOTH directions — a declared
+    // `default` really does restore exact matching on that arm — while a
+    // scalar filter's `mode` may only UPGRADE to insensitive. That asymmetry
+    // is the shipped pair of rules (`json-filter-builder.ts:31-45` against
+    // `where-builder.ts`), and it is a fact about the TARGET KIND, resolved
+    // here in the one operand owner rather than by a second walker.
+    const declared = filter.mode;
+    const folded =
+      state?.type === "json" && declared !== undefined
+        ? declared === "insensitive"
+        : insensitive || declared === "insensitive";
     const scoped: PreparedTarget =
       state?.type === "json" && Array.isArray(filter.path)
         ? Object.freeze({
@@ -1243,13 +1446,24 @@ export class Queries {
           .filter(([name]) => name !== "mode" && name !== "path")
           .map(([name, operand]) =>
             name === "equals"
-              ? this.prepareOperations(scoped, operand, folded)
+              ? this.prepareOperations(scoped, operand, folded, positive)
               : name === "not"
                 ? Object.freeze({
                     kind: "not",
-                    predicate: this.prepareOperations(scoped, operand, folded),
+                    predicate: this.prepareOperations(
+                      scoped,
+                      operand,
+                      folded,
+                      !positive,
+                    ),
                   })
-                : this.prepareOperation(scoped, name, operand, folded),
+                : this.prepareOperation(
+                    scoped,
+                    name,
+                    operand,
+                    folded,
+                    positive,
+                  ),
           ),
       ),
     });
@@ -1260,6 +1474,7 @@ export class Queries {
     operator: string,
     value: unknown,
     insensitive: boolean,
+    positive = true,
   ): PreparedPredicate {
     const owner = target.scalar;
     const operand = () =>
@@ -1305,6 +1520,12 @@ export class Queries {
           target,
           value,
           insensitive,
+          ...(operator === "distance" &&
+          positive &&
+          owner?.physical.scalar["~"].state.type === "point" &&
+          distanceUpperBound(value) !== undefined
+            ? { probe: true as const }
+            : {}),
         });
     }
   }
@@ -1361,6 +1582,7 @@ export class Queries {
     operand: unknown,
     facts: SelectorFacts,
     path: readonly Membership[],
+    positive = true,
   ): PreparedPredicate {
     const resolved = this.schema.index.get(model)!.get(name)!;
     const entries = record(operand);
@@ -1380,7 +1602,14 @@ export class Queries {
         kind: "and",
         predicates: Object.freeze(
           arms.map(([quantifier, value]) =>
-            this.relationPredicate(edge, quantifier, value, facts, path),
+            this.relationPredicate(
+              edge,
+              quantifier,
+              value,
+              facts,
+              path,
+              positive,
+            ),
           ),
         ),
       });
@@ -1403,6 +1632,7 @@ export class Queries {
               undefined,
               facts,
               path,
+              positive,
             ),
           ),
         ),
@@ -1420,12 +1650,15 @@ export class Queries {
         arms.map(([quantifier, tagged]) => {
           const edge = variantEdge(tagged.type);
           const negated = tagged.isNot !== undefined;
+          const inexact =
+            negated || quantifier === "none" || quantifier === "every";
           const inner = this.relationScope(
             edge,
             negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
             facts,
             path,
-            negated || quantifier === "none" || quantifier === "every",
+            inexact,
+            positive,
           );
           if (quantifier !== undefined) {
             const quantified = Object.freeze({
@@ -1458,6 +1691,7 @@ export class Queries {
                       undefined,
                       facts,
                       path,
+                      positive,
                     ),
                   ),
               ]),
@@ -1481,6 +1715,7 @@ export class Queries {
     value: unknown,
     facts: SelectorFacts,
     path: readonly Membership[],
+    positive = true,
   ): PreparedPredicate {
     return Object.freeze({
       kind: "relation",
@@ -1494,16 +1729,25 @@ export class Queries {
         quantifier === "none" ||
           quantifier === "every" ||
           quantifier === "isNot",
+        positive,
       ),
     });
   }
   /** One relation read: SQL meaning and dependency facts from one traversal. */
+  /**
+   * `inexact` is also this arm's POLARITY: `none`, `isNot` and `every` consume
+   * their nested predicate under a negation — `every` emits `NOT(nested)`
+   * inside its `NOT EXISTS` — so a conjunct added there is a conjunct of what
+   * is negated. One fact, read twice, instead of a second flag that could
+   * disagree with it.
+   */
   private relationScope(
     edge: Membership,
     where: Input | undefined,
     facts: SelectorFacts,
     path: readonly Membership[],
     inexact: boolean,
+    positive = true,
   ): PreparedPredicate | undefined {
     const scope = [...path, edge];
     const nestedFacts: SelectorFacts = {
@@ -1514,7 +1758,14 @@ export class Queries {
       reads: [],
     };
     const predicate = where
-      ? this.prepareWhere(edge.target, where, nestedFacts, scope)
+      ? this.prepareWhere(
+          edge.target,
+          where,
+          nestedFacts,
+          scope,
+          false,
+          positive && !inexact,
+        )
       : undefined;
     facts.reads.push({
       model: edge.target,
@@ -1529,29 +1780,32 @@ export class Queries {
   private lowerPredicate(
     predicate: PreparedPredicate,
     alias?: string,
+    mutationTarget?: string,
   ): Sql {
     const a = this.adapter;
     switch (predicate.kind) {
       case "and":
         return a.operators.and(
           ...predicate.predicates.map((member) =>
-            this.lowerPredicate(member, alias),
+            this.lowerPredicate(member, alias, mutationTarget),
           ),
         );
       case "or":
         return a.operators.or(
           ...predicate.predicates.map((member) =>
-            this.lowerPredicate(member, alias),
+            this.lowerPredicate(member, alias, mutationTarget),
           ),
         );
       case "not":
-        return a.operators.not(this.lowerPredicate(predicate.predicate, alias));
+        return a.operators.not(
+          this.lowerPredicate(predicate.predicate, alias, mutationTarget),
+        );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
       case "operation":
         return this.lowerOperation(predicate, alias);
       case "relation":
-        return this.lowerRelationPredicate(predicate, alias);
+        return this.lowerRelationPredicate(predicate, alias, mutationTarget);
     }
   }
   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
@@ -1729,7 +1983,25 @@ export class Queries {
           specification,
           "filter",
         );
+        // The index probe. `distance <= X` implies `withinBounds(box(X))`, so
+        // the box is a redundant conjunct the provider can answer from the
+        // spatial index before it evaluates one great-circle distance. It is
+        // added only where preparation saw POSITIVE polarity
+        // ({@link PreparedPredicate.probe}); the adapter spells both arms.
+        const upper = predicate.probe
+          ? distanceUpperBound(specification)
+          : undefined;
+        const probe =
+          upper === undefined
+            ? []
+            : [
+                this.geoPoint("distance filter").withinBounds(
+                  column,
+                  geoBoundsForDistance(specification.to as GeoPoint, upper),
+                ),
+              ];
         return a.operators.and(
+          ...probe,
           ...(["lt", "lte", "gt", "gte"] as const)
             .filter((bound) => specification[bound] !== undefined)
             .map((bound) =>
@@ -1918,11 +2190,12 @@ export class Queries {
   private lowerRelationPredicate(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
     parentAlias?: string,
+    mutationTarget?: string,
   ): Sql {
     const a = this.adapter;
     const childAlias = this.alias();
     const nested = predicate.predicate
-      ? this.lowerPredicate(predicate.predicate, childAlias)
+      ? this.lowerPredicate(predicate.predicate, childAlias, mutationTarget)
       : undefined;
     const condition = a.operators.and(
       this.correlation(predicate.edge, parentAlias ?? "", childAlias),
@@ -1934,9 +2207,13 @@ export class Queries {
           ]
         : []),
     );
-    const query = a.subqueries.existsCheck(
-      this.table(predicate.edge.target, childAlias),
-      condition,
+    const query = this.hideMutationTarget(
+      a.subqueries.existsCheck(
+        this.table(predicate.edge.target, childAlias),
+        condition,
+      ),
+      predicate.edge.target,
+      mutationTarget,
     );
     switch (predicate.quantifier) {
       case "some":
@@ -1954,6 +2231,65 @@ export class Queries {
           `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`,
         );
     }
+  }
+  /**
+   * MySQL ERROR 1093: a subquery may not read the table its own statement is
+   * mutating. A derived table sidesteps it — it is materialized before the
+   * write — while the correlation to the outer mutation survives as an outer
+   * reference (MySQL 8.0.14+). The capability the adapter already declares
+   * (`supportsMutationTargetInSubquery`) is the whole condition; the wrap goes
+   * inside the `EXISTS (…)`, which supplies its own parentheses.
+   */
+  private hideMutationTarget(
+    subquery: Sql,
+    child: AnyModel,
+    mutationTarget: string | undefined,
+  ): Sql {
+    if (
+      mutationTarget === undefined ||
+      this.adapter.capabilities.supportsMutationTargetInSubquery ||
+      child["~"].names.sql !== mutationTarget
+    )
+      return subquery;
+    return sql`SELECT * FROM ${this.adapter.subqueries.correlate(
+      subquery,
+      this.alias(),
+    )}`;
+  }
+  /**
+   * Does the PARENT row claim a membership in this arm?
+   *
+   * A variant ROW carrier stores the claim on the parent itself — a
+   * discriminator naming the arm and a reference to the row — so "linked" is
+   * answerable without reading the target at all. That is what separates an
+   * EMPTY slot (no claim) from an ORPHANED one (a claim whose row is gone),
+   * which the target subquery alone reports identically as `null`.
+   *
+   * `undefined` where the claim is not the parent's to make: the membership is
+   * then the child's or a junction's, and this owner says nothing about it.
+   */
+  private parentClaimsArm(
+    edge: Membership,
+    parentAlias: string,
+  ): Sql | undefined {
+    if (
+      edge.kind !== "reference" ||
+      edge.owner !== "source" ||
+      edge.discriminator?.side !== "source"
+    )
+      return undefined;
+    const a = this.adapter;
+    return a.operators.and(
+      a.operators.eq(
+        this.column(edge.source, edge.discriminator.field, parentAlias),
+        this.value(edge.discriminator.value),
+      ),
+      ...edge.pairs.map((pair) =>
+        a.operators.isNotNull(
+          this.column(edge.source, pair.source, parentAlias),
+        ),
+      ),
+    );
   }
   correlation(edge: Membership, parent: string, target: string): Sql {
     return this.membershipWhere(edge, target, parent);
@@ -2053,13 +2389,14 @@ export class Queries {
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
+    cursored = false,
   ): OrderTerm[] {
     if (!input) return [];
     return entries(input).flatMap((order) =>
       Object.entries(order).flatMap(([field, direction]) =>
         direction === undefined
           ? []
-          : [this.orderTerm(model, field, direction, alias)],
+          : [this.orderTerm(model, field, direction, alias, cursored)],
       ),
     );
   }
@@ -2068,6 +2405,7 @@ export class Queries {
     field: string,
     direction: unknown,
     alias: string,
+    cursored = false,
   ): OrderTerm {
     const a = this.adapter;
     if (model["~"].state.relations[field])
@@ -2078,6 +2416,12 @@ export class Queries {
     if (direction !== "asc" && direction !== "desc") {
       const specification = record(direction);
       if (specification._distance !== undefined) {
+        // A cursor's eligibility is a fact about the REQUEST; a provider's
+        // vector support is a fact about the PROVIDER. Classifying the order
+        // first is what keeps `page`'s sentence the answer on a driver that
+        // happens not to support vectors — `distanceExpression` consults the
+        // capability while it BUILDS, so it would otherwise pre-empt it.
+        if (cursored) throw new QueryEngineError(CURSOR_ORDER_REFUSAL);
         const distance = record(specification._distance);
         const point = state.type === "point";
         return this.sortKey(
@@ -2115,7 +2459,7 @@ export class Queries {
     const a = this.adapter;
     // A collection orders by `_count`, and that count is the projection's own
     // count owner — including a variant carrier, which has no single membership.
-    const counted = this.countedMemberships(model, field);
+    const { edges: counted } = this.countedMemberships(model, field);
     if (counted.length > 1 || counted[0]!.many || specification._count !== undefined)
       return this.sortKey(
         this.correlatedCount(counted, undefined, alias),
@@ -2196,16 +2540,16 @@ export class Queries {
     readonly distinct?: Sql;
   } {
     const backward = args.take !== undefined && args.take < 0;
-    const requested = this.orderTerms(model, args.orderBy, alias);
-    const windowed = args.cursor !== undefined || args.take !== undefined;
+    const cursored = args.cursor !== undefined;
+    const requested = this.orderTerms(model, args.orderBy, alias, cursored);
+    const windowed = cursored || args.take !== undefined;
     const total =
       windowed && requested.every((term) => term.field !== undefined)
         ? this.totalOrder(model, requested, args.cursor, alias)
         : undefined;
-    if (args.cursor !== undefined && !total)
-      throw new QueryEngineError(
-        "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.",
-      );
+    // The single raise point for every other non-scalar key: a relation term
+    // builds with `field: undefined` and is classified here.
+    if (cursored && !total) throw new QueryEngineError(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
     return {
       orderBy: this.lowerOrder(backward ? this.reverseOrder(terms) : terms),
@@ -2347,7 +2691,7 @@ export class Queries {
       );
     }
     const cursorAlias = this.alias();
-    const carrier = (index: number) => `0viborm_cursor_${index}`;
+    const carrier = (index: number) => `${CURSOR_CARRIER_PREFIX}${index}`;
     const derived = cursorRow(
       keyColumns.map((column, index) =>
         a.identifiers.aliased(column, carrier(index)),
@@ -3073,12 +3417,23 @@ export class Queries {
     };
     const prepared: PreparedProjectionField[] = [];
     const fields: Record<string, Shape | Leaf> = {};
+    let distanceSelected = false;
     for (const [name, selection] of Object.entries(selected)) {
       if (!selection) continue;
       if (name === "_count" && !model["~"].state.scalars[name]) {
         const counts = this.prepareCounts(model, selection);
+        // An empty count SELECTION contributes no field at all: the shipped
+        // engine pushed the `_count` pair only `if (relationCountPairs.length
+        // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
+        // no to-many relation publishes no `_count` key rather than `{}`.
+        if (counts.length === 0) continue;
         fields[name] = Object.freeze({
           kind: "object",
+          // A count carrier is a document the statement always builds: a
+          // provider that answers `null` here has not answered the question,
+          // and an object shape that carried no nullability let that `null`
+          // reach a caller whose type says `{ children: number }`.
+          nullable: false,
           fields: Object.freeze(
             Object.fromEntries(
               counts.map((count) => [count.relation, COUNT_LEAF]),
@@ -3092,10 +3447,16 @@ export class Queries {
         const distance =
           selection === true ? undefined : record(selection)._distance;
         if (distance !== undefined) {
-          if (fields[DISTANCE_FIELD])
+          if (distanceSelected)
             throw new QueryEngineError(
               "Distance select supports only one _distance field per select.",
             );
+          // The OTHER registered collision (`result/result-shape.ts:164`): the
+          // output key `_distance` is the distance's, and a model that owns a
+          // scalar of that name cannot publish both under it.
+          if (fields[DISTANCE_FIELD])
+            throw new QueryEngineError(DISTANCE_NAME_COLLISION);
+          distanceSelected = true;
           prepared.push(
             Object.freeze({
               kind: "distance",
@@ -3107,6 +3468,8 @@ export class Queries {
           fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
           continue;
         }
+        if (name === DISTANCE_FIELD && distanceSelected)
+          throw new QueryEngineError(DISTANCE_NAME_COLLISION);
         prepared.push(Object.freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
         continue;
@@ -3124,6 +3487,15 @@ export class Queries {
         const preparedArms: ({
           readonly variant: string;
         } & PreparedRelationProjection)[] = [];
+        // The integrity probe's subjects: every configured member of a
+        // junction-carried slot. A ROW carrier states its own claim on the
+        // parent row, which the arm document already answers (D-19).
+        const memberships = many
+          ? resolved.edge.members.map((member) => ({
+              variant: member.variant,
+              edge: bindMembership(this.schema, model, name, member.variant),
+            }))
+          : [];
         for (const member of resolved.edge.members) {
           if (
             many
@@ -3146,6 +3518,7 @@ export class Queries {
         }
         fields[name] = Object.freeze({
           kind: "variants",
+          relation: name,
           many,
           arms: Object.freeze(arms),
         });
@@ -3155,6 +3528,7 @@ export class Queries {
             name,
             many,
             arms: Object.freeze(preparedArms),
+            memberships: Object.freeze(memberships),
           }),
         );
         continue;
@@ -3165,6 +3539,21 @@ export class Queries {
       );
       fields[name] = this.relationShape(nested);
       prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
+    }
+    // The empty-projection arm, in the shipped engine's two cases
+    // (`select-builder.ts:425-437`). An empty projection is only legitimate
+    // when the caller wrote no `select`: then it is the model's own default —
+    // every scalar omitted — and the row still exists, so it carries the
+    // sentinel column. An empty projection BECAUSE a `select` was written is
+    // the caller asking for nothing, which is a refusal, not "everything".
+    if (prepared.length === 0) {
+      if (args.select !== undefined)
+        throw new QueryEngineError(
+          `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`,
+        );
+      prepared.push(
+        Object.freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY }),
+      );
     }
     const projection: PreparedProjection = Object.freeze({
       model,
@@ -3226,29 +3615,50 @@ export class Queries {
   private prepareCounts(
     model: AnyModel,
     selection: unknown,
-  ): readonly {
-    readonly relation: string;
-    readonly edges: readonly Membership[];
-    readonly selector?: PreparedSelector;
-  }[] {
+  ): readonly PreparedCount[] {
     const requested = record(record(selection).select);
-    const counts: {
-      readonly relation: string;
-      readonly edges: readonly Membership[];
-      readonly selector?: PreparedSelector;
-    }[] = [];
+    const counts: PreparedCount[] = [];
     for (const [relation, configuration] of Object.entries(requested)) {
       if (!configuration) continue;
-      const edges = this.countedMemberships(model, relation);
+      const { edges, variants } = this.countedMemberships(model, relation);
       const where =
         configuration === true ? undefined : record(configuration).where;
+      if (where === undefined) {
+        counts.push(Object.freeze({ relation, edges }));
+        continue;
+      }
+      const filter = record(where);
+      if (!variants) {
+        counts.push(
+          Object.freeze({
+            relation,
+            edges,
+            selector: this.prepareSelector(edges[0]!.target, filter),
+          }),
+        );
+        continue;
+      }
+      // A TAGGED count filter selects an arm; it is not a scalar predicate
+      // over one of them. `type` names the arm — admission makes it mandatory
+      // for a polymorphic collection — and `is`/`isNot` are prepared against
+      // THAT arm's target, whose columns are the only ones they can address.
+      const tag = filter.type;
+      const arm = edges.find((edge) => edge.scope.member?.variant === tag);
+      if (!arm)
+        throw new QueryEngineError(
+          `Unknown polymorphic target '${String(tag)}' for relation '${relation}'.`,
+        );
+      const negated = filter.isNot !== undefined;
+      const inner = negated ? filter.isNot : filter.is;
       counts.push(
         Object.freeze({
           relation,
-          edges,
-          selector: where
-            ? this.prepareSelector(edges[0]!.target, record(where))
-            : undefined,
+          edges: Object.freeze([arm]),
+          selector:
+            inner === undefined
+              ? undefined
+              : this.prepareSelector(arm.target, record(inner)),
+          ...(negated ? { negated: true as const } : {}),
         }),
       );
     }
@@ -3266,7 +3676,16 @@ export class Queries {
   private countedMemberships(
     model: AnyModel,
     relation: string,
-  ): readonly Membership[] {
+  ): {
+    readonly edges: readonly Membership[];
+    /**
+     * Whether those memberships are a carrier's ARMS. The same owner answers
+     * it, because it is the same classification: a tagged `_count` filter
+     * selects one arm and an ordinary `where` filters one target, and reading
+     * "is this a carrier?" a second time is how the two got confused.
+     */
+    readonly variants: boolean;
+  } {
     const resolved = this.schema.index.get(model)!.get(relation)!;
     const carrier =
       resolved.member === undefined &&
@@ -3274,13 +3693,16 @@ export class Queries {
         resolved.edge.kind === "variantJunctionCarrier")
         ? resolved.edge
         : undefined;
-    return Object.freeze(
-      carrier
-        ? carrier.members.map((member) =>
-            bindMembership(this.schema, model, relation, member.variant),
-          )
-        : [bindMembership(this.schema, model, relation)],
-    );
+    return Object.freeze({
+      edges: Object.freeze(
+        carrier
+          ? carrier.members.map((member) =>
+              bindMembership(this.schema, model, relation, member.variant),
+            )
+          : [bindMembership(this.schema, model, relation)],
+      ),
+      variants: carrier !== undefined,
+    });
   }
   lowerProjection(
     projection: PreparedProjection,
@@ -3297,13 +3719,24 @@ export class Queries {
       let expression: Sql;
       if (field.kind === "scalar") {
         expression = this.projectedColumn(projection.model, field.name, alias);
+      } else if (field.kind === "sentinel") {
+        expression = a.expressions.cast(a.literals.value(1), "integer");
       } else if (field.kind === "relation") {
-        expression = this.lowerRelationProjection(field, alias ?? "");
+        expression = this.duplicateMembershipGuard(
+          field.edge,
+          alias ?? "",
+          this.lowerRelationProjection(field, alias ?? ""),
+        );
       } else if (field.kind === "counts") {
         expression = a.json.objectFromColumns(
           field.counts.map((count) => [
             count.relation,
-            this.correlatedCount(count.edges, count.selector, alias ?? ""),
+            this.correlatedCount(
+              count.edges,
+              count.selector,
+              alias ?? "",
+              count.negated,
+            ),
           ]),
         );
       } else if (field.kind === "distance") {
@@ -3316,17 +3749,164 @@ export class Queries {
           "select",
         );
       } else {
-        expression = a.json.object(
-          field.arms.map((arm) => [
-            arm.variant,
-            a.json.document(this.lowerRelationProjection(arm, alias ?? "")),
-          ]),
-        );
+        // The slot's own document: one entry per SELECTED arm, and — for a
+        // junction-carried slot — one integrity entry naming every CONFIGURED
+        // member (D-26). The integrity entry is a sibling of the arms, so it is
+        // answered whatever `only` selected, including nothing at all.
+        const integrity: [string, Sql][] =
+          field.memberships.length === 0
+            ? []
+            : [
+                [
+                  POLYMORPHIC_COLLECTION_ORPHANS_KEY,
+                  a.json.document(
+                    a.json.objectFromColumns(
+                      field.memberships.map((member) => [
+                        member.variant,
+                        this.orphanedMemberships(member.edge, alias ?? ""),
+                      ]),
+                    ),
+                  ),
+                ],
+              ];
+        expression = a.json.object([
+          ...field.arms.map((arm) => {
+            const row = this.lowerRelationProjection(arm, alias ?? "");
+            const claim = field.many
+              ? undefined
+              : this.parentClaimsArm(arm.edge, alias ?? "");
+            // A claimed arm always carries a DOCUMENT: the empty one says
+            // "linked, and the row is gone", which the decoder refuses from
+            // the arm's own selected keys (Arnaud's D-19 — no private carrier
+            // column). An unclaimed arm stays null, which is an empty slot.
+            return [
+              arm.variant,
+              a.json.document(
+                claim
+                  ? a.expressions.caseWhen(
+                      [
+                        {
+                          when: claim,
+                          then: a.expressions.coalesce(row, a.json.object([])),
+                        },
+                      ],
+                      a.literals.null(),
+                    )
+                  : row,
+              ),
+            ] as [string, Sql];
+          }),
+          ...integrity,
+        ]);
       }
       columns.push(a.identifiers.aliased(expression, field.name));
       entries.push([field.name, expression]);
     }
     return { columns, entries, names: projection.fields.map((f) => f.name) };
+  }
+  /**
+   * How many of this member's memberships name a row that is gone.
+   *
+   * A polymorphic member table carries no real foreign key to its target on
+   * every provider, so a disabled constraint or a raw write can leave the
+   * membership behind; reading the slot must then FAIL, not report the row as
+   * absent — existence and membership are execution semantics (rule 4), and a
+   * silent absence is a wrong answer.
+   *
+   * The probe is a SIBLING scalar subquery of the arm's row window: it carries
+   * no user filter, no cursor and no window, so it is evaluated outside — and
+   * therefore ahead of — the arm's own `WHERE` and `LIMIT`, exactly as the
+   * shipped `guardJunctionIntegrity` did
+   * (`builders/include-many-to-many.ts` at `ff5e77ca`). It is emitted for every
+   * configured member, so `only` cannot hide one (Arnaud's D-26).
+   */
+  /**
+   * A SINGULAR polymorphic inverse holding more than one membership is
+   * malformed provider state, even where a missing unique constraint allowed
+   * it — and the row window cannot say so: a target filter that leaves one
+   * visible row, or the `LIMIT 1` itself, hides the second member.
+   *
+   * So the count is a SIBLING scalar subquery over the member table, ahead of
+   * the row subquery's `WHERE` and its `LIMIT`, and the refusal is carried in
+   * the VALUE, not raised in SQL — no provider has a portable `RAISE`. The
+   * branch emits a JSON ARRAY where the leaf owes one row object, which is the
+   * shape the decoder already refuses by name and which no projection of a
+   * model row can produce (the shipped `guardJunctionIntegrity`,
+   * `builders/include-many-to-many.ts` at `ff5e77ca`).
+   *
+   * Only a polymorphic member table: an ordinary pair table's inverse is
+   * enforced by its own unique constraint and its bytes are unchanged.
+   */
+  private duplicateMembershipGuard(
+    edge: Membership,
+    parentAlias: string,
+    projected: Sql,
+  ): Sql {
+    if (
+      edge.kind !== "junction" ||
+      edge.many ||
+      edge.scope.edge.kind !== "variantJunctionCarrier"
+    )
+      return projected;
+    const a = this.adapter;
+    const junction = this.alias();
+    const members = a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.aggregates.count(),
+        from: a.identifiers.table(edge.table, junction),
+        where: a.operators.and(
+          ...edge.sourceSide.members.map((pair) =>
+            a.operators.eq(
+              a.identifiers.column(junction, pair.junctionField),
+              this.column(edge.source, pair.referencedField, parentAlias),
+            ),
+          ),
+        ),
+      }),
+    );
+    return a.expressions.caseWhen(
+      [
+        {
+          when: a.operators.gt(members, this.value(1)),
+          then: a.json.emptyArray(),
+        },
+      ],
+      projected,
+    );
+  }
+  private orphanedMemberships(edge: Membership, parentAlias: string): Sql {
+    const a = this.adapter;
+    if (edge.kind !== "junction")
+      throw new Error("Raptor 3 variant integrity requires junction storage");
+    const junction = this.alias();
+    const target = this.alias();
+    return a.subqueries.scalar(
+      assembleAdapterSelect(a, {
+        columns: a.aggregates.count(),
+        from: a.identifiers.table(edge.table, junction),
+        where: a.operators.and(
+          ...edge.sourceSide.members.map((pair) =>
+            a.operators.eq(
+              a.identifiers.column(junction, pair.junctionField),
+              this.column(edge.source, pair.referencedField, parentAlias),
+            ),
+          ),
+          a.filters.none(
+            a.subqueries.existsCheck(
+              this.table(edge.target, target),
+              a.operators.and(
+                ...edge.targetSide.members.map((pair) =>
+                  a.operators.eq(
+                    a.identifiers.column(junction, pair.junctionField),
+                    this.column(edge.target, pair.referencedField, target),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      }),
+    );
   }
   /**
    * One slot's correlated count, shared by the `_count` projection and `_count`
@@ -3337,10 +3917,14 @@ export class Queries {
     edges: readonly Membership[],
     selector: PreparedSelector | undefined,
     parentAlias: string,
+    negated = false,
   ): Sql {
     const a = this.adapter;
     const counted = edges.map((edge) => {
       const childAlias = this.alias();
+      const filter = selector
+        ? this.lowerSelector(selector, childAlias)!
+        : undefined;
       return a.expressions.coalesce(
         a.subqueries.scalar(
           assembleAdapterSelect(a, {
@@ -3348,9 +3932,7 @@ export class Queries {
             from: this.table(edge.target, childAlias),
             where: a.operators.and(
               this.correlation(edge, parentAlias, childAlias),
-              ...(selector
-                ? [this.lowerSelector(selector, childAlias)!]
-                : []),
+              ...(filter ? [negated ? a.operators.not(filter) : filter] : []),
             ),
           }),
         ),
@@ -3426,7 +4008,12 @@ export class Queries {
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
     const alias = this.rootAlias();
+    // The ONE `by` authority. Admission normalises `by` to an array and
+    // refuses its duplicates; the grouped read computes the grouped column SET
+    // once and hands it to the two owners that have to know it — `having` and
+    // the grouped `orderBy` — instead of each re-reading `args`.
     const by = args.by!;
+    const grouped: ReadonlySet<string> = new Set(by);
     const aggregates = this.prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
     const columns: Sql[] = by.map((field) => {
@@ -3451,12 +4038,12 @@ export class Queries {
         ),
         having: args.having
           ? this.lowerPredicate(
-              this.prepareHaving(model, record(args.having)),
+              this.prepareHaving(model, record(args.having), grouped),
               alias,
             )
           : undefined,
         orderBy: this.lowerOrder(
-          this.groupOrderTerms(model, args.orderBy, alias),
+          this.groupOrderTerms(model, args.orderBy, alias, grouped),
         ),
         limit: args.take === undefined ? undefined : this.value(args.take),
         offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -3465,7 +4052,11 @@ export class Queries {
     };
   }
   /** `having` is the same predicate vocabulary over aggregate targets. */
-  private prepareHaving(model: AnyModel, having: Input): PreparedPredicate {
+  private prepareHaving(
+    model: AnyModel,
+    having: Input,
+    grouped: ReadonlySet<string>,
+  ): PreparedPredicate {
     return Object.freeze({
       kind: "and",
       predicates: Object.freeze(
@@ -3477,7 +4068,7 @@ export class Queries {
               this.combine(
                 key,
                 entries(value).map((clause) =>
-                  this.prepareHaving(model, record(clause)),
+                  this.prepareHaving(model, record(clause), grouped),
                 ),
               ),
             ];
@@ -3490,13 +4081,21 @@ export class Queries {
           const aggregated = AGGREGATES.filter(
             (name) => filter[name] !== undefined,
           );
-          if (aggregated.length === 0)
+          if (aggregated.length === 0) {
+            // A field-keyed condition names ONE row's column, and a grouped
+            // read has one row per group: the column exists only where it is
+            // a grouped column. An aggregate condition is always legitimate.
+            if (!grouped.has(key))
+              throw new QueryEngineError(
+                `Scalar '${key}' used in 'having' must be included in 'by'.`,
+              );
             return [
               this.prepareOperations(
                 Object.freeze({ kind: "column", scalar }),
                 value,
               ),
             ];
+          }
           return aggregated.map((aggregate) =>
             this.prepareOperations(
               Object.freeze({ kind: "aggregate", aggregate, scalar }),
@@ -3512,13 +4111,19 @@ export class Queries {
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
+    grouped: ReadonlySet<string>,
   ): OrderTerm[] {
     if (!input) return [];
     return entries(input).flatMap((order) =>
       Object.entries(order).flatMap(([name, direction]) => {
         if (direction === undefined) return [];
-        if (!AGGREGATE_NAMES.has(name))
+        if (!AGGREGATE_NAMES.has(name)) {
+          if (!grouped.has(name))
+            throw new QueryEngineError(
+              `GroupBy orderBy field '${name}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`,
+            );
           return [this.orderTerm(model, name, direction, alias)];
+        }
         return Object.entries(record(direction)).map(([field, sort]) =>
           this.sortKey(
             this.aggregateExpression(
@@ -3622,17 +4227,35 @@ export class Queries {
     shape: Shape | Leaf,
     value: unknown,
     internal: boolean,
+    carried = false,
   ): unknown {
-    if (shape.kind === "scalar") return this.decodeScalar(shape, value, internal);
+    if (shape.kind === "scalar")
+      return this.decodeScalar(shape, value, internal, carried);
     if (shape.kind === "recursive")
       throw new TypeError("A recursive shape requires occurrence rows");
     const decoded: unknown =
       typeof value === "string" ? JSON.parse(value) : value;
     if (shape.kind === "variants") {
       const variants = record(decoded);
+      // The integrity probe first, and before any arm: a membership whose row
+      // is gone is a fact about the SLOT, so `only` — which selects what is
+      // read — cannot make it unobservable (Arnaud's D-26). One refusal, from
+      // the decoder arm that already owns the sentence.
+      const orphans = own(variants, POLYMORPHIC_COLLECTION_ORPHANS_KEY);
+      if (orphans !== null && typeof orphans === "object")
+        for (const [type, count] of Object.entries(orphans))
+          if (Number(count) > 0)
+            throw new QueryEngineError(
+              `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`,
+            );
       const values: unknown[] = [];
       for (const [type, arm] of Object.entries(shape.arms)) {
-        const rows = this.decodeValue(arm, variants[type], internal);
+        const carrier = own(variants, type);
+        if (orphanedArm(carrier, arm))
+          throw new QueryEngineError(
+            `Polymorphic relation '${shape.relation}' references a missing '${type}' record.`,
+          );
+        const rows = this.decodeValue(arm, carrier, internal, true);
         if (shape.many) {
           for (const data of rows as unknown[]) values.push({ type, data });
         } else if (rows !== null) return { type, data: rows };
@@ -3641,19 +4264,41 @@ export class Queries {
     }
     if (shape.kind === "collection") {
       if (!Array.isArray(decoded))
-        throw new TypeError("Invalid provider collection");
+        throw new InvalidScalarResult(
+          "collection",
+          "a requested relation is not a provider array",
+        );
       const rows = decoded.map((row) =>
-        this.decodeValue(shape.row, row, internal),
+        this.decodeValue(shape.row, row, internal, true),
       );
       return shape.reversed ? rows.reverse() : rows;
     }
-    if (decoded === null) return null;
+    if (decoded === null) {
+      if (shape.nullable === false)
+        throw new InvalidScalarResult(
+          "row",
+          "a document the statement always builds is null",
+        );
+      return null;
+    }
     if (typeof decoded !== "object" || Array.isArray(decoded))
-      throw new TypeError("Invalid provider row");
+      throw new InvalidScalarResult(
+        "row",
+        "a requested document is not a provider row",
+      );
+    // OWN-key semantics. A plain member read on a `JSON.parse` result finds
+    // `Object.prototype`'s own members, so a field named `toString` that the
+    // provider OMITTED inherited a function instead of failing closed.
+    const source = record(decoded);
     return Object.fromEntries(
       Object.entries(shape.fields).map(([field, nested]) => [
         field,
-        this.decodeValue(nested, record(decoded)[field], internal),
+        this.decodeValue(
+          nested,
+          own(source, field),
+          internal,
+          carried || nested.kind !== "scalar",
+        ),
       ]),
     );
   }
@@ -3662,16 +4307,29 @@ export class Queries {
    * owners. A value outside the column's declared domain is a malformed
    * provider row, never a value to coerce.
    */
-  private decodeScalar(leaf: Leaf, value: unknown, internal: boolean): unknown {
-    if (value === null) {
+  private decodeScalar(
+    leaf: Leaf,
+    raw: unknown,
+    internal: boolean,
+    carried = false,
+  ): unknown {
+    // The SQL NULL and the absent column are facts about the ROW, answered
+    // before any representation rule: a provider that decodes `'null'` into
+    // the JSON null document has produced a VALUE, and asking the null
+    // question after the chain would refuse it on a NOT NULL json column.
+    if (raw === null) {
       if (leaf.nullable) return null;
       throw new InvalidScalarResult(
         leaf.type,
         leaf.list ? "a required list is null" : "a required scalar is null",
       );
     }
-    if (value === undefined)
+    if (raw === undefined)
       throw new InvalidScalarResult(leaf.type, "the value is absent");
+    // A carried value came out of a JSON document the provider already
+    // decoded; asking the transport about it a second time is what turned
+    // `"just a json string"` into a `SyntaxError`.
+    const value = carried ? raw : this.providerValue(leaf.type, raw);
     if (leaf.list) return this.decodeList(leaf, value, internal);
     switch (leaf.type) {
       case "string":
@@ -3813,7 +4471,7 @@ export class Queries {
           "the value is not a declared enum member",
         );
       case "json":
-        return typeof value === "string" ? JSON.parse(value) : value;
+        return this.jsonValue(value);
       case "blob":
         return decodeBlob(value);
       case "vector": {
@@ -3890,9 +4548,69 @@ export class Queries {
           leaf.type,
           "a list scalar returned a sparse array",
         );
-      return this.decodeScalar(member, item, internal);
+      return this.decodeScalar(member, item, internal, true);
     });
   }
+  /**
+   * The JSON value domain, normalized once.
+   *
+   * A provider's JSON is not JavaScript's: SQLite declares a `json` column
+   * with NUMERIC affinity, so the bound text `"42"` comes back as `42n` and a
+   * caller who wrote `42` must read `42` — and a non-finite number, a sparse
+   * array or an exotic prototype is a malformed provider value rather than
+   * something to publish. (The shipped `scalar-structured-parser.ts:144-200`.)
+   */
+  private jsonValue(value: unknown): unknown {
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean"
+    )
+      return value;
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) return value;
+      throw new InvalidScalarResult("json", "a JSON number is not finite");
+    }
+    if (typeof value === "bigint") {
+      const parsed = Number(value);
+      if (Number.isSafeInteger(parsed)) return parsed;
+      throw new InvalidScalarResult(
+        "json",
+        "a JSON integer is outside the safe range",
+      );
+    }
+    if (Array.isArray(value)) {
+      const members = new Array<unknown>(value.length);
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index))
+          throw new InvalidScalarResult("json", "a JSON array is sparse");
+        members[index] = this.jsonValue(value[index]);
+      }
+      return members;
+    }
+    if (isPlainJsonRecord(value)) {
+      const members: Record<string, unknown> = {};
+      for (const [key, member] of Object.entries(value))
+        Object.defineProperty(members, key, {
+          configurable: true,
+          enumerable: true,
+          value: this.jsonValue(member),
+          writable: true,
+        });
+      return members;
+    }
+    throw new InvalidScalarResult(
+      "json",
+      "the value is outside the JSON value domain",
+    );
+  }
+}
+
+/** A document, not a class instance: the shipped JSON record test. */
+function isPlainJsonRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 const INTEGER_TEXT = /^(?:0|-?[1-9]\d*)$/;
