@@ -7,6 +7,10 @@ Type-safe ORM with zero codegen. Types inferred from validation schemas, not gen
 
 See `FEATURE_IMPLEMENTATION_TEMPLATE.md` for detailed layer-by-layer implementation guidance.
 
+[ELEGANCE.md](ELEGANCE.md) is the shared design and review standard for semantic
+ownership, lifetimes, composition and measured compression. Apply it within the
+requested scope; layer guides and active plans own exact contracts and gates.
+
 ---
 
 ## Why This Architecture Exists
