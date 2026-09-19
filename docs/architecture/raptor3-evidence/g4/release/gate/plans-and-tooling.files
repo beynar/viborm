@@ -1,0 +1,5 @@
+tests/contracts/engine/write/mutation-projection-cte-fold.test.ts
+tests/contracts/engine/write/progressive-parent-rowkey.test.ts
+tests/contracts/engine/query/starts-with-prefix-plan.test.ts
+tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts
+tests/unit/instrumentation/namespace-attribute-segment.test.ts

@@ -1,0 +1,8 @@
+tests/contracts/engine/query/nested-write-conformance-fk.test.ts
+tests/contracts/engine/query/nested-write-conformance-m2m.test.ts
+tests/contracts/engine/query/nested-write-conformance-membership.test.ts
+tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts
+tests/contracts/engine/query/nested-write-conformance-to-one.test.ts
+tests/contracts/engine/query/nested-write-conformance-transitive.test.ts
+tests/contracts/engine/query/nested-m2m-parent-pk-dataflow.test.ts
+tests/contracts/engine/query/m8-race-retry.test.ts

@@ -1,0 +1,12 @@
+ ❯ |extended-local| tests/contracts/public-client/operations.test.ts (101 tests | 1 failed) 857ms
+ ❯ |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts (1 test | 1 failed) 16ms
+ ✓ |extended-local| tests/contracts/public-client/select-include-result.test.ts (20 tests) 591ms
+ ✓ |extended-local| tests/unit/migrations/geopoint-ddl.test.ts (6 tests) 1054ms
+ ✓ |extended-local| tests/contracts/public-client/relation-filter.test.ts (5 tests) 488ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-route-seam.test.ts (3 tests) 2ms
+ ✓ |extended-local| tests/raptor3/g3/generation/failure-minimization.test.ts (1 test) 19ms
+ ✓ |extended-local| tests/contracts/public-client/official-cache-extension.test.ts (1 test) 1ms
+ FAIL  |extended-local| tests/contracts/public-client/operations.test.ts > Update Operations > updateMany > refuses a child-held connect across more than one matched row
+ FAIL  |extended-local| tests/raptor3/core-structure/measurement/cs02-structure-measure.test.ts > collects the frozen CS-02 structural work matrix
+ Test Files  2 failed | 6 passed | 2 skipped (10)
+      Tests  2 failed | 136 passed | 14 skipped (152)
