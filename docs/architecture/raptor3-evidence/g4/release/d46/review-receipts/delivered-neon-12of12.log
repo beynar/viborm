@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46-scratch
+
+ ✓ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests) 71ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  18:44:03
+   Duration  1.02s (transform 676ms, setup 10ms, collect 828ms, tests 71ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.22s wall, 395.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,18 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46-scratch
+
+stdout | tests/raptor3/g4/parity/zzz-review-d46-scope.test.ts > REVIEW SCRATCH: D-46 read-narrowing blast radius > array member: update with nested connect to a row created by an EARLIER array member
+DIRECT (pre-batch) statements: []
+BATCHES: []
+OUTCOME: {"ok":false,"error":{"name":"TransactionError","message":"Driver \"sqlite3\" does not support callback transactions and this transaction contains operations that cannot be batched atomically.","code":"V5001","meta":{"driver":"sqlite3","method":"$transaction([...])"},"timestamp":"2026-09-19T16:55:18.675Z"}}
+stored books: [ { id: [32m'b1'[39m, title: [32m't1'[39m } ]
+stored shelves: []
+
+ ✓ |extended-local| tests/raptor3/g4/parity/zzz-review-d46-scope.test.ts (1 test) 19ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:55:17
+   Duration  1.22s (transform 734ms, setup 9ms, collect 1.06s, tests 19ms, environment 0ms, prepare 23ms)
+
+Vitest resources: 2.98s wall, 465.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

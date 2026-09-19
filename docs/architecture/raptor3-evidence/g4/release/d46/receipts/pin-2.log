@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+ ✓ |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts (5 tests) 27ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  18:32:01
+   Duration  1.20s (transform 716ms, setup 8ms, collect 1.04s, tests 27ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 2.86s wall, 469.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

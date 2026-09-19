@@ -1,0 +1,71 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+ ❯ |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts (5 tests | 2 failed) 30ms
+   × D-46 — an upsert on the array route of a batch-only transport > probe-first, create arm: the locate runs at preparation and the arm is ONE INSERT … RETURNING in the batch 18ms
+     → Expected values to be strictly equal:
+
+4 !== 2
+
+   ✓ D-46 — an upsert on the array route of a batch-only transport > probe-first, found arm: the arm is ONE UPDATE … RETURNING by the captured key, and the batch pins the row's presence 3ms
+   ✓ D-46 — an upsert on the array route of a batch-only transport > probe-first, found arm: a row deleted between the locate and the batch fails the batch instead of updating nothing 4ms
+   × D-46 — an upsert on the array route of a batch-only transport > the ON CONFLICT fold: a where naming one constraint the create spells is ONE statement, inserting then updating 2ms
+     → one statement, no planning read: INSERT INTO "d46_entries" ("code", "label") VALUES (?, ?) ON CONFLICT ("code") DO UPDATE SET "label" = ? RETURNING "code" AS "code", "label" AS "label" | INSERT INTO "d46_entries" ("code", "label") VALUES (?, ?) ON CONFLICT ("code") DO UPDATE SET "label" = ? RETURNING "code" AS "code", "label" AS "label"
+
+2 !== 1
+
+   ✓ D-46 — an upsert on the array route of a batch-only transport > outside both paths, the route keeps its existing answer: an empty update is still unbatchable here 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts > D-46 — an upsert on the array route of a batch-only transport > probe-first, create arm: the locate runs at preparation and the arm is ONE INSERT … RETURNING in the batch
+AssertionError: Expected values to be strictly equal:
+
+4 !== 2
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 4[39m
+
+ ❯ tests/raptor3/g4/parity/upsert-array-route.test.ts:141:12
+    139|     assert.match(sql[0]!, /^SELECT/);
+    140|     const batched = sql.slice(1);
+    141|     assert.equal(batched.length, 2);
+       |            ^
+    142|     for (const statement of batched) {
+    143|       assert.match(statement, /^INSERT INTO/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/upsert-array-route.test.ts > D-46 — an upsert on the array route of a batch-only transport > the ON CONFLICT fold: a where naming one constraint the create spells is ONE statement, inserting then updating
+AssertionError: one statement, no planning read: INSERT INTO "d46_entries" ("code", "label") VALUES (?, ?) ON CONFLICT ("code") DO UPDATE SET "label" = ? RETURNING "code" AS "code", "label" AS "label" | INSERT INTO "d46_entries" ("code", "label") VALUES (?, ?) ON CONFLICT ("code") DO UPDATE SET "label" = ? RETURNING "code" AS "code", "label" AS "label"
+
+2 !== 1
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 1[39m
+[31m+ 2[39m
+
+ ❯ tests/raptor3/g4/parity/upsert-array-route.test.ts:207:12
+    205|     assert.deepEqual(inserted, { code: "k1", label: "first" });
+    206|     let sql = statements(driver);
+    207|     assert.equal(sql.length, 1, `one statement, no planning read: ${sq…
+       |            ^
+    208|     assert.match(sql[0]!, /^INSERT INTO/);
+    209|     assert.match(sql[0]!, /ON CONFLICT/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  18:31:12
+   Duration  1.21s (transform 719ms, setup 8ms, collect 1.04s, tests 30ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 2.89s wall, 476.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

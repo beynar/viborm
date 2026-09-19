@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-d46
+
+ ✓ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 620ms
+ ✓ |raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 34ms
+
+ Test Files  2 passed (2)
+      Tests  52 passed (52)
+   Start at  18:30:02
+   Duration  2.24s (transform 838ms, setup 9ms, collect 1.33s, tests 654ms, environment 0ms, prepare 25ms)
+
+JSON report written to /private/tmp/viborm-d46-tmp/viborm-raptor3-g0-SP9Gf5/vitest.json
+Vitest resources: 3.99s wall, 662.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g2-generated contract gate verified. Evidence: /private/tmp/viborm-d46-tmp/viborm-raptor3-g0-SP9Gf5

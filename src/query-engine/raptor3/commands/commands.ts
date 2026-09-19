@@ -10,6 +10,7 @@ import {
   type PreparedSelector,
   returningSafeProjection,
   type SelectorFacts,
+  wholeValue,
 } from "../shared/query";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
@@ -1096,6 +1097,106 @@ export class Commands {
    * record route's dependency machinery, a projection that reads other rows has
    * no RETURNING spelling, and a provider without RETURNING must re-read.
    */
+  /**
+   * The array route's upsert. That route prepares a package and issues no
+   * read of its own, so the conditional form (a locate, two arms and their
+   * premises, then a terminal read) cannot be built there at all. The shipped
+   * engine served it with its two top-level upsert paths, restated here at
+   * this owner (D-46): (1) "an eligible `ON CONFLICT` fold has no planning
+   * read" — one targeted conflict statement, under the shipped fold's
+   * conjuncts (`write-engine/UpsertOperation.ts` `buildOnConflictFold`): a
+   * targeted-upsert adapter, no conditional filter, a `where` naming one
+   * constraint and nothing else, the create spelling every column of that
+   * constraint with the primitive value the `where` names, a set-only update;
+   * (2) otherwise the probe-first path — the locate read runs at preparation
+   * ({@link OperationContext.read}) and the selected scalar arm rides the
+   * owner's batch as ONE statement with RETURNING, the existing owners of a
+   * folded root write (`createMany`, `updateMany` with its packaged presence
+   * premise). Both need scalar arms, a non-empty update naming no key of the
+   * model and a RETURNING-safe projection on a RETURNING adapter; everything
+   * else keeps the conditional form and, on this route, its existing answer.
+   * The shipped fold also served the live route; keeping both paths to the
+   * array route leaves every live-route pin in place — widening them is a
+   * physical-plan decision for Arnaud.
+   */
+  private rootUpsert(
+    model: AnyModel,
+    args: Arguments
+  ): PhysicalPlan | undefined {
+    const ctx = this.context;
+    const capabilities = ctx.driver.adapter.capabilities;
+    if (!ctx.preparesBatch) return undefined;
+    if (args.targetWhere || args.setWhere) return undefined;
+    if (!capabilities.supportsReturning) return undefined;
+    if (
+      ctx.schema.namesRelation(model, args.create!) ||
+      ctx.schema.namesRelation(model, args.update!)
+    )
+      return undefined;
+    const updates = ctx.schema.scalars(model, args.update!);
+    const fields = Object.keys(updates);
+    if (fields.length === 0) return undefined;
+    if (ctx.schema.keys(model).some((key) => updates[key] !== undefined))
+      return undefined;
+    const projection = ctx.queries.prepareProjection(model, args);
+    if (!returningSafeProjection(projection)) return undefined;
+    const values = ctx.schema.scalars(model, args.create!);
+    const missing = () =>
+      ctx.createMany(model, [values], projection, false, () => {
+        throw new TypeError("INSERT did not produce the required record");
+      });
+    const lookup = this.lookup(model, {
+      kind: "query",
+      where: args.where,
+      unique: true,
+    });
+    const key = lookup.selector.uniqueKey;
+    const spelled =
+      capabilities.supportsTargetedUpsert &&
+      key !== undefined &&
+      lookup.selector.uniqueValues !== undefined &&
+      fields.every((field) => wholeValue(updates[field])) &&
+      key.fields.every((field) => {
+        const value = values[field];
+        return (
+          (value === null ||
+            (typeof value !== "object" && typeof value !== "function")) &&
+          Object.is(value, lookup.selector.uniqueValues!.get(field))
+        );
+      });
+    if (spelled)
+      return {
+        single: true,
+        run: () =>
+          ctx.upsertOne(model, values, updates, key!.fields, projection, () => {
+            throw new TypeError(
+              "INSERT … ON CONFLICT did not produce the required record"
+            );
+          }),
+      };
+    // The locate read precedes the arm, so this form is never one statement.
+    return {
+      single: false,
+      run: async () => {
+        const rows = await ctx.planningLocate(lookup.query(), model);
+        const captured = rows[0];
+        if (!captured) return missing();
+        const selector = ctx.queries.prepareSelector(
+          model,
+          ctx.schema.identity(model, captured),
+          true
+        );
+        return ctx.updateMany(
+          model,
+          selector,
+          updates,
+          undefined,
+          projection,
+          () => new NotFoundError(model["~"].names.ts!, "upsert")
+        );
+      },
+    };
+  }
   private rootCreate(
     model: AnyModel,
     args: Arguments
@@ -1196,6 +1297,8 @@ export class Commands {
       };
     }
     if (ctx.operation === "upsert") {
+      const folded = this.rootUpsert(model, args);
+      if (folded) return folded;
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
       const lookup = this.lookup(model, {

@@ -145,6 +145,15 @@ export class OperationContext {
   readonly driver: AnyDriver;
   readonly usesBatch: boolean;
   private readonly ownership: ExecutionOwnership;
+  /**
+   * Whether this context PREPARES a package for the array owner instead of
+   * executing: the one route that can issue no planning read of its own,
+   * because every statement it produces rides the owner's batch. Read by the
+   * plan to choose a form that needs no such read (D-46).
+   */
+  get preparesBatch(): boolean {
+    return this.ownership === "batch-preparation";
+  }
   private readonly memberRollback?: MemberRollback;
   private readonly operationRegion?: MemberRollback;
   /** Where this operation states its own durable write phase ({@link WriteOutcomeSeam}). */
@@ -868,6 +877,19 @@ export class OperationContext {
       this.restart(replacement);
       return await body();
     }
+  }
+  /**
+   * The ONE sanctioned direct read at array-route preparation: the upsert
+   * locate of {@link CommandPlanner.rootUpsert}'s probe-first path (D-46),
+   * whose answer the arm's packaged premise re-asserts inside the batch. Every
+   * other read keeps {@link read}'s refusal there, terminal or not: the
+   * interpreter's planning reads would run before the earlier members of the
+   * same array have executed and answer a false absence — measured by the
+   * unit's review (a `connect` to a row an earlier member inserts).
+   */
+  async planningLocate(query: Query, model: AnyModel): Promise<Input[]> {
+    const response = await this.answer(query, false, model);
+    return this.queries.decodeQuery(query, response.rows, true);
   }
   /**
    * One read. `model` is the model the statement addresses when that is not the
@@ -1931,6 +1953,67 @@ export class OperationContext {
         single
       );
     });
+  }
+  /**
+   * A top-level upsert as ONE statement — the shipped engine's first upsert
+   * path ("an eligible `ON CONFLICT` fold has no planning read", the retired
+   * `write-engine/ATOM.md` §15, `operations/upsert.ts` `buildUpsert`): the
+   * create's INSERT, the adapter's conflict clause over the addressed unique
+   * key carrying the update language's assignments, and the projection's
+   * RETURNING. The plan admits it only where the conditional form cannot run
+   * at all — the array route, which can issue no planning read (D-46) — so
+   * every other route keeps the conditional form and its pins. Zero rows back
+   * is a provider anomaly, not a premise: `single` throws it.
+   */
+  async upsertOne(
+    model: AnyModel,
+    row: Input,
+    updates: Input,
+    target: readonly string[],
+    projection?: PreparedProjection,
+    single?: () => Error
+  ): Promise<unknown> {
+    const q = this.queries;
+    const adapter = this.driver.adapter;
+    const columns = Object.keys(row);
+    const insert =
+      columns.length === 0
+        ? adapter.mutations.insertDefault(q.table(model))
+        : adapter.mutations.insert(
+            q.table(model),
+            columns.map((field) => q.columnName(model, field)),
+            [columns.map((field) => q.fieldValue(model, field, row[field]))]
+          );
+    const conflict = adapter.mutations.onConflict(
+      sql.join(
+        target.map((field) =>
+          adapter.identifiers.escape(q.columnName(model, field))
+        ),
+        ", "
+      ),
+      adapter.mutations.onConflictUpdate(
+        sql.join(this.updateAssignments(model, updates), ", ")
+      )
+    );
+    let statement = sql`${insert} ${conflict}`;
+    if (projection)
+      statement = sql`${statement} ${adapter.mutations.returning(
+        sql.join(q.lowerProjection(projection).columns, ", ")
+      )}`;
+    return this.setMutation(
+      statement,
+      this.statementContext(model, this.operation),
+      (result) =>
+        projection
+          ? this.published(
+              this.publishedProjection(
+                projection.shape,
+                result.rows.map(record)
+              ),
+              single
+            )
+          : { count: result.rowCount }
+    );
   }
   async updateMany(
     model: AnyModel,
