@@ -175,28 +175,30 @@ abort produces the typed, non-raceable `NestedWriteError` floor in exactly
 one attempt — not a retry. Today an internal `NestedWriteAssertionError`
 leaks. The owner is the assertion attribution
 (`operation-context.ts:1243-1294`): when no failure can be attributed, the
-error is translated to the floor there. No recovery is involved.
+error is translated to the floor there. No recovery is involved. (The five
+legality "QueryError" cells the triage filed under attribution were not:
+a probe showed a nested lookup naming the parent's post-transition key
+through the batch scratch before the batch — N3c, below.)
 
-**3b. Recovery eligibility.** The raceable membership premise
-(`requireNoAddedMember`, `execution.ts:715-745`, `meta.raceable = true`)
-is meant to re-plan once from the admitted arguments and converge (D-25,
-D-32). The fresh-plan owner exists and is the right one:
-`OperationContext.batchAttempt` (`:870-880`) re-enters the body on an
-`assertion` rejection. `CommandExecution.recover` retries the EXISTING tree
-and must not be widened: it would intercept the failure before the
-fresh-plan owner and expand an already-expanded series. N3 investigates why
-the rejection never reaches `batchAttempt` as an `assertion` — the
-candidates are `recoveryRejection`'s identity test
-(`atomicAssertionRejection === error`, while `failure()` may wrap the error
-it throws), the `committedProgress` gate after a first segment, and the
-attribution branch at `:1283-1290` — and repairs the owner that is wrong.
-The removed-member case (a captured member deleted between the plan-time
-read and the mutation) is the D-32 loss-after-observation premise stated
-for the series' captured members, inside the mutation's batch.
+**3c — withdrawn into N1.** The five legality "QueryError" cells were
+never attribution: the nested child's lookup, placed AFTER the parent's write
+(`relation-body.ts:870-871`), is dispatched on the batch route as a planning
+read before the batch, naming the parent's post-transition key through a
+scratch reference no read can carry there (42P01). A value swap at the
+emission (the located key for child-held edges) closed those five cells and
+was BLOCKED by its Opus review: on the live route the same read runs after
+the write, where the provider's cascade has already moved the child's key,
+so the post-write assignments are the valid value and the swap refused a
+shape HEAD executes (`g4/release/n3c/`). The rule the reviewer stated is
+N1's case 3 verbatim: the membership names the parent's key as it is at the
+lookup's own execution point; the batch route must dispatch that read where
+its value is valid — behind a `submit` barrier after the queued write, or
+through the reference scratch. N1 inherits the five legality cells and the
+cascade cell as witnesses and the two pins under `g4/release/n3c/pins/`.
 
-**Witnesses.** `m8-race-retry` (one attempt, the typed floor); the two
-`nested-m2m-parent-pk-dataflow` StaleMembershipBatchDriver cells (converge
-in one recovery); the D-32 witnesses.
+**Instrument rule, from here on:** every unit's estate comparison lists
+failing cell identities and messages, not per-file counts; a pin is red at
+HEAD for the reason the unit names.
 
 ## 4. N4 — the refusal census
 

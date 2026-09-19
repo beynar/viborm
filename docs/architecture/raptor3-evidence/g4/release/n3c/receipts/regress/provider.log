@@ -1,0 +1,35 @@
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-commands.test.ts
+ ✓ |raptor3-provider| tests/raptor3/expanded/produced-commands.test.ts (3 tests) 742ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-commands.test.ts: 4.36s wall, 1430.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts
+ ✓ |raptor3-provider| tests/raptor3/expanded/batch-produced-commands.test.ts (2 tests) 770ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-commands.test.ts: 3.95s wall, 1474.0 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Te
+[test:all] raptor3-provider: tests/raptor3/post-prep/g29-result-progress-pglite.test.ts
+ ✓ |raptor3-provider| tests/raptor3/post-prep/g29-result-progress-pglite.test.ts (1 test) 735ms
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+[test:all] raptor3-provider: tests/raptor3/post-prep/g29-result-progress-pglite.test.ts: 3.92s wall, 1450.1 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider)
+[test:all] raptor3-provider: tests/raptor3/g4/parity/postgres-identity-scratch.test.ts
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/postgres-identity-scratch.test.ts (2 tests) 752ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+[test:all] raptor3-provider: tests/raptor3/g4/parity/postgres-identity-scratch.test.ts: 3.86s wall, 1418.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider).
+[test:all] raptor3-provider: tests/raptor3/g4/parity/parent-key-at-position.test.ts
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/parent-key-at-position.test.ts (2 tests) 748ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+[test:all] raptor3-provider: tests/raptor3/g4/parity/parent-key-at-position.test.ts: 3.87s wall, 1471.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Te
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-legacy.test.ts
+ ✓ |raptor3-provider| tests/raptor3/expanded/produced-legacy.test.ts (3 tests) 705ms
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+[test:all] raptor3-provider: tests/raptor3/expanded/produced-legacy.test.ts: 3.84s wall, 1436.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown v
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-legacy.test.ts
+ ✓ |raptor3-provider| tests/raptor3/expanded/batch-produced-legacy.test.ts (2 tests) 687ms
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+[test:all] raptor3-provider: tests/raptor3/expanded/batch-produced-legacy.test.ts: 3.97s wall, 1439.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Tear

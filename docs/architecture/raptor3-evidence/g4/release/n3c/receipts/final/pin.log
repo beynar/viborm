@@ -1,0 +1,17 @@
+
+> viborm@0.1.0 test:all /Users/arnaud/code/viborm
+> node scripts/run-credential-free-tests.mjs --only parent-key-at-position
+
+
+[test:all] raptor3-provider: tests/raptor3/g4/parity/parent-key-at-position.test.ts
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3-provider| tests/raptor3/g4/parity/parent-key-at-position.test.ts (2 tests) 769ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  01:16:20
+   Duration  2.16s (transform 807ms, setup 8ms, collect 1.19s, tests 769ms, environment 0ms, prepare 25ms)
+
+[test:all] raptor3-provider: tests/raptor3/g4/parity/parent-key-at-position.test.ts: 3.87s wall, 1416.3 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

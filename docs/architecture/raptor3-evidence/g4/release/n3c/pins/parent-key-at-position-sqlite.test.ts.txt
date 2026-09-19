@@ -1,0 +1,88 @@
+/**
+ * N3c — the parent's key at the statement's position, on SQLite (both routes,
+ * inside the deterministic coverage scope). The PGlite twin
+ * (`parent-key-at-position.test.ts`) measures the batch scratch; this one
+ * measures the rule: a nested lookup under a child-held key transition names
+ * the parent's located identity, and both routes reach the legality owner.
+ */
+
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import { NestedWriteError } from "@errors";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+
+const parent = s
+  .model({
+    id: s.int().id(),
+    name: s.string(),
+    child: s.toOne(() => child),
+  })
+  .map("n3c_sqlite_parents");
+const child = s
+  .model({
+    id: s.int().id(),
+    label: s.string(),
+    parentId: s.int().nullable().unique(),
+    parent: s
+      .toOne(() => parent)
+      .fields("parentId")
+      .references("id")
+      .onUpdate("setNull"),
+  })
+  .map("n3c_sqlite_children");
+const schema = { parent, child };
+
+class BatchOnlyDriver extends RecordingSQLiteDriver {
+  override readonly supportsTransactions = false;
+  override readonly supportsBatch = true;
+}
+
+const CHILD_LOOKUP = /FROM "n3c_sqlite_children"/;
+const SCRATCH = /__viborm_batch_refs/;
+const OCCUPIED = /onUpdate\('setNull'\).*current relation is occupied/;
+
+for (const [route, make] of [
+  ["live", () => new RecordingSQLiteDriver()],
+  ["batch-only", () => new BatchOnlyDriver()],
+] as const) {
+  describe(`N3c on SQLite, ${route} route`, () => {
+    let driver: RecordingSQLiteDriver;
+    afterEach(async () => {
+      await driver?.disconnect();
+    });
+
+    it("names the parent's located key in the child lookup and refuses the occupied slot", async () => {
+      driver = make();
+      const client = createClient({ schema, driver });
+      await syncLiveSchema(client);
+      await client.parent.create({ data: { id: 1, name: "Parent" } });
+      await client.child.create({
+        data: { id: 1, label: "Child", parentId: 1 },
+      });
+      driver.reset();
+      await assert.rejects(
+        async () => {
+          await client.parent.update({
+            where: { id: 1 },
+            data: {
+              id: { increment: 1 },
+              child: { update: { label: "must not change" } },
+            },
+          });
+        },
+        (error: unknown) =>
+          error instanceof NestedWriteError && OCCUPIED.test(error.message)
+      );
+      const statements = driver.statements.map((statement) => statement.sql);
+      const lookup = statements.find((sql) => CHILD_LOOKUP.test(sql));
+      assert.ok(lookup, statements.join("\n"));
+      assert.ok(!SCRATCH.test(lookup), lookup);
+      assert.deepEqual(await client.child.findMany(), [
+        { id: 1, label: "Child", parentId: 1 },
+      ]);
+    });
+  });
+}

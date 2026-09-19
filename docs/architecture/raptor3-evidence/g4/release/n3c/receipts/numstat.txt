@@ -1,0 +1,5 @@
+2	2	scripts/credential-free-test-manifest.mjs
+8	3	scripts/raptor3-manifest.mjs
+2	2	scripts/run-credential-free-tests.mjs
+14	0	src/query-engine/raptor3/AGENTS.md
+15	1	src/query-engine/raptor3/commands/relation-body.ts
