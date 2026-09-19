@@ -2307,10 +2307,18 @@ export class OperationContext {
     const published: Input = { ...values };
     if (produced.length) {
       const references = getAdapterInternals(adapter).batchRefs;
-      if (
-        this.insertIdField(model, produced) === undefined ||
-        !references.storeLastInsertId
-      ) {
+      const insertIdField = this.insertIdField(model, produced);
+      // The exact identity scratch carries ONE generated increment key through
+      // the batch: the dialect stores it from the statement that produced it —
+      // its own RETURNING inside a data-modifying CTE where the provider can
+      // mutate in one (PostgreSQL, D-50), or the statement-local last insert
+      // id (SQLite, MySQL) — and every later statement reads the reference
+      // back with the key's own width. How it is stored is the dialect's
+      // (`batchRefs.storeInsertedKey`), not chosen here.
+      const storeInsertedKey = references.storeInsertedKey;
+      const carriesIdentity =
+        insertIdField !== undefined && storeInsertedKey !== undefined;
+      if (!carriesIdentity) {
         if (
           !adapter.capabilities.supportsReturning ||
           adapter.capabilities.supportsCteWithMutations
@@ -2362,13 +2370,22 @@ export class OperationContext {
         return { ...values, ...stored };
       }
       const scratchId = this.ensureScratch();
-      const inserted = this.queue(statement, context, member);
-      if (producer) this.attempt.recordInsertProducer(inserted, producer);
       const key = String(this.attempt.nextField++);
-      this.queue(references.storeLastInsertId(scratchId, key));
-      published[produced[0]!] = adapter.expressions.cast(
+      const [producing, ...storing] = storeInsertedKey(
+        scratchId,
+        key,
+        statement,
+        adapter.identifiers.escape(q.columnName(model, insertIdField))
+      );
+      const inserted = this.queue(producing!, context, member);
+      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+      for (const store of storing) this.queue(store);
+      published[insertIdField] = adapter.expressions.cast(
         references.read(scratchId, key),
-        "integer"
+        physicalField(this.schema, model, insertIdField).scalar["~"].state
+          .type === "bigint"
+          ? "bigint"
+          : "integer"
       );
     } else {
       const inserted = this.queue(statement, context, member);

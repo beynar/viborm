@@ -1341,9 +1341,14 @@ export const RAPTOR3_LIVE_PROVIDER_TESTS = Object.freeze([
   ...G4_UNIT02_MYSQL_TESTS,
   ...G4_UNIT02_PG_TESTS,
 ]);
+/** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */
+export const D50_PROVIDER_TESTS = Object.freeze([
+  "tests/raptor3/g4/parity/postgres-identity-scratch.test.ts",
+]);
 export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
   ...G1_PROVIDER_TESTS,
   ...G1_PROVIDER_BASELINE_TESTS,
+  ...D50_PROVIDER_TESTS,
 ]);
 
 /**

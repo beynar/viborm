@@ -154,10 +154,21 @@ test:coverage (every scope, the policy gate green), test:package (9 / 9),
 package:lint and size, all green on `29622ac5`; the credential-free gate's
 raptor3 stage, red on that head at one G3-era self-test, green after commit
 16 (the cs03 unit); the full `pnpm test:all` on the final head is recorded
-in the performance evidence commit. Open for Arnaud: D-47 (widen the upsert
-fold to the live route), D-48 (a SQL NULL in a NOT NULL json column), the
-MySQL migrations cause, D-44 (live PGlite file runs). The performance and
-size re-measure follows as its own evidence commit.
+in the performance evidence commit. Commit 17 (`b7b0f723`) is D-49: the
+decimal-language census, red since the engine's first commit, green through
+the engine's decimal seam. Commit 18 is D-50: the exact identity scratch on
+PostgreSQL batch-only transports (the INSERT's own RETURNING stored by a
+data-modifying CTE), which closes the refusal the gate triage found behind
+28 cells, the five kept-red Docker pg cells of commit 4, and three masked
+defects. **The full gate, run end to end for the first time on this branch,
+is not green:** the retired engine's PGlite contract suites (41 files, 184
+cells) were never measured by the parity program; their triage
+(`g4/release/gate/`) classifies 26 physical-plan pins, 16 ruled refusals, 28
+cells closed by D-50, 11 retired premises and 92 shipped-engine defects in
+six mechanisms, each a unit or a ruling still to come. Open for Arnaud: D-47
+(widen the upsert fold to the live route), D-48 (a SQL NULL in a NOT NULL
+json column), the MySQL migrations cause, D-44 (live PGlite file runs). The
+performance and size re-measure follows as its own evidence commit.
 
 ## Validation
 

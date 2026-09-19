@@ -1,0 +1,13 @@
+16	0	CHANGELOG.md
+54	52	scripts/credential-free-test-manifest.mjs
+5	0	scripts/raptor3-manifest.mjs
+3	2	scripts/run-credential-free-tests.mjs
+26	1	src/adapters/adapter-core-types.ts
+1	0	src/adapters/databases/mysql/mysql-adapter.ts
+43	3	src/adapters/databases/postgres/postgres-adapter.ts
+1	0	src/adapters/databases/sqlite/sqlite-adapter.ts
+18	0	src/adapters/shared/batch-refs.ts
+14	0	src/query-engine/raptor3/AGENTS.md
+26	9	src/query-engine/raptor3/shared/operation-context.ts
+13	0	tests/contracts/adapters/dialect-vocabulary.core.test.ts
+76	0	tests/contracts/adapters/internals-and-geo.core.test.ts

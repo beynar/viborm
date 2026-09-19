@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |extended-local| tests/contracts/engine/query/nested-mutation-routing.test.ts (72 tests) 1948ms
+
+ Test Files  1 passed (1)
+      Tests  72 passed (72)
+   Start at  20:58:29
+   Duration  3.39s (transform 845ms, setup 9ms, collect 1.28s, tests 1.95s, environment 0ms, prepare 27ms)
+
+Vitest resources: 5.10s wall, 1626.7 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

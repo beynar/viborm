@@ -417,6 +417,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
+      bigint: "INTEGER",
       boolean: "INTEGER",
       numeric: "NUMERIC",
     }),

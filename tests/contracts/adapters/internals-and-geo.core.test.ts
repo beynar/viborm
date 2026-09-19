@@ -7,6 +7,7 @@ import { installGeoPointSql } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { createOnConflictBatchRefs } from "@adapters/shared/batch-refs";
 import {
   geoBoundsIndexPolygons,
   geoPolygonJson,
@@ -240,8 +241,83 @@ describe("private adapter seam", () => {
       if (batchRefs.storeLastInsertId) {
         expectComposable(batchRefs.storeLastInsertId("batch-1", "user"));
       }
+      if (batchRefs.storeReturning) {
+        expectComposable(
+          batchRefs.storeReturning(
+            "batch-1",
+            "user",
+            sql`INSERT INTO ${sql.raw`"users"`} DEFAULT VALUES`,
+            sql.raw`"id"`
+          )
+        );
+      }
       expect("batchRefs" in adapter).toBe(false);
     }
+  });
+
+  test("the PostgreSQL batch store carries an INSERT's own RETURNING through a data-modifying CTE (D-50)", () => {
+    const postgres = getAdapterInternals(new PostgresAdapter()).batchRefs;
+    expect(
+      getAdapterInternals(new MySQLAdapter()).batchRefs.storeReturning
+    ).toBeUndefined();
+    expect(
+      getAdapterInternals(new SQLiteAdapter()).batchRefs.storeReturning
+    ).toBeUndefined();
+    const stored = postgres.storeReturning!(
+      "batch-1",
+      "7",
+      sql`INSERT INTO ${sql.raw`"users"`} (${sql.raw`"name"`}) VALUES (${"Ada"})`,
+      sql.raw`"id"`
+    );
+    const statement = stored.toStatement();
+    expect(
+      statement.startsWith(
+        'WITH "__viborm_inserted" AS (INSERT INTO "users" ("name") VALUES ('
+      )
+    ).toBe(true);
+    expect(statement).toContain(
+      'RETURNING "id") INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") SELECT '
+    );
+    expect(
+      statement.endsWith('CAST("id" AS TEXT) FROM "__viborm_inserted"')
+    ).toBe(true);
+    expect(stored.values).toEqual(["Ada", "batch-1", "7"]);
+  });
+
+  test("the dialect states how a generated increment key is stored, in order (D-50)", () => {
+    const insert = sql`INSERT INTO ${sql.raw`"users"`} DEFAULT VALUES`;
+    const column = sql.raw`"id"`;
+    const shapes = (adapter: PostgresAdapter | MySQLAdapter | SQLiteAdapter) =>
+      getAdapterInternals(adapter)
+        .batchRefs.storeInsertedKey?.("batch-1", "7", insert, column)
+        .map((statement) => statement.toStatement().split(" ")[0]);
+    // PostgreSQL: the CTE store is the INSERT itself, one statement.
+    expect(shapes(new PostgresAdapter())).toEqual(["WITH"]);
+    // SQLite and MySQL: the INSERT, then the last insert id store.
+    expect(shapes(new SQLiteAdapter())).toEqual(["INSERT", "INSERT"]);
+    expect(shapes(new MySQLAdapter())).toEqual(["INSERT", "INSERT"]);
+    // A PostgreSQL that cannot mutate inside a CTE offers no exact key store
+    // at all: lastval() is session-global, and the capability is read live.
+    const adapter = new PostgresAdapter();
+    adapter.capabilities.supportsCteWithMutations = false;
+    const refs = getAdapterInternals(adapter).batchRefs;
+    expect(refs.storeReturning).toBeUndefined();
+    expect(refs.storeInsertedKey).toBeUndefined();
+    adapter.capabilities.supportsCteWithMutations = true;
+    expect(refs.storeInsertedKey).toBeDefined();
+    // A dialect with neither exact mechanism states no key store: the engine
+    // then refuses or segments RETURNING, never guesses a session value.
+    const neither = createOnConflictBatchRefs({
+      table: sql.raw`"refs"`,
+      batchIdColumn: sql.raw`"batch_id"`,
+      keyColumn: sql.raw`"ref_key"`,
+      valueColumn: sql.raw`"ref_value"`,
+      createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "refs" ("batch_id" TEXT, "ref_key" TEXT, "ref_value" TEXT)`,
+      castValue: (value) => sql`CAST((${value}) AS TEXT)`,
+    });
+    expect(neither.storeLastInsertId).toBeUndefined();
+    expect(neither.storeReturning).toBeUndefined();
+    expect(neither.storeInsertedKey).toBeUndefined();
   });
 
   test("the PostgreSQL batch store omits unsafe session-global identity", () => {

@@ -7,7 +7,10 @@ import {
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
 import { createIdentifierQuoter } from "../../../sql/identifiers";
 import { JsonParameter } from "../../../sql/json-parameter";
-import type { ArithmeticTarget } from "../../adapter-core-types";
+import type {
+  ArithmeticTarget,
+  BatchReferenceSqlAdapter,
+} from "../../adapter-core-types";
 import { installAdapterInternals } from "../../adapter-internals";
 import { installAdapterNamespace } from "../../adapter-namespace";
 import type { QueryParts } from "../../adapter-query-parts";
@@ -284,6 +287,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
+      bigint: "BIGINT",
       boolean: "BOOLEAN",
       numeric: "NUMERIC",
     }),
@@ -571,14 +575,50 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   lastInsertId = (): Sql => sql.raw`lastval()`;
 
-  readonly #batchRefs = createOnConflictBatchRefs({
+  readonly #cteBatchRefs = createOnConflictBatchRefs({
     table: sql.raw`"__viborm_batch_refs"`,
     batchIdColumn: sql.raw`"batch_id"`,
     keyColumn: sql.raw`"ref_key"`,
     valueColumn: sql.raw`"ref_value"`,
-    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key")) ON COMMIT DROP`,
+    // The scratch outlives one native batch: a record series commits member by
+    // member on a batch-only transport and its later segments still read the
+    // references the first one stored, on the same pinned session (D-50). The
+    // rows are cleared per batch id and deleted at the end; the table lingers
+    // on the session like the SQLite and MySQL scratch tables do.
+    createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
     castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
+    // The exact identity of an INSERT, carried by the statement that runs it:
+    // the INSERT is the data-modifying CTE, its RETURNING feeds the reference
+    // row, and nothing session-global (lastval) is read.
+    storeReturning: (batchId, key, insert, column) =>
+      sql`WITH "__viborm_inserted" AS (${insert} RETURNING ${column}) INSERT INTO "__viborm_batch_refs" ("batch_id", "ref_key", "ref_value") SELECT ${batchId}, ${key}, CAST(${column} AS TEXT) FROM "__viborm_inserted"`,
   });
+
+  // Whether this provider can mutate inside a CTE is the capability's fact,
+  // read live: the CTE store and the key store it derives are offered only
+  // while `capabilities.supportsCteWithMutations` holds, and a PostgreSQL
+  // without it offers no exact key store at all (lastval() is not exact).
+  readonly #batchRefs: BatchReferenceSqlAdapter = (() => {
+    const withCte = this.#cteBatchRefs;
+    const capabilities = this.capabilities;
+    return {
+      setup: withCte.setup,
+      clear: withCte.clear,
+      cleanup: withCte.cleanup,
+      store: withCte.store,
+      read: withCte.read,
+      get storeReturning() {
+        return capabilities.supportsCteWithMutations
+          ? withCte.storeReturning
+          : undefined;
+      },
+      get storeInsertedKey() {
+        return capabilities.supportsCteWithMutations
+          ? withCte.storeInsertedKey
+          : undefined;
+      },
+    };
+  })();
 
   // ============================================================
   // VECTOR (pgvector)

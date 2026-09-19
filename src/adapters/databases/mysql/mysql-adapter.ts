@@ -587,6 +587,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     cast: createCastExpression({
       text: "CHAR",
       integer: "SIGNED",
+      bigint: "SIGNED",
       boolean: "UNSIGNED",
       numeric: "DECIMAL",
     }),

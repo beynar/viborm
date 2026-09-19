@@ -19,11 +19,12 @@ import {
   RAPTOR3_FIXED_LOCAL_TESTS,
   SQLITE3_PROVIDER_TESTS,
 } from "./credential-free-test-manifest.mjs";
-import { acquireTestRunLock } from "./test-run-lock.mjs";
 import {
+  D50_PROVIDER_TESTS,
   G1_PROVIDER_BASELINE_TESTS,
   G1_PROVIDER_TESTS,
 } from "./raptor3-manifest.mjs";
+import { acquireTestRunLock } from "./test-run-lock.mjs";
 
 const safeVitestRunner = fileURLToPath(
   new URL("./run-vitest-safe.mjs", import.meta.url)
@@ -166,7 +167,7 @@ const stages = [
       VIBORM_RAPTOR3_EVIDENCE_DIRECTORY: "",
     },
   },
-  ...G1_PROVIDER_TESTS.map((file) => ({
+  ...[...G1_PROVIDER_TESTS, ...D50_PROVIDER_TESTS].map((file) => ({
     ...livePgliteProviderStage(file, "raptor3-provider"),
     wallLimitMs: 120_000,
   })),

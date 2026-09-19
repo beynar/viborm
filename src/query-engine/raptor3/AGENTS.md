@@ -732,6 +732,20 @@ retired: the candidate's package carries the whole write and one native batch
 commits it. Do not re-introduce that refusal in the route, and do not re-derive
 "does this package use scratch?" anywhere outside the packaging rule.
 
+A generated increment key travels through the batch in the exact identity
+scratch (`OperationContext.insert`, the batch arm): the dialect stores it from
+the statement that produced it — PostgreSQL through its own RETURNING inside a
+data-modifying CTE (`batchRefs.storeReturning`, D-50, offered only while
+`capabilities.supportsCteWithMutations` holds), SQLite and MySQL through the
+statement-local last insert id (`storeLastInsertId`); the dialect states the
+statements in order as `batchRefs.storeInsertedKey`, the engine queues them
+and chooses nothing — and every later
+statement reads the reference back with the key's own width (`bigint` keys
+cast as BIGINT). The refusal "G1 atomic output requires exact identity scratch
+or segmented RETURNING" is left for a produced field that is not one increment
+key on a provider whose RETURNING cannot be segmented; do not widen the scratch
+to other produced columns without a ruling.
+
 The query interceptor's `context.input` for `upsert` is the ONE admission —
 scalar defaults filled into `create`, assignments normalized to `{ set: … }` in
 `update` — on both arms. It is the payload that actually runs, which is the rule

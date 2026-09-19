@@ -382,6 +382,7 @@ describe("dialect physical SQL vocabulary", () => {
         adapter.expressions.decimalCast(sql`${"12.30"}`, decimal),
         adapter.expressions.cast(sql`${1}`, "text"),
         adapter.expressions.cast(sql`${1}`, "integer"),
+        adapter.expressions.cast(sql`${1}`, "bigint"),
         adapter.expressions.cast(sql`${1}`, "boolean"),
         adapter.expressions.cast(sql`${1}`, "numeric"),
         adapter.expressions.blobToHex(sql.raw`payload`),
@@ -391,6 +392,18 @@ describe("dialect physical SQL vocabulary", () => {
     expect(
       postgres.expressions.concat(sql.raw`a`, sql.raw`b`).toStatement()
     ).toBe("(a || b)");
+    // A 64-bit key read back from a TEXT scratch keeps its width: PostgreSQL
+    // INTEGER is 32-bit, so the logical cast names BIGINT there; SQLite and
+    // MySQL integer casts are already 64-bit.
+    expect(postgres.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      "CAST(a AS BIGINT)"
+    );
+    expect(mysql.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      mysql.expressions.cast(sql.raw`a`, "integer").toStatement()
+    );
+    expect(sqlite.expressions.cast(sql.raw`a`, "bigint").toStatement()).toBe(
+      sqlite.expressions.cast(sql.raw`a`, "integer").toStatement()
+    );
     expect(mysql.expressions.concat(sql.raw`a`, sql.raw`b`).toStatement()).toBe(
       "CONCAT(a, b)"
     );
