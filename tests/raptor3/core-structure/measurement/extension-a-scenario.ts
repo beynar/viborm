@@ -82,12 +82,15 @@ function assertFailure(
     return;
   }
   assert(isRecord(observation.outcome.failure.meta));
+  // U6.2: the nested set statement no longer opens its own captured-series
+  // segment, so a fully written root member (its own write plus its
+  // one-statement nested set) is ONE progress unit, not two.
   assert.deepEqual(observation.outcome.failure.meta.recordSeriesProgress, {
     atomicity: "segment",
     phase: "result",
-    committedSegments: recipe.rootCount * 2 - 1,
-    committedWriteMembers: recipe.rootCount * 2 - 1,
-    completedMembers: recipe.rootCount * 2 - 1,
+    committedSegments: recipe.rootCount,
+    committedWriteMembers: recipe.rootCount,
+    completedMembers: recipe.rootCount,
   });
   assert.equal(finalAState(observation).roots.length, 1);
 }
@@ -311,6 +314,14 @@ export function extensionAScenario(
             select,
           };
 
+      // U6.2 (raptor3-parity-plan.md, g4/parity/lane-x-note.md): a nested
+      // updateMany/deleteMany on this row-held membership, whose payload
+      // names no nested relation write, is one correlated `set` statement —
+      // no plan-time lookup, no captured series, no per-member re-admission.
+      // Only `admit:nested-template`/`admit:nested-template/root-member/N`
+      // (the template's own admission, once per root member) still cut;
+      // `capture:nested/root-member/N` and `admit:nested-member/N` named the
+      // eliminated lookup-then-reapply cycle and are gone (repair-note.md R6).
       const requiredCuts = [
         "admit:root-template",
         `capture:roots/${recipe.rootCount}`,
@@ -329,19 +340,6 @@ export function extensionAScenario(
                 { length: recipe.rootCount },
                 (_, member) =>
                   `admit:nested-template/root-member/${member}`
-              ),
-              ...Array.from(
-                { length: recipe.rootCount },
-                (_, member) => `capture:nested/root-member/${member}`
-              ),
-              ...Array.from(
-                {
-                  length:
-                    recipe.nestedShape === "deleteMany"
-                      ? 0
-                      : recipe.rootCount,
-                },
-                (_, index) => `admit:nested-member/${index}`
               ),
             ]
           : []),
@@ -671,26 +669,15 @@ export function extensionAScenario(
                 `admit:nested-template/root-member/${member}`,
                 "effect:root/0"
               );
-              if (recipe.nestedShape === "deleteMany") {
-                if (member > 0) {
-                  assertScheduled(
-                    `capture:nested/root-member/${member}`,
-                    `effect:deleteMany/root-member/${member}`
-                  );
-                  assertScheduled(
-                    `effect:root/${member}`,
-                    `effect:deleteMany/root-member/${member}`
-                  );
-                }
-              } else {
-                assertScheduled(
-                  `capture:nested/root-member/${member}`,
-                  `admit:nested-member/${member}`
-                );
-                assertScheduled(
-                  `admit:nested-member/${member}`,
-                  `effect:${recipe.nestedShape}/root-member/${member}`
-                );
+              // U6.2 eliminated `capture:nested/root-member/N` and (for a
+              // set-oriented update) `admit:nested-member/N`: the nested set
+              // statement is admitted once as the template, at its own
+              // root-member position, above — there is no second per-member
+              // capture-then-readmit cycle left to order against. The
+              // surviving, still-true edge is body order: the root member's
+              // own effect precedes its nested set's effect (both remain in
+              // `recipe.schedule`, unlike the eliminated cuts).
+              if (recipe.nestedShape !== "deleteMany" || member > 0) {
                 assertScheduled(
                   `effect:root/${member}`,
                   `effect:${recipe.nestedShape}/root-member/${member}`
@@ -711,21 +698,22 @@ export function extensionAScenario(
                 `effect:root/${member}`,
                 `effect:${recipe.nestedShape}/root-member/${member}`
               );
-            if (member + 1 < recipe.rootCount) {
-              const earlier =
-                recipe.nestedShape === "deleteMany" && member === 0
-                  ? `capture:nested/root-member/${member}`
-                  : `effect:${recipe.nestedShape}/root-member/${member}`;
-              assertScheduled(earlier, `effect:root/${member + 1}`);
-            }
+            if (
+              member + 1 < recipe.rootCount &&
+              !(recipe.nestedShape === "deleteMany" && member === 0)
+            )
+              assertScheduled(
+                `effect:${recipe.nestedShape}/root-member/${member}`,
+                `effect:root/${member + 1}`
+              );
           }
+          // U6.2: no captured member remains to re-admit a second time, so
+          // both set-oriented shapes admit the template once plus once per
+          // root member (previously updateMany alone also re-admitted per
+          // captured member, `recipe.rootCount * 2 + 1`).
           assert.equal(
             nestedAdmission,
-            selectedNestedSeries
-              ? recipe.nestedShape === "deleteMany"
-                ? recipe.rootCount + 1
-                : recipe.rootCount * 2 + 1
-              : 0
+            selectedNestedSeries ? recipe.rootCount + 1 : 0
           );
           const lastEffect = `effect:${recipe.nestedShape}/root-member/${recipe.rootCount - 1}`;
           assertScheduled(lastEffect, "result:terminal-roots");

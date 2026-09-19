@@ -125,13 +125,39 @@ independent review and repair round; on the merged tree typecheck zero, the
 fixed group 59 green, Docker pg and mysql with no regressions. Production
 code moved net negative across the three commits.
 
-**Release lanes (2026-09-18, in progress).** CI parity: the survey of
-`ci.yml`'s steps found the inventory cell, a provider-isolation registration,
-an environmental OpenTelemetry smoke (a stray temp symlink) and coverage
-scopes under their floors; the CI and coverage lanes close them. The Docker
-triage lane separates container state from code on fresh containers. The
-retirement follow-ups F-1 to F-6 and the perf and size re-measure run as
-their own units. Their results are recorded in `g4.md` under "Release lane".
+**Release lanes (2026-09-18/19, commits 12 to 15).** The three lane
+workflows died on the account's Opus weekly limit with their work half done;
+under D-45 the integrator finished each lane's authoring from the partial
+work and a Sonnet reviewer at maximum effort provided the independent review
+(every lane: REVISE with minimal resolutions or ACCEPT, then a re-check).
+Commit 12 (`aa17242c`) makes what CI runs green: the raptor3 test tree
+inventoried from the manifest's one provider-backed list, the provider-
+isolation registration, validity and resolution stated once in the
+validator, and the coverage lane (validation, errors and adapters at 100 %,
+drivers over its floors, three unreachable guards deleted). Commit 13
+(`88fb0001`) is the Docker triage: two engine defects repaired (an enum
+compared against a column on PostgreSQL; a JSON null document in a NOT NULL
+column where the driver parses JSON), pg green on a PostGIS server except
+the five registered kept-red cells, MySQL blocked by one pre-existing
+migrations-layer cause on MySQL 8.4 (150 of 165 cells). Commit 14
+(`710e882f`) is D-46: an upsert on the array route of a batch-only
+transport, the shipped engine's two paths restated at one owner with one
+sanctioned planning read. Commit 15 (`29622ac5`) is the retirement follow-
+ups F-1 to F-6: the census counts the engine (like for like `src/query-
+engine/**` 15,605 token lines = 0.339 of the old engine), the last
+boundaries under `raptor3/`, the engine's own deterministic test tree
+measures the query-engine coverage scope (floors 87 / 91 / 90 / 87,
+measured, never lowered to fit), fourteen unreachable files deleted, the
+retired designs moved. What `ci.yml` runs on the final head: biome, the docs
+validation, whitespace, test:types (0), test:core (8,432 / 8,432),
+test:coverage (every scope, the policy gate green), test:package (9 / 9),
+package:lint and size, all green on `29622ac5`; the credential-free gate's
+raptor3 stage, red on that head at one G3-era self-test, green after commit
+16 (the cs03 unit); the full `pnpm test:all` on the final head is recorded
+in the performance evidence commit. Open for Arnaud: D-47 (widen the upsert
+fold to the live route), D-48 (a SQL NULL in a NOT NULL json column), the
+MySQL migrations cause, D-44 (live PGlite file runs). The performance and
+size re-measure follows as its own evidence commit.
 
 ## Validation
 

@@ -1,0 +1,14 @@
+$ npx biome check --max-diagnostics=200 tests/raptor3/core-structure/measurement/extension-a-scenario.ts
+
+Base (HEAD, pre-fix, checked at the real worktree path): Found 22 errors.
+Fixed (this unit's diff, at the same path): Found 22 errors.
+
+`diff` of the two diagnostic lists with line:col normalized away (so an
+unrelated line-number shift from the edit itself does not register as a
+difference) is empty: same 22 issues, same rule (all
+`lint/suspicious/noMisplacedAssertion`, all pre-existing — `assert*` calls
+inside this file's scenario-definition helper functions, which vitest/biome
+cannot see are invoked from `it()` blocks in the consuming test files, not
+inside a literal `it()`/`test()` in this file itself). None of the four edits
+in this unit added a new diagnostic or removed an existing one; the file
+carries exactly its base count, at the base's own rule.
