@@ -1,0 +1,282 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-triage-scratch
+
+(node:87370) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > round-trips point writes and returning projections
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses coordinate equality and inclusive ordinary and crossing bounds
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point values through callback and array transactions
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > parses points in ordinary and variant relation graphs
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps cached point results detached and fresh
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > preserves point semantics through request and statement extensions
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > leaves tagged and unsafe raw point results physical
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > uses the fixed-radius metric for filtering, selection, and ordering
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > keeps every distance boundary exact across null, polar, and world-wide cases
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint behavior > includes polygon boundaries and excludes holes
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint migration lifecycle > converges through generated apply, verify, down, and reset
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > plans indexed bounds, polygon, and positive upper-distance predicates
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps canonical dateline predicates exact for a physical -180 longitude
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > executes the bound fixed-radius ORM distance expression
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg GeoPoint spatial-index planning > keeps PostGIS extension relations outside the managed estate
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Driver Creation > creates driver with connection string
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Driver Creation > creates driver with options
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > attributes a sequential atomic-batch failure to its exact statement
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes INSERT and returns row count
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes SELECT and returns rows
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes UPDATE and returns affected count
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Raw SQL Execution > executes DELETE and returns affected count
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > commits transaction on success
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > rolls back transaction on error
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > supports nested transactions with savepoints
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > Transactions > rejects removed isolation before opening a transaction
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > creates client with schema
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > performs CRUD operations via client
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > performs transactions via client
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > VibORM Client Integration > rejects removed isolation at the client boundary
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list round-trip > create returns real arrays with typed elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list round-trip > empty and null lists round-trip
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches the exact list
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals is order-sensitive
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches empty lists
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals matches int lists
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > equals null matches null lists only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > not excludes the matching list and null lists
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has matches string elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has matches int elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has with no match returns empty
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > has null is rejected consistently
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > hasEvery requires all elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > hasSome requires any element
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > DateTime membership uses the same values as the stored list
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list filters > isEmpty treats null lists as empty on every dialect
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > set replaces the whole list
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push appends a single value
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push expands an array value element-wise
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push appends int elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push onto an empty list
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > push onto a null list creates the list
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > unshift prepends a single value
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > list updates > unshift expands an array value element-wise
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals matches the exact document
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals does not match a partial document
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > equals null matches null json only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json filters > not equals excludes the matching document and nulls
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches the scoped value
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a nested path
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches numbers
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a path matches whole sub-documents
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals at a missing path matches nothing
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > equals null at a path matches JSON null, not missing keys
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > integer path segments address array elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > path segments with dots stay literal
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > non-portable JSON path segments reject before execution
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_contains at a path
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_starts_with and string_ends_with combine as AND
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > JSON string ops are exact across case, wildcards, and Unicode
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > string_contains without a path matches string roots
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains requires every candidate element
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains accepts a scalar candidate
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_contains without a path matches array roots only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_starts_with matches the first element
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > array_ends_with matches the last element
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > not at a path inherits the path
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII A-Z on all three string operators
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > mode: default keeps the exact-text contract
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > folds ASCII only — accents are never case-folded
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > wildcards stay literal under the fold
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not inherits the mode
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > a nested not may override the inherited mode
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > string paths carry the mode too
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json path filters > mode: insensitive > an inert mode is refused, not ignored
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > dot paths equal their array form
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > bracket segments address array elements
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > '$' alone is the document root
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > every operator accepts the string form
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > a dot is always a separator — literal dots need the array form
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > unsupported path grammar rejects before execution
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json string paths ('$.a.b') > quoted labels keep the portable-path refusal
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands compare numbers only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > numeric operands never match a numeric string or other types
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string operands compare strings only, by code point
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > string ordering is byte order, not the database's locale collation
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > mixed operand classes never cross
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > absent paths and NULL columns never match and never error
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons combine as AND inside one filter object
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons reach nested objects and array indices
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > comparisons without a path apply to the document root
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > not inherits the path and drops non-comparable rows
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg list/json filter and update behavior > json comparison filters (lt/lte/gt/gte) > non-number, non-string operands reject before execution
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals DbNull matches the SQL NULLs only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals JsonNull matches the stored JSON null only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > equals AnyNull matches both
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not DbNull matches every row that holds a document
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not JsonNull excludes the JSON null and the SQL NULLs
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > not AnyNull matches only real documents
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > the truth table > the three equals predicates partition the table
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > DbNull and JsonNull are different stored values
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > update moves a row between the two nulls
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > upsert stores a sentinel on either arm
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > writes > JsonNull is storable in a NOT NULL json column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a bare null in write position is refused, not guessed
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > AnyNull is filter-only
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > DbNull is refused on a NOT NULL json column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a sentinel nested inside a document is refused
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > a sentinel under a path is refused before execution
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > refusals > an inert mode beside a sentinel not is refused
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null still means the SQL NULL at the root
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > not { equals: null } still means IS NOT NULL
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg json null sentinel behavior > bare null in filter position (unchanged) > equals null under a path still means the JSON null there
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > gt compares two columns of the same row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > lt compares two columns of the same row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > gte and lte include the equal row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > equals and not compare two columns of the same row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a bare reference is the equals shorthand
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference resolves through .map()ed column names
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > string prefix/suffix/substring predicates accept a reference
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a callback is refused where only the token is accepted
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > default mode compares case-sensitively, whatever the server collation
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive mode folds both the filtered and the referenced column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive contains folds the referenced column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive startsWith folds the referenced column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive endsWith folds the referenced column
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive `not` complements the folded comparison
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > case folding against a referenced column > insensitive mode folds ASCII only
+ × |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > equals compares two enum columns of the same row 925ms
+   → Query execution failed
+ × |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > not complements it 960ms
+   → Query execution failed
+ × |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand 956ms
+   → Query execution failed
+ × |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name 956ms
+   → Query execution failed
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > lt on an enum is refused with the portability reason 953ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > lte on an enum is refused with the portability reason 945ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > gt on an enum is refused with the portability reason 967ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > gte on an enum is refused with the portability reason 946ms
+ ✓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > literal enum filters are untouched 967ms
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference mixes with literal operands in one filter object
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference works inside a nested relation where
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > the nested scope's own model is the one a reference must name
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference drives updateMany and deleteMany
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > two decimals of the SAME domain compare exactly
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > two decimals of DIFFERENT domains are refused before any I/O
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a cross-model reference is refused before any I/O
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference of the wrong scalar type is refused
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in in/notIn
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in `having`, however deeply nested
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > a reference is refused in JSON filters and JSON write data
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > an arithmetic expression compares against the row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a scalar subquery compares against the whole table
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > an interpolated value rides as a bound parameter
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment, a reference and a literal mix in one filter
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment drives updateMany and deleteMany
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment survives both execution substrates
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > SQL fragment operands > a fragment is refused where a reference is
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime round-trips exactly through create and findMany
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime filters match the stored instant
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > datetime update round-trips exactly
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > decimal reads back as its exact canonical value
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST round-trips member by member
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST filters by containment on its logical members
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST compares and updates in its logical vocabulary
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > a decimal LIST survives a grouped projection
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > bigint beyond Number.MAX_SAFE_INTEGER round-trips exactly
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg scalar round-trip behavior > include round-trips datetime, decimal, and bigint exactly
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > round-trips every value in the domain exactly
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > callback transactions materialize fresh Decimal scalar and list results
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > array transactions materialize fresh Decimal scalar and list results
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a nullable decimal stores and reads NULL, not zero
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > equals matches on value, not on spelling
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > equals distinguishes the two values a double cannot
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > in / notIn compare numerically
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > gt/lt compare numerically, not lexicographically
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > orderBy sorts numerically, windowed and not
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _min/_max/_sum/_avg are exact, and _sum may exceed the precision
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _avg of an all-null column is NULL, not zero and not an error
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > _avg rounds exact ties to the even neighbour in both signs
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > groupBy orders groups and filters them on exact aggregates
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > groupBy compares a widened _sum beyond the field precision
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > increment and decrement are exact and never round
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > the precision-plus-scale edge keeps an in-range 10^18 intermediate exact
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie to the EVEN neighbour
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact POSITIVE tie AWAY when the neighbour is odd
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > multiply rounds an exact NEGATIVE tie to the EVEN neighbour
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a rounded tie CARRIES across the whole value
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > divide rounds by the same rule, in both signs
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > dividing by a NEGATIVE operand keeps the quotient's sign
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > arithmetic on a NULL column stays NULL
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > division by zero fails BEFORE any statement is issued
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > a result past the field's precision fails and leaves the row alone
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > an INTERMEDIATE past the safe range fails; it never answers through a float
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg decimal exactness > an operand finer than the field's scale is refused, never rounded
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in matches exactly the listed byte arrays
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in compares bytes, not length — the one-byte decoy stays out
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in with no matching member returns nothing
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty in matches nothing (Prisma semantics)
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > notIn excludes exactly the listed byte arrays
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty notIn matches everything (Prisma semantics)
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > notIn on a nullable column excludes NULL rows
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in on a nullable column excludes NULL rows
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > empty notIn on a nullable column keeps the NULL row
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > Buffer members are accepted alongside Uint8Array
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with not
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with arbitrarily nested not
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in composes with the boolean wrappers
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg blob in/notIn filters > in drives deleteMany, not just reads
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly top-level
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > every scalar type round-trips exactly inside an include
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > json primitives round-trip with exact types
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg full scalar-type round-trip behavior > aggregates are scalar-aware
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders nearest-first by l2 distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders farthest-first by l2 distance when distance sort is desc
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders nearest-first by cosine distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > selects l2 distance scores as numbers
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders by distance and returns matching selected scores
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > orders included docs nearest-first by vector distance and honors take
+ ↓ |provider-pg| tests/providers/docker/pg.test.ts > pg vector distance ordering > throws on vector dimension mismatch before execution
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > equals compares two enum columns of the same row
+QueryError: Query execution failed
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001', meta: { correlationId: '4074bd09-3fb7-43e2-861c-19ac5ccdd9a8', driver: 'pg', model: 'post', operation: 'findMany', providerCode: '42883' }, timestamp: '2026-09-19T16:29:36.567Z' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > not complements it
+QueryError: Query execution failed
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001', meta: { correlationId: 'f8d0ba90-65ab-4b1d-9ba1-e11a58b05ab4', driver: 'pg', model: 'post', operation: 'findMany', providerCode: '42883' }, timestamp: '2026-09-19T16:29:37.532Z' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > a bare enum reference is the equals shorthand
+QueryError: Query execution failed
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001', meta: { correlationId: '5dc5ec85-466f-4f4b-8c83-5de8dce8627f', driver: 'pg', model: 'post', operation: 'findMany', providerCode: '42883' }, timestamp: '2026-09-19T16:29:38.488Z' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg.test.ts > pg Driver > pg field references > enum references > the reference resolves through the .map()ed column name
+QueryError: Query execution failed
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'V2001', meta: { correlationId: '3721c3c3-6ebb-4f2f-85ed-e22032717625', driver: 'pg', model: 'post', operation: 'findMany', providerCode: '42883' }, timestamp: '2026-09-19T16:29:39.444Z' }
+Caused by: Error: Underlying error details redacted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: '42883' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 5 passed | 218 skipped (227)
+   Start at  18:29:34
+   Duration  10.07s (transform 902ms, setup 9ms, collect 1.34s, tests 8.58s, environment 0ms, prepare 26ms)
+
+Vitest resources: 11.98s wall, 512.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

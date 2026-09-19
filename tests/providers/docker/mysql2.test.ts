@@ -1004,12 +1004,21 @@ describeIf("MySQL namespace containment", () => {
     // ledger INSERT — must name the target. With the decoy present, "alpha
     // holds the ledger and beta's stays empty" is a claim only correctly
     // qualified statements can satisfy.
+    //
+    // The pair is spelled the way `control.ts` spells it ON MySQL. The decoy
+    // used the dialect-neutral `event_id TEXT PRIMARY KEY` of the other
+    // branch, and MySQL refuses a TEXT key with no prefix length (errno 1170,
+    // SQLSTATE 42000) — on every MySQL there has ever been. The CREATE above it
+    // had already succeeded and this pair is built OUTSIDE the try/finally, so
+    // the abort also left `_viborm_migration_state` behind in beta and the two
+    // cells that read `tableNamesIn(BETA_DB)` back, plus the portable-estate
+    // cell that meets a state table with no log, failed with it.
     await withAdmin(async (admin) => {
       await admin.$executeRawUnsafe(
         `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_STATE}\` (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), payload TEXT NOT NULL)`
       );
       await admin.$executeRawUnsafe(
-        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_LOG}\` (event_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
+        `CREATE TABLE \`${BETA_DB}\`.\`${CONTROL_LOG}\` (event_id VARCHAR(64) PRIMARY KEY, attempt_id VARCHAR(64) NOT NULL, kind VARCHAR(32) NOT NULL, payload TEXT NOT NULL)`
       );
     });
 

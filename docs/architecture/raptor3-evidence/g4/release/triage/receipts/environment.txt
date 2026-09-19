@@ -1,0 +1,28 @@
+=== containers (docker ps) ===
+viborm-triage-mysql-20260918	mysql:8	127.0.0.1:55731->3306/tcp	Up 27 minutes	8b9c7bbef723
+viborm-triage-pg-20260918	postgis/postgis:16-3.4	127.0.0.1:55732->5432/tcp	Up 27 minutes	9c7025e2240c
+viborm-raptor3-g3-mysql-20260914	mysql:8	127.0.0.1:55730->3306/tcp	Up 36 hours	d6da412eec3c
+viborm-raptor3-g3-pg-20260914	postgres:16	127.0.0.1:55729->5432/tcp	Up 36 hours	7dfda37e8eea
+
+=== image ids ===
+/viborm-triage-pg-20260918 image=sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5
+/viborm-triage-mysql-20260918 image=sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+/viborm-raptor3-g3-pg-20260914 image=sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+/viborm-raptor3-g3-mysql-20260914 image=sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
+
+=== image architectures ===
+postgis/postgis:16-3.4 amd64
+postgres:16 arm64
+mysql:8 arm64
+
+=== server versions ===
+fresh pg 55732: PostgreSQL 16.4 (Debian 16.4-1.pgdg110+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 10.2.1-6) 10.2.1 20210110, 64-bit
+old   pg 55729: PostgreSQL 16.14 (Debian 16.14-1.pgdg13+1) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+fresh pg postgis: 3.4.3
+old   pg postgis: fresh mysql 55731: 8.4.11 sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+old   mysql 55730: 8.4.11 sql_mode=IGNORE_SPACE,ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+
+=== database counts ===
+fresh mysql databases: 5
+old   mysql databases: 419
+old   mysql tables in raptor3_g2: 1

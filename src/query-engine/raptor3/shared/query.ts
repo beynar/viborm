@@ -1898,13 +1898,28 @@ export class Queries {
     const folded = text
       ? a.expressions.caseSensitiveText(a.expressions.asciiCaseFold(column))
       : column;
+    /**
+     * An enum compared against ANOTHER COLUMN compares its SPELLING — on BOTH
+     * sides, on every dialect. PostgreSQL gives each enum field its own type,
+     * so `status = review_status` has no operator there (42883) while MySQL and
+     * SQLite, which store the value as text, answer it; casting the operand
+     * alone left the filtered column typed as its own enum and produced
+     * `post_status = text`. A LITERAL operand still binds an enum-typed
+     * parameter against the bare column, so ordinary enum equality keeps its
+     * index. Ordered comparison has no portable answer and is refused at
+     * admission (`validation/scalars/enum.ts`), so equality — and the `not`
+     * that negates it — is the whole reach of this fact.
+     */
+    const spelledAsText = (member: PreparedOperand): boolean =>
+      state?.type === "enum" && member.kind === "field";
+    const comparableColumn = (member: PreparedOperand): Sql =>
+      exact(spelledAsText(member) ? a.expressions.cast(column, "text") : column);
     const bind = (member: PreparedOperand, fold = false): Sql => {
       if (member.kind === "field") {
         const reference = this.preparedColumn(member.scalar, alias);
-        const comparable =
-          state?.type === "enum"
-            ? a.expressions.cast(reference, "text")
-            : reference;
+        const comparable = spelledAsText(member)
+          ? a.expressions.cast(reference, "text")
+          : reference;
         return fold
           ? a.expressions.caseSensitiveText(
               a.expressions.asciiCaseFold(comparable),
@@ -1936,7 +1951,7 @@ export class Queries {
           return a.operators.eq(folded, bind(single, true));
         if (text && single.kind === "value" && !(literal instanceof Sql))
           return a.operators.exactTextEq(column, bind(single));
-        return a.operators.eq(exact(column), bind(single));
+        return a.operators.eq(comparableColumn(single), bind(single));
       }
       case "in":
       case "notIn": {
@@ -4381,12 +4396,22 @@ export class Queries {
     // before any representation rule: a provider that decodes `'null'` into
     // the JSON null document has produced a VALUE, and asking the null
     // question after the chain would refuse it on a NOT NULL json column.
+    //
+    // A json DOCUMENT is the one domain whose values include a null, and two
+    // of the three drivers parse the column themselves (`pg` and `mysql2` hand
+    // back the JS null for the stored `null` document; SQLite hands the text
+    // `'null'` and reaches the chain below). The COLUMN's own nullability is
+    // what tells the two apart there, and it is already on the leaf: a NOT NULL
+    // json column cannot hold the SQL NULL, so this null is the document
+    // `JsonNull` wrote. It continues through the same chain as every other json
+    // value, so a declared output schema still sees it.
     if (raw === null) {
       if (leaf.nullable) return null;
-      throw new InvalidScalarResult(
-        leaf.type,
-        leaf.list ? "a required list is null" : "a required scalar is null",
-      );
+      if (!(leaf.type === "json" && leaf.list !== true))
+        throw new InvalidScalarResult(
+          leaf.type,
+          leaf.list ? "a required list is null" : "a required scalar is null",
+        );
     }
     if (raw === undefined)
       throw new InvalidScalarResult(leaf.type, "the value is absent");
