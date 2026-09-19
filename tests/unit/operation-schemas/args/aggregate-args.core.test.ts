@@ -8,11 +8,12 @@
  * - groupBy
  */
 
+import { s } from "@schema";
 import {
   authorSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
-import { type InferInput, parse } from "@validation";
+import { createSchemaRegistry, type InferInput, parse } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 // =============================================================================
@@ -468,6 +469,17 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     );
   });
 
+  test("output: a missing by is refused before the collision question", () => {
+    // The ordering the grouped-column refusals depend on: `by` is an `atLeast`
+    // key, so the required-field rule answers first and the whole-object
+    // refusal never sees a payload with no column set to inspect.
+    const result = parse(schema, { _count: true });
+    expect(result.issues?.[0]).toEqual({
+      message: "Missing required field: by",
+      path: ["by"],
+    });
+  });
+
   test("output: preserves by as array", () => {
     const result = parse(schema, {
       by: ["active", "name"],
@@ -503,6 +515,53 @@ describe("GroupBy Args - Simple Model Runtime", () => {
       expect(result.value.skip).toBe(5);
       expect(result.value._count).toBe(true);
     }
+  });
+});
+
+// =============================================================================
+// GROUP BY - GROUPED COLUMN / AGGREGATE COLLISIONS
+// =============================================================================
+
+/**
+ * A grouped scalar named like a selected aggregate produces ONE output column
+ * for TWO requested facts: the aggregate aliases over the grouped column and
+ * the caller silently reads the wrong answer. Like the duplicate-`by` refusal
+ * above, this is a complete fact about the admitted arguments, so it is
+ * refused here rather than at any lowering step.
+ *
+ * `tests/contracts/engine/query/parity-admission.core.test.ts` pins the
+ * duplicate-`by` half end to end in the `layer-query-engine` project; this
+ * half has no end-to-end pin, because no fixture schema there declares a
+ * model field named after an aggregate.
+ */
+describe("GroupBy Args - aggregate name collisions", () => {
+  const shadowing = s.model({
+    id: s.int().id(),
+    _count: s.int(),
+    _avg: s.int(),
+    _sum: s.int(),
+    _min: s.int(),
+    _max: s.int(),
+  });
+  const schema = createSchemaRegistry({ shadowing }).proxy.shadowing.args
+    .groupBy;
+
+  test.each([
+    ["_count", true],
+    ["_avg", { id: true }],
+    ["_sum", { id: true }],
+    ["_min", { id: true }],
+    ["_max", { id: true }],
+  ] as const)("output: grouping by a field named %s while selecting it is refused", (aggregate, selection) => {
+    const result = parse(schema, { by: [aggregate], [aggregate]: selection });
+    expect(result.issues?.[0]?.message).toBe(
+      `Aggregate '${aggregate}' cannot be selected together with a model field named '${aggregate}'.`
+    );
+  });
+
+  test("output: grouping by the shadowing field without selecting it passes", () => {
+    const result = parse(schema, { by: ["_count"], _avg: { id: true } });
+    expect(result.issues).toBeUndefined();
   });
 });
 

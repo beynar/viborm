@@ -1,0 +1,55 @@
+
+> viborm@0.1.0 test:coverage:adapters /private/tmp/viborm-coverage
+> node --max-old-space-size=768 scripts/run-coverage.mjs adapters
+
+Coverage adapters: 18 source files, 100% target.
+Coverage adapters part 1/1: layer-adapters.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |layer-adapters| tests/contracts/adapters/dialect-vocabulary.core.test.ts (34 tests) 16ms
+ ✓ |layer-adapters| tests/contracts/adapters/internals-and-geo.core.test.ts (20 tests) 5ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-table-rendering.core.test.ts (21 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/namespace-binding.core.test.ts (35 tests) 3ms
+ ✓ |layer-adapters| tests/contracts/adapters/result-parsing.core.test.ts (26 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/sql-fragments.core.test.ts (12 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/identifier-escaping.core.test.ts (15 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/json-parameter-text.core.test.ts (12 tests) 1ms
+ ✓ |layer-adapters| tests/contracts/adapters/vector-capabilities.core.test.ts (7 tests) 1ms
+
+ Test Files  9 passed (9)
+      Tests  182 passed (182)
+   Start at  18:10:20
+   Duration  1.98s (transform 617ms, setup 12ms, collect 1.05s, tests 30ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 3.80s wall, 562.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |      100 |     100 |     100 |                   
+ adapters          |     100 |      100 |     100 |     100 |                   
+  ...pabilities.ts |       0 |        0 |       0 |       0 |                   
+  ...core-types.ts |       0 |        0 |       0 |       0 |                   
+  ...-internals.ts |     100 |      100 |     100 |     100 |                   
+  ...-namespace.ts |     100 |      100 |     100 |     100 |                   
+  ...uery-parts.ts |       0 |        0 |       0 |       0 |                   
+  ...ult-parser.ts |       0 |        0 |       0 |       0 |                   
+  ...t-identity.ts |     100 |      100 |     100 |     100 |                   
+  ...se-adapter.ts |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+ ...atabases/mysql |     100 |      100 |     100 |     100 |                   
+  mysql-adapter.ts |     100 |      100 |     100 |     100 |                   
+ ...bases/postgres |     100 |      100 |     100 |     100 |                   
+  ...es-adapter.ts |     100 |      100 |     100 |     100 |                   
+ ...tabases/sqlite |     100 |      100 |     100 |     100 |                   
+  ...te-adapter.ts |     100 |      100 |     100 |     100 |                   
+ adapters/shared   |     100 |      100 |     100 |     100 |                   
+  batch-refs.ts    |     100 |      100 |     100 |     100 |                   
+  ...arithmetic.ts |     100 |      100 |     100 |     100 |                   
+  geo-point.ts     |     100 |      100 |     100 |     100 |                   
+  ...lt-parsing.ts |     100 |      100 |     100 |     100 |                   
+  ...t-assembly.ts |     100 |      100 |     100 |     100 |                   
+  standard-sql.ts  |     100 |      100 |     100 |     100 |                   
+-------------------|---------|----------|---------|---------|-------------------
+adapters thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)

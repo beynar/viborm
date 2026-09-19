@@ -313,6 +313,137 @@ describe("Raw JSON Scalar", () => {
       });
     });
   });
+
+  /**
+   * ADMISSION owns both JSON path spellings and the whole string grammar, so a
+   * prepared filter carries segments and nothing else. The grammar is
+   * deliberately small — '$', '.key', '[N]' — and everything outside it is
+   * REFUSED rather than half-supported, because SQLite's path grammar has no
+   * escape syntax inside a quoted label and a larger grammar could not stay
+   * portable.
+   *
+   * `tests/contracts/engine/query/parity-admission.core.test.ts` pins the same
+   * refusals through a compiled statement, in the `layer-query-engine`
+   * project — outside this coverage scope. These are the same facts asked of
+   * the schema that owns them.
+   */
+  describe("filter path grammar", () => {
+    const refusal = (path: unknown): string =>
+      parse(schemas.filter, { path, equals: "x" }).issues?.[0]?.message ?? "";
+
+    test("a path string must start with '$'", () => {
+      expect(refusal("status")).toBe(
+        "JSON filter has an unsupported path string 'status': a path string must start with '$'. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'."
+      );
+    });
+
+    test.each([
+      ["$.", "an object key may not be empty"],
+      ["$.a.", "an object key may not be empty"],
+      ["$.*", "wildcards are not supported"],
+      ["$.a.b*c", "wildcards are not supported"],
+      ["$[0", "an unclosed '['"],
+      ["$[last]", "'[last]' is not a non-negative integer array index"],
+      ["$.a[]", "'[]' is not a non-negative integer array index"],
+      ["$.a[-1]", "'[-1]' is not a non-negative integer array index"],
+      ["$status", "unexpected 's'"],
+    ] as const)("%s is refused: %s", (path, reason) => {
+      expect(refusal(path)).toBe(
+        `JSON filter has an unsupported path string '${path}': ${reason}. The supported grammar is '$', '$.key', '$.key[0]' and nothing else; use the array form (path: ['a', 'b']) for keys containing '.', '[' or ']'.`
+      );
+    });
+
+    test("the root '$' alone is an empty segment list", () => {
+      const result = parse(schemas.filter, { path: "$", equals: "x" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value.path).toEqual([]);
+    });
+
+    test("array indices are parsed into their own segments", () => {
+      const result = parse(schemas.filter, {
+        path: "$.pet.toys[0][12].name",
+        equals: "x",
+      });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value.path).toEqual(["pet", "toys", "0", "12", "name"]);
+    });
+
+    test("a path that is neither a string nor an array is refused", () => {
+      expect(refusal(7)).toBe("Expected string or array of strings");
+    });
+
+    test.each([
+      'quoted"key',
+      "back\\slash",
+    ] as const)("the array form refuses a segment carrying %s", (segment) => {
+      expect(refusal([segment])).toBe(
+        "JSON filter requires a portable JSON path; segments containing '\"' or '\\' are not supported."
+      );
+    });
+
+    test("the string form refuses a non-portable segment by the same rule", () => {
+      // The string grammar admits `"` inside a key, so the ONE portability
+      // rule has to be asked of the parsed segments too, not only of the
+      // array spelling.
+      expect(refusal('$."a b"')).toBe(
+        "JSON filter requires a portable JSON path; segments containing '\"' or '\\' are not supported."
+      );
+    });
+
+    test("segment values are stringified before the portability rule", () => {
+      const result = parse(schemas.filter, { path: [0, "a"], equals: "x" });
+      if (result.issues) throw new Error("Expected success");
+      expect(result.value.path).toEqual(["0", "a"]);
+    });
+  });
+
+  /**
+   * `mode: "insensitive"` governs `string_contains`/`string_starts_with`/
+   * `string_ends_with` and nothing else: `equals` and `array_*` compare whole
+   * JSON values, not text, so folding them would be meaningless. An inert mode
+   * is refused rather than accepted and ignored.
+   */
+  describe("filter mode", () => {
+    const INERT =
+      "JSON filter sets mode: 'insensitive' but has no string_contains/string_starts_with/string_ends_with operation for it to apply to.";
+
+    test("a mode beside a string operator governs it", () => {
+      const result = parse(schemas.filter, {
+        mode: "insensitive",
+        string_contains: "x",
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("a mode beside a whole-value operator is refused", () => {
+      expect(
+        parse(schemas.filter, { mode: "insensitive", equals: "x" }).issues?.[0]
+          ?.message
+      ).toBe(INERT);
+    });
+
+    test("a nested not inherits the mode, so it justifies it", () => {
+      const result = parse(schemas.filter, {
+        mode: "insensitive",
+        not: { string_contains: "x" },
+      });
+      expect(result.issues).toBeUndefined();
+    });
+
+    test("a sentinel not inherits nothing, so the mode stays inert", () => {
+      // `not: DbNull` case-folds nothing and cannot carry a string operator,
+      // so a mode declared beside it governs exactly nothing.
+      expect(
+        parse(schemas.filter, { mode: "insensitive", not: DbNull }).issues?.[0]
+          ?.message
+      ).toBe(INERT);
+    });
+
+    test("mode: 'default' states nothing and is never inert", () => {
+      const result = parse(schemas.filter, { mode: "default", equals: "x" });
+      expect(result.issues).toBeUndefined();
+    });
+  });
 });
 
 // =============================================================================

@@ -1,0 +1,44 @@
+
+> viborm@0.1.0 test:coverage:errors /private/tmp/viborm-coverage
+> node --max-old-space-size=768 scripts/run-coverage.mjs errors
+
+Coverage errors: 12 source files, 100% target.
+Coverage errors part 1/1: coverage-errors.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |coverage-errors| tests/contracts/public-client/errors/diagnostics.core.test.ts (25 tests) 9ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-registry-gate.test.ts (19 tests) 4ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/public-helpers.core.test.ts (11 tests) 4ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/prisma-codes.test.ts (24 tests) 1ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/failure-classification.test.ts (33 tests) 4ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/error-code-discrimination.test.ts (6 tests) 1ms
+ ✓ |coverage-errors| tests/contracts/public-client/errors/docs-errors-examples.test.ts (13 tests) 2ms
+
+ Test Files  7 passed (7)
+      Tests  131 passed (131)
+   Start at  18:40:33
+   Duration  2.47s (transform 230ms, setup 12ms, collect 1.58s, tests 25ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.43s wall, 552.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |      100 |     100 |     100 |                   
+ src               |     100 |      100 |     100 |     100 |                   
+  errors.ts        |     100 |      100 |     100 |     100 |                   
+ src/errors        |     100 |      100 |     100 |     100 |                   
+  base.ts          |     100 |      100 |     100 |     100 |                   
+  cache.ts         |     100 |      100 |     100 |     100 |                   
+  constraints.ts   |     100 |      100 |     100 |     100 |                   
+  ...tic-safety.ts |     100 |      100 |     100 |     100 |                   
+  diagnostics.ts   |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  migrations.ts    |     100 |      100 |     100 |     100 |                   
+  query.ts         |     100 |      100 |     100 |     100 |                   
+  ...s-progress.ts |     100 |      100 |     100 |     100 |                   
+  transaction.ts   |     100 |      100 |     100 |     100 |                   
+  validation.ts    |     100 |      100 |     100 |     100 |                   
+-------------------|---------|----------|---------|---------|-------------------
+errors thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)

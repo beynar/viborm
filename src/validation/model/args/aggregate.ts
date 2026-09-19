@@ -861,9 +861,10 @@ const GROUP_AGGREGATE_KEYS = [
 const groupByCollisions = (
   value: Record<string, unknown>
 ): string | undefined => {
-  const by = value.by;
-  if (!Array.isArray(by)) return undefined;
-  const grouped = by as string[];
+  // `by` is an `atLeast` key over `v.union([v.array(…), v.shorthandArray(…)])`,
+  // so the object schema has already refused a missing `by` and normalised a
+  // single column into a list before this runs: what arrives is a column set.
+  const grouped = value.by as string[];
   if (new Set(grouped).size !== grouped.length) {
     return "GroupBy operation does not allow duplicate fields in 'by'";
   }

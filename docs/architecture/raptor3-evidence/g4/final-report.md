@@ -112,6 +112,27 @@ drivers' middleware is deleted, with its release note in `CHANGELOG.md`;
 the decoder is the one owner of a count and an exists answer, and those
 answers are unchanged on every SQLite driver (production code lines net −10).
 
+**Rulings after commit 8 (commits 9 to 11, 2026-09-17/18).** D-35 (commit 9,
+`82195151`) deleted the SQLite drivers' inert count/exists middleware arm
+with its release note. Commit 10 (`383f830c`) recorded D-38 to D-41 and
+amended the note. Commit 11 (`0e9b8a06`) applied D-39 (a driver's result
+surface is stock only when it is the shipped parser object, for the SQLite
+and PGlite families), D-40 (the MySQL and PostgreSQL adapters' result legs
+measured live across sixty asks, found inert, deleted whole; the adapter
+member kept as a public extension point under D-42 with one shared
+pass-through under D-43) and D-41 (the short-window pin). Each unit had its
+independent review and repair round; on the merged tree typecheck zero, the
+fixed group 59 green, Docker pg and mysql with no regressions. Production
+code moved net negative across the three commits.
+
+**Release lanes (2026-09-18, in progress).** CI parity: the survey of
+`ci.yml`'s steps found the inventory cell, a provider-isolation registration,
+an environmental OpenTelemetry smoke (a stray temp symlink) and coverage
+scopes under their floors; the CI and coverage lanes close them. The Docker
+triage lane separates container state from code on fresh containers. The
+retirement follow-ups F-1 to F-6 and the perf and size re-measure run as
+their own units. Their results are recorded in `g4.md` under "Release lane".
+
 ## Validation
 
 | Lane | Result (attempt 6, freeze-6 identity; attempt 5 identical in shape) |

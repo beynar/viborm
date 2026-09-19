@@ -114,6 +114,18 @@ describe("PostgreSQL drivers bind a schema", () => {
     );
   });
 
+  test.each(
+    constructors
+  )("%s refuses a namespace that is not a string", (_name, build) => {
+    // The name's GRAMMAR has one owner (`installAdapterNamespace`). What the
+    // narrowing here uniquely buys is that a value that is not a string
+    // cannot be dropped instead: `namespace: 5` would otherwise fall through
+    // to PostgreSQL's `public` default and bind a schema nobody asked for.
+    expect(refusalFrom(() => build(5 as unknown as string)).message).toBe(
+      'The "namespace" option must be a string; received type "number".'
+    );
+  });
+
   test.each(constructors)("%s refuses an invalid name", (_name, build) => {
     expect(() => build("")).toThrow(ClientInitializationError);
     expect(() => build("alpha.beta")).toThrow(ClientInitializationError);

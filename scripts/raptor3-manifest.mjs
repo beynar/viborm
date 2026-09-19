@@ -1315,3 +1315,33 @@ export function assertG4OracleValidationReceipt(
   assert.equal(receipt.status, "oracle-validation");
   assertG4BatchShape(receipt, firstSeed, campaign, identity);
 }
+
+/**
+ * The raptor3 tests that run against a live Docker provider, stated once:
+ * `vitest.workspace.ts` builds the `raptor3-live-provider` project from it and
+ * `tests/inventory.ts` reads it to mark the same files as needing SQL
+ * execution. The G1 provider pair below is the `raptor3-provider` project.
+ */
+export const RAPTOR3_LIVE_PROVIDER_TESTS = Object.freeze([
+  ...G2_PG_BASELINE_TESTS,
+  ...G2_PG_CONTRACT_TESTS,
+  ...G25_PG_CONTRACT_TESTS,
+  ...G27_PG_CONTRACT_TESTS,
+  ...G27_MYSQL_CONTRACT_TESTS,
+  ...G3P02_PG_CONTRACT_TESTS,
+  ...G3P03_PG_CONTRACT_TESTS,
+  ...G3P04_PG_CONTRACT_TESTS,
+  ...G3_SCOPE_COMPOSITION_PG_TESTS,
+  ...POST_G3_CLEARABILITY_PG_CONTRACT_TESTS,
+  ...POST_G3_CLEARABILITY_MYSQL_CONTRACT_TESTS,
+  ...G29_MEMBER_DEPENDENCY_PG_TESTS,
+  ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
+  ...G4_NATIVE_PG_TESTS,
+  ...G4_NATIVE_MYSQL_TESTS,
+  ...G4_UNIT02_MYSQL_TESTS,
+  ...G4_UNIT02_PG_TESTS,
+]);
+export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
+  ...G1_PROVIDER_TESTS,
+  ...G1_PROVIDER_BASELINE_TESTS,
+]);

@@ -154,16 +154,19 @@ export class SchemaValidator {
     };
   }
 
-  /** Validate and throw if invalid */
-  validateOrThrow(rules?: ValidationRule[]): void {
+  /**
+   * Validate and throw if invalid; a valid schema publishes the one trusted
+   * topology. `validate` already reports every resolution issue by severity,
+   * so validity and a successful resolution are one fact stated here once.
+   */
+  validateOrThrow(rules?: ValidationRule[]): ResolvedRelationIndex {
     const result = this.validate(rules);
-    if (!result.valid) {
-      const resolution = this.resolve();
-      throw validationError(
-        result.errors,
-        resolution.ok ? undefined : resolution.cause
-      );
-    }
+    const resolution = this.resolve();
+    if (result.valid && resolution.ok) return resolution.index;
+    throw validationError(
+      result.errors,
+      resolution.ok ? undefined : resolution.cause
+    );
   }
 }
 
@@ -190,9 +193,7 @@ export function validateResolvedSchemaOrThrow(
   models: Record<string, Model<any>>,
   rules?: ValidationRule[]
 ): ResolvedRelationIndex {
-  const validator = new SchemaValidator().registerAll(models);
-  validator.validateOrThrow(rules);
-  return publish(validator);
+  return new SchemaValidator().registerAll(models).validateOrThrow(rules);
 }
 
 /**
@@ -229,15 +230,6 @@ export function validateClientSchemaOrThrow(
   return validateResolvedSchemaOrThrow(models, [
     publicSelectorNamesAreUnambiguous,
   ]);
-}
-
-function publish(validator: SchemaValidator): ResolvedRelationIndex {
-  const resolution = validator.resolve();
-  if (resolution.ok) return resolution.index;
-  throw validationError(
-    resolution.issues.filter((issue) => issue.severity === "error"),
-    resolution.cause
-  );
 }
 
 /** One construction path for every thrown schema-validation result. */

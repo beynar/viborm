@@ -1,0 +1,365 @@
+
+> viborm@0.1.0 test:coverage:validation /private/tmp/viborm-coverage
+> node --max-old-space-size=768 scripts/run-coverage.mjs validation
+
+Coverage validation: 105 source files, 100% target.
+Coverage validation part 1/4: layer-validation.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |layer-validation| tests/unit/validation/decimal.core.test.ts (65 tests) 11ms
+ ✓ |layer-validation| tests/unit/validation/json-schema.core.test.ts (78 tests) 15ms
+ ✓ |layer-validation| tests/unit/validation/object.core.test.ts (74 tests) 4ms
+ ✓ |layer-validation| tests/unit/validation/fromObject.core.test.ts (25 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/iso.core.test.ts (36 tests) 5ms
+ ✓ |layer-validation| tests/unit/validation/blob.core.test.ts (28 tests) 9ms
+ ✓ |layer-validation| tests/unit/validation/geo-area.core.test.ts (32 tests) 7ms
+ ✓ |layer-validation| tests/unit/validation/number.core.test.ts (43 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/string.core.test.ts (34 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/array.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/modifier-combinations.core.test.ts (16 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/optional.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/json.core.test.ts (36 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/nullable.core.test.ts (18 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/boolean.core.test.ts (24 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/registry.core.test.ts (9 tests) 3ms
+ ✓ |layer-validation| tests/unit/validation/date.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/operand.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/bigint.core.test.ts (21 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/parse-boundary.core.test.ts (6 tests) 0ms
+ ✓ |layer-validation| tests/unit/validation/json-null-sentinels.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/field-ref.core.test.ts (16 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/datetime-physical-codec.core.test.ts (11 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/fromKeys.core.test.ts (13 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/intern.core.test.ts (6 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/point.core.test.ts (24 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/literal.core.test.ts (17 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/circular.core.test.ts (7 tests) 0ms
+ ✓ |layer-validation| tests/unit/validation/union.core.test.ts (12 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/value-guards.core.test.ts (17 tests) 2ms
+ ✓ |layer-validation| tests/unit/validation/record.core.test.ts (12 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/pipe.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/transform.core.test.ts (10 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/enum.core.test.ts (13 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/refused.core.test.ts (8 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/vector.core.test.ts (11 tests) 1ms
+ ✓ |layer-validation| tests/unit/validation/raw-record.core.test.ts (8 tests) 0ms
+ ✓ |layer-validation| tests/unit/validation/lazy.core.test.ts (2 tests) 1ms
+
+ Test Files  38 passed (38)
+      Tests  825 passed (825)
+   Start at  18:09:52
+   Duration  4.01s (transform 406ms, setup 30ms, collect 1.36s, tests 87ms, environment 0ms, prepare 40ms)
+
+Vitest resources: 5.86s wall, 628.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage validation part 2/4: layer-scalars.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |layer-scalars| tests/unit/scalars/number-scalar-schemas.core.test.ts (158 tests) 12ms
+ ✓ |layer-scalars| tests/unit/scalars/string-scalar-schemas.core.test.ts (106 tests) 9ms
+ ✓ |layer-scalars| tests/unit/scalars/datetime-scalar-schemas.core.test.ts (96 tests) 5ms
+ ✓ |layer-scalars| tests/unit/scalars/json-scalar-schemas.core.test.ts (90 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-descriptor.core.test.ts (67 tests) 7ms
+ ✓ |layer-scalars| tests/unit/scalars/bigint-scalar-schemas.core.test.ts (87 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/enum-scalar-schemas.core.test.ts (74 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/boolean-scalar-schemas.core.test.ts (71 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/blob-scalar-schemas.core.test.ts (53 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/vector-scalar-schemas.core.test.ts (46 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/modifier-contracts.core.test.ts (60 tests) 6ms
+ ✓ |layer-scalars| tests/unit/scalars/point-scalar-schemas.core.test.ts (11 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/shared-scalar.core.test.ts (11 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-list-exclusions.core.test.ts (7 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/native-types.core.test.ts (26 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/exports.core.test.ts (16 tests) 26ms
+ ✓ |layer-scalars| tests/unit/scalars/field-ref.core.test.ts (5 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-provider-limits.core.test.ts (4 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/json-null-sentinel.core.test.ts (3 tests) 0ms
+
+ Test Files  19 passed (19)
+      Tests  991 passed (991)
+   Start at  18:09:59
+   Duration  3.20s (transform 487ms, setup 27ms, collect 1.03s, tests 87ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 5.36s wall, 596.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage validation part 3/4: layer-operation-schemas.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/update.core.test.ts (90 tests) 10ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/nested-args.core.test.ts (71 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic.core.test.ts (18 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/select-include.core.test.ts (54 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/relation-create.core.test.ts (53 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/mutation-args.core.test.ts (63 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/find-args.core.test.ts (66 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/aggregate-args.core.test.ts (72 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/create.core.test.ts (41 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/filter.core.test.ts (46 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-many.core.test.ts (64 tests) 3ms
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > simple model schema creation
+  Simple Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.061ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > medium model schema creation
+  Medium Model: avg=0.001ms, p95=0.000ms, min=0.000ms, max=0.046ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > complex model with relations schema creation
+  Complex Model (Author): avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.029ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Schema Creation Speed > model with deep relations schema creation
+  Deep Relations (Post): avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.028ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findUnique - simple ID lookup
+  findUnique (simple): avg=0.005ms, p95=0.006ms, min=0.002ms, max=0.240ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Simple Queries > findFirst - with simple filter
+  findFirst (simple filter): avg=0.003ms, p95=0.006ms, min=0.002ms, max=0.089ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with complex where
+  findMany (complex where): avg=0.013ms, p95=0.016ms, min=0.008ms, max=0.223ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Filtered Queries > findMany - with OR/AND filters
+  findMany (OR/AND): avg=0.010ms, p95=0.017ms, min=0.006ms, max=0.089ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 1-level include
+  Include (1-level): avg=0.004ms, p95=0.004ms, min=0.002ms, max=0.120ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 2-level include
+  Include (2-level): avg=0.007ms, p95=0.010ms, min=0.004ms, max=0.152ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Nested Includes > 3-level include with filters
+  Include (3-level + filters): avg=0.012ms, p95=0.016ms, min=0.008ms, max=0.102ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > simple create
+  Create (simple): avg=0.003ms, p95=0.003ms, min=0.001ms, max=0.138ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Create Operations > create with nested relation
+  Create (nested): avg=0.005ms, p95=0.007ms, min=0.003ms, max=0.123ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > simple update
+  Update (simple): avg=0.003ms, p95=0.004ms, min=0.002ms, max=0.086ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Validation Speed (Pre-built Schema) > Update Operations > update with nested operations
+  Update (nested): avg=0.006ms, p95=0.010ms, min=0.004ms, max=0.104ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findUnique - full request
+  findUnique (full): avg=0.002ms, p95=0.002ms, min=0.001ms, max=0.013ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with filters - full request
+  findMany filtered (full): avg=0.007ms, p95=0.054ms, min=0.002ms, max=0.082ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > findMany with nested include - full request
+  findMany + include (full): avg=0.008ms, p95=0.011ms, min=0.006ms, max=0.035ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > create with nested - full request
+  create nested (full): avg=0.003ms, p95=0.006ms, min=0.002ms, max=0.027ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Author Model > update with complex operations - full request
+  update complex (full): avg=0.005ms, p95=0.008ms, min=0.004ms, max=0.042ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Serverless Request Simulation (Schema Build + Validate) > Post Model (Deep Relations) > findMany with 3-level include - full request
+  Post findMany 3-level (full): avg=0.012ms, p95=0.016ms, min=0.009ms, max=0.170ms
+
+stdout | tests/unit/operation-schemas/args/speed.core.test.ts > Performance Summary > generate summary report
+
+=== PERFORMANCE SUMMARY ===
+
+Schema Creation:
+  Schema: Simple: avg=0.000ms, p95=0.001ms, min=0.000ms, max=0.006ms
+  Schema: Complex: avg=0.000ms, p95=0.000ms, min=0.000ms, max=0.004ms
+
+Validation (pre-built schema):
+  Validate: Simple Query: avg=0.002ms, p95=0.003ms, min=0.002ms, max=0.014ms
+  Validate: Complex Query: avg=0.006ms, p95=0.009ms, min=0.005ms, max=0.027ms
+
+Full Serverless Request (schema + validation):
+  Full Request: Simple: avg=0.002ms, p95=0.003ms, min=0.001ms, max=0.014ms
+  Full Request: Complex: avg=0.006ms, p95=0.013ms, min=0.004ms, max=0.020ms
+
+=== END SUMMARY ===
+
+
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/speed.core.test.ts (22 tests) 15ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-mutation.core.test.ts (16 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/decimal-update-union.core.test.ts (49 tests) 8ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one.core.test.ts (40 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-selection.core.test.ts (19 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-composition-lattice.core.test.ts (33 tests) 5ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-omission.core.test.ts (11 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/relation-update.core.test.ts (36 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/omit-validation.core.test.ts (19 tests) 3ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-having-operands.core.test.ts (25 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/orderby.core.test.ts (22 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/nested-data-projection.core.test.ts (8 tests) 4ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/wrapper-delegation.core.test.ts (6 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/scalar-filter.core.test.ts (21 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/geopoint-known-negatives.core.test.ts (28 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/include.core.test.ts (20 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/select.core.test.ts (18 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/polymorphic-collection-filter.core.test.ts (19 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/polymorphic-create-many.core.test.ts (7 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/update.core.test.ts (18 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where.core.test.ts (20 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-constraint-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/prisma-parity-validation.core.test.ts (12 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-orderby.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-known-negatives.core.test.ts (54 tests) 2ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/where-unique.core.test.ts (17 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/orderby.core.test.ts (14 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/unique-filter.core.test.ts (13 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/vector-select.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/combined/create.core.test.ts (10 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/update/scalar-update.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/relation-filter.core.test.ts (12 tests) 1ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/create/scalar-create.core.test.ts (10 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/filter/compound-id-filter.core.test.ts (8 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/relations/to-one-update-form.core.test.ts (6 tests) 0ms
+ ✓ |layer-operation-schemas| tests/unit/operation-schemas/args/decimal-list-orderby.core.test.ts (4 tests) 1ms
+
+ Test Files  47 passed (47)
+      Tests  1302 passed (1302)
+   Start at  18:10:04
+   Duration  4.19s (transform 425ms, setup 35ms, collect 1.62s, tests 121ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 6.09s wall, 680.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage validation part 4/4: layer-relations.
+
+ RUN  v3.1.4 /private/tmp/viborm-coverage
+      Coverage enabled with v8
+
+ ✓ |layer-relations| tests/unit/relations/relation-factory-input.core.test.ts (43 tests) 7ms
+ ✓ |layer-relations| tests/unit/relations/junction-topology.core.test.ts (20 tests) 3ms
+ ✓ |layer-relations| tests/unit/relations/relation-clearability.core.test.ts (13 tests) 5ms
+ ✓ |layer-relations| tests/unit/relations/relation-target-settlement.core.test.ts (10 tests) 1ms
+ ✓ |layer-relations| tests/unit/relations/relation-terminal-immutability.core.test.ts (11 tests) 1ms
+ ✓ |layer-relations| tests/unit/relations/relation-exports.core.test.ts (4 tests) 1ms
+
+ Test Files  6 passed (6)
+      Tests  101 passed (101)
+   Start at  18:10:10
+   Duration  2.06s (transform 203ms, setup 15ms, collect 375ms, tests 17ms, environment 0ms, prepare 31ms)
+
+Vitest resources: 3.89s wall, 499.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |      100 |     100 |     100 |                   
+ validation        |     100 |      100 |     100 |     100 |                   
+  builder.ts       |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  inferred.ts      |     100 |      100 |     100 |     100 |                   
+  lazy.ts          |     100 |      100 |     100 |     100 |                   
+  parse-failure.ts |     100 |      100 |     100 |     100 |                   
+  types.ts         |       0 |        0 |       0 |       0 |                   
+  value-guards.ts  |     100 |      100 |     100 |     100 |                   
+ ...on/json-schema |     100 |      100 |     100 |     100 |                   
+  converters.ts    |     100 |      100 |     100 |     100 |                   
+  factory.ts       |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  types.ts         |     100 |      100 |     100 |     100 |                   
+ validation/model  |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+ ...ion/model/args |     100 |      100 |     100 |     100 |                   
+  aggregate.ts     |     100 |      100 |     100 |     100 |                   
+  ...projection.ts |     100 |      100 |     100 |     100 |                   
+  find.ts          |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  mutation.ts      |     100 |      100 |     100 |     100 |                   
+  omit.ts          |     100 |      100 |     100 |     100 |                   
+  pagination.ts    |     100 |      100 |     100 |     100 |                   
+  ...xclusivity.ts |     100 |      100 |     100 |     100 |                   
+ ...ion/model/core |     100 |      100 |     100 |     100 |                   
+  create.ts        |     100 |      100 |     100 |     100 |                   
+  filter.ts        |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  orderby.ts       |     100 |      100 |     100 |     100 |                   
+  projection.ts    |     100 |      100 |     100 |     100 |                   
+  select.ts        |     100 |      100 |     100 |     100 |                   
+  update.ts        |     100 |      100 |     100 |     100 |                   
+  where.ts         |     100 |      100 |     100 |     100 |                   
+ ...ion/primitives |     100 |      100 |     100 |     100 |                   
+  array.ts         |     100 |      100 |     100 |     100 |                   
+  bigint.ts        |     100 |      100 |     100 |     100 |                   
+  blob.ts          |     100 |      100 |     100 |     100 |                   
+  boolean.ts       |     100 |      100 |     100 |     100 |                   
+  date.ts          |     100 |      100 |     100 |     100 |                   
+  ...ical-codec.ts |     100 |      100 |     100 |     100 |                   
+  ...ime-values.ts |     100 |      100 |     100 |     100 |                   
+  decimal-codec.ts |     100 |      100 |     100 |     100 |                   
+  decimal.ts       |     100 |      100 |     100 |     100 |                   
+  enum.ts          |     100 |      100 |     100 |     100 |                   
+  from-object.ts   |     100 |      100 |     100 |     100 |                   
+  ...area-codec.ts |     100 |      100 |     100 |     100 |                   
+  ...oint-codec.ts |     100 |      100 |     100 |     100 |                   
+  geo-values.ts    |       0 |        0 |       0 |       0 |                   
+  helpers.ts       |     100 |      100 |     100 |     100 |                   
+  iso.ts           |     100 |      100 |     100 |     100 |                   
+  json-null.ts     |     100 |      100 |     100 |     100 |                   
+  json.ts          |     100 |      100 |     100 |     100 |                   
+  lazy.ts          |     100 |      100 |     100 |     100 |                   
+  literal.ts       |     100 |      100 |     100 |     100 |                   
+  nullable.ts      |     100 |      100 |     100 |     100 |                   
+  number.ts        |     100 |      100 |     100 |     100 |                   
+  object.ts        |     100 |      100 |     100 |     100 |                   
+  omit.ts          |     100 |      100 |     100 |     100 |                   
+  operand.ts       |     100 |      100 |     100 |     100 |                   
+  optional.ts      |     100 |      100 |     100 |     100 |                   
+  pipe.ts          |     100 |      100 |     100 |     100 |                   
+  point.ts         |     100 |      100 |     100 |     100 |                   
+  raw-record.ts    |     100 |      100 |     100 |     100 |                   
+  record.ts        |     100 |      100 |     100 |     100 |                   
+  refused.ts       |     100 |      100 |     100 |     100 |                   
+  shorthand.ts     |     100 |      100 |     100 |     100 |                   
+  ...e-or-array.ts |     100 |      100 |     100 |     100 |                   
+  string.ts        |     100 |      100 |     100 |     100 |                   
+  transform.ts     |     100 |      100 |     100 |     100 |                   
+  union.ts         |     100 |      100 |     100 |     100 |                   
+  v.ts             |     100 |      100 |     100 |     100 |                   
+  vector.ts        |     100 |      100 |     100 |     100 |                   
+ ...tion/relations |     100 |      100 |     100 |     100 |                   
+  count-filter.ts  |     100 |      100 |     100 |     100 |                   
+  create.ts        |     100 |      100 |     100 |     100 |                   
+  filter.ts        |     100 |      100 |     100 |     100 |                   
+  helpers.ts       |       0 |        0 |       0 |       0 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  ...projection.ts |     100 |      100 |     100 |     100 |                   
+  order-by.ts      |     100 |      100 |     100 |     100 |                   
+  ...ct-include.ts |     100 |      100 |     100 |     100 |                   
+  ...ion-schema.ts |     100 |      100 |     100 |     100 |                   
+  ...pdate-form.ts |     100 |      100 |     100 |     100 |                   
+  update.ts        |     100 |      100 |     100 |     100 |                   
+ ...ns/polymorphic |     100 |      100 |     100 |     100 |                   
+  ...n-mutation.ts |     100 |      100 |     100 |     100 |                   
+  count-filter.ts  |     100 |      100 |     100 |     100 |                   
+  create-many.ts   |     100 |      100 |     100 |     100 |                   
+  create.ts        |     100 |      100 |     100 |     100 |                   
+  filter.ts        |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  order-by.ts      |     100 |      100 |     100 |     100 |                   
+  ...ct-include.ts |     100 |      100 |     100 |     100 |                   
+  ...-predicate.ts |     100 |      100 |     100 |     100 |                   
+  types.ts         |     100 |      100 |     100 |     100 |                   
+  update.ts        |     100 |      100 |     100 |     100 |                   
+ ...dation/scalars |     100 |      100 |     100 |     100 |                   
+  bigint.ts        |     100 |      100 |     100 |     100 |                   
+  blob.ts          |     100 |      100 |     100 |     100 |                   
+  boolean.ts       |     100 |      100 |     100 |     100 |                   
+  date.ts          |     100 |      100 |     100 |     100 |                   
+  datetime.ts      |     100 |      100 |     100 |     100 |                   
+  decimal.ts       |     100 |      100 |     100 |     100 |                   
+  enum.ts          |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  int.ts           |     100 |      100 |     100 |     100 |                   
+  intern.ts        |     100 |      100 |     100 |     100 |                   
+  json.ts          |     100 |      100 |     100 |     100 |                   
+  ...ble-filter.ts |     100 |      100 |     100 |     100 |                   
+  number.ts        |     100 |      100 |     100 |     100 |                   
+  point.ts         |     100 |      100 |     100 |     100 |                   
+  string.ts        |     100 |      100 |     100 |     100 |                   
+  time.ts          |     100 |      100 |     100 |     100 |                   
+  vector.ts        |     100 |      100 |     100 |     100 |                   
+-------------------|---------|----------|---------|---------|-------------------
+validation thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)

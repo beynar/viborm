@@ -1,0 +1,17 @@
+public thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+schema thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+validation thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+sql thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+instrumentation thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+extensions thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+errors thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+adapters thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+CLI thresholds: statements 100% (floor 100%), branches 100% (floor 100%), functions 100% (floor 100%), lines 100% (floor 100%)
+query-engine core thresholds: statements 55.12% (floor 98%), branches 75.78% (floor 97.9%), functions 70.19% (floor 98%), lines 55.12% (floor 98%)
+    throw new Error(`Coverage policy failed:\n${failures.join("\n")}`);
+Error: Coverage policy failed:
+query-engine core: statements 55.12% is below 98%.
+query-engine core: branches 75.78% is below 97.9%.
+query-engine core: functions 70.19% is below 98%.
+query-engine core: lines 55.12% is below 98%.
+EXIT=1

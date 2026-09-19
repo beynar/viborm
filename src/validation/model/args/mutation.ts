@@ -69,8 +69,10 @@ export const refuseDefaultOnlySkipDuplicates = (
   value: Record<string, unknown>
 ): string | undefined => {
   if (value.skipDuplicates !== true) return undefined;
-  const rows = value.data;
-  if (!Array.isArray(rows)) return undefined;
+  // Every registration of this refusal spells `data` as an `atLeast` key over
+  // `v.array(...)`, so the object schema has already refused a missing or
+  // non-array `data` before this runs.
+  const rows = value.data as unknown[];
   const defaultOnly = rows.some(
     (row) =>
       isRecord(row) &&
