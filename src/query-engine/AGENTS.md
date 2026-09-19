@@ -9,12 +9,14 @@
 > is normative for everything an operation does. It is built unconditionally in
 > `VibORM`'s constructor and reached through `PendingOperation`'s single route
 > arm. The V1 write/read engine, the `pattern/` experiment and the owners it
-> alone kept alive (`builders/`, `operations/` bar `groupby-fields.ts`,
-> `result/`'s parser tree, and all of `write-engine/` except
-> `parse-boundary.ts`) are gone from disk. The read/write verb vocabulary that
-> `write-engine/routing.ts` exported lives in `routed-operations.ts`. What this
-> guide still owns is below: the scalar semantics every layer shares, the
-> extension execution boundary, and the rules that outlived both engines.
+> alone kept alive (`builders/`, `operations/`, `result/`'s parser tree and
+> all of `write-engine/`) are gone from disk — follow-up F-2 moved the last two
+> survivors to their consumers (`parse-boundary.ts` to `raptor3/shared/`,
+> `groupby-fields.ts` to `result/`) and deleted both emptied directories. The
+> read/write verb vocabulary that `write-engine/routing.ts` exported lives in
+> `routed-operations.ts`. What this guide still owns is below: the scalar
+> semantics every layer shares, the extension execution boundary, and the rules
+> that outlived both engines.
 
 ## Purpose
 
@@ -109,9 +111,11 @@ used to live here — the fragment vocabulary, relation Parts, record compilers,
 record series, bind-budget partitioning, row keys, to-one composition,
 polymorphic relations and collections, source-bound membership and branch pins
 — described owners that no longer exist. It is preserved as history in
-[`write-engine/ATOM.md`](write-engine/ATOM.md) and
-[`write-engine/README.md`](write-engine/README.md), which the architecture
-plans under `docs/architecture/` cite; neither describes code on disk.
+[`docs/architecture/retired/write-engine-ATOM.md`](../../docs/architecture/retired/write-engine-ATOM.md)
+and
+[`docs/architecture/retired/write-engine-README.md`](../../docs/architecture/retired/write-engine-README.md),
+which the architecture plans under `docs/architecture/` cite; neither describes
+code on disk.
 
 ## Main owners
 
@@ -125,8 +129,8 @@ plans under `docs/architecture/` cite; neither describes code on disk.
 | `routed-operations.ts` | the read/write verb vocabulary the cache and interception seams key on |
 | `types.ts` | the prepared-operation, prepared-batch and prepared-guard shapes the client and the route share, including `PreparedGuardFailure` |
 | `batch-error-attribution.ts` | attribution of a native-batch assertion failure to the guard that raised it, and the ONE guard-failure-to-error construction |
-| `write-engine/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |
-| `operations/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
+| `raptor3/shared/parse-boundary.ts` | the typed parse boundary: the one place a user payload becomes a validated, typed value |
+| `result/groupby-fields.ts` | the groupBy field vocabulary `result/result-shape.ts` reads |
 | `result/cache-*.ts` | the cache boundary's codecs and snapshot structure |
 | `result/result-shape.ts`, `result-column.ts`, `result-aggregate-leaf.ts` | the result-shape vocabulary the client's TypeScript renderer reads |
 | `context/`, `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts` | retained boundaries outside either engine |
@@ -224,16 +228,15 @@ Provider parity files, including the decimal scalar and list surfaces, stay in
 the extended `.test.ts` estate even when they are credential-free; starting an
 embedded provider is not a core sentinel.
 
-`pnpm test:coverage:query-engine-core` and `pnpm test:coverage:write-engine`
-are the two exact query-engine ownership reports, and they do NOT share one
-floor. Both are approved exceptions whose evidence is recorded in
-`scripts/coverage-policy.mjs`. **Both floors were measured over estates that no
-longer exist** — the query-core floor over `result/`'s parser tree, the
-write floor over the V1 write engine — so they are re-measurement work, not
-live ratchets, until someone re-derives them over what remains
-(`src/query-engine/` minus `write-engine/`, and `write-engine/parse-boundary.ts`).
-`scripts/merge-coverage.mjs` prints each measured metric beside the floor it
-enforces, so the enforced number is never inferred from a nominal target.
+`pnpm test:coverage:query-engine-core` is THE query-engine ownership report.
+Follow-up F-3 merged the former `write-engine` subsystem into it when F-2/F-6
+deleted the directory that subsystem owned, so one subsystem now owns
+`src/query-engine/` whole and runs four parts: `layer-query-engine`,
+`coverage-write-engine-core`, `coverage-write-engine` and `coverage-raptor3`
+(the engine's own deterministic test tree, `RAPTOR3_DETERMINISTIC_TESTS` in
+`scripts/raptor3-manifest.mjs`). The floors are 87 / 91 / 90 / 87, RE-MEASURED
+with that fourth part (87.38 / 91.1 / 90.48 / 87.38, rounded down to the
+half-point; follow-up F-3, `g4/release/followups/`).
 
 `scripts/query-engine-test-manifest.mjs` is the fail-closed registration owner
 for these projects. It lists every admitted deterministic file literally, and

@@ -9,7 +9,7 @@
 
 import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";

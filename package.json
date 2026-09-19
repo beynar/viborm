@@ -159,7 +159,6 @@
     "test:coverage:adapters": "node --max-old-space-size=768 scripts/run-coverage.mjs adapters",
     "test:coverage:cli": "node --max-old-space-size=768 scripts/run-coverage.mjs cli",
     "test:coverage:query-engine-core": "node --max-old-space-size=768 scripts/run-coverage.mjs query-engine-core",
-    "test:coverage:write-engine": "node --max-old-space-size=768 scripts/run-coverage.mjs write-engine",
     "test:coverage:drivers": "node --max-old-space-size=768 scripts/run-coverage.mjs drivers",
     "test:coverage:client": "node --max-old-space-size=768 scripts/run-coverage.mjs client",
     "test:coverage:cache": "node --max-old-space-size=768 scripts/run-coverage.mjs cache",

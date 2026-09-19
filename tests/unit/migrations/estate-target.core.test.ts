@@ -17,8 +17,8 @@ import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { generateV1 as generate } from "@migrations/generate-v1";
 import { statusV1 as status } from "@migrations/operators";
-import { introspect } from "@migrations/push";
 import type { MigrationClient } from "@migrations/push/planner";
+import { introspect } from "@migrations/push/planner";
 import { pushV1 as applyPush } from "@migrations/push-v1";
 import { resetV1 as reset } from "@migrations/reset-v1";
 import {

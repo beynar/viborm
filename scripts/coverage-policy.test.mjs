@@ -488,10 +488,24 @@ test("write coverage admits the core and audited high-signal local contracts", (
       `${file} is omitted without a Docker or transitive provider-resource dependency`
     );
   }
-  assert.equal(
-    coverageSubsystems.find(({ id }) => id === "write-engine")?.heapLimitMb,
-    512
+  // Follow-up F-3 merged the `write-engine` coverage subsystem into
+  // `query-engine-core` when F-2/F-6 deleted the directory it owned. Its two
+  // vitest projects are parts of that subsystem now, so the registration this
+  // test guards is that BOTH still measure the engine — a lane dropped here
+  // would silently stop measuring the write half.
+  const queryEngine = coverageSubsystems.find(
+    ({ id }) => id === "query-engine-core"
   );
+  assert.equal(
+    coverageSubsystems.some(({ id }) => id === "write-engine"),
+    false
+  );
+  assert.deepEqual(queryEngine?.projects, [
+    "layer-query-engine",
+    "coverage-write-engine-core",
+    "coverage-write-engine",
+    "coverage-raptor3",
+  ]);
 });
 
 test("cache coverage admits every deterministic cache contract exactly once", () => {

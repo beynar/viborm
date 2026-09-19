@@ -1,0 +1,310 @@
+
+> viborm@0.1.0 test:coverage:query-engine-core /private/tmp/viborm-followups
+> node --max-old-space-size=768 scripts/run-coverage.mjs query-engine-core
+
+Coverage query-engine core: 38 source files, 98% target.
+Coverage query-engine core part 1/4: layer-query-engine.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/operand-callback-sql.core.test.ts (62 tests) 53ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/pending-operation-contracts.core.test.ts (27 tests) 14ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/field-reference-sql.core.test.ts (49 tests) 17ms
+ ✓ |layer-query-engine| tests/contracts/architecture/extension-system-census.core.test.ts (8 tests) 1181ms
+   ✓ extension-system source census > keeps no superseded owner or parallel runtime handler carrier  1177ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 10ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/geopoint-sql.core.test.ts (14 tests) 8ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/decimal-having-operand-sql.core.test.ts (42 tests) 20ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/namespace-qualification.core.test.ts (122 tests) 17ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/model-key-catalog.core.test.ts (22 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-admission.core.test.ts (75 tests) 37ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-lowering.core.test.ts (20 tests) 16ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/cache-result-codec-boundaries.core.test.ts (9 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/starts-with-prefix-sql.core.test.ts (31 tests) 7ms
+ ✓ |layer-query-engine| tests/contracts/architecture/geopoint-language-census.core.test.ts (4 tests) 2499ms
+   ✓ GeoPoint shipped-language census > the complete shipped executable source has zero retired owners  1237ms
+   ✓ GeoPoint shipped-language census > the codecs and fixed radius each have one declaration owner  1259ms
+ ✓ |layer-query-engine| tests/contracts/architecture/core-taxonomy-census.core.test.ts (4 tests) 108ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/for-update-dialects.core.test.ts (17 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/query-inspection.core.test.ts (8 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/json-null-sentinel-sql.core.test.ts (21 tests) 5ms
+ ✓ |layer-query-engine| tests/contracts/architecture/contract-matrix.core.test.ts (5 tests) 53ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-preparation.core.test.ts (36 tests) 10ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-assignments.core.test.ts (6 tests) 7ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/lateral-joins.core.test.ts (11 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/operation-program-read-contracts.core.test.ts (2 tests) 6ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/select-mode-capability-matrix.core.test.ts (3 tests) 4ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/orderby-relation-depth.core.test.ts (4 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/architecture/system-clock.core.test.ts (5 tests) 2ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/default-insert-sql.core.test.ts (3 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts (2 tests) 3ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/result-aliases.core.test.ts (14 tests) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/bind-budget.core.test.ts (2 tests) 0ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/nested-captured-target-signature.core.test.ts (1 test) 0ms
+
+ Test Files  32 passed (32)
+      Tests  647 passed (647)
+   Start at  18:37:00
+   Duration  10.96s (transform 847ms, setup 24ms, collect 4.65s, tests 4.09s, environment 0ms, prepare 33ms)
+
+Vitest resources: 12.91s wall, 954.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage query-engine core part 2/4: coverage-write-engine-core.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |coverage-write-engine-core| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 11ms
+ ✓ |coverage-write-engine-core| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 518ms
+ ✓ |coverage-write-engine-core| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |coverage-write-engine-core| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 7ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed (50)
+   Start at  18:37:13
+   Duration  2.82s (transform 674ms, setup 11ms, collect 1.03s, tests 536ms, environment 0ms, prepare 32ms)
+
+Vitest resources: 4.72s wall, 536.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage query-engine core part 3/4: coverage-write-engine.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |coverage-write-engine| tests/contracts/engine/write/neon-committed-segments-capability.test.ts (12 tests) 75ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/parse-boundary-gate.core.test.ts (3 tests) 8ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/dead-symbol-gate.core.test.ts (43 tests) 532ms
+ ✓ |coverage-write-engine| tests/contracts/engine/write/atomic-unit-batch.core.test.ts (3 tests) 0ms
+ ✓ |coverage-write-engine| tests/contracts/engine/query/nested-create-many.core.test.ts (1 test) 2ms
+
+ Test Files  5 passed (5)
+      Tests  62 passed (62)
+   Start at  18:37:18
+   Duration  2.76s (transform 712ms, setup 9ms, collect 937ms, tests 617ms, environment 0ms, prepare 34ms)
+
+Vitest resources: 4.69s wall, 484.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage query-engine core part 4/4: coverage-raptor3.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 89ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/member-scope.contract.test.ts (8 tests) 25ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/key-arithmetic.test.ts (21 tests) 65ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 19ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/structural-reference.test.ts (10 tests) 25ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/recursive-read-fit.test.ts (6 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/suppression-replay.test.ts (5 tests) 35ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 41ms
+ ✓ |coverage-raptor3| tests/raptor3/gate.test.ts (8 tests) 98ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/upsert-key-portability.test.ts (19 tests) 119ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 61ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/set-preparation.test.ts (6 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/lone-statement-transport.test.ts (7 tests) 24ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/selector-dependencies.test.ts (11 tests) 67ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/g3p04-review-regressions.test.ts (5 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-filters.test.ts (13 tests) 80ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/repeated-occurrence-ownership.test.ts (5 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/prep/variant-collection-order.test.ts (4 tests) 36ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repairs.test.ts (13 tests) 28ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/generation/harness.selftest.test.ts (6 tests) 111ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 18ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/extension-a.contract.test.ts (6 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/distance-depth.test.ts (13 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/ownership/commands.test.ts (6 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/transport.test.ts (44 tests) 581ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/scope-failure-contract.test.ts (2 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/malformed-result-cuts.test.ts (4 tests) 9ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repair2.test.ts (22 tests) 23ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/nested-key-refusal.test.ts (6 tests) 40ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/repair3.test.ts (14 tests) 15ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/transaction-array-contract.test.ts (4 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts (7 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/read-verbs.test.ts (9 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-recursive-fit.test.ts (3 tests) 16ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 15ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/review-execution-boundaries.test.ts (6 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/extension-composition.contract.test.ts (4 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts (5 tests) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/physical-envelope.test.ts (10 tests) 21ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/borrowed-envelope.test.ts (5 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/decimal-domains.test.ts (17 tests) 22ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/bulk-series-contract.test.ts (6 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/bulk-result-boundary.test.ts (5 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/filters.test.ts (8 tests) 12ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/suppression-retry-contract.test.ts (2 tests) 12ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-operations.test.ts (11 tests) 68ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/generation/generated-smoke.test.ts (6 tests) 178ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/depth-recurrence-contract.test.ts (6 tests) 18ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/order-projection.test.ts (6 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/prepared-operation.test.ts (6 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/root-member-cut-trace.test.ts (4 tests) 13ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup/distance-parity.test.ts (7 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/core-structure/extension-b.contract.test.ts (4 tests) 9ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-projection.test.ts (7 tests) 39ms
+ ✓ |coverage-raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 39ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup/nested-reversal.test.ts (5 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/json-sentinel-sweep.test.ts (9 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/combinator-depth.test.ts (24 tests) 31ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup/order-oracle.test.ts (9 tests) 24ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 43ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/diagnostics.test.ts (2 tests) 86ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/packaged-array.test.ts (3 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/prepared-statement-stability.test.ts (3 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 759ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/distance-pins.test.ts (4 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/shipped-parity.test.ts (8 tests) 15ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-ordering.test.ts (5 tests) 28ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-pagination.test.ts (6 tests) 35ms
+ ✓ |coverage-raptor3| tests/raptor3/g2-transport.test.ts (16 tests) 636ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/decode-strictness.test.ts (7 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/having-projection.test.ts (5 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/order-cursor.test.ts (6 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup/operand-and-logic.test.ts (9 tests) 12ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/cleanup-failure.test.ts (2 tests) 28ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/codec-roundtrip.test.ts (5 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/generation/generated-transport-smoke.test.ts (1 test) 110ms
+ ✓ |coverage-raptor3| tests/raptor3/transport-campaign.test.ts (1 test) 868ms
+   ✓ completes the exact admitted transport seed batch  868ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/cursor-refusal-sweep.test.ts (11 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/vector-capability.test.ts (1 test) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/root-delete.test.ts (6 tests) 16ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/variants.test.ts (3 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/g2-harness.test.ts (6 tests) 40ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (1 test) 1ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/selector-facts.test.ts (5 tests) 13ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/whole-value-operands.test.ts (7 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/null-placement-parity.test.ts (2 tests) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/recursive-vocabulary.test.ts (1 test) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/returning-safety-gate.test.ts (5 tests) 1ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/decimal-fieldref.test.ts (2 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/generated-gate.test.ts (3 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/nested-window.test.ts (3 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/candidate.test.ts (48 tests) 339ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit01/geo-capability.test.ts (2 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/logical-forms.test.ts (3 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/variant-arms.test.ts (2 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/json-sentinel.test.ts (3 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/candidate-pagination.test.ts (8 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/k-competing-refusals.test.ts (4 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/decimal-reach.test.ts (5 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01/distance-projection.test.ts (1 test) 2ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/characterize.test.ts (10 tests) 8ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/k-refusal-order-history.test.ts (3 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/candidate-ordering.test.ts (4 tests) 23ms
+ ✓ |coverage-raptor3| tests/raptor3/g3/generation/failure-minimization.test.ts (1 test) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/competing-refusals.test.ts (4 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup/empty-arm.test.ts (12 tests) 11ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup3/refusal-order-history.test.ts (3 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/lifetime-commands.test.ts (16 tests) 49ms
+ ✓ |coverage-raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 2643ms
+   ✓ completes the exact admitted SQLite transition seed batch  2643ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 68ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 268ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 36ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junction-identity-commands.test.ts (2 tests) 24ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 49ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/review/unit01-followup2/cursor-refusal.test.ts (2 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/mixed-key-transitions-commands.test.ts (8 tests) 86ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 73ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests) 45ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 26ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 119ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-commands.test.ts (26 tests) 247ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 104ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/occupied-keys-commands.test.ts (8 tests) 97ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 42ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/keys-commands.test.ts (14 tests) 79ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests) 118ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-legacy.test.ts (8 tests) 38ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/mixed-key-transitions-legacy.test.ts (8 tests) 76ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 90ms
+ ✓ |coverage-raptor3| tests/raptor3/generated-campaign.test.ts (1 test) 1226ms
+   ✓ completes the exact admitted G1 generated seed batch  1226ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 58ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 28ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/own-write-legacy.test.ts (18 tests) 19ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/compound-falsifier.test.ts (1 test) 1ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junction-identity-legacy.test.ts (2 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/commands.test.ts (82 tests) 189ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/variant-identity-commands.test.ts (42 tests) 111ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/legacy.test.ts (82 tests) 102ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/junctions-legacy.test.ts (26 tests) 41ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests) 12ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/keys-legacy.test.ts (14 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 43ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/variant-identity-legacy.test.ts (42 tests) 79ms
+ ✓ |coverage-raptor3| tests/raptor3/expanded/lifetime-legacy.test.ts (16 tests) 19ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/occupied-keys-legacy.test.ts (8 tests) 17ms
+ ✓ |coverage-raptor3| tests/raptor3/fixed.test.ts (24 tests) 32ms
+ ✓ |coverage-raptor3| tests/raptor3/generated-smoke.test.ts (32 tests) 224ms
+
+ Test Files  159 passed (159)
+      Tests  1621 passed (1621)
+   Start at  18:37:23
+   Duration  32.76s (transform 1.62s, setup 112ms, collect 11.19s, tests 12.36s, environment 0ms, prepare 32ms)
+
+Vitest resources: 34.63s wall, 1320.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   87.38 |     91.1 |   90.48 |   87.38 |                   
+ query-engine      |   85.21 |    85.03 |   84.87 |   85.21 |                   
+  ...ttribution.ts |    75.9 |    78.26 |     100 |    75.9 | ...42,107,109-113 
+  bind-budget.ts   |     100 |      100 |     100 |     100 |                   
+  cache-flow.ts    |   67.08 |    54.83 |      75 |   67.08 | ...81-296,305-309 
+  ...on-context.ts |   81.35 |       50 |      80 |   81.35 | ...58-159,208-214 
+  ...-execution.ts |   97.59 |    96.42 |     100 |   97.59 | 8-9               
+  ...-operation.ts |   87.77 |    91.56 |   96.22 |   87.77 | ...89-690,843-851 
+  query-engine.ts  |   85.45 |    77.77 |   53.33 |   85.45 | ...49-250,252-253 
+  ...inspection.ts |   98.49 |    93.15 |     100 |   98.49 | 61,178-179        
+  ...lt-aliases.ts |   96.96 |     87.5 |     100 |   96.96 | 69                
+  ...operations.ts |     100 |      100 |     100 |     100 |                   
+  ...-operation.ts |   92.85 |       75 |     100 |   92.85 | 115,117-118       
+  types.ts         |   39.28 |      100 |       0 |   39.28 | ...36-341,344-350 
+ ...engine/context |    19.1 |      100 |      10 |    19.1 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  query-scope.ts   |   18.58 |      100 |      10 |   18.58 | ...60-264,279-285 
+ ...ptor3/commands |   96.61 |    94.88 |    98.7 |   96.61 |                   
+  assignments.ts   |   96.37 |    84.84 |     100 |   96.37 | 166-168,174,178   
+  ...nd-attempt.ts |     100 |      100 |     100 |     100 |                   
+  commands.ts      |   97.42 |    95.22 |   98.43 |   97.42 | ...1184-1196,1212 
+  execution.ts     |    93.5 |    93.49 |   95.23 |    93.5 | ...12,528,655-657 
+  index.ts         |   98.36 |    96.61 |     100 |   98.36 | 44,153-154        
+  relation-body.ts |   97.33 |    96.49 |     100 |   97.33 | ...1,939-951,1015 
+  selection.ts     |     100 |      100 |     100 |     100 |                   
+ ...aptor3/program |   96.69 |    92.45 |     100 |   96.69 |                   
+  index.ts         |   93.47 |    83.33 |     100 |   93.47 | 25,41-42          
+  program.ts       |   96.97 |    93.19 |     100 |   96.97 | ...18-520,547-550 
+ .../raptor3/route |   76.26 |    83.01 |   84.21 |   76.26 |                   
+  client-route.ts  |   76.26 |    83.01 |   84.21 |   76.26 | ...91-395,406,408 
+ ...raptor3/shared |   92.64 |    90.53 |   97.58 |   92.64 |                   
+  ...on-context.ts |   89.14 |    91.59 |   95.91 |   89.14 | ...2691,2722-2737 
+  ...e-boundary.ts |     100 |      100 |     100 |     100 |                   
+  query.ts         |   93.63 |    88.73 |   97.98 |   93.63 | ...4780,4792-4837 
+  schema.ts        |   99.71 |      100 |     100 |   99.71 | 472               
+  storage.ts       |   97.75 |    97.43 |     100 |   97.75 | 65-66,214-215     
+  ...rt-attempt.ts |    90.9 |     91.3 |     100 |    90.9 | 82-86             
+ ...-engine/result |   47.03 |    87.41 |    72.3 |   47.03 |                   
+  ...json-codec.ts |     100 |      100 |     100 |     100 |                   
+  ...sult-codec.ts |       0 |        0 |       0 |       0 | 1-254             
+  ...-structure.ts |     100 |      100 |     100 |     100 |                   
+  ...lue-codecs.ts |   83.64 |    79.04 |   91.89 |   83.64 | ...62,479,501-502 
+  ...pby-fields.ts |   13.33 |      100 |       0 |   13.33 | 5-17              
+  ...egate-leaf.ts |    4.34 |      100 |       0 |    4.34 | 34-55             
+  result-column.ts |    5.45 |      100 |       0 |    5.45 | 55-111            
+  result-shape.ts  |    7.31 |      100 |       0 |    7.31 | 51-421,424-445    
+-------------------|---------|----------|---------|---------|-------------------
+query-engine core thresholds: statements 87.38% (floor 87%), branches 91.1% (floor 91%), functions 90.48% (floor 90%), lines 87.38% (floor 87%)

@@ -45,7 +45,6 @@
       "@sql": ["./src/sql/sql.ts"],
       "@migrations/*": ["./src/migrations/*"],
       "@migrations": ["./src/migrations/index.ts"],
-      "@standard-schema": ["./src/standardSchema.ts"],
       "@errors": ["./src/errors.ts"],
       "@instrumentation": ["./src/instrumentation/index.ts"],
       "@instrumentation/*": ["./src/instrumentation/*"],

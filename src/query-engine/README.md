@@ -9,9 +9,11 @@ dialect syntax remains adapter-owned.
 > is owned by `src/query-engine/raptor3/`**, built unconditionally in `VibORM`'s
 > constructor and reached through `PendingOperation`'s single route arm. The V1
 > write/read engine was deleted at C-01; the pattern-engine experiment and the
-> owners it alone kept alive — `builders/`, `operations/` (bar one helper),
-> `result/`'s parser tree and the rest of `write-engine/` — were deleted with it
-> in the pattern retirement (D-15). `src/query-engine/raptor3/README.md` and
+> owners it alone kept alive — `builders/`, `operations/`, `result/`'s parser
+> tree and the rest of `write-engine/` — were deleted with it in the pattern
+> retirement (D-15), and follow-up F-2 moved the last two survivors to their
+> consumers (`raptor3/shared/parse-boundary.ts`, `result/groupby-fields.ts`)
+> and deleted both emptied directories. `src/query-engine/raptor3/README.md` and
 > `raptor3/AGENTS.md` are the normative documents for the engine that ships.
 
 ## Ownership
@@ -30,8 +32,8 @@ QueryEngine
 | `routed-operations.ts` | The read/write verb vocabulary the cache and interception seams key on |
 | `types.ts` | The prepared-operation, prepared-batch and guard shapes the client and the route share |
 | `batch-error-attribution.ts` | Attribution of a native-batch assertion failure to the guard that raised it, and the one guard-failure-to-error construction |
-| `result/` | The cache codecs (`cache-result-codec.ts`, `cache-value-codecs.ts`, `cache-json-codec.ts`, `cache-snapshot-structure.ts`) and the result-shape vocabulary the client's type renderer reads |
-| `write-engine/parse-boundary.ts` | The typed parse boundary: the ONE place a user payload becomes a validated, typed value |
+| `result/` | The cache codecs (`cache-result-codec.ts`, `cache-value-codecs.ts`, `cache-json-codec.ts`, `cache-snapshot-structure.ts`), the result-shape vocabulary the client's type renderer reads, and `groupby-fields.ts` |
+| `raptor3/shared/parse-boundary.ts` | The typed parse boundary: the ONE place a user payload becomes a validated, typed value |
 | `context/`, `bind-budget.ts`, `execution-context.ts`, `cache-flow.ts`, `query-inspection.ts`, `result-aliases.ts`, `transaction-operation.ts`, `pending-execution.ts` | Retained boundaries outside either engine |
 
 `QueryEngine` is not a forwarding shell. A transaction-bound engine preserves
@@ -51,9 +53,12 @@ client call
   → typed public value
 ```
 
-`raptor3/AGENTS.md` is normative for that path: the route opens, closes and
-retries nothing, and never falls back to a shipped engine — there is no shipped
-engine left to fall back to.
+`raptor3/AGENTS.md` is normative for that path: the route opens and closes no
+scope of its own, and never falls back to a shipped engine — there is no shipped
+engine left to fall back to. It is not retry-free: the engine has four bounded
+recoveries, and one of them is armed by reading `meta.raceable` off the failure
+its own owner marked (`OperationContext.submit`, Arnaud's D-32). See
+`raptor3/AGENTS.md` for which recovery REPLAYS and which RE-PLANS.
 
 ## SQL construction
 

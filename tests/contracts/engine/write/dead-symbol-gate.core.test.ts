@@ -11,13 +11,18 @@ import { describe, expect, it } from "vitest";
  * experiment and the 111 production owners it alone kept alive: `builders/` whole,
  * `operations/` bar `groupby-fields.ts`, `result/`'s V1 parser tree, all of
  * `write-engine/` bar `parse-boundary.ts`, and four `query-engine/` root files.
+ * Follow-up F-2 then moved those last two survivors to their consumers
+ * (`raptor3/shared/parse-boundary.ts`, `result/groupby-fields.ts`) and F-6 moved
+ * the two RETIRED guides to `docs/architecture/retired/`, which emptied and
+ * deleted `write-engine/` and `operations/` too.
  *
  * Every deleted module/class name must appear in no CODE anywhere in
  * `src/**​/*.ts` — an import of a resurrected file, a copy-pasted class, a
  * `new`/`extends`/type reference the compiler would accept via a same-named new
  * symbol all turn this red. The estate cell adds what a symbol scan cannot see: a
- * deleted DIRECTORY back on disk, or a second file beside the one parse boundary
- * `write-engine/` still owns.
+ * deleted DIRECTORY back on disk. It is STRICTLY stronger than the per-file
+ * estate list it replaces: four directories must be absent, not one of them
+ * present with an exact three-entry listing.
  *
  * The scan is over source `.ts` CODE only, with comments stripped: the migration
  * documents V2's behavioural lineage in provenance comments (“reproduces V1's
@@ -34,8 +39,8 @@ import { describe, expect, it } from "vitest";
  *
  * Falsified: re-add any deleted name to `src` CODE (e.g. resurrect the
  * `OperationRuntime` import in `pending-operation.ts`) and this gate fails, naming
- * the file and symbol; put `src/query-engine/builders/` or `pattern/` back on disk,
- * or a second `.ts` beside `parse-boundary.ts`, and the estate cell fails naming it.
+ * the file and symbol; put `src/query-engine/builders/`, `operations/`,
+ * `pattern/` or `write-engine/` back on disk and the estate cell fails naming it.
  */
 
 const DELETED_V1_SYMBOLS = [
@@ -90,12 +95,15 @@ const DELETED_V1_SYMBOLS = [
 const SRC = SOURCE_ROOT;
 const QUERY_ENGINE = join(SRC, "query-engine");
 
-/** Deleted whole by D-15: neither may come back under its own name. */
-const RETIRED_DIRECTORIES = ["builders", "pattern"] as const;
-
-/** What `write-engine/` holds after D-15: the one live boundary, and the two
- *  guides that stay RETIRED-headed because eleven plans under `docs/` cite them. */
-const WRITE_ENGINE_ESTATE = ["ATOM.md", "README.md", "parse-boundary.ts"];
+/** Deleted whole: `builders/` and `pattern/` by D-15, `operations/` and
+ *  `write-engine/` by follow-up F-2/F-6 once their last file had moved to its
+ *  consumer. None may come back under its own name. */
+const RETIRED_DIRECTORIES = [
+  "builders",
+  "operations",
+  "pattern",
+  "write-engine",
+] as const;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -142,9 +150,6 @@ describe("dead-symbol gate: V1's write engine and the retired pattern estate lea
     expect(
       RETIRED_DIRECTORIES.filter((name) => existsSync(join(QUERY_ENGINE, name)))
     ).toEqual([]);
-    expect(readdirSync(join(QUERY_ENGINE, "write-engine")).sort()).toEqual(
-      WRITE_ENGINE_ESTATE
-    );
   });
 
   it("the scanner would catch a re-introduced symbol (matcher self-check)", () => {

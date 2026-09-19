@@ -1,0 +1,10 @@
+=== 18:36:48 followups verify on 92625457f+wip ===
+policy exit=0
+qec exit=0 query-engine core thresholds: statements 87.38% (floor 87%), branches 91.1% (floor 91%), functions 90.48% (floor 90%), lines 87.38% (floor 87%)
+package exit=0  Tests 9 passed (9)
+package:lint exit=0
+g2-baseline exit=0  Tests 216 passed (216)
+g2-contracts exit=0  Tests 216 passed (216)
+typecheck exit=0 diagnostics=0
+biome exit=1 Found 71 errors 
+=== 18:38:32 done ===

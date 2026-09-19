@@ -9,10 +9,17 @@
  * nothing is a dangling edge into the deleted estate.
  *
  * The remaining cells pin the shape of the retirement itself, so a later change
- * that re-creates the estate under another name fails here: `builders/` and
- * `pattern/` are gone, `write-engine/` and `operations/` hold exactly the one
- * survivor the note names, `result/` keeps exactly the cache tree, and
- * `createFailureError` is declared in exactly one place.
+ * that re-creates the estate under another name fails here: `builders/`,
+ * `pattern/`, `write-engine/` and `operations/` are gone, the two survivors the
+ * note named live at the consumers follow-up F-2 moved them to
+ * (`raptor3/shared/parse-boundary.ts`, `result/groupby-fields.ts`), `result/`
+ * keeps exactly the cache tree plus that one arrival, and `createFailureError`
+ * is declared in exactly one place.
+ *
+ * F-2/F-6 emptied and deleted the last two directories, so the survivor cell
+ * asks the stronger question the deletion made available: not "does this
+ * directory hold exactly one file?" but "is the directory gone, and is its
+ * survivor at its new owner?".
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -131,20 +138,21 @@ describe("D-15 retirement closure: no surviving file reaches a deleted owner", (
     expect(existsSync(join(QUERY_ENGINE, "pattern"))).toBe(false);
     expect(existsSync(join(QUERY_ENGINE, "builders"))).toBe(false);
     expect(existsSync(join(REPOSITORY_ROOT, "tests/pattern"))).toBe(false);
+    // F-2/F-6: emptied by the two moves below, then deleted.
+    expect(existsSync(join(QUERY_ENGINE, "write-engine"))).toBe(false);
+    expect(existsSync(join(QUERY_ENGINE, "operations"))).toBe(false);
   });
 
-  it("keeps exactly the survivors the note names", () => {
-    expect(names(join(QUERY_ENGINE, "write-engine"))).toEqual([
-      "parse-boundary.ts",
-    ]);
-    expect(names(join(QUERY_ENGINE, "operations"))).toEqual([
-      "groupby-fields.ts",
-    ]);
+  it("keeps exactly the survivors the note names, at their new owners", () => {
+    expect(
+      existsSync(join(QUERY_ENGINE, "raptor3/shared/parse-boundary.ts"))
+    ).toBe(true);
     expect(names(join(QUERY_ENGINE, "result"))).toEqual([
       "cache-json-codec.ts",
       "cache-result-codec.ts",
       "cache-snapshot-structure.ts",
       "cache-value-codecs.ts",
+      "groupby-fields.ts",
       "result-aggregate-leaf.ts",
       "result-column.ts",
       "result-shape.ts",

@@ -9,7 +9,6 @@ import type { Scalar } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import { isRecord } from "@validation/value-guards";
 import { getDefaultScalarFieldNames } from "../context";
-import { getGroupByFields } from "../operations/groupby-fields";
 import {
   type AggregateResultName,
   DISTANCE_RESULT_KEY,
@@ -26,6 +25,7 @@ import {
   type Operation,
   QueryEngineError,
 } from "../types";
+import { getGroupByFields } from "./groupby-fields";
 
 const MODEL_ROW_OPERATIONS = new Set<Operation>([
   "findFirst",

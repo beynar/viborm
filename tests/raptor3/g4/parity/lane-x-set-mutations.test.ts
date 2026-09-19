@@ -8,7 +8,7 @@
  * captures, and a genuine one-operation feedback loop still raises the
  * registered `NestedWriteError`.
  *
- * U6.3: ATOM.md §12 "Same-operation duplicate" — first-create-wins locally, the
+ * U6.3: `docs/architecture/retired/write-engine-ATOM.md` §12 "Same-operation duplicate" — first-create-wins locally, the
  * later entry adopts that row; an entry whose target an earlier entry only
  * HAPPENS to produce is still a feedback loop and still refuses.
  *

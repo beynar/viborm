@@ -7,7 +7,7 @@
 That commit is the last revision that contains the full implementation ledgers
 retired by this documentation pass. Use Git history when an old phase decision
 must be reconstructed. The live architecture is documented in
-[`ATOM.md`](../../src/query-engine/write-engine/ATOM.md).
+[`ATOM.md`](retired/write-engine-ATOM.md).
 
 ## Result
 

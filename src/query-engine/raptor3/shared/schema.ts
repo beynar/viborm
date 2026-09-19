@@ -14,7 +14,7 @@ import { isRecord } from "@validation/value-guards";
 import {
   parseValidated,
   upsertEnvelopeSchema,
-} from "../../write-engine/parse-boundary";
+} from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,

@@ -345,8 +345,9 @@ export class RelationBody {
       case "connectOrCreate":
       case "upsert":
       case "update": {
-        // ATOM.md §12 "Same-operation duplicate": the rows this body's earlier
-        // `connectOrCreate` entries PROVABLY create.
+        // `docs/architecture/retired/write-engine-ATOM.md` §12 "Same-operation
+        // duplicate": the rows this body's earlier `connectOrCreate` entries
+        // PROVABLY create.
         const createdTargets: ReadonlyMap<string, unknown>[] = [];
         for (const [index, supplied] of entries(payload).entries()) {
           const source = entries(rawPayload)[index]!;
@@ -412,8 +413,9 @@ export class RelationBody {
             conditional.where as Input | undefined,
             nestedTargetAddressesConstraint(edge, verb)
           );
-          // ATOM.md §12: first-create-wins locally. An entry whose target an
-          // earlier entry of the SAME operation provably creates ADOPTS that
+          // `docs/architecture/retired/write-engine-ATOM.md` §12:
+          // first-create-wins locally. An entry whose target an earlier entry
+          // of the SAME operation provably creates ADOPTS that
           // row — the association is the earlier entry's — so it opens no
           // second decision read, no found guard and no missing race pin: its
           // producer is inside this operation. The two facts are the ones

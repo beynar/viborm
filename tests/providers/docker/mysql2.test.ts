@@ -24,7 +24,7 @@ import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   DISTANCE_RESULT_KEY,

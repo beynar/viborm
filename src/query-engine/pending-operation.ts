@@ -670,8 +670,12 @@ export class PendingOperation<T> implements TransactionOperation<T> {
 
   /**
    * Run this operation through the route. The driver an existing transaction or
-   * array owner supplied stays exactly the driver it supplied; this operation
-   * opens, closes and retries nothing of its own.
+   * array owner supplied stays exactly the driver it supplied; this owner opens
+   * and closes no scope of its own, and retries nothing here. The engine's four
+   * bounded recoveries live inside the route (`raptor3/AGENTS.md`, "Which
+   * recovery REPLAYS and which RE-PLANS"); one of them reads `meta.raceable`
+   * off the failure to decide whether a premise may be answered by a second
+   * attempt.
    */
   #run(
     driverOverride?: AnyDriver,

@@ -612,12 +612,11 @@ pnpm test:coverage:errors # Error subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapter subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
 
-# The other six are APPROVED EXCEPTIONS below 100 and do NOT share one number.
+# The other five are APPROVED EXCEPTIONS below 100 and do NOT share one number.
 # The floors below are statements / branches / functions / lines exactly as
 # scripts/coverage-policy.mjs enforces them, each with its measured evidence
 # recorded beside it there.
-pnpm test:coverage:query-engine-core # 98 / 97.9 / 98 / 98 - two `if (!row)` arms typecheck but are unreachable
-pnpm test:coverage:write-engine # 82 / 80.5 / 92 / 82 - the live-provider write suites belong to test:all
+pnpm test:coverage:query-engine-core # 87 / 91 / 90 / 87 - the whole engine is in scope, measured by its own deterministic test tree (coverage-raptor3) beside the contract layers
 pnpm test:coverage:drivers # 96 / 92.5 / 96 / 96 - per-provider index.ts needs a live connection this lane must not open
 pnpm test:coverage:client # 96 / 94 / 96 / 96 - `default:` arms over closed unions, and functions with no public caller
 pnpm test:coverage:cache # 98 / 98 / 98 / 98

@@ -1,0 +1,223 @@
+Coverage schema: 78 source files, 100% target.
+Coverage schema part 1/4: layer-scalars.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |layer-scalars| tests/unit/scalars/number-scalar-schemas.core.test.ts (158 tests) 16ms
+ ✓ |layer-scalars| tests/unit/scalars/string-scalar-schemas.core.test.ts (106 tests) 11ms
+ ✓ |layer-scalars| tests/unit/scalars/datetime-scalar-schemas.core.test.ts (96 tests) 7ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-descriptor.core.test.ts (67 tests) 9ms
+ ✓ |layer-scalars| tests/unit/scalars/bigint-scalar-schemas.core.test.ts (87 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/json-scalar-schemas.core.test.ts (68 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/enum-scalar-schemas.core.test.ts (74 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/boolean-scalar-schemas.core.test.ts (71 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/blob-scalar-schemas.core.test.ts (53 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/vector-scalar-schemas.core.test.ts (46 tests) 3ms
+ ✓ |layer-scalars| tests/unit/scalars/modifier-contracts.core.test.ts (60 tests) 8ms
+ ✓ |layer-scalars| tests/unit/scalars/point-scalar-schemas.core.test.ts (11 tests) 4ms
+ ✓ |layer-scalars| tests/unit/scalars/shared-scalar.core.test.ts (11 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-list-exclusions.core.test.ts (7 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/native-types.core.test.ts (26 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/exports.core.test.ts (16 tests) 77ms
+ ✓ |layer-scalars| tests/unit/scalars/field-ref.core.test.ts (5 tests) 2ms
+ ✓ |layer-scalars| tests/unit/scalars/decimal-provider-limits.core.test.ts (4 tests) 1ms
+ ✓ |layer-scalars| tests/unit/scalars/json-null-sentinel.core.test.ts (3 tests) 0ms
+
+ Test Files  19 passed (19)
+      Tests  969 passed (969)
+   Start at  01:22:09
+   Duration  5.49s (transform 863ms, setup 39ms, collect 2.61s, tests 159ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 9.29s wall, 598.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage schema part 2/4: layer-relations.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |layer-relations| tests/unit/relations/relation-factory-input.core.test.ts (43 tests) 19ms
+ ✓ |layer-relations| tests/unit/relations/junction-topology.core.test.ts (20 tests) 3ms
+ ✓ |layer-relations| tests/unit/relations/relation-clearability.core.test.ts (13 tests) 7ms
+ ✓ |layer-relations| tests/unit/relations/relation-target-settlement.core.test.ts (10 tests) 2ms
+ ✓ |layer-relations| tests/unit/relations/relation-terminal-immutability.core.test.ts (11 tests) 1ms
+ ✓ |layer-relations| tests/unit/relations/relation-exports.core.test.ts (4 tests) 1ms
+
+ Test Files  6 passed (6)
+      Tests  101 passed (101)
+   Start at  01:22:18
+   Duration  3.42s (transform 527ms, setup 60ms, collect 991ms, tests 33ms, environment 0ms, prepare 51ms)
+
+Vitest resources: 6.53s wall, 460.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage schema part 3/4: layer-schema-validation.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |layer-schema-validation| tests/unit/schema-validation/polymorphic-rules.core.test.ts (34 tests) 21ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validate.core.test.ts (36 tests) 9ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-rules.core.test.ts (35 tests) 15ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/variant-topology-matrix.core.test.ts (18 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/foreign-key-rules.core.test.ts (15 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/validator-boundaries.core.test.ts (16 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-pairing-graph.core.test.ts (15 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/ordinary-topology-matrix.core.test.ts (12 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-configuration.core.test.ts (10 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-rules.core.test.ts (16 tests) 3ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/relation-topology-matrix.core.test.ts (59 tests) 14ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/model-registration-identity.core.test.ts (10 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/namespace-identifier.core.test.ts (65 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/resolved-index-shape.core.test.ts (6 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/inverse-resolution-timing.core.test.ts (19 tests) 5ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-list-key-positions.core.test.ts (7 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/datetime-foreign-key-domain.core.test.ts (10 tests) 4ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-foreign-key-domain.core.test.ts (4 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/junction-rule-skips.core.test.ts (3 tests) 1ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/geopoint-roles.core.test.ts (12 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/decimal-polymorphic-storage.core.test.ts (4 tests) 2ms
+ ✓ |layer-schema-validation| tests/unit/schema-validation/schema-model-runtime.core.test.ts (3 tests) 1ms
+
+ Test Files  22 passed (22)
+      Tests  409 passed (409)
+   Start at  01:22:27
+   Duration  7.31s (transform 1.77s, setup 30ms, collect 3.90s, tests 113ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 11.84s wall, 675.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Coverage schema part 4/4: coverage-schema.
+
+ RUN  v3.1.4 /private/tmp/viborm-followups
+      Coverage enabled with v8
+
+ ✓ |coverage-schema| tests/unit/schema-json/hostile.core.test.ts (141 tests) 26ms
+ ✓ |coverage-schema| tests/unit/schema-json/serialize.core.test.ts (35 tests) 11ms
+ ✓ |coverage-schema| tests/unit/schema-json/format.core.test.ts (13 tests) 12ms
+ ✓ |coverage-schema| tests/unit/schema-json/default-codec.core.test.ts (34 tests) 6ms
+ ✓ |coverage-schema| tests/unit/schema-json/client.core.test.ts (16 tests) 6ms
+ ✓ |coverage-schema| tests/unit/schema-json/docs-corpus.core.test.ts (127 tests) 53ms
+ ✓ |coverage-schema| tests/unit/schema-validation/model-registration-identity.core.test.ts (10 tests) 3ms
+ ✓ |coverage-schema| tests/unit/schema-validation/namespace-identifier.core.test.ts (65 tests) 5ms
+ ✓ |coverage-schema| tests/unit/scalars/shared-scalar.core.test.ts (11 tests) 1ms
+ ✓ |coverage-schema| tests/unit/scalars/field-ref.core.test.ts (5 tests) 1ms
+
+ Test Files  10 passed (10)
+      Tests  457 passed (457)
+   Start at  01:22:37
+   Duration  4.46s (transform 1.26s, setup 19ms, collect 2.20s, tests 126ms, environment 0ms, prepare 43ms)
+
+Vitest resources: 7.28s wall, 639.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   99.93 |    99.95 |     100 |   99.93 |                   
+ schema            |     100 |      100 |     100 |     100 |                   
+  exports.ts       |     100 |      100 |     100 |     100 |                   
+  field-ref.ts     |     100 |      100 |     100 |     100 |                   
+  hydration.ts     |     100 |      100 |     100 |     100 |                   
+  identifier.ts    |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  json-null.ts     |     100 |      100 |     100 |     100 |                   
+  record.ts        |     100 |      100 |     100 |     100 |                   
+  ...-preflight.ts |     100 |      100 |     100 |     100 |                   
+  schemas.ts       |     100 |      100 |     100 |     100 |                   
+ schema/json       |     100 |      100 |     100 |     100 |                   
+  default-codec.ts |     100 |      100 |     100 |     100 |                   
+  document.ts      |     100 |      100 |     100 |     100 |                   
+  factories.ts     |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  interpret.ts     |     100 |      100 |     100 |     100 |                   
+  issues.ts        |     100 |      100 |     100 |     100 |                   
+  ...ve-catalog.ts |     100 |      100 |     100 |     100 |                   
+  read.ts          |     100 |      100 |     100 |     100 |                   
+  serialize.ts     |     100 |      100 |     100 |     100 |                   
+  validate.ts      |     100 |      100 |     100 |     100 |                   
+ schema/model      |     100 |      100 |     100 |     100 |                   
+  helper.ts        |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  keys.ts          |     100 |      100 |     100 |     100 |                   
+  model.ts         |     100 |      100 |     100 |     100 |                   
+ schema/relation   |     100 |      100 |     100 |     100 |                   
+  clearability.ts  |     100 |      100 |     100 |     100 |                   
+  helpers.ts       |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  ...n-topology.ts |     100 |      100 |     100 |     100 |                   
+  polymorphic.ts   |     100 |      100 |     100 |     100 |                   
+  ...membership.ts |       0 |        0 |       0 |       0 |                   
+  terminal.ts      |     100 |      100 |     100 |     100 |                   
+  to-many.ts       |     100 |      100 |     100 |     100 |                   
+  to-one.ts        |     100 |      100 |     100 |     100 |                   
+  types.ts         |     100 |      100 |     100 |     100 |                   
+ schema/scalars    |     100 |      100 |     100 |     100 |                   
+  base.ts          |     100 |      100 |     100 |     100 |                   
+  common.ts        |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  native-types.ts  |     100 |      100 |     100 |     100 |                   
+ ...scalars/bigint |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...a/scalars/blob |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...calars/boolean |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...alars/datetime |     100 |      100 |     100 |     100 |                   
+  date-scalar.ts   |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  physical.ts      |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+  time-scalar.ts   |     100 |      100 |     100 |     100 |                   
+ ...calars/decimal |     100 |      100 |     100 |     100 |                   
+  descriptor.ts    |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  ...der-limits.ts |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...a/scalars/enum |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...ma/scalars/int |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...a/scalars/json |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...scalars/number |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ .../scalars/point |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...scalars/string |     100 |      100 |     100 |     100 |                   
+  autogenerate.ts  |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ ...scalars/vector |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  scalar.ts        |     100 |      100 |     100 |     100 |                   
+ schema/validation |   99.52 |    99.72 |     100 |   99.52 |                   
+  error.ts         |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  ...resolution.ts |     100 |      100 |     100 |     100 |                   
+  types.ts         |       0 |        0 |       0 |       0 |                   
+  validator.ts     |   96.95 |    98.14 |     100 |   96.95 | 237-241           
+ ...lidation/rules |     100 |      100 |     100 |     100 |                   
+  fk.ts            |     100 |      100 |     100 |     100 |                   
+  index.ts         |     100 |      100 |     100 |     100 |                   
+  model-members.ts |     100 |      100 |     100 |     100 |                   
+  model.ts         |     100 |      100 |     100 |     100 |                   
+  polymorphic.ts   |     100 |      100 |     100 |     100 |                   
+  relation.ts      |     100 |      100 |     100 |     100 |                   
+-------------------|---------|----------|---------|---------|-------------------
+schema thresholds: statements 99.93% (floor 100%), branches 99.95% (floor 100%), functions 100% (floor 100%), lines 99.93% (floor 100%)
+file:///private/tmp/viborm-followups/scripts/merge-coverage.mjs:103
+    throw new Error(`Coverage policy failed:\n${failures.join("\n")}`);
+          ^
+
+Error: Coverage policy failed:
+schema: statements 99.93% is below 100%.
+schema: branches 99.95% is below 100%.
+schema: lines 99.93% is below 100%.
+    at mergeSubsystemCoverageRuns (file:///private/tmp/viborm-followups/scripts/merge-coverage.mjs:103:11)
+    at file:///private/tmp/viborm-followups/scripts/run-coverage.mjs:131:5
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///private/tmp/viborm-followups/scripts/run-coverage.mjs:174:22
+
+Node.js v24.21.0

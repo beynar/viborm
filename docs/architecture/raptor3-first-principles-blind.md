@@ -96,7 +96,7 @@ Every top-level verb is the nested verb with no incoming edge: `create` = create
 
 ## Part 3 — Comparison with the repository
 
-Sources read: `src/query-engine/write-engine/ATOM.md` (1,300 lines), `src/query-engine/AGENTS.md` (871 lines), and `wc -l` over the requested directories. Nothing was modified.
+Sources read: `docs/architecture/retired/write-engine-ATOM.md` (1,300 lines), `src/query-engine/AGENTS.md` (871 lines), and `wc -l` over the requested directories. Nothing was modified.
 
 ### Measured sizes (non-test TypeScript; the repo keeps tests outside `src`)
 

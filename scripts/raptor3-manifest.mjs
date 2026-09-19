@@ -1345,3 +1345,83 @@ export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
   ...G1_PROVIDER_TESTS,
   ...G1_PROVIDER_BASELINE_TESTS,
 ]);
+
+/**
+ * The `raptor3` vitest project, stated once. Two halves: the DETERMINISTIC
+ * files run under plain vitest (and are therefore the engine's coverage
+ * project, `coverage-raptor3`), while the RUNNER-ONLY files — the seeded
+ * campaigns and the structural measurements — need the mode runner's
+ * environment (`scripts/run-raptor3.mjs`) and fail under a bare project run.
+ */
+export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
+  ...RAPTOR3_TESTS,
+  ...G1_COMPARISON_TESTS,
+  ...G1_BASELINE_TESTS,
+  ...G1_CONTRACT_TESTS,
+  ...G2_BASELINE_TESTS,
+  ...G2_CONTRACT_TESTS,
+  ...G25_CONTRACT_TESTS,
+  ...G27_CONTRACT_TESTS,
+  ...G3P03_CONTRACT_TESTS,
+  ...G3P04_CONTRACT_TESTS,
+  ...G3P04_REVIEW_CONTRACT_TESTS,
+  ...G3P05_CONTRACT_TESTS,
+  ...G3_BULK_SERIES_TESTS,
+  ...G3_SUPPRESSION_RETRY_TESTS,
+  ...G3_TRANSACTION_ARRAY_TESTS,
+  ...G3_DEPTH_RECURRENCE_TESTS,
+  ...G3_GENERATED_SMOKE_TESTS,
+  ...G3_GENERATED_TRANSPORT_SMOKE_TESTS,
+  ...G3_GENERATED_MINIMIZATION_TESTS,
+  ...G4_READ_TESTS,
+  ...G4_GENERATION_SELFTEST_TESTS,
+  ...G4_UNIT01_AUTHOR_TESTS,
+  ...G4_UNIT01_REVIEW_TESTS,
+  ...G4_UNIT02_AUTHOR_TESTS,
+  ...G3_EXECUTION_REVIEW_TESTS,
+  ...G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
+  ...G3_SCOPE_FAILURE_TESTS,
+  ...G3_BULK_RESULT_BOUNDARY_TESTS,
+  ...POST_G3_CLEARABILITY_CONTRACT_TESTS,
+  ...POST_G3_SCHEMA_VIEW_TESTS,
+  ...POST_G3_PROJECTION_PREPARATION_TESTS,
+  ...POST_G3_SELECTOR_PREPARATION_TESTS,
+  ...POST_G3_HISTORY_ANALYSIS_TESTS,
+  ...G29_MEMBER_DEPENDENCY_TESTS,
+  ...G29_DEPENDENCY_BOUNDARY_TESTS,
+  ...G29_DEPENDENCY_CHOICE_TESTS,
+  ...G29_RESULT_PROGRESS_TESTS,
+  ...CS01_STRUCTURAL_REFERENCE_TESTS,
+  ...CS01_EXTENSION_A_TESTS,
+  ...CS01_EXTENSION_B_TESTS,
+  ...CS01_EXTENSION_COMPOSITION_TESTS,
+  ...CS03_MEMBER_SCOPE_TESTS,
+  ...CS02_REPEATED_OCCURRENCE_TESTS,
+  ...G2_DIAGNOSTIC_TESTS,
+  ...G1_GENERATED_TESTS,
+  ...G1_CAMPAIGN_TESTS,
+  ...G1_TRANSPORT_TESTS,
+  ...G1_TRANSPORT_CAMPAIGN_TESTS,
+  ...G2_CAMPAIGN_TESTS,
+  ...G2_TRANSPORT_TESTS,
+  ...G2_GENERATED_TESTS,
+  "tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts",
+]);
+export const RAPTOR3_RUNNER_ONLY_TESTS = Object.freeze([
+  ...CS02_STRUCTURE_MEASUREMENT_TESTS,
+  ...CS03_EXTENSION_CAMPAIGN_TESTS,
+  // Of the two CS03 support files only the campaign self-test needs the
+  // runner's environment; its sibling `extension-recipes.selftest.test.ts`
+  // runs bare and sits in the deterministic half above.
+  "tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts",
+  ...G3_GENERATED_CAMPAIGN_TESTS,
+  ...G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  ...G4_GENERATED_CAMPAIGN_TESTS,
+  ...G4_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
+  ...G4_WRITE_CAMPAIGN_TESTS,
+  ...G4_WRITE_TRANSPORT_CAMPAIGN_TESTS,
+]);
+export const RAPTOR3_PROJECT_TESTS = Object.freeze([
+  ...RAPTOR3_DETERMINISTIC_TESTS,
+  ...RAPTOR3_RUNNER_ONLY_TESTS,
+]);

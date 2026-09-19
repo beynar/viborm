@@ -5,7 +5,9 @@
 
 > **Three provenance citations in this layer name V1 files that no longer exist.**
 > The pattern retirement (Arnaud's decision D-15) deleted `query-engine/builders/`
-> whole and all of `query-engine/operations/` bar `groupby-fields.ts`.
+> whole and all of `query-engine/operations/`; follow-up F-2 then moved its one
+> survivor, `groupby-fields.ts`, to `query-engine/result/` and deleted the
+> directory.
 > `database-adapter.ts:664` and `databases/mysql/mysql-adapter.ts:886` cite
 > `junctionDuplicateSkip` in `builders/many-to-many-utils.ts`, and
 > `adapter-capabilities.ts:42` cites `buildBulkLimitWhere` in

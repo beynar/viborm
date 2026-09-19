@@ -7,7 +7,7 @@
 
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { s } from "@schema";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";

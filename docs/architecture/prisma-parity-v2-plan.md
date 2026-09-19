@@ -507,7 +507,7 @@ subtree, meaning-preserving". Both halves are now wrong. The delegation no longe
 anything: re-parsing a parse OUTPUT is not a no-op, and doing it persisted the ORM's own
 `{ set: … }` JSON envelope as the user's data (fixed in `Parse the delegated update
 target's data once, not twice`; the current rule is recorded in
-[ATOM §4](../../src/query-engine/write-engine/ATOM.md)). And idempotence at the ENVELOPE level
+[ATOM §4](retired/write-engine-ATOM.md)). And idempotence at the ENVELOPE level
 never protected what was inside it — which is exactly why the JSON write broke through it.
 What keeps the two witnesses green is that the form is decided ONCE, at the parse boundary,
 from the user's payload; nothing re-derives it downstream.

@@ -2,55 +2,31 @@ import { BigIntScalar, createDefaultState, EnumScalar } from "@schema/scalars";
 import v from "@validation/primitives/v";
 import { describe, expect, it } from "vitest";
 
-const BARRELS = [
-  [
-    "bigint",
-    () => import("@schema/scalars/bigint"),
-    ["BigIntScalar", "bigInt"],
-  ],
-  ["blob", () => import("@schema/scalars/blob"), ["BlobScalar", "blob"]],
-  [
-    "boolean",
-    () => import("@schema/scalars/boolean"),
-    ["BooleanScalar", "boolean"],
-  ],
-  [
-    "datetime",
-    () => import("@schema/scalars/datetime"),
-    ["DateScalar", "DateTimeScalar", "TimeScalar", "date", "dateTime", "time"],
-  ],
-  ["decimal", () => import("@schema/scalars/decimal"), ["decimal"]],
-  ["enum", () => import("@schema/scalars/enum"), ["EnumScalar", "enumScalar"]],
-  ["int", () => import("@schema/scalars/int"), ["IntScalar", "int"]],
-  ["json", () => import("@schema/scalars/json"), ["JsonScalar", "json"]],
-  [
-    "number",
-    () => import("@schema/scalars/number"),
-    ["NumberScalar", "number"],
-  ],
-  ["point", () => import("@schema/scalars/point"), ["PointScalar", "point"]],
-  [
-    "string",
-    () => import("@schema/scalars/string"),
-    ["StringScalar", "string"],
-  ],
-  [
-    "vector",
-    () => import("@schema/scalars/vector"),
-    ["VectorScalar", "vector"],
-  ],
-] as const;
-
 describe("scalar module exports", () => {
   it("executes the complete scalar surface", async () => {
-    const [all, bigIntModule, blobModule, booleanModule, dateTimeModule] =
-      await Promise.all([
-        import("@schema/scalars"),
-        import("@schema/scalars/bigint"),
-        import("@schema/scalars/blob"),
-        import("@schema/scalars/boolean"),
-        import("@schema/scalars/datetime"),
-      ]);
+    // The scalar OWNERS, not a re-export shell. Follow-up F-5 deleted the
+    // eleven `scalars/<name>/index.ts` shells: they were reachable from no
+    // package entry point, and `@schema/scalars` — the one barrel this estate
+    // keeps — always re-exported `./<name>/scalar` directly, never through
+    // them. What this cell asserts is unchanged: the public barrel publishes
+    // the SAME function objects the owning modules declare.
+    const [
+      all,
+      bigIntModule,
+      blobModule,
+      booleanModule,
+      dateTimeModule,
+      dateModule,
+      timeModule,
+    ] = await Promise.all([
+      import("@schema/scalars"),
+      import("@schema/scalars/bigint/scalar"),
+      import("@schema/scalars/blob/scalar"),
+      import("@schema/scalars/boolean/scalar"),
+      import("@schema/scalars/datetime/scalar"),
+      import("@schema/scalars/datetime/date-scalar"),
+      import("@schema/scalars/datetime/time-scalar"),
+    ]);
 
     expect(all).toMatchObject({
       PG: expect.any(Object),
@@ -59,9 +35,9 @@ describe("scalar module exports", () => {
       bigInt: bigIntModule.bigInt,
       blob: blobModule.blob,
       boolean: booleanModule.boolean,
-      date: dateTimeModule.date,
+      date: dateModule.date,
       dateTime: dateTimeModule.dateTime,
-      time: dateTimeModule.time,
+      time: timeModule.time,
     });
   });
 });
@@ -74,12 +50,6 @@ describe("coverage low value", () => {
     expect(schema.PG).toBeDefined();
     expect(schema.MYSQL).toBeDefined();
     expect(schema.SQLITE).toBeDefined();
-  });
-
-  it.each(
-    BARRELS
-  )("executes the internal %s barrel", async (_name, load, expected) => {
-    expect(Object.keys(await load()).sort()).toEqual([...expected].sort());
   });
 
   it("executes the internal base module", async () => {

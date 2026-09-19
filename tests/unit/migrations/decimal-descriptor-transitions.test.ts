@@ -11,7 +11,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import type { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite } from "@electric-sql/pglite";
 import { postgresDecimalFitsCheck } from "@migrations/decimal";
-import { introspect as introspectClient } from "@migrations/push";
+import { introspect as introspectClient } from "@migrations/push/planner";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";

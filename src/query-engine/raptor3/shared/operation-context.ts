@@ -1283,7 +1283,7 @@ export class OperationContext {
             // the captured row's own presence — is a statement about IDENTITY:
             // re-planning it would retry against whatever row now answers the
             // selector, which is the one thing a captured-row replacement must
-            // not do (`write-engine/ATOM.md` §"A conditional-skip batch arm",
+            // not do (`docs/architecture/retired/write-engine-ATOM.md` §"A conditional-skip batch arm",
             // `transitions/conditional-upsert.ts` "Captured-row replacement or
             // deletion must not permit a retry against another identity").
             isVibORMError(failure) &&

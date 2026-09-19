@@ -16,6 +16,17 @@
  * disposition dropped two live cells without saying so. Cell (b) is now
  * vacuous (nothing declares the step vocabulary any more — the closure probe
  * pins that separately); cell (e) is a live, if cheap, structural ratchet.
+ *
+ * FOLLOW-UP F-2/F-6 moved the last `write-engine/` file to `raptor3/shared/`
+ * and deleted the directory, so the census no longer has a `writeEngine` key to
+ * report — the second measurement would have measured nothing. Cell (e) keeps
+ * its subject by following it: the census's `queryEngine` measurement is the
+ * whole engine, `raptor3/` included, and the cycle ratchet is stated over that.
+ * It is a CEILING, not an equality, because the one component measured here
+ * (`raptor3/commands/commands.ts` <-> `raptor3/commands/execution.ts`) must be
+ * free to disappear; a SECOND component reddens the cell. The absence of the
+ * `writeEngine` key is asserted in the same cell, so a future re-introduction of
+ * a second engine directory under its own census key is not silent either.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -52,17 +63,20 @@ describe("the two deleted gate cells whose subject survived", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("(e) still has a subject: the census still reports write-engine cycles", () => {
-    const report: unknown = JSON.parse(
+  it("(e) still has a subject: the census reports the engine's import cycles", () => {
+    const report = JSON.parse(
       execFileSync(process.execPath, [STRUCTURE_REPORT], { encoding: "utf8" })
-    );
-    const writeEngine = (
-      report as {
-        writeEngine?: { files?: number; runtimeImportCycles?: unknown };
-      }
-    ).writeEngine;
-    expect(writeEngine).toBeDefined();
-    expect(writeEngine?.files).toBe(1);
-    expect(writeEngine?.runtimeImportCycles).toEqual([]);
+    ) as {
+      writeEngine?: unknown;
+      queryEngine?: { files?: number; runtimeImportCycles?: string[][] };
+    };
+    // The deleted directory has no census key of its own any more.
+    expect(report.writeEngine).toBeUndefined();
+    const queryEngine = report.queryEngine;
+    expect(queryEngine).toBeDefined();
+    expect(queryEngine?.files).toBeGreaterThan(0);
+    // Measured ceiling, not an equality: one component today, and a second one
+    // fails here.
+    expect(queryEngine?.runtimeImportCycles?.length).toBeLessThanOrEqual(1);
   });
 });

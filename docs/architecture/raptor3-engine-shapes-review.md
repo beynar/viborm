@@ -176,7 +176,7 @@ The first successful slice should identify actual deletable ownership, not annou
 
 [ELEGANCE.md](../../ELEGANCE.md) is aligned with the objective: fewer independently maintained truths, precise ownership, and stronger representations. It does not require six primitives, one function, one pass, or a particular file count.
 
-The current [write doctrine](../../src/query-engine/write-engine/ATOM.md) rejects generic mutation DSLs and branch runtime IRs, but explicitly permits reconsidering them when multiple owners implement the same rule. That is the review question now. Treating the rejection list as permanent would lock in the local complexity it was meant to prevent; treating it as permission for a generic VM would repeat the opposite mistake.
+The current [write doctrine](retired/write-engine-ATOM.md) rejects generic mutation DSLs and branch runtime IRs, but explicitly permits reconsidering them when multiple owners implement the same rule. That is the review question now. Treating the rejection list as permanent would lock in the local complexity it was meant to prevent; treating it as permission for a generic VM would repeat the opposite mistake.
 
 The recommendation is therefore conditional but concrete: **prefer a structured program with relational effects and scoped assumptions, implemented with ordinary functions, and prove that it beats a direct functional refactor on the same difficult branch protocol.** Use local dependency analysis and native SQL folds where they pay. The state machine describes execution; the program makes its meaning inspectable. Neither earns its place from its name or from an unmeasured LOC forecast.
 

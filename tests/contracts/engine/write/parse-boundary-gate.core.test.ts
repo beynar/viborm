@@ -5,9 +5,17 @@ import { describe, expect, it } from "vitest";
 
 /**
  * The parse-boundary gate (X2 — one home for validation). The typed parse boundary
- * ({@link file://../../src/query-engine/write-engine/parse-boundary.ts}) is the ONE place a user
- * payload becomes a validated, typed value. This gate holds three invariants over the
- * write-engine modules that survive C-01 and fails loudly if a future phase erodes them.
+ * ({@link file://../../src/query-engine/raptor3/shared/parse-boundary.ts}) is the ONE place a
+ * user payload becomes a validated, typed value. This gate holds three invariants over the
+ * ROUTE that owns it and fails loudly if a future phase erodes them.
+ *
+ * F-2 moved the boundary into `raptor3/shared/` and deleted `write-engine/`, so the scope
+ * follows it: `ENGINE` is the whole `raptor3/` route, walked RECURSIVELY (the route has
+ * `commands/`, `program/`, `route/` and `shared/` under it; the flat `readdirSync` the
+ * write-engine scope used would have read nothing). The two ratchets below are therefore
+ * RE-MEASURED over the new scope, not carried over — carrying them would have kept
+ * ceilings measured over 18 deleted files, which is exactly why they passed for the wrong
+ * reason once `write-engine/` held one file (retirement note F-3).
  *
  *  1. ONE HOME (positive). `parseValidated` is defined exactly once (parse-boundary.ts)
  *     and the lone whole-tree `as InferOutput` cast — the only assertion inference
@@ -36,11 +44,21 @@ import { describe, expect, it } from "vitest";
  * `as Record<string, unknown>` -> the count exceeds the ceiling -> test (4) fails.
  */
 
-const ENGINE = join(SOURCE_ROOT, "query-engine/write-engine");
-const BOUNDARY = "parse-boundary.ts";
+const ENGINE = join(SOURCE_ROOT, "query-engine/raptor3");
+const BOUNDARY = "shared/parse-boundary.ts";
 
+/** Every `.ts` under the route, as a path relative to {@link ENGINE}. */
 function engineFiles(): string[] {
-  return readdirSync(ENGINE).filter((file) => file.endsWith(".ts"));
+  function walk(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return walk(path);
+      return entry.name.endsWith(".ts") ? [path] : [];
+    });
+  }
+  return walk(ENGINE)
+    .map((path) => path.slice(ENGINE.length + 1))
+    .sort();
 }
 
 function read(file: string): string {
@@ -64,51 +82,26 @@ const DELETED_KEY_GATES = [
   "assertUpsertKeys",
 ] as const;
 
-// X2's measured shape-check surface (comments included — a stable, greppable ceiling).
-// These may only shrink; growth is a re-introduced re-validation branch.
-// 38 -> 37 / 23 -> 22 (W4-U3 fix round): the to-one `update` payload now arrives as
-// the relation schema's canonical envelope, so `buildToOneUpdatePart` no longer
-// re-checks its shape or casts it — the split reads the envelope and fails closed.
-// 37 -> 36 (N4-U2): `foldParentHeldConnect` is gone. It hand-read a grandchild's nested
-// `connect` payload — the one thing the create root does not need a cast for, because a
-// create SUBTREE folds that connect through the same already-parsed relation mutation
-// every other arm uses. The cast went with the function, not around it.
-// 36 -> 35 (D-wave): `buildInverseToOneUpsertPart` replaced its two arm casts with an
-// `isRecord` narrowing predicate (the sibling modules' idiom), so the M12 owned-FK guard
-// could take the update arm without a new cast — the surface shrank by one instead of
-// growing by one.
-// 35 -> 18 (mutation-program migration): emitters now receive normalized entries instead
-// of reopening dynamically keyed relation payloads. The casts disappeared with the old
-// per-kind bag readers and their local array/single-item normalizers.
-// 18 -> 16 (field-bound source lowering): relation consumers no longer recast captured
-// planning rows to recover a field selected outside the source owner.
-// 15 -> 14 (compound-junction tuple lowering): `RelationJunctionPart.pkOf` now uses the
-// shared record narrowing before extracting the complete target tuple, so its scalar-era
-// cast disappeared instead of moving to the tuple path.
-// 14 -> 11 (fixed-decimal captured-key decode): `RelationWritePart`'s three raw first-row
-// assertions disappeared because `parseCapturedRowKeys` now validates the complete row
-// set and returns the already-narrowed logical key.
-// 11 -> 6 (fixed-decimal full-capture decode): the DeleteOperation and UpsertOperation
-// locate assertions, ManyAndReturnOperation's captured-array assertion,
-// RecordUpdateCompiler's parent-held target assertion, and RelationUpsertPart's located
-// row assertion disappeared. Their captured rows now cross `parseCapturedRowKeys` or
-// `parseCapturedRows`, which owns validation and the resulting record type.
-const MAX_PAYLOAD_RECORD_CASTS = 6;
-// 22 -> 21 (N4-U2): the same removal. `foldParentHeldConnect`'s "requires a where object
-// one level deeper" was the shape-check message that went with that cast.
-// 21 -> 20 (E3): `RelationUpsertPart.normalizeUpsertItems` went with the upsert arm's
-// kind dispatch. The arm no longer unwraps a deeper relation's item array itself — it
-// hands the whole relation map to the located-target builder, whose own `normalizeItems`
-// already owns that narrowing. One home gained, one message gone; the ratchet shrinks
-// rather than moving sideways.
-// 20 -> 19 (E5-U3): `UpsertOperation.requireRecord` is gone. Its "must be an object"
-// was the last shape-check message on an envelope; the envelope is a schema now, and the
-// narrowing that replaced it is a `QueryEngineError` invariant worded outside this
-// family on purpose (a caller that skipped the boundary is an engine fault, not a user
-// one). Measured delta, not estimated: the source carried the phrase exactly once.
-// 19 -> 3 (mutation-program migration): canonical entries replace emitter-side payload
-// shape checks. The remaining messages belong to live parse-boundary invariants.
-const MAX_SHAPE_THROW_MESSAGES = 3;
+// The shape-check surface, RE-MEASURED over `raptor3/` on the tree that moved the
+// boundary (F-2). Both counts are 1, and both hits are in the boundary's own prose —
+// the sentence naming `as Record<string, unknown>` as the thing a future phase must not
+// re-introduce, and the sentence naming the `requires a … object` guards it replaced.
+// Comments are counted on purpose: the ceiling is a stable, greppable one, and prose
+// that names the forbidden shape is cheaper to keep than an exception for it.
+//
+// The route's own 15 files contribute ZERO of each: no emitter re-opens a payload and no
+// owner re-checks a shape, because admission happens once at the boundary and everything
+// downstream reads canonical entries. So the ceiling is the boundary's prose and nothing
+// else: ONE new cast or ONE new shape-check message anywhere under `raptor3/` reddens
+// this gate.
+//
+// The write-engine-era history of these two numbers (38 -> 3 over X2, W4-U3, N4-U2, the
+// D-wave, the mutation-program migration, field-bound source lowering, compound-junction
+// tuple lowering and the two fixed-decimal decode rounds) belongs to the 18 files D-15
+// deleted; it is preserved in the pattern-retirement note, not carried here as a ceiling
+// no longer measured over anything.
+const MAX_PAYLOAD_RECORD_CASTS = 1;
+const MAX_SHAPE_THROW_MESSAGES = 1;
 
 const PARSE_VALIDATED_DEF = /export function parseValidated\b/;
 const INFER_OUTPUT_CAST = /as InferOutput\b/;
@@ -116,7 +109,7 @@ const KEY_GATE_FUNCTION = /function assert\w*Keys\b/;
 const PAYLOAD_RECORD_CAST = /as Record<string, unknown>/g;
 const SHAPE_THROW_MESSAGE = /requires an? [^`"']*object|must be an object/g;
 
-describe("write engine parse-boundary gate (X2 — one home for validation)", () => {
+describe("route parse-boundary gate (X2 — one home for validation)", () => {
   it("(1) parseValidated is defined once — in the boundary — with the lone whole-tree cast", () => {
     const definers = engineFiles().filter((file) =>
       PARSE_VALIDATED_DEF.test(read(file))

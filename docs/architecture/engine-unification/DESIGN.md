@@ -5,7 +5,7 @@
 > fragment/record-compiler architecture later replaced that program. This file
 > preserves the original argument, names, paths, and milestones except for
 > blocks explicitly labelled **Successor correction**. It is not an
-> implementation guide. [`ATOM.md`](../../../src/query-engine/write-engine/ATOM.md)
+> implementation guide. [`ATOM.md`](../retired/write-engine-ATOM.md)
 > is the current doctrine.
 
 Historical status: **decided**. Anchor: branch `prisma-parity`, commit `2fa49b6`.

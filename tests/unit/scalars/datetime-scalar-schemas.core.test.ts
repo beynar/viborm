@@ -14,8 +14,8 @@
  * - filter: Input type for filtering + shorthand transforms
  */
 
+import { date, dateTime, time } from "@schema/scalars";
 import type { ScalarState } from "@schema/scalars/common";
-import { date, dateTime, time } from "@schema/scalars/datetime";
 import { type InferInput, parse } from "@validation";
 import { type GetScalarSchemas, getScalarSchemas } from "@validation/scalars";
 import { describe, expect, expectTypeOf, test } from "vitest";

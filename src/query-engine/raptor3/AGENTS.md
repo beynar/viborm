@@ -11,8 +11,10 @@ package entry.
 
 > **Provenance citations below name V1 files that no longer exist.** The pattern
 > retirement (Arnaud's decision D-15) deleted the `pattern/` experiment and every
-> owner it alone kept alive — `builders/`, `operations/` (bar `groupby-fields.ts`),
-> `result/`'s parser tree and all of `write-engine/` except `parse-boundary.ts`.
+> owner it alone kept alive — `builders/`, `operations/`, `result/`'s parser
+> tree and all of `write-engine/`. Follow-up F-2 moved the last two survivors to
+> their consumers: `parse-boundary.ts` is `shared/parse-boundary.ts` here, and
+> `groupby-fields.ts` is `result/groupby-fields.ts`.
 > A `file:line` reference to one of them records WHAT V1 did and where the parity
 > argument came from; read it in git history (`e8114ed9`), not on disk.
 
@@ -361,21 +363,22 @@ history, confirmed/uncertain progress and the one-recovery allowance survive
 replacement. A missing winner on recovery propagates the original rejection;
 it never authorizes another INSERT.
 
-Named retention: three modules from the shipped `query-engine/` tree are
-imported at runtime, and these are ALL of them, so a legacy scan does not have
-to re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
+Named retention: TWO modules from the shipped `query-engine/` tree are imported
+at runtime, and these are ALL of them, so a legacy scan does not have to
+re-derive the list. (Only that tree: `@errors`, `@sql`, `@schema/**`,
 `@validation/**`, `@adapters/**` and `@drivers/**` are ordinary boundaries the
 brief keeps available, and `@client/client` reaches `route/client-route.ts`.)
-`write-engine/parse-boundary.ts` (`shared/schema.ts`) remains the existing
-schema-to-ValidationError admission owner. `query-engine/bind-budget.ts`
-(`shared/operation-context.ts`) is a pure `Sql` chunker over the driver's
-normalized verified bind capacity, shared by `write-engine`, `operations`,
-`pattern` and the candidate alike — a neutral boundary, not the shipped engine.
-`result/cache-value-codecs.ts` (`route/client-route.ts`) is the official cache
-value-codec owner and imports no compiler, lowerer, executor or result parser.
-Both candidates may import them unchanged; charge the complete file and its
-engine-owned type dependencies to both. This exception does not admit legacy
-query or mutation algorithms.
+`query-engine/bind-budget.ts` (`shared/operation-context.ts`) is a pure `Sql`
+chunker over the driver's normalized verified bind capacity, shared by the
+deleted engines and the candidate alike — a neutral boundary, not the shipped
+engine. `result/cache-value-codecs.ts` (`route/client-route.ts`) is the official
+cache value-codec owner and imports no compiler, lowerer, executor or result
+parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
+was the third until follow-up F-2 moved it INTO this tree: it is
+`shared/parse-boundary.ts`, the candidate's own source, and no longer a
+retention. Both candidates may import the two unchanged; charge the complete
+file and its engine-owned type dependencies to both. This exception does not
+admit legacy query or mutation algorithms.
 
 Public raw arguments enter existing admission at the required time. Internal
 values are trusted. Localized assertions are permitted under the central plan;
@@ -513,7 +516,12 @@ transaction driver, the caller opened no scope for this operation, and the route
 hands over both grants. Every situation also carries `writeOutcome`, the
 client's own cache-invalidation rail — not a fourth situation, just the rail
 handed to the only thing that knows when a write became durable. The route
-opens, closes and retries nothing, and never falls back to the shipped engine.
+opens and closes no scope of its own, and never falls back to the shipped
+engine. It does not follow that nothing is ever attempted twice: the four
+bounded recoveries below (§"Which recovery REPLAYS and which RE-PLANS") belong
+to the engine, not to the route, and the batch re-entry is armed by READING
+`meta.raceable` off the failure its own owner marked — `OperationContext.submit`
+gates on `failure.meta.raceable === true` (Arnaud's D-32).
 
 One prepared operation per request: `prepare(modelName, operation, rawArgs)` in
 `commands/index.ts` admits the raw input exactly ONCE and publishes the admitted
@@ -961,7 +969,7 @@ the captures that remain. Do not merge the passes.
 
 Within one relation body, a `connectOrCreate` entry whose target an earlier
 entry PROVABLY creates is that earlier entry's association: first-create-wins
-locally and the later entry adopts the row (ATOM.md §12), so it opens no second
+locally and the later entry adopts the row (`docs/architecture/retired/write-engine-ATOM.md` §12), so it opens no second
 decision read, no found guard and no missing race pin — its producer is inside
 the same operation. The two facts are `PreparedSelector.uniqueValues` and
 `Assignments.known`, the pair `CommandExecution.matchesSelectedConstraint`

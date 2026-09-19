@@ -99,12 +99,10 @@ const chargedG3PrepShared = new Set([
 ]);
 
 function classify(file) {
-  if (file.startsWith("src/query-engine/raptor3/")) {
-    return [
-      "excluded-experiment",
-      "Private G1 candidates, separately accounted below; not the public operation route",
-    ];
-  }
+  // `raptor3/` IS the public operation route since the C-01 cutover, so it is
+  // charged with the rest of the engine: `accounting.charged` is the whole
+  // shipped engine. The `privateCandidates` block below still reports the
+  // candidate perimeter separately, for the G1-era receipts that quote it.
   if (chargedG3PrepShared.has(file)) {
     return [
       "charged-g3-prep-shared",
@@ -202,9 +200,11 @@ const sum = (selected) =>
     }),
     { files: 0, bytes: 0, physicalLines: 0, tokenLines: 0 }
   );
+// The typed parse boundary is NOT listed here any more: F-2 moved it into
+// `raptor3/shared/`, so it is already counted as the candidate's own shared
+// source. Listing it again would charge it twice.
 const retainedCandidateOwners = new Set([
   "src/query-engine/bind-budget.ts",
-  "src/query-engine/write-engine/parse-boundary.ts",
   "src/query-engine/types.ts",
   ...chargedAdapter,
   ...chargedG3PrepShared,

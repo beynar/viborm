@@ -4,7 +4,7 @@ import {
   type VibORMConfig,
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { introspect } from "@migrations/push";
+import { introspect } from "@migrations/push/planner";
 import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { sql } from "@sql";

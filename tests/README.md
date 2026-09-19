@@ -113,9 +113,8 @@ pnpm test:coverage:extensions # Extensions subsystem; 100% in all four metrics
 pnpm test:coverage:errors # Errors subsystem; 100% in all four metrics
 pnpm test:coverage:adapters # Adapters subsystem; 100% in all four metrics
 pnpm test:coverage:cli   # CLI subsystem; 100% in all four metrics
-# Six approved exceptions. Floors are statements/branches/functions/lines.
-pnpm test:coverage:query-engine-core # Query-engine core; 98/97.9/98/98 - two unreachable `if (!row)` arms
-pnpm test:coverage:write-engine # Write engine; 82/80.5/92/82 - live-provider suites excluded by design
+# Five approved exceptions. Floors are statements/branches/functions/lines.
+pnpm test:coverage:query-engine-core # Query-engine core; 87/91/90/87 - the engine's own deterministic tree (coverage-raptor3) measures it beside the contract layers
 pnpm test:coverage:drivers # Drivers; 96/92.5/96/96 - per-provider index.ts needs a live connection
 pnpm test:coverage:client # Client; 96/94/96/96 - unreachable defensive arms, uncalled functions
 pnpm test:coverage:cache # Cache; 98/98/98/98
@@ -157,14 +156,13 @@ merge, so the enforced value is always visible rather than inferred.
 
 | Subsystem | St | Br | Fn | Ln | Why it is not 100 |
 |---|---|---|---|---|---|
-| Query-engine core | 98 | 97.9 | 98 | 98 | The `if (!row)` guards in `result-count-parser.ts` and `result-row-parser.ts` are needed to typecheck and unreachable at runtime |
-| Write engine | 82 | 80.5 | 92 | 82 | The live-provider write suites belong to `test:all`; a provider-free lane cannot reach what they reach |
+| Query-engine core | 87 | 91 | 90 | 87 | Re-measured by follow-up F-3 with the engine's own deterministic test tree (`coverage-raptor3`) as the scope's fourth part. |
 | Drivers | 96 | 92.5 | 96 | 96 | Closing every provider-agnostic line reaches 97.39%; the ten per-provider `index.ts` files need a live connection this lane must not open |
 | Client | 96 | 94 | 96 | 96 | `default:` arms over closed unions, and seven functions with no public caller |
 | Cache | 98 | 98 | 98 | 98 | Subsystem target is 98 in all four; no per-metric exception on top of it |
 | Migrations | 98 | 97.3 | 98 | 98 | 30 unreachable defensive branches: 18 in `serializer.ts`, 12 in `graph.ts` |
 
-None of these hides untested behaviour. The suites the write-engine and driver
+None of these hides untested behaviour. The suites the query-engine and driver
 lanes exclude all execute, and pass, in `pnpm test:all`. Every floor is a
 ratchet: a real regression in any metric still fails, raising a floor is the
 goal, and lowering one needs the same evidence and approval that set it. Every
@@ -197,13 +195,13 @@ Rules:
 - Keep transaction and forced atomic-batch drivers separate even when they use
   the same schema.
 - A structural/compiler proof must not boot a database.
-- Run the write core fast with `pnpm test:layer:write-engine`, and the owned
-  report with `pnpm test:coverage:write-engine`. The report's literal
-  provider-free selection runs as the sequential parts its manifest declares —
-  seven core slices plus the isolated mocked-Neon contract — in the
-  single-thread `coverage-write-engine` project, each part capped at a 512 MB
-  heap and merged only after its process exits. PGlite combinations remain in
-  `test:all`.
+- Run the write core fast with `pnpm test:layer:write-engine`. Its coverage is
+  reported by `pnpm test:coverage:query-engine-core`, which merges three
+  single-thread parts — `layer-query-engine`, `coverage-write-engine-core` and
+  `coverage-write-engine` (the isolated mocked-Neon contract beside the core
+  four) — each in its own process. Follow-up F-3 merged the former
+  `write-engine` subsystem into it when F-2/F-6 deleted the directory it owned.
+  PGlite combinations remain in `test:all`.
 
 A fresh database is allowed only when the contract observes DDL or migration
 state, connection lifecycle or database isolation, destructive schema behavior,

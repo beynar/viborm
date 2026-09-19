@@ -237,7 +237,7 @@ Rules 2, 5, 6, 10.
    (`commands.ts:638-645`). Arnaud's suspicion is right: the old engine
    compiled these as one correlated statement with no planning read
    (`RelationWritePart.ts:484-504`, `:674-693`) and kept the "split these
-   operations" refusal (ATOM.md §13) for genuine planning reads. Fix: a nested
+   operations" refusal (`docs/architecture/retired/write-engine-ATOM.md` §13) for genuine planning reads. Fix: a nested
    `updateMany`/`deleteMany` whose `data` carries no nested relation write is
    one correlated set statement (rule 6, first sentence); a relation-bearing
    `updateMany` still captures, at its own position in the declared body
@@ -245,7 +245,7 @@ Rules 2, 5, 6, 10.
    Invariant: a planning read exists only where one statement cannot express
    the operation; every planning read runs at its body position.
 3. **Same-operation `connectOrCreate` duplicates** (family 5, one cell):
-   port the first-create-wins rule of ATOM.md §12 (`OwnWriteSteps.ts:646-724`)
+   port the first-create-wins rule of `docs/architecture/retired/write-engine-ATOM.md` §12 (`OwnWriteSteps.ts:646-724`)
    into `RelationBody`'s `connectOrCreate` loop — the decision read is real;
    the missing piece is the identity rule that makes it independent.
 4. **The one-recovery allowance is gated on the transport mode**
