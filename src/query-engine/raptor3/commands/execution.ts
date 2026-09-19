@@ -534,11 +534,11 @@ export class CommandExecution {
       }
       case "delete": {
         await this.runSelection(command.located);
-        await ctx.delete(
-          command.located.model,
-          attempt.rows.get(command.located)!,
-          member
-        );
+        // A selection that is not required and bound no row is an empty
+        // slot: a lax `delete: true` deletes nothing (DESIGN §5.3). A
+        // required selection threw in `runSelection` before reaching here.
+        const row = attempt.rows.get(command.located);
+        if (row) await ctx.delete(command.located.model, row, member);
         return;
       }
       case "set": {

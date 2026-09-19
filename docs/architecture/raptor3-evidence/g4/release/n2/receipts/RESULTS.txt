@@ -1,0 +1,17 @@
+polymorphic exit=1  Tests 15 failed | 73 passed (88)
+shared-family 1/8 exit=1  Test Files 4 failed | 11 passed (15)
+shared-family 2/8 exit=1  Test Files 5 failed | 9 passed (14)
+shared-family 3/8 exit=1  Test Files 2 failed | 12 passed (14)
+shared-family 4/8 exit=1  Test Files 2 failed | 12 passed (14)
+shared-family 5/8 exit=1  Test Files 6 failed | 8 passed (14)
+shared-family 6/8 exit=1  Test Files 3 failed | 11 passed (14)
+shared-family 7/8 exit=1  Test Files 6 failed | 8 passed (14)
+shared-family 8/8 exit=1  Test Files 3 failed | 11 passed (14)
+imported-pglite 1/2 exit=0  Test Files 5 passed | 12 skipped (17)
+imported-pglite 2/2 exit=1  Test Files 2 failed | 6 passed | 2 skipped (10)
+fixed exit=0  Tests 758 passed (758)
+g2-baseline exit=0  Tests 216 passed (216)
+g2-contracts exit=0  Tests 216 passed (216)
+typecheck exit=0 errors=0 (after the pin thunk fix; receipts/typecheck.log)
+coverage:query-engine-core exit=0 All files | 87.43 | 91 | 90.59 | 87.43 | 
+coverage:policy exit=0

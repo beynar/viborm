@@ -218,9 +218,13 @@ export class RelationBody {
       case "disconnect":
       case "delete": {
         if (payload === false) break;
-        for (const selector of payload === true
-          ? [undefined]
-          : entries(payload)) {
+        // DESIGN §5.3's truth table, decided where the payload's form is
+        // known: `disconnect: true` and `delete: true` are LAX — an empty slot
+        // is a no-op, so the lookup is not required and a consumer that binds
+        // no row emits nothing — while an explicit selector is STRICT and a
+        // missing target is the correlated refusal.
+        const lax = payload === true;
+        for (const selector of lax ? [undefined] : entries(payload)) {
           const outgoing = this.commands.lookup(
             edge.target,
             {
@@ -229,11 +233,13 @@ export class RelationBody {
               unique: nestedTargetAddressesConstraint(edge, verb),
               membership: { edge, parent: parent.located!.fields },
             },
-            () =>
-              new NestedWriteError(
-                `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
-                edge.name
-              )
+            lax
+              ? undefined
+              : () =>
+                  new NestedWriteError(
+                    `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
+                    edge.name
+                  )
           );
           outgoing.origin = origin;
           this.membershipSource(edge, parent.located!.fields);
@@ -266,11 +272,14 @@ export class RelationBody {
                 origin
               );
           } else {
+            // A lax removal names no target: it clears whatever member the
+            // slot holds at execution (at most one on a to-one edge), which is
+            // the set-based clear a `Removal` without a target already is.
             const removal: Removal = {
               kind: "remove",
               edge,
               source: parent.fields,
-              target: outgoing.fields,
+              target: lax ? undefined : outgoing.fields,
               keep: [],
             };
             // A JUNCTION `delete` removes the LINK row before the target, in

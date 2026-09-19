@@ -1,0 +1,24 @@
+ ✓ |extended-local| tests/contracts/engine/query/nested-mutation-routing.test.ts (72 tests) 2578ms
+ ❯ |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts (9 tests | 7 failed) 850ms
+ ✓ |extended-local| tests/contracts/public-client/undefined-projection-keys.test.ts (19 tests) 621ms
+ ✓ |extended-local| tests/unit/migrations/decimal-list-defaults.test.ts (5 tests) 960ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-depth-lift.test.ts (6 tests) 923ms
+ ✓ |extended-local| tests/contracts/public-client/aggregate-result-types.test.ts (9 tests) 876ms
+ ✓ |extended-local| tests/contracts/engine/query/to-one-filter-shorthand.test.ts (12 tests) 810ms
+ ❯ |extended-local| tests/contracts/engine/write/generated-output-fallback.test.ts (5 tests | 1 failed) 1211ms
+ ✓ |extended-local| tests/contracts/engine/write/type-depth-ceiling.test.ts (2 tests) 857ms
+ ✓ |extended-local| tests/contracts/engine/query/orderby-relation-depth.test.ts (4 tests) 1467ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-occupied.test.ts (6 tests) 1202ms
+ ✓ |extended-local| tests/contracts/drivers/transaction-scope-scheduler.provider.test.ts (1 test) 949ms
+ ✓ |extended-local| tests/contracts/public-client/nested-transaction-contract.test.ts (1 test) 923ms
+ ✓ |extended-local| tests/contracts/engine/write/compound-relation-adoption.test.ts (4 tests) 737ms
+ FAIL  |extended-local| tests/contracts/engine/write/generated-output-fallback.test.ts > generated output exact batch scratch > a nested generated key and relation-supplied publication stay in one nat
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — the complete parent row key at a progressive nested series > row liveness and non-PK membership remain s
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — the complete parent row key at a progressive nested series > a concurrent move of the referenced value f
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — the complete parent row key at a progressive nested series > a child-held updateMany cannot continue und
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — the complete parent row key at a progressive nested series > a before-root series re-pins the selected r
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — each placement guards its exact progressive premise > a junction relation-bearing createMany
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — each placement guards its exact progressive premise > a junction relation-bearing updateMany
+ FAIL  |extended-local| tests/contracts/engine/write/progressive-parent-rowkey.test.ts > H1 — each placement guards its exact progressive premise > a child-held relation-bearing updateMany
+ Test Files  2 failed | 12 passed (14)
+      Tests  8 failed | 147 passed (155)

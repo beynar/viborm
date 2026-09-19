@@ -981,6 +981,16 @@ refuses). Sibling order is restored where it was actually inverted — by
 compiling a set mutation as ONE statement instead of a capture — never by moving
 the captures that remain. Do not merge the passes.
 
+A to-one `disconnect: true` or `delete: true` is LAX (DESIGN §5.3: an empty
+slot is a no-op) and an explicit member selector is STRICT (a missing target
+is the correlated refusal). The relation body decides it where the payload's
+form is known — a lax lookup is not `required` and asserts no batch presence
+premise — and the consumers answer an absent selection honestly: a deletion
+whose selection bound no row emits no statement, and a lax removal names no
+target, so it is the set-based membership clear (N2 of the
+nesting-and-refusals plan; admission allows only `true`/`false` for a to-one
+`delete`, so the strict form lives on the to-many edge).
+
 Within one relation body, a `connectOrCreate` entry whose target an earlier
 entry PROVABLY creates is that earlier entry's association: first-create-wins
 locally and the later entry adopts the row (`docs/architecture/retired/write-engine-ATOM.md` §12), so it opens no second

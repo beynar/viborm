@@ -161,9 +161,10 @@ lookup; the batch presence premise is not asserted for a lax lookup
 (`retained ??= required` stays undefined).
 
 **Witnesses.** The three to-one cells in both modes; the polymorphic
-"EMPTY slot writes nothing" cells; a pin that an explicit `delete: { where }`
-on the same empty slot still refuses; a junction `delete: true` on an empty
-slot.
+"EMPTY slot writes nothing" cells; a pin on both routes that the lax forms
+write nothing on an empty slot and delete the member when the slot is
+occupied, and that the strict form still refuses — on the to-many edge,
+since admission allows only `true`/`false` for a to-one `delete`.
 
 ## 3. N3 — attribution first, then recovery eligibility
 
