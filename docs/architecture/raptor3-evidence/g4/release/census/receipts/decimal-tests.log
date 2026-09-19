@@ -1,0 +1,23 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 70ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 6ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 14ms
+ ✓ |coverage-raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 43ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 31ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (1 test) 1ms
+ ✓ |raptor3| tests/raptor3/g4/read-codecs.test.ts (12 tests) 66ms
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 6ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/recursive-codec-fit.test.ts (3 tests) 14ms
+ ✓ |raptor3| tests/raptor3/polish/commands.test.ts (6 tests) 45ms
+ ✓ |raptor3| tests/raptor3/g4/read-aggregates.test.ts (5 tests) 33ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/decimal-having-operand.test.ts (1 test) 1ms
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 18ms
+
+ Test Files  13 passed (13)
+      Tests  75 passed (75)
+   Start at  20:09:21
+   Duration  4.92s (transform 2.48s, setup 24ms, collect 4.10s, tests 348ms, environment 0ms, prepare 79ms)
+
+Vitest resources: 6.78s wall, 673.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

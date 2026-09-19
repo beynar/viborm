@@ -40,18 +40,17 @@ import {
   isGregorianCalendarDate,
 } from "@validation/primitives/datetime-values";
 import {
-  canonicalizeDecimal,
-  decodePhysicalDecimal,
-  decodePhysicalDecimalList,
-  decodePhysicalWidenedSum,
-  encodePhysicalDecimalListMembers,
-  logicalToCoefficient,
-  materializePhysicalDecimal,
-  materializePhysicalWidenedSum,
-  sameDecimalDescriptor,
-  toDecimal,
+  canonicalDecimal,
+  decimalMembers,
+  decimalSumOperand,
+  decodeDecimalList,
+  decodeDecimalScalar,
+  dividesByZero,
+  exactDecimalDomain,
+  requireDecimal,
+  sameDecimalDomain,
   type DecimalDescriptor,
-} from "@validation/primitives/decimal-codec";
+} from "./decimal";
 import { parse } from "@validation";
 import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
@@ -412,18 +411,6 @@ const VACUOUS_FALSE: PreparedPredicate = Object.freeze({
   kind: "always",
   value: false,
 });
-/**
- * The declared domain of an exact decimal COLUMN, or `undefined` when the state
- * is not one. A list answers `undefined`: its members live in a container and
- * the scalar comparison this domain governs is not one a list has.
- */
-function exactDecimalDomain(
-  state: ScalarState,
-): DecimalDescriptor | undefined {
-  return state.type === "decimal" && state.array !== true
-    ? state.decimal
-    : undefined;
-}
 /** One normalized sort key; `field` marks a direct scalar a cursor can use. */
 interface OrderTerm {
   readonly expression: Sql;
@@ -754,11 +741,11 @@ export class Queries {
       case "decimal":
         return state.array === true
           ? a.literals.value(
-              this.decimalMembers(state, [value], field)[0]!,
+              decimalMembers(state, [value], field, this.adapter.result)[0]!,
             )
           : a.literals.decimal(
-              this.canonicalDecimal(value, field),
-              this.requireDecimal(state, field),
+              canonicalDecimal(value, field),
+              requireDecimal(state, field),
             );
       case "json":
         return a.literals.json(value);
@@ -794,42 +781,11 @@ export class Queries {
   ): Sql {
     if (state.type === "decimal")
       return this.adapter.arrays.value(
-        this.decimalMembers(state, values, field),
+        decimalMembers(state, values, field, this.adapter.result),
       );
     return state.type === "enum"
       ? this.adapter.arrays.enumValue([...values])
       : this.adapter.arrays.value([...values]);
-  }
-  private decimalMembers(
-    state: ScalarState,
-    values: readonly unknown[],
-    field: string,
-  ): string[] {
-    const members = encodePhysicalDecimalListMembers(
-      values,
-      this.requireDecimal(state, field),
-      this.adapter.result.decimalListRepresentation ?? "text",
-    );
-    if (members === undefined)
-      throw new QueryEngineError(
-        `Decimal list '${field}' received a member that is not an exact decimal.`,
-      );
-    return members;
-  }
-  private canonicalDecimal(value: unknown, field: string): string {
-    const canonical = canonicalizeDecimal(value);
-    if (canonical === undefined)
-      throw new QueryEngineError(
-        `Decimal field '${field}' received a value that is not an exact decimal.`,
-      );
-    return canonical;
-  }
-  private requireDecimal(state: ScalarState, field: string): DecimalDescriptor {
-    if (!state.decimal)
-      throw new QueryEngineError(
-        `Decimal field '${field}' has no declared precision and scale, so it has no exact value to bind.`,
-      );
-    return state.decimal;
   }
   /** The declared native form of a column; a list's members live in its container. */
   private nativeType(scalar: Scalar): NativeType | undefined {
@@ -1028,7 +984,7 @@ export class Queries {
           exactDecimalDomain(
             physicalField(this.schema, model, field).scalar["~"].state,
           ) &&
-          canonicalizeDecimal(by) === "0"
+          dividesByZero(by)
         )
           throw new QueryEngineError(
             `Cannot divide decimal field '${field}' by zero.`,
@@ -1612,7 +1568,7 @@ export class Queries {
       );
     const own = exactDecimalDomain(owner.physical.scalar["~"].state);
     const other = exactDecimalDomain(referenced["~"].state);
-    if (own && other && !sameDecimalDescriptor(own, other))
+    if (own && other && !sameDecimalDomain(own, other))
       throw new QueryEngineError(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`,
       );
@@ -2110,11 +2066,11 @@ export class Queries {
       target.kind === "aggregate" && target.aggregate === "_sum"
         ? exactDecimalDomain(state)
         : undefined;
-    const canonical = domain ? canonicalizeDecimal(value) : undefined;
+    const operand = domain ? decimalSumOperand(value, domain) : undefined;
     // A value that is not an exact decimal is the ordinary binder's refusal.
-    if (!domain || canonical === undefined)
+    if (!domain || operand === undefined)
       return this.scalarValue(scalar.physical.scalar, value, scalar.field);
-    const coefficient = logicalToCoefficient(canonical, domain.scale);
+    const { canonical, coefficient } = operand;
     const precision =
       this.adapter.aggregates.decimalSumOperandPrecision(coefficient);
     if (precision === undefined) {
@@ -4474,15 +4430,13 @@ export class Queries {
         return parsed;
       }
       case "decimal": {
-        const descriptor = leaf.decimal!;
-        const representation = this.adapter.result.decimalRepresentation ?? "text";
-        const decoded = leaf.widened
-          ? internal
-            ? decodePhysicalWidenedSum(value, descriptor, representation)
-            : materializePhysicalWidenedSum(value, descriptor, representation)
-          : internal
-            ? decodePhysicalDecimal(value, descriptor, representation)
-            : materializePhysicalDecimal(value, descriptor, representation);
+        const decoded = decodeDecimalScalar(
+          value,
+          leaf.decimal!,
+          leaf.widened === true,
+          internal,
+          this.adapter.result,
+        );
         if (decoded === undefined)
           throw new InvalidScalarResult(
             leaf.type,
@@ -4606,17 +4560,18 @@ export class Queries {
   /** One list container, then each member through the element's own codec. */
   private decodeList(leaf: Leaf, value: unknown, internal: boolean): unknown[] {
     if (leaf.type === "decimal") {
-      const members = decodePhysicalDecimalList(
+      const members = decodeDecimalList(
         value,
         leaf.decimal!,
-        this.adapter.result.decimalListRepresentation ?? "text",
+        internal,
+        this.adapter.result,
       );
       if (members === undefined)
         throw new InvalidScalarResult(
           leaf.type,
           "the value is not an exact decimal list in this column's declared domain",
         );
-      return internal ? members : members.map((member) => toDecimal(member));
+      return members;
     }
     let items: unknown = value;
     if (typeof items === "string")
