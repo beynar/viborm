@@ -1,0 +1,41 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc03
+
+ ❯ |extended-local| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (8 tests | 1 failed) 58ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > the review case: a captured delete with a relation projection on a model whose scalars are named NOT and OR 21ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a selected bulk delete filters by the scalar named OR while the complement excludes the captured identities 5ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a selected bulk update writes the scalar named NOT and publishes the rows it wrote 4ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > an empty capture publishes nothing, changes nothing and claims no complement 2ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a LIMITED capture claims no complement; the unlimited one does 3ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a compound identity is excluded completely, by every key column 8ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a row that JOINS a combinator-named selection after the capture aborts before the write 4ms
+   × FC-03: the captured set's complement is prepared, not spelled > a nested captured deletion through a relation named AND excludes its captured members 11ms
+     → Raptor 3 filter operator is not implemented: OR
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/prepared-set-predicates.test.ts > FC-03: the captured set's complement is prepared, not spelled > a nested captured deletion through a relation named AND excludes its captured members
+EngineInvariantError: Raptor 3 filter operator is not implemented: OR
+ ❯ Queries.lowerOperation src/query-engine/raptor3/shared/query.ts:2231:15
+    2229|         // (AGENTS.md: "Do not add a second operator switch"). The sta…
+    2230|         // arm names is therefore one the code cannot be in when it is…
+    2231|         throw new EngineInvariantError(
+       |               ^
+    2232|           `Raptor 3 filter operator is not implemented: ${operator}`,
+    2233|         );
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:2004:21
+ ❯ src/query-engine/raptor3/shared/query.ts:1988:18
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:1987:35
+ ❯ src/query-engine/raptor3/shared/query.ts:1988:18
+ ❯ Queries.lowerPredicate src/query-engine/raptor3/shared/query.ts:1987:35
+ ❯ src/query-engine/raptor3/shared/query.ts:1988:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  22:05:08
+   Duration  1.55s (transform 808ms, setup 9ms, collect 1.19s, tests 58ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.54s wall, 521.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

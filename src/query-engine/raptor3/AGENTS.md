@@ -181,6 +181,19 @@ scope, remain symbolic operands, and never become literal equality,
 disjointness, or exact-recovery proof. Do not add a second selector walker,
 retain a raw selector as another semantic authority, or cache attempt SQL.
 
+**Addendum (FC-03).** An INTERNAL premise about a CAPTURED SET states prepared
+meaning, never public syntax. `Queries.excludeIdentities` owns the complement of
+a set of captured row identities — "this row is not one of the rows the engine
+read" — composed from those identities' own equalities under the one combinator
+owner, and both consumers of that fact (`CommandExecution.requireNoAddedMember`,
+`OperationContext.requireCapturedSet`) ask it for the answer. A public `where`
+payload cannot carry such a premise: N4 lets a model DECLARE a scalar or
+relation named `NOT`, `OR` or `AND`, and the declared field wins the key, so a
+hand-built `{ NOT: { OR: … } }` was read as that model's own field (the closure
+review's executed failure). An empty captured set states no condition and
+excludes nothing. What each consumer claims about its own set stays with that
+consumer — a LIMITED capture claims no complement at all.
+
 `Commands.analyze` materializes one placement-owned `CommandOccurrence` tree
 from immutable command recipes. Reusing a command or `Selection` never reuses
 occurrence ancestry, children, refusal, or attempt state. Choice arms and static

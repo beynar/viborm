@@ -2557,7 +2557,7 @@ export class OperationContext {
       q.select(model, { take: 1 }, undefined, {
         selector: q.andSelectors(model, [
           selector,
-          q.prepareSelector(model, { NOT: { OR: [...identities] } })
+          q.excludeIdentities(model, identities)
         ])
       }),
       changed()

@@ -1,0 +1,59 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc03
+
+ ❯ |extended-local| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests | 1 failed) 77ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > the review case: a captured delete with a relation projection on a model whose scalars are named NOT and OR 22ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a selected bulk delete filters by the scalar named OR while the complement excludes the captured identities 6ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a selected bulk update writes the scalar named NOT and publishes the rows it wrote 5ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > an empty capture publishes nothing, changes nothing and claims no complement 4ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a LIMITED capture claims no complement; the unlimited one does 9ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a compound identity is excluded completely, by every key column 9ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a row that JOINS a combinator-named selection after the capture aborts before the write 5ms
+   ✓ FC-03: the captured set's complement is prepared, not spelled > a nested captured deletion through a relation named AND excludes its captured members 7ms
+   × FC-03: the captured set's complement is prepared, not spelled > an EMPTY nested capture still rides its guard on the batch, stating no complement 9ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   `SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."NOT" AS "NOT", "q0"."OR" AS "OR", "q0"."boxId" AS "boxId" FROM "fc03_items" AS "q0" WHERE (EXISTS (SELECT 1 FROM "box_item_fc03Tagged" AS "q1" WHERE ("q1"."boxId" = ? AND "q1"."itemId" = "q0"."id")) AND ("q0"."OR" COLLATE BINARY = ? AND NOT (0))) ORDER BY "q0"."id" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`
++ ]
+- []
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/prepared-set-predicates.test.ts > FC-03: the captured set's complement is prepared, not spelled > an EMPTY nested capture still rides its guard on the batch, stating no complement
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
++ [
++   `SELECT CASE WHEN NOT EXISTS (SELECT "q0"."id" AS "id", "q0"."NOT" AS "NOT", "q0"."OR" AS "OR", "q0"."boxId" AS "boxId" FROM "fc03_items" AS "q0" WHERE (EXISTS (SELECT 1 FROM "box_item_fc03Tagged" AS "q1" WHERE ("q1"."boxId" = ? AND "q1"."itemId" = "q0"."id")) AND ("q0"."OR" COLLATE BINARY = ? AND NOT (0))) ORDER BY "q0"."id" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`
++ ]
+- []
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "SELECT CASE WHEN NOT EXISTS (SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"NOT\" AS \"NOT\", \"q0\".\"OR\" AS \"OR\", \"q0\".\"boxId\" AS \"boxId\" FROM \"fc03_items\" AS \"q0\" WHERE (EXISTS (SELECT 1 FROM \"box_item_fc03Tagged\" AS \"q1\" WHERE (\"q1\".\"boxId\" = ? AND \"q1\".\"itemId\" = \"q0\".\"id\")) AND (\"q0\".\"OR\" COLLATE BINARY = ? AND NOT (0))) ORDER BY \"q0\".\"id\" ASC LIMIT ?) THEN 1 ELSE json_extract('x', '$') END AS \"__viborm_assert__\"",[39m
+[31m+ ][39m
+
+ ❯ tests/raptor3/g4/parity/prepared-set-predicates.test.ts:349:12
+    347|     assert.equal(guards.length, 1);
+    348|     assert.equal(driver.batchCalls, 1);
+    349|     assert.deepEqual(complements(), []);
+       |            ^
+    350|     assert.deepEqual(await items(client), [
+    351|       { id: 1, NOT: 10 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 passed (9)
+   Start at  22:24:40
+   Duration  1.64s (transform 872ms, setup 9ms, collect 1.36s, tests 77ms, environment 0ms, prepare 26ms)
+
+Vitest resources: 3.50s wall, 523.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1367,6 +1367,7 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/captured-identity-domains.test.ts": 9,
   "tests/raptor3/g4/parity/transport-witnesses.test.ts": 7,
   "tests/raptor3/g4/parity/fresh-member-placement.test.ts": 16,
+  "tests/raptor3/g4/parity/prepared-set-predicates.test.ts": 8,
   "tests/raptor3/g4/parity/generated-key-reach.test.ts": 7,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));

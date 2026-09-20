@@ -952,24 +952,16 @@ export class CommandExecution {
   private async requireNoAddedMember(
     series: SeriesOccurrence["series"],
     membership: NonNullable<ReturnType<Selection["membership"]>>,
-    rows: readonly Input[],
-    keys: readonly string[]
+    rows: readonly Input[]
   ): Promise<void> {
     const ctx = this.context;
     const selection = series.selection;
     const captured = ctx.queries.andSelectors(selection.model, [
       ...(selection.selector ? [selection.selector] : []),
-      ...(rows.length === 0
-        ? []
-        : [
-            ctx.queries.prepareSelector(selection.model, {
-              NOT: {
-                OR: rows.map((row) =>
-                  Object.fromEntries(keys.map((field) => [field, row[field]]))
-                ),
-              },
-            }),
-          ]),
+      ctx.queries.excludeIdentities(
+        selection.model,
+        rows.map((row) => ctx.schema.identity(selection.model, row))
+      ),
     ]);
     const failure = membershipRaceFailure(
       series.mutation.kind,
@@ -1075,7 +1067,7 @@ export class CommandExecution {
       // `g2-series-parent-reference-reused`) instead of the complement's
       // raceable one, which would retry against another parent's members.
       ctx.requirePresent(parentRequirement.query, parentRequirement.failure);
-      await this.requireNoAddedMember(series, membership, rows, keys);
+      await this.requireNoAddedMember(series, membership, rows);
     }
     const members: SelectedSeriesMember[] = ctx.prepareMembers(
       () =>

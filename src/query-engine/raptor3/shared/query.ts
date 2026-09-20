@@ -1232,14 +1232,66 @@ export class Queries {
     return Object.freeze({
       model,
       facts,
-      predicate: Object.freeze({
-        kind: "and",
-        predicates: Object.freeze(
-          Object.entries(identity).map(([field, value]) =>
-            this.prepareScalarPredicate(model, field, value, facts),
-          ),
+      predicate: this.identityPredicate(model, identity, facts),
+    });
+  }
+  /** One row's identity as prepared meaning: its key fields' equalities. */
+  private identityPredicate(
+    model: AnyModel,
+    identity: Input,
+    facts: SelectorFacts,
+  ): PreparedPredicate {
+    return Object.freeze({
+      kind: "and",
+      predicates: Object.freeze(
+        Object.entries(identity).map(([field, value]) =>
+          this.prepareScalarPredicate(model, field, value, facts),
         ),
-      }),
+      ),
+    });
+  }
+  /**
+   * The complement of a CAPTURED identity set — "this row is not one of the
+   * rows the engine read" — as prepared meaning.
+   *
+   * A captured set is identities the engine itself read, so its complement is
+   * composed here from {@link identityPredicate}'s equalities under the one
+   * combinator owner ({@link combine}), and never spelled as a public
+   * `{ NOT: { OR: … } }` payload: N4 lets a model DECLARE a scalar or relation
+   * named `NOT`, `OR` or `AND`, and such a payload is then read as that field
+   * ({@link combinator}) — the public name wins, as validation admitted it. An
+   * internal premise that borrowed public syntax could not survive that, which
+   * is why the meaning is stated and only the SQL is spelled.
+   *
+   * An empty set excludes nothing: it states no condition, so a caller that
+   * conjoins it through {@link andSelectors} keeps exactly its own selector —
+   * the truth both consumers already carried, one by omitting the bag and the
+   * other through the vacuous `NOT` of an empty `OR`.
+   */
+  excludeIdentities(
+    model: AnyModel,
+    identities: readonly Input[],
+  ): PreparedSelector {
+    const facts: SelectorFacts = {
+      fields: new Set(),
+      equals: new Map(),
+      keys: new Map(),
+      exact: true,
+      reads: [],
+    };
+    const captured = identities.map((identity) =>
+      this.identityPredicate(model, identity, facts),
+    );
+    // A negated set pins no equality: the facts describe a filter, not a
+    // discriminator, exactly as the combinator walker recorded it.
+    if (captured.length > 0) facts.exact = false;
+    return Object.freeze({
+      model,
+      facts,
+      predicate:
+        captured.length === 0
+          ? undefined
+          : this.combine("NOT", [this.combine("OR", captured)]),
     });
   }
   andSelectors(
