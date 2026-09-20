@@ -24,9 +24,29 @@ in wall, peak memory better on every measurable cell. Plan §7's 5 % budget
 is still not met on those three cells and four relation-read cells sit 2–7 %
 above parity; under D-9 that is accepted for adoption rather than repaired.
 
-**Size.** The public PostgreSQL client fixtures are 0.700 of the frozen
+> **Release tree, re-measured (2026-09-20, commit 31, `g4/release/perf/note.md`).**
+> The same frozen 20-cell protocol against the last shipped-old-engine tree
+> (`5a37bcd7`), two passes. The writes win (the two conditional writes 0.80
+> CPU, `flat-scalar-update` end to end 0.691), reads hold. At the bracket D-9
+> measured, the three preparation cells read **1.215 / 1.315 / 1.325** against
+> the 1.12 the decision names — inside stage 2d's own ranges, so nothing has
+> regressed since D-9 and the acceptance was never met at its number. Newly
+> over budget: `fixed-collection-rowref-1000/parse`, the D-28 decode cell
+> (CPU 1.08 / 1.09, wall 1.12 / 1.14, both passes; at parity at identity 4);
+> `bulk-update-returning-100/full` moved 0.838 → 0.963, still under parity,
+> cause not bisected. D-58 adds no statement on any of the 20 cells. These
+> three are decisions for Arnaud (open items 7–9 below), not repairs.
+
+**Size.** ~~The public PostgreSQL client fixtures are 0.700 of the frozen
 baseline (target ≤ 1.00); the engine-only fixture (0.238) no longer contains
-the candidate after the cutover and is a follow-up to re-point. The cutover
+the candidate after the cutover and is a follow-up to re-point.~~ *Corrected
+2026-09-20 (commit 31, `g4/release/perf/bundle-ratios-release.json`): on the
+release tree the public PostgreSQL client fixtures are **0.735** of the frozen
+baseline (+5.0 % gzip since identity 4, through D-53, M1 and D-58; target
+≤ 1.00 met), the engine-only fixture is **0.646** (≤ 0.75) with all 16 raptor3
+files in it — the 0.238 measured a fixture holding one module, and the
+re-point follow-up is closed as a measured no-op — and `src/query-engine/**`
+is 16,036 token lines = **0.348** of the old engine's 46,021 (≤ 0.60).* The cutover
 deletes 33 legacy owners (28,740 lines) and 197 legacy or two-sided tests
 (86,498 lines); the candidate is 15 files and about 11,700 lines.
 
@@ -186,6 +206,7 @@ performance and size re-measure follows as its own evidence commit.
 | Census | root review D: complete charged candidate 14,680 token-lines = 27.3 % of the shipped 53,787; after the cutover 31,664 charged token-LOC (0.635 of the frozen baseline), after the pattern retirement 11,732 (0.235) |
 | Post-cutover estate | 59 fixed modes, 12 PostgreSQL, 11 MySQL, support, coverage policy, taxonomy census green; `pnpm test:core` 6 files / 11 tests red (base 5 / 42) — the D-16 cells; provider lanes red on D-16 cells only (61 local, 13 + 13 Docker) |
 | Performance (plan §7, stage 2d) | 5 pass, 3 block (preparation 1.19–1.40×), 9 inconclusive after the repeat (5 precision-limited, 4 relation-read cells 2–7 % above parity), 2 not measurable, 1 contract divergence; accepted under D-9 |
+| Performance and size (release tree, commit 31, 2026-09-20) | 6 pass, 5 block (three preparation cells 1.215 / 1.315 / 1.325 at D-9's bracket, `fixed-collection-rowref-20/prepare` 1.16–1.21 at the statement seam, the D-28 decode cell 1.08–1.09 CPU), 5 inconclusive after the repeat (two passed on it, carried by the worse-of-two rule), 3 not measurable comparably, 1 contract divergence; engine bundle 0.646, public fixtures 0.735, engine source 0.348 — all size targets met; decisions pending |
 
 Six qualification attempts were needed; each earlier attempt is kept whole
 (`g4/qualified-attempt-{1,2,4}-stale-identity/`; attempt 3 is the package in
@@ -255,6 +276,20 @@ are recorded in the ledger.
    alive; `expressions.integerDivide` is a required adapter member (a
    compile-time change for third-party adapters); `route` is effectively
    required through one localised assertion.
+7. **Preparation cost against D-9's number (release tree).** At the bracket
+   D-9 measured, the three cells read 1.215 / 1.315 / 1.325 against the 1.12
+   the decision states; nothing regressed since D-9, the acceptance was never
+   met at its number. Decision: restate D-9 at the measured numbers, fund a
+   preparation-cost unit before the push, or hold.
+8. **The D-28 decode cell.** `fixed-collection-rowref-1000/parse` is newly
+   8–9 % over on CPU and 12–14 % on wall on both passes (parity at identity
+   4), the same single statement on both sides — the clearest
+   ruling-attributable movement in the series. Decision: profile and repair
+   before the push, or accept as a documented cost.
+9. **`bulk-update-returning-100/full` 0.838 → 0.963** between identity 4 and
+   the release tree, same bracket, same statement count, still under parity;
+   the cause is in the eight commits between and was not bisected.
+   Decision: bisect (measurement only), or accept.
 6. **Environment:** the live-provider harness leaks one database or schema
    per world (E-1; the qualification driver drops stale worlds before native
    groups); the source-cost tool cannot run in a tree whose `git status`
