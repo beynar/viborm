@@ -1,0 +1,44 @@
+Temporary instrumentation used to DERIVE the schedule (applied to a backup copy,
+restored by `cp` afterwards; `git status --porcelain src/` empty at every step,
+`shasum` re-checked against $TMPDIR/commands.ts.bak and $TMPDIR/execution.ts.bak).
+Receipt produced with it: placement-instrumentation.log.
+
+1) src/query-engine/raptor3/commands/commands.ts, in `depend`, immediately
+   before `if (!follows) {`:
+
+    console.error(
+      `[FC01B depend] follows=${follows} started=${this.execution.started(ancestor)} ancestorRole=${String((ancestor as unknown as { role?: string }).role)} consumerKind=${consumer.command.kind} consumerPlacement=${consumer.placement} producerKind=${producer?.command.kind ?? "none"} msg=${refusal().message}`
+    );
+
+2) same file, immediately after the `children.splice(... , 0, consumer)` that
+   lands the moved reader:
+
+    console.error(
+      `[FC01B moved] children=${children
+        .map(
+          (c, i) =>
+            `${i}:${c.command.kind}/${c.placement}/ord=${String(this.origin(c.command)?.order)}${c === consumer ? "<<MOVED" : ""}`
+        )
+        .join(" | ")}`
+    );
+
+3) src/query-engine/raptor3/commands/execution.ts, in `run`, immediately before
+   `this.entered.add(occurrence);`:
+
+    console.error(
+      `[FC01B run] kind=${command.kind} placement=${occurrence.placement} role=${String((occurrence as unknown as { role?: string }).role)}`
+    );
+
+The pre-FC-01 engine (used for trace-before-fc01.log and
+falsify-fc01-reverted.log) was reproduced by the exact inverse of FC-01's src
+hunk, applied to the same backup copy and restored the same way — FC-02A and
+FC-03 stay in place, so this is NOT `git show 8bdc8f5ce^:<file>`:
+
+  + `private expanded = false;` field on `Commands`
+  + `this.expanded = true;` after `expandSeries`'s "expanded once" assertion
+  ~ `if (consumed || this.execution.started(ancestor)) {`
+      -> `if (consumed || this.expanded) {`
+
+It reproduces the pre-FC-01 answer exactly, including the published segment
+progress the fixture pinned (`phase: "planning"`, committedSegments 1,
+committedWriteMembers 1, completedMembers 0, memberPath [1], totalMembers 2).
