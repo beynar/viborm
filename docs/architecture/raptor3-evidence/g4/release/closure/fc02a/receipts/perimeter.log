@@ -1,0 +1,32 @@
+# FC-02A — typecheck, census, Biome and LOC.
+
+## Typecheck (once, at the end of the unit)
+$ node scripts/run-typecheck.mjs
+exit=0
+TypeScript (whole estate, native): 8.26s wall, 4995.8 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.
+
+## Refusal census (no refusal or error class was touched; run to prove it)
+$ node scripts/raptor3-refusal-census.mjs
+| refusal — public | 30 | 23 |
+| **total sites** | **192** | |
+**Public refusals: 23 distinct sentences** at 30 sites, against the **55** the map started from (-32).
+
+## LOC (node scripts/query-engine-structure.mjs, queryEngine)
+base  29a7bf9d8 : lines 20333, tokenLines 16036
+after            : lines 20356, tokenLines 16038   (+23 physical, +2 token lines)
+The two token lines are `const identity = this.schema.identity(model, current);`
+and the caller's widened reader; one parameter (`captured`) is deleted.
+
+## Biome, per changed file, base copy vs working copy (same diagnostic counts)
+src/query-engine/raptor3/shared/operation-context.ts
+  BASE : Found 6 errors — 1 format, 1 assist/source/organizeImports, 4 lint/style/noParameterProperties
+  AFTER: Found 6 errors — 1 format, 1 assist/source/organizeImports, 4 lint/style/noParameterProperties
+  (the base copy carries a `format` diagnostic, so the formatter was NOT run on it)
+src/query-engine/raptor3/commands/execution.ts
+  BASE : Found 4 errors — 1 assist/source/organizeImports, noCommaOperator, noParameterProperties, useDefaultSwitchClause
+  AFTER: Found 4 errors — 1 assist/source/organizeImports, noCommaOperator, noParameterProperties, useDefaultSwitchClause
+tests/raptor3/post-prep/projection-preparation.test.ts
+  BASE : Found 9 errors — 9 lint/performance/useTopLevelRegex
+  AFTER: Found 9 errors — 9 lint/performance/useTopLevelRegex
+tests/raptor3/g4/parity/cascaded-current-identity.test.ts   (new) : clean, formatted
+tests/providers/docker/mysql2-cascaded-identity.test.ts     (new) : clean, formatted

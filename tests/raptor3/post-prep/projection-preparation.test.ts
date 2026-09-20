@@ -338,14 +338,16 @@ describe("post-G3 projection preparation", () => {
 
     try {
       const updated = await context.run(() =>
+        // FC-02A merged the address and the stale capture into ONE current
+        // row: the same values, one parameter. The expectations below are
+        // unchanged — this call's spelling is.
         context.update(
           schema.output,
-          { id: 1 },
+          { id: 1, stamp: 51, score: 7 },
           { score: 11 },
           {},
           "update",
-          new Set(["score"]),
-          { id: 1, stamp: 51, score: 7 }
+          new Set(["score"])
         )
       );
 

@@ -472,12 +472,20 @@ export class CommandExecution {
           command.located
             ? await ctx.update(
                 command.model,
-                this.identity(command.located.fields),
+                // The row as it stands NOW: the same reader that answers the
+                // address answers every value the update computes from, so a
+                // cascade that moved this row cannot leave the two naming
+                // different rows ({@link CommandAttempt.read}, FC-02A). The
+                // ORIGINAL observation stays in `attempt.rows` for the
+                // consumers that need what was SEEN.
+                attempt.select(command.located.fields, [
+                  ...ctx.schema.keys(command.model),
+                  ...command.fields.demands,
+                ]),
                 attempt.values(command.fields),
                 member,
                 command.operation,
-                command.fields.demands,
-                attempt.rows.get(command.located)
+                command.fields.demands
               )
             : await ctx.insert(
                 command.model,

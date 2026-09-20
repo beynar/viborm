@@ -1274,6 +1274,25 @@ puts it behind the barrier on the batch route. Pins under
 `tests/raptor3/g4/parity/` (`member-boundary-packaging`,
 `singular-slot-transition`, `exclusive-member-cardinality`,
 `suppressed-membership-target`, `correlated-membership`, `published-key`).
+
+**Addendum (FC-02A).** "The record's own statement, its later children and the
+terminal read all name the row where the cascade left it" was true of the
+statement and its children and NOT of the read-back a transport WITHOUT
+RETURNING has to issue: `OperationContext.update` received the current address
+beside the row's ORIGINAL capture and named the obsolete key from it (`UPDATE
+did not produce the required record`, reproduced on native MySQL, the one
+adapter that declares `supportsReturning: false`). It now takes ONE row — the
+values as they stand NOW, read through `CommandAttempt.read` for the model's
+keys and for every field the update DEMANDS — and answers all three of its
+questions from it: the statement's identity, the batch reference scratch's
+arithmetic base, and the read-back's identity. The ORIGINAL observation is a
+different fact and stays in `CommandAttempt.rows` for the consumers that need
+what was SEEN (a choice's conditional skip, a `link`'s captured junction pair).
+Pins: `tests/raptor3/g4/parity/cascaded-current-identity.test.ts` (RETURNING,
+non-RETURNING and batch-only) and
+`tests/providers/docker/mysql2-cascaded-identity.test.ts` (the native
+non-RETURNING transport).
+
 The value a parent-held `connect` writes into its own SET is read WHERE it is
 spent: a scalar sub-select over the arm's own prepared selector inside the
 mutation (`Queries.locatedValue`, hidden behind a derived table only where

@@ -2914,18 +2914,33 @@ export class OperationContext {
     }
     return published;
   }
+  /**
+   * @param current The row's values as they stand NOW, before this statement:
+   * its identity and every value an assignment of this update computes from.
+   * ONE meaning answers all three of this path's questions — which row the
+   * statement addresses, what the arithmetic starts from, and which row the
+   * non-RETURNING readback names — because they are all the same row at the
+   * same moment. A correlated arm may already have moved it (`ON UPDATE
+   * CASCADE`) before this statement runs, and the caller's one reader of a
+   * field's runtime value (`CommandAttempt.read`, D-58) answers the key the
+   * cascade left it at. An address beside a STALE capture named two different
+   * rows, and the readback then found none (FC-02A). The row's ORIGINAL
+   * observation is a different fact and belongs to the consumers that need
+   * what was SEEN — a choice's conditional skip, a captured junction row —
+   * not to this statement.
+   */
   async update(
     model: AnyModel,
-    where: Input,
+    current: Input,
     values: Input,
     member: Member,
     operation = "update",
-    demanded: ReadonlySet<string> = new Set(),
-    captured: Input = where
+    demanded: ReadonlySet<string> = new Set()
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
     const adapter = this.driver.adapter;
+    const identity = this.schema.identity(model, current);
     const written = { ...values };
     // What this update PUBLISHES to its dependents: the values it observed,
     // never the payload it submitted. The payload is the update language and
@@ -2981,7 +2996,7 @@ export class OperationContext {
               model,
               field,
               value,
-              q.fieldValue(model, field, captured[field])
+              q.fieldValue(model, field, current[field])
             )
           )
         );
@@ -2999,7 +3014,7 @@ export class OperationContext {
     const statement = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
-      q.lowerIdentity(model, where)
+      q.lowerIdentity(model, identity)
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch && demanded.size) {
@@ -3014,7 +3029,7 @@ export class OperationContext {
         const rows = await this.read(
           q.select(model, {}, undefined, {
             projection,
-            identity: this.updatedIdentity(model, captured, values),
+            identity: this.updatedIdentity(model, identity, values),
           }),
           true
         );
@@ -3051,7 +3066,7 @@ export class OperationContext {
     const rows = await this.flush(
       q.select(model, {}, undefined, {
         projection,
-        identity: this.updatedIdentity(model, captured, values)
+        identity: this.updatedIdentity(model, identity, values)
       }),
       member
     );
