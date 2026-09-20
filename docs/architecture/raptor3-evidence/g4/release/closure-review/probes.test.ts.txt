@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+import { BatchOnlyDriver } from "./batch-only-drivers";
+
+it.each(["update", "updateMany"] as const)("review: ordered observation through %s", async (verb) => {
+  const user = s.model({
+    id: s.string().id(),
+    posts: s.toMany(() => post).name("reviewAuthor"),
+    edited: s.toMany(() => post).name("reviewEditor"),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    userId: s.string(),
+    author: s.toOne(() => user).fields("userId").references("id").name("reviewAuthor"),
+    editorId: s.string(),
+    editor: s.toOne(() => user).fields("editorId").references("id").name("reviewEditor"),
+  });
+  const driver = new RecordingSQLiteDriver();
+  const client = createClient({ schema: { user, post }, driver });
+  try {
+    await syncLiveSchema(client);
+    await client.user.create({ data: { id: "u1" } });
+    await client.post.create({ data: { id: "p1", slug: "a", userId: "u1", editorId: "u1" } });
+    await client.user[verb]({
+      where: { id: "u1" },
+      data: {
+        posts: { update: { where: { id: "p1" }, data: { slug: "x" } } },
+        edited: { delete: [{ slug: "x" }] },
+      },
+    });
+    assert.deepEqual(await client.post.findMany(), []);
+  } finally {
+    await driver.disconnect();
+  }
+});
+
+it.each(["flag", "NOT"] as const)("review: internal captured-set predicates with %s field", async (field) => {
+  const parent = s.model({ id: s.int().id(), children: s.toMany(() => child) });
+  const child = s.model({
+    id: s.int().id(),
+    [field]: s.int(),
+    parentId: s.int(),
+    parent: s.toOne(() => parent).fields("parentId").references("id"),
+  });
+  const driver = new BatchOnlyDriver();
+  const client = createClient({ schema: { parent, child }, driver });
+  try {
+    await syncLiveSchema(client);
+    await client.parent.create({ data: { id: 1 } });
+    await client.child.create({ data: { id: 2, [field]: 9, parentId: 1 } });
+    const removed = await client.child.delete({ where: { id: 2 }, include: { parent: true } });
+    assert.equal(removed.id, 2);
+    assert.deepEqual(await client.child.findMany(), []);
+  } finally {
+    await driver.disconnect();
+  }
+});
+
+it.each([true, false])("review: cascaded current identity with RETURNING=%s", async (returning) => {
+  const account = s.model({ id: s.string().id(), card: s.toOne(() => card) });
+  const card = s.model({
+    accountId: s.string().id(),
+    label: s.string(),
+    account: s.toOne(() => account).fields("accountId").references("id").onUpdate("cascade"),
+  });
+  const driver = new RecordingSQLiteDriver();
+  driver.adapter.capabilities.supportsReturning = returning;
+  const client = createClient({ schema: { account, card }, driver });
+  try {
+    await syncLiveSchema(client);
+    await client.account.create({ data: { id: "a1" } });
+    await client.card.create({ data: { accountId: "a1", label: "before" } });
+    assert.deepEqual(await client.card.update({
+      where: { accountId: "a1" },
+      data: { label: "changed", account: { update: { id: "moved" } } },
+      select: { accountId: true, label: true },
+    }), { accountId: "moved", label: "changed" });
+  } finally {
+    await driver.disconnect();
+  }
+});
