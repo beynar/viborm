@@ -1,0 +1,12 @@
+# Section N re-check at 7c3c33a4e — the six refusals-map sentences FC-00 found absent
+
+cannot atomically capture selected                   : ABSENT (0 hits under src/)
+atomic-array execution is not implemented            : ABSENT (0 hits under src/)
+set requires junction storage                        : ABSENT (0 hits under src/)
+physical field is not implemented                    : ABSENT (0 hits under src/)
+variant carrier membership is not implemented        : ABSENT (0 hits under src/)
+inside an atomic batch                               : ABSENT (0 hits under src/)
+
+# The two re-expressed invariants FC-00 names (must still be present)
+is neither a declared scalar of                      : src/query-engine/raptor3/shared/storage.ts:250:    `'${field}' is neither a declared scalar of '${model["~"].names.sql}' nor one of its variant carrier columns.`
+was addressed with                                   : src/query-engine/raptor3/shared/storage.ts:74:    `Variant carrier '${name}' was addressed with ${

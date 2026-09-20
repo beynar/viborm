@@ -1,0 +1,17 @@
+# Repair round (2026-09-21) — the findFirstOrThrow mirror is load-bearing
+
+Dropped the `case "findFirstOrThrow": return "findFirst";` arm of
+admittedOperation (src/query-engine/raptor3/commands/index.ts:35-36) in a
+backup copy, restored by cp; md5 d9d23042bc9d67317c7dbd089f3ef08a before and
+after. Before this repair round cell 2 exercised findUniqueOrThrow only, so
+this mutation could turn ONLY cell 1 red. With the mirror added it turns cell 2
+red as well.
+
+$ node scripts/run-vitest-safe.mjs run tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts
+
+   × FC-04 — the route's cached-result vocabulary boundary > every cacheable verb publishes a codec that round-trips its own result 31ms
+   × FC-04 — the route's cached-result vocabulary boundary > both …OrThrow names are served by the read their base verb admits to 3ms
+   ✓ FC-04 — the route's cached-result vocabulary boundary > a verb the cache layer never offers reaches the retained boundary, before anything runs 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)

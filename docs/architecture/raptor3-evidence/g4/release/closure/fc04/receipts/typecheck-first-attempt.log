@@ -1,0 +1,2 @@
+tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts(75,60): error TS2554: Expected 3 arguments, but got 4.
+TypeScript (whole estate, native): 6.92s wall, 5169.8 MiB peak sampled process-group RSS (sampled ceiling 8192 MiB, whole-estate native typecheck). Teardown verified.

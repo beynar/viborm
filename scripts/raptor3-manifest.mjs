@@ -1368,6 +1368,7 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/transport-witnesses.test.ts": 7,
   "tests/raptor3/g4/parity/reference-representability.test.ts": 12,
   "tests/raptor3/g4/parity/one-write-outcome-composition.test.ts": 4,
+  "tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts": 3,
   "tests/raptor3/g4/parity/fresh-member-placement.test.ts": 16,
   "tests/raptor3/g4/parity/prepared-set-predicates.test.ts": 8,
   "tests/raptor3/g4/parity/cascaded-current-identity.test.ts": 21,
