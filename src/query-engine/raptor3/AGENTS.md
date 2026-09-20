@@ -906,6 +906,22 @@ writes a NOT NULL `json` column. Object shapes carry nullability — a carrier t
 statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
 `InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
+**And the member LIST of a decoded document is the PROJECTION's fact, not the
+row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
+freezes it, so `decodeValue` writes the document by walking the shape it already
+holds — `Object.keys`, OWN keys only, exactly as it READS the provider's — and
+never materialises that list again per row. The member write is a plain
+assignment because the destination key is a schema identifier
+(`schema/identifier.ts`'s `isValidSchemaIdentifier` refuses every own property
+name of `Object.prototype`, `__proto__` among them, and `schema/hydration.ts`
+asserts it over a model's whole shape at hydration) or one of this engine's own
+`_`-prefixed carrier names — the same write the shape BUILDERS take. Rebuilding
+the list per row through `Object.entries` + `Object.fromEntries` carried 49 % of
+the D-28 cell's CPU and 2.5x the shipped engine's bytes per row
+(`docs/architecture/raptor3-evidence/g4/release/p1/note.md`). Do not put it
+back, and do not answer a decoder cost by compiling a per-shape decoder beside
+the shape: that is a second authority on the projection, which is what this
+engine replaced.
 **And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
 D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
 replaced ran it on every read (`result/ResultParser.ts:721` into

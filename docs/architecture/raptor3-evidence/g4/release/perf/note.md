@@ -514,6 +514,22 @@ bracket artefact.
 (1.026 → 1.062). This is the clearest ruling-attributable movement in the
 series and the one worth a profile before release.
 
+**Addendum, 2026-09-20 (release unit P1, ruling D-61).** This cell was profiled
+and repaired; this section is left as measured and is not rewritten. The profile
+put **48.9 % of the whole `parse` profile** on one line — `decodeValue`'s object
+arm rebuilding every decoded document through
+`Object.fromEntries(Object.entries(shape.fields).map(…))` — and measured the
+decoder allocating **2.51x** the shipped engine's bytes per row (1702 B against
+677 B, protocol `alloc` mode) with 146 scavenges against 68 over the same
+1,200-operation run. The three per-operation legs this section names are NOT the
+cost and are not asked per row: `Queries.decodeResult` is 0.01 % of the profile,
+its adapter arm 0.01 %, the shipped SQLite adapter's own parser 0.00 %. After the
+repair the cell reads **0.655 / 0.649 CPU and 0.681 / 0.674 wall** over two
+alternating five-replicate series, allocation per row falls to 847 B, and
+`fixed-collection-rowref-1000/full` — which §4.4 records moving 1.026 → 1.062
+with it — reads **0.819**. B4 is closed.
+See [`../p1/note.md`](../p1/note.md).
+
 ### 4.5 B5 — `bulk-update-returning-100/full` moved 0.838 → 0.963
 
 Same bracket in both series (public entry), same statement count (1/1), both

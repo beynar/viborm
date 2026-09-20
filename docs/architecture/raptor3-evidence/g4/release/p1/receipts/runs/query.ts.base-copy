@@ -4501,31 +4501,17 @@ export class Queries {
     // `Object.prototype`'s own members, so a field named `toString` that the
     // provider OMITTED inherited a function instead of failing closed.
     const source = record(decoded);
-    // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
-    // once by {@link prepareProjection} and frozen on the shape; a row carries
-    // only the values for it. Materialising it again per ROW — `Object.entries`
-    // plus one two-element array per field, read back by `Object.fromEntries` —
-    // re-derived that fact once per row and made this decoder allocate 2.5x the
-    // shipped engine's bytes per row, which is where the D-28 cell's CPU went
-    // (`g4/release/p1/note.md`). The shape the decoder already holds is read
-    // directly instead. `Object.keys`, never `for…in`: the member list is the
-    // shape's OWN keys, exactly as {@link own} reads the provider's. And the
-    // write is a plain assignment because the destination key is a schema
-    // identifier — `schema/identifier.ts` refuses every `Object.prototype` own
-    // name, `__proto__` among them, at hydration — or one of this engine's own
-    // carrier names, which is the same write the shape owners take to build
-    // `fields`.
-    const document: Input = {};
-    for (const field of Object.keys(shape.fields)) {
-      const nested = shape.fields[field]!;
-      document[field] = this.decodeValue(
-        nested,
-        own(source, field),
-        internal,
-        carried || nested.kind !== "scalar",
-      );
-    }
-    return document;
+    return Object.fromEntries(
+      Object.entries(shape.fields).map(([field, nested]) => [
+        field,
+        this.decodeValue(
+          nested,
+          own(source, field),
+          internal,
+          carried || nested.kind !== "scalar",
+        ),
+      ]),
+    );
   }
   /**
    * One strict scalar decode per physical leaf, through the existing codec

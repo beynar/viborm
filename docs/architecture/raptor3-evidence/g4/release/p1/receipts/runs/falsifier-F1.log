@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-p1
+
+ ✓ |layer-query-engine| tests/contracts/engine/query/parity-decoding.core.test.ts (13 tests) 28ms
+ ✓ |extended-local| tests/raptor3/g4/parity/json-read-schema.test.ts (7 tests) 45ms
+
+ Test Files  2 passed (2)
+      Tests  20 passed (20)
+   Start at  20:17:26
+   Duration  3.74s (transform 2.11s, setup 16ms, collect 3.28s, tests 72ms, environment 0ms, prepare 68ms)
+
+Vitest resources: 5.63s wall, 508.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

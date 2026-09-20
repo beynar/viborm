@@ -1,0 +1,40 @@
+# profile /private/tmp/viborm-p1-tmp/prof/cand-parse-after.cpuprofile
+# total sampled: 1206.9 ms
+
+## SELF time by source file
+  1132.53 ms   93.84%  src/query-engine/raptor3/shared/query.ts
+    34.26 ms    2.84%  (vm)
+    19.08 ms    1.58%  node:inspector
+    15.46 ms    1.28%  src/query-engine/raptor3/shared/operation-context.ts
+     2.46 ms    0.20%  src/query-engine/raptor3/shared/schema.ts
+     1.17 ms    0.10%  file:///private/tmp/viborm-p1-tmp/instruments/prof-stage.mjs
+     0.96 ms    0.08%  src/query-engine/pending-operation.ts
+     0.54 ms    0.04%  benchmarks/operation-pipeline-harness.mjs
+     0.29 ms    0.02%  benchmarks/internal/operation.ts
+     0.17 ms    0.01%  node:internal/process/per_thread
+
+## SELF time by function
+   936.53 ms   77.60%  decodeValue  @ src/query-engine/raptor3/shared/query.ts:4437
+    75.34 ms    6.24%  (anonymous)  @ src/query-engine/raptor3/shared/query.ts:4375
+    40.19 ms    3.33%  decodeScalar  @ src/query-engine/raptor3/shared/query.ts:4535
+    34.72 ms    2.88%  Or  @ src/query-engine/raptor3/shared/query.ts:408
+    27.95 ms    2.32%  (anonymous)  @ src/query-engine/raptor3/shared/query.ts:4482
+    25.04 ms    2.07%  (garbage collector)  @ (vm):0
+    19.08 ms    1.58%  post  @ node:inspector:0
+    16.80 ms    1.39%  decodeProjection  @ src/query-engine/raptor3/shared/query.ts:4368
+    13.76 ms    1.14%  preparedParser  @ src/query-engine/raptor3/shared/operation-context.ts:1124
+     9.13 ms    0.76%  (program)  @ (vm):0
+     2.46 ms    0.20%  G  @ src/query-engine/raptor3/shared/schema.ts:132
+     1.17 ms    0.10%  (anonymous)  @ file:///private/tmp/viborm-p1-tmp/instruments/prof-stage.mjs:0
+     1.17 ms    0.10%  publishedTerminal  @ src/query-engine/raptor3/shared/operation-context.ts:1084
+     0.71 ms    0.06%  providerValue  @ src/query-engine/raptor3/shared/query.ts:663
+     0.63 ms    0.05%  parseResult  @ src/query-engine/pending-operation.ts:353
+     0.54 ms    0.04%  (anonymous)  @ src/query-engine/raptor3/shared/operation-context.ts:1066
+     0.50 ms    0.04%  parse  @ benchmarks/operation-pipeline-harness.mjs:300
+     0.33 ms    0.03%  #S  @ src/query-engine/pending-operation.ts:500
+     0.29 ms    0.02%  parseResult  @ benchmarks/internal/operation.ts:27
+     0.25 ms    0.02%  r  @ src/query-engine/raptor3/shared/query.ts:702
+     0.17 ms    0.01%  cpuUsage  @ node:internal/process/per_thread:0
+     0.08 ms    0.01%  dispatch  @ (vm):0
+     0.04 ms    0.00%  result  @ src/query-engine/raptor3/shared/query.ts:3051
+     0.04 ms    0.00%  consumeFixedCollectionRelation  @ benchmarks/operation-pipeline-harness.mjs:148

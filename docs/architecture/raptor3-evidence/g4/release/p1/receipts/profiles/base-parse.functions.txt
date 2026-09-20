@@ -1,0 +1,58 @@
+# profile /private/tmp/viborm-p1-tmp/prof/base-parse.cpuprofile
+# total sampled: 1526.5 ms
+
+## SELF time by source file
+   576.25 ms   37.75%  src/adapters/shared/result-parsing.ts
+   364.21 ms   23.86%  src/query-engine/result/result-row-parser.ts
+   300.32 ms   19.67%  src/query-engine/result/result-parser-contract.ts
+    98.51 ms    6.45%  src/query-engine/result/relation-result-parser.ts
+    57.50 ms    3.77%  src/query-engine/result/ResultParser.ts
+    50.80 ms    3.33%  (vm)
+    45.34 ms    2.97%  src/query-engine/result/scalar-result-parser.ts
+    22.83 ms    1.50%  node:inspector
+     3.99 ms    0.26%  src/schema/relation/terminal.ts
+     2.00 ms    0.13%  src/query-engine/write-engine/OperationExecutor.ts
+     0.79 ms    0.05%  src/query-engine/pending-operation.ts
+     0.75 ms    0.05%  src/query-engine/result/result-column.ts
+     0.63 ms    0.04%  file:///private/tmp/viborm-p1-tmp/instruments/prof-stage.mjs
+     0.46 ms    0.03%  src/sql/sql.ts
+     0.42 ms    0.03%  src/query-engine/types.ts
+     0.25 ms    0.02%  benchmarks/operation-pipeline-harness.mjs
+     0.21 ms    0.01%  src/schema/model/model.ts
+     0.21 ms    0.01%  node:internal/process/per_thread
+     0.17 ms    0.01%  src/schema/relation/clearability.ts
+     0.17 ms    0.01%  src/query-engine/write-engine/ReadOperation.ts
+     0.13 ms    0.01%  benchmarks/internal/operation.ts
+     0.08 ms    0.01%  src/query-engine/result/result-count-parser.ts
+     0.08 ms    0.01%  src/schema/relation/to-many.ts
+     0.08 ms    0.01%  src/query-engine/write-engine/record-series.ts
+     0.08 ms    0.01%  src/schema/relation/types.ts
+     0.08 ms    0.01%  src/query-engine/write-engine/OperationFragment.ts
+
+## SELF time by function
+   576.25 ms   37.75%  s  @ src/adapters/shared/result-parsing.ts:38
+   190.38 ms   12.47%  l.<computed>  @ src/query-engine/result/result-row-parser.ts:366
+   148.65 ms    9.74%  sc  @ src/query-engine/result/result-parser-contract.ts:151
+    98.51 ms    6.45%  jc  @ src/query-engine/result/relation-result-parser.ts:15
+    80.69 ms    5.29%  nl  @ src/query-engine/result/result-row-parser.ts:177
+    59.14 ms    3.87%  l.<computed>  @ src/query-engine/result/result-row-parser.ts:411
+    46.88 ms    3.07%  ac  @ src/query-engine/result/result-parser-contract.ts:116
+    39.00 ms    2.55%  oc  @ src/query-engine/result/result-parser-contract.ts:132
+    30.62 ms    2.01%  Fl  @ src/query-engine/result/scalar-result-parser.ts:71
+    29.42 ms    1.93%  cc  @ src/query-engine/result/result-parser-contract.ts:167
+    26.59 ms    1.74%  (program)  @ (vm):0
+    24.12 ms    1.58%  (garbage collector)  @ (vm):0
+    22.83 ms    1.50%  post  @ node:inspector:0
+    20.79 ms    1.36%  lc  @ src/query-engine/result/result-parser-contract.ts:177
+    19.20 ms    1.26%  el  @ src/query-engine/result/result-row-parser.ts:43
+    18.38 ms    1.20%  getFieldChain  @ src/query-engine/result/ResultParser.ts:452
+    15.04 ms    0.99%  Ul  @ src/query-engine/result/ResultParser.ts:97
+    15.04 ms    0.99%  rc  @ src/query-engine/result/result-parser-contract.ts:99
+    14.72 ms    0.96%  Bl  @ src/query-engine/result/scalar-result-parser.ts:278
+    12.66 ms    0.83%  (anonymous)  @ src/query-engine/result/ResultParser.ts:632
+    12.34 ms    0.81%  m  @ src/query-engine/result/result-row-parser.ts:446
+     7.96 ms    0.52%  getNestedRowParser  @ src/query-engine/result/ResultParser.ts:512
+     3.99 ms    0.26%  (anonymous)  @ src/schema/relation/terminal.ts:221
+     1.75 ms    0.11%  ol  @ src/query-engine/result/result-row-parser.ts:276
+     0.96 ms    0.06%  parseSingleStatement  @ src/query-engine/write-engine/OperationExecutor.ts:1777
+     0.79 ms    0.05%  parseResult  @ src/query-engine/pending-operation.ts:386
