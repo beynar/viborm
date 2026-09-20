@@ -1,11 +1,13 @@
 import type { AnyModel } from "@schema/model";
 import type { ClearableMembership } from "@schema/relation/clearability";
 import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
+import type { PolymorphicStorageColumn } from "@schema/relation/polymorphic";
 import type { Scalar } from "@schema/scalars/base";
 import type {
   ResolvedSlot,
   ResolvedStoredReference,
 } from "@schema/validation/relation-resolution";
+import { assertInvariant } from "./invariant";
 import type { EngineSchema } from "./schema";
 
 export type Membership = {
@@ -49,21 +51,30 @@ export function bindMembership(
 }
 
 /**
- * One variant-carrier member, or the candidate's registered unimplemented
- * identity. A carrier addressed with no variant names every arm at once, which
- * this one-membership view cannot represent; the caller must address an arm or
- * compose the arms itself (g4/unit02/note.md §10.3).
+ * One variant-carrier member: the slot's own bound member, or the arm the
+ * caller named. A carrier addressed with no variant names every arm at once,
+ * which this one-membership view cannot represent; the caller addresses an arm
+ * or composes the arms itself (g4/unit02/note.md §10.3).
+ *
+ * INVARIANT, not a refusal (N4 row 49). Every caller reads the slot first: a
+ * bound inverse carries `resolved.member`, a carrier slot is walked arm by arm
+ * over `edge.members`, and the one arm name a payload supplies is the tagged
+ * grammar's `type`, which validation pins to a literal union of the configured
+ * public variants before the engine sees it.
  */
 function variantMember<T>(
   resolved: T | undefined,
   tagged: T | undefined,
-  name: string
+  name: string,
+  variant: string | undefined
 ): T {
   const member = resolved ?? tagged;
-  if (member === undefined)
-    throw new Error(
-      `Raptor 3 G1 variant carrier membership is not implemented: ${name}`
-    );
+  assertInvariant(
+    member !== undefined,
+    `Variant carrier '${name}' was addressed with ${
+      variant === undefined ? "no arm" : `the undeclared arm '${variant}'`
+    }: every caller addresses one declared arm or composes the arms itself.`
+  );
   return member;
 }
 
@@ -82,7 +93,8 @@ export function buildMembershipView(
     const member = variantMember(
       resolved.member,
       edge.members.find((member) => member.variant === variant),
-      name
+      name,
+      variant
     );
     const direct = resolved.member === undefined;
     return {
@@ -111,7 +123,8 @@ export function buildMembershipView(
     const member = variantMember(
       resolved.member,
       edge.members.find((member) => member.variant === variant),
-      name
+      name,
+      variant
     );
     const direct = resolved.member === undefined;
     return {
@@ -193,6 +206,30 @@ export function physicalField(
   return schema.physicalField(model, field);
 }
 
+/**
+ * The private `(type, id)` columns this model's variant ROW carriers store, in
+ * declaration order. ONE enumeration of them, so what a field resolves to and
+ * what {@link buildStoredFieldsView} says the row stores cannot drift apart.
+ */
+function carrierColumns(
+  schema: EngineSchema,
+  model: AnyModel
+): PolymorphicStorageColumn[] {
+  const columns: PolymorphicStorageColumn[] = [];
+  for (const { edge, member } of schema.index.get(model)!.values())
+    if (edge.kind === "variantRowCarrier" && !member)
+      columns.push(edge.storage.typeColumn, edge.storage.idColumn);
+  return columns;
+}
+
+/**
+ * INVARIANT, not a refusal (N4 row 48): a model stores its declared scalars and
+ * its row carriers' columns, and nothing asks this owner for anything else. A
+ * field name arrives from admission, which matched it against the model's
+ * declared scalar keys, or from the resolved topology itself — a membership
+ * pair, a carrier discriminator, a junction side's referenced field, a row key,
+ * or {@link buildStoredFieldsView}, which enumerates exactly those two sets.
+ */
 export function buildPhysicalFieldView(
   schema: EngineSchema,
   model: AnyModel,
@@ -205,13 +242,14 @@ export function buildPhysicalFieldView(
       scalar,
       nullable: scalar["~"].state.nullable === true,
     };
-  for (const resolved of schema.index.get(model)!.values()) {
-    if (resolved.edge.kind !== "variantRowCarrier" || resolved.member) continue;
-    const { typeColumn, idColumn } = resolved.edge.storage;
-    if (field === typeColumn.name) return typeColumn;
-    if (field === idColumn.name) return idColumn;
-  }
-  throw new Error(`Raptor 3 G1 physical field is not implemented: ${field}`);
+  const column = carrierColumns(schema, model).find(
+    (candidate) => candidate.name === field
+  );
+  assertInvariant(
+    column,
+    `'${field}' is neither a declared scalar of '${model["~"].names.sql}' nor one of its variant carrier columns.`
+  );
+  return column;
 }
 
 export function storedFields(
@@ -225,13 +263,8 @@ export function buildStoredFieldsView(
   schema: EngineSchema,
   model: AnyModel
 ): string[] {
-  const fields = [...model["~"].scalarFieldNames];
-  for (const resolved of schema.index.get(model)!.values()) {
-    if (resolved.edge.kind !== "variantRowCarrier" || resolved.member) continue;
-    fields.push(
-      resolved.edge.storage.typeColumn.name,
-      resolved.edge.storage.idColumn.name
-    );
-  }
-  return fields;
+  return [
+    ...model["~"].scalarFieldNames,
+    ...carrierColumns(schema, model).map((column) => column.name),
+  ];
 }

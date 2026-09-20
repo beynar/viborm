@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |extended-local| tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts (3 tests) 655ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  07:57:10
+   Duration  2.00s (transform 798ms, setup 9ms, collect 1.18s, tests 655ms, environment 0ms, prepare 33ms)
+
+Vitest resources: 3.69s wall, 1466.6 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

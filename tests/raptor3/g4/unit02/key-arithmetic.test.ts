@@ -42,7 +42,6 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError, UnsupportedOperationError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -478,28 +477,25 @@ describe("G4-02 — the one shape with no expression form stays refused", () => 
   });
 });
 
-describe("G4-02 — R-D3: the batch publication gap has a public identity", () => {
+describe("G4-02 — R-D3: the batch publication gap is closed by an ordered observation (N4 row 23)", () => {
   /**
-   * Under an atomic-batch profile an expression update is published through the
-   * adapter's batch references and read back with an INTEGER cast
-   * (`shared/operation-context.ts`, `usesBatch` arm), so a non-`int` field
-   * demanded by a dependent cannot be published. Arnaud decided on 2026-09-15:
-   * "give it a public identity now" (R-D3). The refusal is raised at the same
-   * point it always was — before any statement of the update is dispatched — and
-   * is now a registered `UnsupportedOperationError` naming the model, the field
-   * and the operation, with `meta` `{ model, operation, field }`. The CLASS is
-   * Arnaud's 2026-09-16 answer to R-D3-class: `UnsupportedOperationError`
-   * (V8003 UNSUPPORTED_OPERATION), a `QueryEngineError` subclass, so a consumer
-   * can tell this deliberate capability boundary from a crash (V9001
-   * INTERNAL_ERROR) without reading the sentence.
+   * Under an atomic-batch profile an expression update was published through
+   * the adapter's batch references and read back with an INTEGER cast, so a
+   * non-`int` field demanded by a dependent could not be published. Arnaud's
+   * R-D3 (2026-09-15) gave that gap a public identity — a registered
+   * `UnsupportedOperationError` naming the model, the field and the operation
+   * — and recorded the divergence from the shipped row answer (the shipped
+   * engine computed the value in JavaScript and answered the row) as the
+   * accepted half of the decision; these two cells pinned that refusal.
    *
-   * The divergence from the shipped row answer was the recorded, accepted half
-   * of the decision: the shipped engine computed the value in JavaScript and
-   * answered the row (`ok:{"id":7,…}` / `ok:{"id":12,…}`). The C-01 cutover
-   * deletes that engine, so the shipped arm of these two cells — and the
-   * `assert.equal(shipped.answer, shippedAnswer)` that recorded the divergence
-   * — is gone; the REGISTERED REFUSAL below is what the cells now pin, and a
-   * registered refusal is a contract (`g4/cutover-execution/note.md`).
+   * N4 (D-52, the nesting plan §4) changed the answer, and the ruling is why
+   * the recorded expectation is re-expressed: the value the scratch cannot
+   * carry is OBSERVED behind the write — the UPDATE is queued and a read of the
+   * row at its post-update identity rides the same native batch (N1's ordered
+   * observation), the consumer following in the next — so the provider
+   * computes the value and the operation answers the row the shipped engine
+   * answered (`ok:{"id":7,…}` / `ok:{"id":12,…}`). The refusal is gone with
+   * the gap; the cells pin the row.
    */
   async function batchUpsert(
     update: unknown
@@ -527,31 +523,23 @@ describe("G4-02 — R-D3: the batch publication gap has a public identity", () =
     return { answer, raised, rows };
   }
 
-  for (const [name, update] of [
-    ["increment", { id: { increment: 1 } }],
-    ["multiply", { id: { multiply: 2 } }],
+  for (const [name, update, id] of [
+    ["increment", { id: { increment: 1 } }, 7],
+    ["multiply", { id: { multiply: 2 } }, 12],
   ] as const) {
-    it(`R-D3 refuses a number key ${name} under a batch with its registered identity`, async () => {
+    it(`a number key ${name} under a batch publishes the row through an ordered observation (N4 row 23)`, async () => {
+      // N4 (D-52, census row 23): this cell pinned R-D3's registered refusal
+      // ("Cannot publish the updated value of 'numKey.id' for operation
+      // \"upsert\" inside an atomic batch: the batch scratch reads back as an
+      // integer, and 'id' is a number field."). The value the batch scratch
+      // cannot carry is now OBSERVED: the row is read back inside the batch
+      // after the UPDATE, at the column's own type, and the answer is the row
+      // the provider computed — the shipped engine's answer, no longer
+      // computed in JavaScript.
       const candidate = await batchUpsert(update);
-      // The decided identity: a registered UnsupportedOperationError (R-D3
-      // plus R-D3-class), naming the model, the field and the operation, raised
-      // before any statement is dispatched. It is still a QueryEngineError —
-      // the class narrows the code, it does not leave the family.
-      assert.equal(
-        candidate.answer,
-        "UnsupportedOperationError: Cannot publish the updated value of 'numKey.id' for operation \"upsert\" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a number field."
-      );
-      assert.equal(candidate.raised instanceof UnsupportedOperationError, true);
-      assert.equal(candidate.raised instanceof QueryEngineError, true);
-      assert.deepEqual(
-        { ...(candidate.raised as QueryEngineError).meta },
-        {
-          field: "id",
-          model: "numKey",
-          operation: "upsert",
-        }
-      );
-      assert.deepEqual(candidate.rows, [{ id: 6, label: "a" }]);
+      assert.equal(candidate.answer, `ok:{"id":${id},"label":"a"}`);
+      assert.equal(candidate.raised, undefined);
+      assert.deepEqual(candidate.rows, [{ id, label: "a" }]);
     });
   }
 

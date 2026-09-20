@@ -4,6 +4,7 @@ import {
   NotFoundError,
   UniqueConstraintError,
 } from "@errors";
+import { assertInvariant } from "../shared/invariant";
 import type { Member, ObservationPremise } from "../shared/operation-context";
 import type { Query } from "../shared/query";
 import type { Arguments, Input } from "../shared/schema";
@@ -25,6 +26,9 @@ import type {
   SeriesOccurrence,
 } from "./commands";
 import { membershipFields, type Selection } from "./selection";
+
+/** What a captured series prepared, as its owner (`CommandAttempt`) states it. */
+type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 
 /** Interprets the prepared command tree through one replaceable execution attempt. */
 export class CommandExecution {
@@ -716,9 +720,7 @@ export class CommandExecution {
     member: Member = occurrence.command.series.selection,
     select?: Input
   ): Promise<number | Input[]> {
-    await this.captureSeries(occurrence, member);
-    const prepared = this.attempt.series.get(occurrence);
-    if (!prepared) throw new Error("Selected series was not captured");
+    const prepared = await this.captureSeries(occurrence, member);
     // Only the admitted updateMany boundary supplies select, so captureSeries
     // has constructed record members for this terminal readback.
     const updatedMembers =
@@ -801,10 +803,11 @@ export class CommandExecution {
   private async captureSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>,
     member: Member
-  ): Promise<void> {
+  ): Promise<PreparedSeries> {
     const ctx = this.context;
     const attempt = this.attempt;
-    if (attempt.series.has(occurrence)) return;
+    const captured = attempt.series.get(occurrence);
+    if (captured) return captured;
     const series = occurrence.command.series;
     const selection = series.selection;
     const membership = selection.membership();
@@ -884,8 +887,6 @@ export class CommandExecution {
           attempt.rows.set(located, row);
           attempt.bind(located.fields, row);
           if (series.mutation.kind === "delete") {
-            if (!selection.origin)
-              throw new Error("Selected delete series has no mutation origin");
             // The member's presence, asserted where the set is captured —
             // before any write of the unit — so its loss after the plan-time
             // read rejects at a premise and the operation re-plans once (D-32).
@@ -903,7 +904,7 @@ export class CommandExecution {
             return {
               kind: "delete",
               located,
-              origin: selection.origin,
+              origin: series.mutation.origin,
             };
           }
           const child = this.commands.update(
@@ -931,22 +932,30 @@ export class CommandExecution {
     );
     const refusal = this.commands.expandSeries(occurrence, members);
     if (refusal) throw ctx.failure(refusal.error, "planning", refusal.member);
-    attempt.series.set(occurrence, {
+    const prepared: PreparedSeries = {
       members: this.commands.seriesMembers(occurrence),
       parentRequirement,
-    });
+    };
+    attempt.series.set(occurrence, prepared);
+    return prepared;
   }
   private async executeSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>
   ): Promise<number> {
     const ctx = this.context;
     const prepared = this.attempt.series.get(occurrence);
-    if (!prepared) throw new Error("Selected series was not captured");
+    // The `captureSeries` command `requireSeriesCapture` placed ahead of this
+    // series ran in this same attempt (`run`'s `case "captureSeries"`), and a
+    // recovery replaces the attempt AND the command tree together.
+    assertInvariant(prepared, "this series was captured in this attempt");
     const { members, parentRequirement } = prepared;
     for (const child of members) {
       const command = child.command;
       const located = command.located;
-      if (!located) throw new Error("Selected update series has no location");
+      // Every member `captureSeries` built names the row it captured: a
+      // `Deletion` carries its `located` by type, and an update member is
+      // `Commands.update(located, …)` on that same captured selection.
+      assertInvariant(located, "a series member names its captured row");
       if (ctx.usesBatch) {
         this.attempt.rows.delete(located);
         try {

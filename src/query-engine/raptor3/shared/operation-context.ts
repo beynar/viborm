@@ -25,7 +25,6 @@ import {
   type RecordSeriesProgress,
   TransactionError,
   UniqueConstraintError,
-  UnsupportedOperationError,
   VibORMErrorCode
 } from "@errors";
 import type { AnyModel } from "@schema/model";
@@ -115,7 +114,6 @@ export type ExecutionBinding =
       readonly operationRegion?: MemberRollback;
       readonly writeOutcome?: WriteOutcomeSeam;
     }
-  | { readonly kind: "atomic-array" }
   /**
    * The root situation, stated by name: no borrowed driver and no grant, the
    * operation owns its own standalone envelope. It carries nothing but the
@@ -334,19 +332,6 @@ export class OperationContext {
      */
     private readonly callerAttribution?: QueryExecutionContext
   ) {
-    if (binding?.kind === "atomic-array") {
-      throw new TransactionError(
-        "Raptor 3 atomic-array execution is not implemented.",
-        {
-          meta: {
-            driver: factoryDriver.driverName,
-            model: modelName,
-            operation,
-            method: "$transaction([...])"
-          }
-        }
-      );
-    }
     this.ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -2142,17 +2127,27 @@ export class OperationContext {
           ...identities.map((identity) => q.lowerIdentity(model, identity))
         )
       );
-      const response = await this.dispatch(1, false, () =>
-        this.transport._execute(
-          statement,
-          this.statementContext(model, this.operation)
-        )
-      );
-      if (response.rowCount !== identities.length)
-        throw new TransactionError(
+      // ONE fact, two consumers: the premises state "the rows this mutation
+      // selected are still the rows it is about to mutate" inside the batch,
+      // before the write; the row count states the same fact after it, as the
+      // detection it always was. Same sentence, same class.
+      const changed = () =>
+        new TransactionError(
           "updateMany selected-row cardinality changed during its locked mutation.",
           { meta: this.errorMeta }
         );
+      await this.requireCapturedSet(
+        model,
+        selector,
+        identities,
+        limit,
+        changed
+      );
+      const response = await this.capturedMutation(
+        statement,
+        this.statementContext(model, this.operation)
+      );
+      if (response.rowCount !== identities.length) throw changed();
       return this.finishTerminals(
         this.seriesQueries(
           projection,
@@ -2221,22 +2216,28 @@ export class OperationContext {
       const rows: Input[] = [];
       for (const query of this.seriesQueries(projection, identities))
         rows.push(...(await this.read(query, false, false, model)));
-      const response = await this.dispatch(1, false, () =>
-        this.transport._execute(
-          adapter.mutations.delete(
-            q.table(model),
-            adapter.operators.or(
-              ...identities.map((identity) => q.lowerIdentity(model, identity))
-            )
-          ),
-          this.statementContext(model, this.operation)
-        )
-      );
-      if (response.rowCount !== identities.length)
-        throw new TransactionError(
+      const changed = () =>
+        new TransactionError(
           "deleteMany selected-row cardinality changed during its locked mutation.",
           { meta: this.errorMeta }
         );
+      await this.requireCapturedSet(
+        model,
+        selector,
+        identities,
+        limit,
+        changed
+      );
+      const response = await this.capturedMutation(
+        adapter.mutations.delete(
+          q.table(model),
+          adapter.operators.or(
+            ...identities.map((identity) => q.lowerIdentity(model, identity))
+          )
+        ),
+        this.statementContext(model, this.operation)
+      );
+      if (response.rowCount !== identities.length) throw changed();
       return this.published(rows, single);
     }
     this.packagedPresence(model, selector, single);
@@ -2274,27 +2275,103 @@ export class OperationContext {
   ): Promise<Input[]> {
     if (this.ownership === "batch-preparation")
       throw this.incompletePreparation;
-    if (this.usesBatch)
-      throw new TransactionError(
-        `Driver '${this.driver.driverName}' cannot atomically capture selected ${this.operation} rows.`,
-        { meta: this.errorMeta }
-      );
     const keys = this.schema.keys(model);
-    const rows = await this.read(
-      this.queries.select(
-        model,
-        {
-          select: Object.fromEntries(keys.map((field) => [field, true])),
-          take: limit
-        },
-        undefined,
-        { selector, forUpdate: true }
-      ),
-      true,
-      false,
-      model
+    const query = this.queries.select(
+      model,
+      {
+        select: Object.fromEntries(keys.map((field) => [field, true])),
+        take: limit
+      },
+      undefined,
+      { selector, forUpdate: !this.usesBatch }
     );
+    // An interactive session takes `FOR UPDATE` and the capture is protected
+    // by the lock it holds until the mutation. A batch-only transport holds
+    // nothing across two statements, so N4 (plan §4, D-52) gives the capture
+    // the shape the series capture already has: it is a SEGMENT OF ITS OWN —
+    // the barrier submits whatever this unit has queued and reads in the same
+    // native batch — and the premises {@link requireCapturedSet} states inside
+    // the MUTATION's batch are what protect it. No lock is claimed where none
+    // exists.
+    const rows = this.usesBatch
+      ? await this.flush(query)
+      : await this.read(query, true, false, model);
     return rows.map((row) => this.schema.identity(model, row));
+  }
+  /**
+   * What the captured set claims, asserted inside the batch that mutates it.
+   *
+   * The capture named the rows that matched when it ran, and rule 5 forbids
+   * treating an observed set as a lasting truth. So the mutation's own batch
+   * carries the claim as statements ahead of the write: every captured row is
+   * STILL PRESENT and STILL A MEMBER of the selection, and — when the capture
+   * took the whole selection rather than a limited slice — no row has JOINED
+   * it. A stale observation aborts the atomic unit before anything is written,
+   * which is what the row-count check after the mutation could not do.
+   *
+   * Only on the batch route: an interactive session captured `FOR UPDATE`.
+   */
+  private async requireCapturedSet(
+    model: AnyModel,
+    selector: PreparedSelector,
+    identities: readonly Input[],
+    limit: number | undefined,
+    changed: () => Error
+  ): Promise<void> {
+    if (!this.usesBatch) return;
+    const q = this.queries;
+    for (const identity of identities)
+      this.requirePresent(
+        q.select(model, { take: 1 }, undefined, { selector, identity }),
+        changed()
+      );
+    // A LIMITED capture took one valid slice of the selection; another row
+    // joining it does not make that slice the wrong answer, so the complement
+    // is claimed only for a capture that took the whole set.
+    if (limit !== undefined) return;
+    await this.requireAbsent(
+      q.select(model, { take: 1 }, undefined, {
+        selector: q.andSelectors(model, [
+          selector,
+          q.prepareSelector(model, { NOT: { OR: [...identities] } })
+        ])
+      }),
+      changed()
+    );
+  }
+  /**
+   * The captured mutation's own statement and the row count it affected, on
+   * either transport. On the batch route it rides the same batch its premises
+   * are in, so the write never runs when a premise disagrees.
+   */
+  private async capturedMutation(
+    statement: Sql,
+    context: QueryExecutionContext
+  ): Promise<QueryResult<unknown>> {
+    if (!this.usesBatch)
+      return await this.dispatch(1, false, () =>
+        this.transport._execute(statement, context)
+      );
+    // Its own answer, by its own position: the batch also carries this
+    // mutation's premises ahead of it, {@link submit} answers the queued
+    // statements alone (its guards are sliced off), and the row count this
+    // mutation reports is the one the captured set is judged against.
+    const index = this.queued.length;
+    // A set-oriented statement's window: a merely uncertain outcome is no
+    // record series of its own ({@link failure}), as `setMutations` states it.
+    const member: Member = {};
+    this.setWindow = member;
+    this.queue(statement, context, member);
+    const responses = await this.submit(true, member);
+    return this.settleSubmitted(() => {
+      const response = responses[index];
+      if (!response)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+          { meta: this.errorMeta }
+        );
+      return response;
+    });
   }
   private updatedIdentity(
     model: AnyModel,
@@ -2515,6 +2592,17 @@ export class OperationContext {
     // `CommandAttempt.read` already answers it from `Assignments.stated` for
     // every field this update does not observe.
     const published: Input = {};
+    // The demanded fields whose value only the PROVIDER can compute and the
+    // batch scratch cannot carry: the scratch reads back as an integer, so an
+    // `int` field is the only domain that travels as an expression. N4 (plan
+    // §4, D-52) stops refusing the rest — under N1 a value an earlier write of
+    // this operation produces is taken as an ORDERED OBSERVATION of the row
+    // AFTER that write, through the same barrier a dependent lookup uses
+    // ({@link flush}: the queued unit and the read in one native batch, the
+    // consumer's own write in the next). The scratch keeps carrying the
+    // integer keys it carries today, and the observation owns nothing else:
+    // it is the existing read, placed behind the existing write.
+    const observed: string[] = [];
     if (this.usesBatch) {
       for (const field of demanded) {
         const value = values[field];
@@ -2527,31 +2615,18 @@ export class OperationContext {
         if (wholeValue(value)) continue;
         const state = physicalField(this.schema, model, field).scalar["~"]
           .state;
-        // R-D3 (Arnaud, 2026-09-15): a PUBLIC identity for the batch-only
-        // publication gap, raised where it always was — before any statement of
-        // this update is dispatched, so nothing is written. The class is
-        // `UnsupportedOperationError` (V8003 UNSUPPORTED_OPERATION, Arnaud
-        // 2026-09-16, R-D3-class): a consumer can tell this deliberate
-        // capability boundary from a crash by class, which the base
-        // `QueryEngineError` (V9001 INTERNAL_ERROR) did not allow. The sentence
-        // and the `meta` are unchanged. On a driver with no
-        // interactive transaction the evaluated value has to travel through the
-        // adapter's batch scratch, which is read back with an integer cast
-        // (below), so an `int` field is the only domain a dependent can demand
-        // as an expression. Widening it needs a typed scratch read per domain
-        // (and an answer to the decimal rounding question `Queries.updateValue`
-        // refuses), which is a capability change, not an identity.
-        if (state.type !== "int")
-          throw new UnsupportedOperationError(
-            `Cannot publish the updated value of '${model["~"].names.ts!}.${field}' for operation "${operation}" inside an atomic batch: the batch scratch reads back as an integer, and '${field}' is a ${state.type} field.`,
-            {
-              meta: {
-                model: model["~"].names.ts!,
-                operation,
-                field
-              }
-            }
-          );
+        // R-D3 (Arnaud, 2026-09-15) gave the batch-only publication gap a
+        // public identity because the engine had no answer for it. N4 gives it
+        // an answer instead: the value is OBSERVED after the write rather than
+        // published through a scratch that cannot hold it. A package prepared
+        // for the array owner can issue no read of its own, and {@link submit}
+        // states that fact when the observation is flushed — this operation
+        // requires dynamic execution (D-46), the array owner's control-flow
+        // value, not a refusal the caller sees.
+        if (state.type !== "int") {
+          observed.push(field);
+          continue;
+        }
         const references = getAdapterInternals(adapter).batchRefs;
         const scratchId = this.ensureScratch();
         const key = String(this.attempt.nextField++);
@@ -2619,7 +2694,26 @@ export class OperationContext {
       return { ...published, ...rows[0] };
     }
     await this.effect(statement, context, member);
-    return published;
+    if (observed.length === 0) return published;
+    // The ordered observation: the write is queued, and the read that answers
+    // the dependent rides the same native batch BEHIND it, so what it reads is
+    // what this update wrote. The row is addressed by the identity this update
+    // leaves it at — `updatedIdentity` names every key the payload changes —
+    // and the value comes back decoded, a literal for the consumer's own write
+    // in the next batch (D-51's succession of statements).
+    const projection = q.prepareProjection(model, {
+      select: Object.fromEntries(observed.map((field) => [field, true]))
+    });
+    const rows = await this.flush(
+      q.select(model, {}, undefined, {
+        projection,
+        identity: this.updatedIdentity(model, captured, values)
+      }),
+      member
+    );
+    if (!rows[0])
+      throw new TypeError("UPDATE did not produce the required record");
+    return { ...published, ...rows[0] };
   }
   async associate(
     edge: Membership,
@@ -2790,30 +2884,6 @@ export class OperationContext {
       else await this.requireAbsent(query, failure);
     }
     return captured;
-  }
-  async clear(edge: Membership, source: Input, member: Member): Promise<void> {
-    if (edge.kind !== "junction")
-      throw new Error("Raptor 3 G1 set requires junction storage");
-    const a = this.driver.adapter;
-    await this.effect(
-      a.mutations.delete(
-        a.identifiers.table(edge.table),
-        a.operators.and(
-          ...edge.sourceSide.members.map((pair) =>
-            a.operators.eq(
-              a.identifiers.escape(pair.junctionField),
-              this.queries.fieldValue(
-                edge.source,
-                pair.referencedField,
-                source[pair.referencedField]
-              )
-            )
-          )
-        )
-      ),
-      this.statementContext(edge.source, "update"),
-      member
-    );
   }
   async remove(
     edge: Membership,

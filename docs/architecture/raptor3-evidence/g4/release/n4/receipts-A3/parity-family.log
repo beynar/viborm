@@ -1,0 +1,22 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (39 tests) 239ms
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-staleness.test.ts (5 tests) 35ms
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (9 tests) 44ms
+ ✓ |extended-local| tests/raptor3/g4/parity/integration-membership-race.test.ts (3 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/upsert-array-route.test.ts (6 tests) 41ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 71ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 20ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 5ms
+ ✓ |raptor3| tests/raptor3/g4/parity/upsert-array-route.test.ts (6 tests) 36ms
+ ✓ |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts (27 tests) 58ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 20ms
+ ✓ |raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 5ms
+
+ Test Files  12 passed (12)
+      Tests  132 passed (132)
+   Start at  07:47:37
+   Duration  7.62s (transform 3.34s, setup 30ms, collect 5.76s, tests 594ms, environment 0ms, prepare 83ms)
+
+Vitest resources: 9.62s wall, 724.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -28,7 +28,7 @@ import type {
   QueryResult,
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError, UnsupportedOperationError } from "@errors";
+import type { QueryEngineError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -124,7 +124,7 @@ async function batchUpsert(
 }
 
 describe("G4-02 decisions review — R-D3's identity across the non-int domains", () => {
-  it("names every non-int domain with the same registered identity, and dispatches nothing", async () => {
+  it("publishes every non-int domain through the ordered observation (N4 row 23)", async () => {
     const cases = [
       [
         "decimal key",
@@ -167,25 +167,20 @@ describe("G4-02 decisions review — R-D3's identity across the non-int domains"
       console.log(
         `[${name}]\n  shipped   ${shipped.answer}\n            rows ${JSON.stringify(shipped.rows)}\n  candidate ${candidate.answer}\n            rows ${JSON.stringify(candidate.rows)}\n            writes dispatched ${JSON.stringify(candidate.writes)} (of ${candidate.statements} statements)\n            meta ${JSON.stringify((candidate.raised as QueryEngineError | undefined)?.meta ?? null)}`
       );
+      // N4 (D-52, census row 23): this probe pinned R-D3's registered refusal
+      // for the three non-int key domains ("Cannot publish the updated value
+      // of '<model>.id' … the batch scratch reads back as an integer"). The
+      // value the scratch cannot carry is now observed inside the batch after
+      // the UPDATE, at the column's own type: every domain answers its row and
+      // its write is dispatched, as the shipped engine answered.
       assert.equal(
-        candidate.answer,
-        `UnsupportedOperationError: Cannot publish the updated value of '${model}.id' for operation "upsert" inside an atomic batch: the batch scratch reads back as an integer, and 'id' is a ${type} field.`,
-        name
+        candidate.raised,
+        undefined,
+        `${name} (${type}): ${candidate.answer}`
       );
-      assert.equal(
-        candidate.raised instanceof UnsupportedOperationError,
-        true,
-        name
-      );
-      assert.equal(candidate.raised instanceof QueryEngineError, true, name);
-      assert.deepEqual(
-        { ...(candidate.raised as QueryEngineError).meta },
-        { field: "id", model, operation: "upsert" },
-        name
-      );
-      // "Raised before any statement is dispatched", measured: no write ever
-      // reached the provider, and the row is untouched.
-      assert.deepEqual(candidate.writes, [], `${name}: writes dispatched`);
+      assert.equal(candidate.answer, shipped.answer, name);
+      assert.deepEqual(candidate.rows, shipped.rows, name);
+      assert.ok(candidate.writes.length > 0, `${name}: writes dispatched`);
     }
   }, 180_000);
 

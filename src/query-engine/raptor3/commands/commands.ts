@@ -5,6 +5,7 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
+import { assertInvariant } from "../shared/invariant";
 import type { OperationContext } from "../shared/operation-context";
 import {
   type PreparedSelector,
@@ -188,9 +189,15 @@ export interface SelectedSeries {
   readonly selection: Selection;
   readonly analysis: RecordCommand | Deletion;
   readonly limit?: number;
+  /**
+   * A delete series carries the ORIGIN of the mutation that spelled it: the
+   * member `captureSeries` builds for each captured row is a {@link Deletion},
+   * whose origin is required, and the type says here what the one construction
+   * site (`RelationBody`'s `deleteMany` arm) already supplies.
+   */
   readonly mutation:
     | { readonly kind: "update"; readonly raw: Input }
-    | { readonly kind: "delete" };
+    | { readonly kind: "delete"; readonly origin: Origin };
 }
 export type SelectedSeriesMember = RecordCommand | Deletion;
 export interface SeriesOccurrence {
@@ -429,8 +436,15 @@ export class Commands {
     for (const [source, replacement] of replacements) {
       if (source.command.kind === "captureSeries") {
         const resolved = replacements.get(source.command.target);
-        if (!(resolved && isSeriesOccurrence(resolved)))
-          throw new Error("Series capture target lost its occurrence kind");
+        // Established upstream: `requireSeriesCapture` places a capture in the
+        // SAME body as the series it names, so the target is one of this
+        // parent's recipe children and has a replacement here; and a
+        // replacement carries its source's COMMAND, so it keeps the kind
+        // `SeriesCapture.target` already states.
+        assertInvariant(
+          resolved && isSeriesOccurrence(resolved),
+          "a series capture's target is a sibling of the capture in the same body"
+        );
         replacement.captureTarget = resolved;
       }
     }
@@ -557,10 +571,16 @@ export class Commands {
   seriesCaptureTarget(
     occurrence: CommandOccurrence
   ): CommandOccurrence<SeriesOccurrence> {
-    if (occurrence.command.kind !== "captureSeries")
-      throw new Error("Command occurrence is not a series capture");
+    // Two facts an earlier owner established: the kind, by the one caller's
+    // `case "captureSeries"` arm (`CommandExecution.run`), and the target, by
+    // `materializePlacement`, which resolves every capture's target before
+    // `analyze`/`analyzeSeries` returns the tree this reads.
+    assertInvariant(
+      occurrence.command.kind === "captureSeries",
+      "a series capture target is read only from a capture occurrence"
+    );
     const target = occurrence.captureTarget;
-    if (!target) throw new Error("Series capture has no occurrence target");
+    assertInvariant(target, "materialization resolved this capture's target");
     return target;
   }
   private readMembership(write: DependencyWrite, read: DependencyRead): void {
@@ -928,9 +948,21 @@ export class Commands {
       producer = ancestor;
       ancestor = ancestor.parent;
     }
-    const consumer = ancestor && readPath.get(ancestor);
-    if (!(ancestor && consumer))
-      throw new Error("Dependency read is not under the write's tree");
+    // `bindTree` hangs every occurrence from the operation's one root, which
+    // `reader` put on the read's path, so the walk meets the path at the root
+    // at the latest (N4: an invariant of the tree, not a refusal).
+    assertInvariant(
+      ancestor,
+      "a dependency's read and write share the operation's tree"
+    );
+    const consumer = readPath.get(ancestor);
+    // The pairing walk (`visitPrecedingWrites`) hands `depend` only a write
+    // that PRECEDES the read — an ancestor's own write, or one in a sibling
+    // ahead of the read's occurrence — never one inside the read's own
+    // occurrence, and the early lookup or capture `reader` may stand on is a
+    // leaf; so the meeting point is a proper ancestor of the reader and the
+    // path records the child it came through.
+    assertInvariant(consumer, "a dependency's write precedes its read");
     const follows = producer
       ? this.runsBefore(producer, consumer, ancestor)
       : consumer.placement !== "before";
@@ -1179,7 +1211,9 @@ export class Commands {
       if (sibling === target) return;
       this.visitWrites(sibling, visit, parentBranch);
     }
-    throw new Error("Command occurrence is missing from its parent");
+    // `bindTree` sets `parent` while walking that parent's own `children`, so
+    // a target with a parent is one of them and the loop returned above.
+    assertInvariant(false, "an occurrence's parent lists that occurrence");
   }
   private analyzeRead(occurrence: CommandOccurrence): void {
     const read = occurrence.dependencyRead;
@@ -1328,10 +1362,20 @@ export class Commands {
     occurrence: CommandOccurrence<SeriesOccurrence>,
     members: readonly SelectedSeriesMember[]
   ): SeriesRefusal | undefined {
-    const owner = this.seriesOwner(occurrence);
-    if (!owner) throw new Error("Selected series has no enclosing analysis");
-    if (this.seriesMembers(occurrence).length)
-      throw new Error("Selected series occurrence was already expanded");
+    // A series is either placed in a record's body (a nested `updateMany` /
+    // `deleteMany`) or is the root series whose template IS the update record
+    // (`plan`), so `seriesOwner` resolves for every series that reaches here.
+    assertInvariant(
+      this.seriesOwner(occurrence),
+      "a selected series is enclosed by a record analysis"
+    );
+    // Expanded once per occurrence: `captureSeries` returns early once the
+    // attempt holds this capture, and a recovery re-plans onto a NEW command
+    // tree (`commands/index.ts`), never re-entering this occurrence.
+    assertInvariant(
+      this.seriesMembers(occurrence).length === 0,
+      "a selected series occurrence is expanded once"
+    );
     this.expanded = true;
     occurrence.children = members.map((member) => {
       const child = this.occurrence(member);

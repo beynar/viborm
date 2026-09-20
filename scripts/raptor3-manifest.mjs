@@ -1352,12 +1352,16 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/upsert-array-route.test.ts": 6,
   "tests/raptor3/g4/parity/increment-key-width.test.ts": 1,
   "tests/raptor3/g4/parity/lax-to-one.test.ts": 27,
+  "tests/raptor3/g4/parity/batch-observed-publication.test.ts": 10,
+  "tests/raptor3/g4/parity/batch-captured-bulk.test.ts": 7,
+  "tests/raptor3/g4/parity/combinator-named-scalar.test.ts": 4,
   "tests/raptor3/g4/parity/series-member-premise.test.ts": 4,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */
 export const D50_PROVIDER_TESTS = Object.freeze([
   "tests/raptor3/g4/parity/postgres-identity-scratch.test.ts",
+  "tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts",
 ]);
 export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
   ...G1_PROVIDER_TESTS,

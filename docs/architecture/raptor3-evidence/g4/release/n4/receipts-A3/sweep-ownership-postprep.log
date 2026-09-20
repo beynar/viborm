@@ -1,0 +1,47 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 90ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 33ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 17ms
+ ❯ |coverage-raptor3| tests/raptor3/ownership/commands.test.ts (6 tests | 1 failed) 11ms
+   ✓ G2.7 private execution ownership > reads through the exact borrowed transaction without factory fallback 2ms
+   ✓ G2.7 private execution ownership > leaves borrowed write commit and rollback to the caller 2ms
+   ✓ G2.7 private execution ownership > isolates interleaved calls on distinct borrowed drivers 1ms
+   ✓ G2.7 private execution ownership > adds no savepoint and honors one explicitly owned by the caller 1ms
+   ✓ G2.7 private execution ownership > preserves a normalized recovery-shaped failure without replay 2ms
+   × G2.7 private execution ownership > refuses atomic-array binding before admission or provider work 5ms
+     → The error is expected to be an instance of "TransactionError". Received "UniqueConstraintError"
+
+Error message:
+
+Unique constraint violation
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 5ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 4ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 15ms
+ ✓ |coverage-raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests) 86ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-choices.test.ts (10 tests) 35ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-dependency-boundaries.test.ts (4 tests) 18ms
+ ❯ |raptor3| tests/raptor3/ownership/commands.test.ts (6 tests | 1 failed) 10ms
+   ✓ G2.7 private execution ownership > reads through the exact borrowed transaction without factory fallback 2ms
+   ✓ G2.7 private execution ownership > leaves borrowed write commit and rollback to the caller 2ms
+   ✓ G2.7 private execution ownership > isolates interleaved calls on distinct borrowed drivers 1ms
+   ✓ G2.7 private execution ownership > adds no savepoint and honors one explicitly owned by the caller 1ms
+   ✓ G2.7 private execution ownership > preserves a normalized recovery-shaped failure without replay 2ms
+   × G2.7 private execution ownership > refuses atomic-array binding before admission or provider work 3ms
+     → The error is expected to be an instance of "TransactionError". Received "UniqueConstraintError"
+
+Error message:
+
+Unique constraint violation
+ ✓ |raptor3| tests/raptor3/post-prep/projection-preparation.test.ts (4 tests) 8ms
+ ✓ |raptor3| tests/raptor3/post-prep/selector-preparation.test.ts (4 tests) 6ms
+ ✓ |raptor3| tests/raptor3/post-prep/history-analysis.test.ts (5 tests) 3ms
+ ✓ |raptor3| tests/raptor3/post-prep/g29-result-progress.test.ts (2 tests) 5ms
+ ✓ |raptor3| tests/raptor3/post-prep/clearability-consumption.test.ts (4 tests) 15ms
+ ✓ |raptor3| tests/raptor3/post-prep/schema-view-reuse.test.ts (1 test) 1ms
+Vitest exceeded its 1536 MiB sampled process-group RSS ceiling (ordinary project).
+Vitest resources: 9.90s wall, 1569.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

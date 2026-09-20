@@ -1,5 +1,6 @@
 import { NestedWriteError } from "@errors";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
+import { unreachable } from "../shared/invariant";
 import type { PreparedSelector, SelectorFacts } from "../shared/query";
 import { entries, type Input, record } from "../shared/schema";
 import {
@@ -37,7 +38,7 @@ type Supplier =
   | { readonly kind: "query"; readonly selector: PreparedSelector }
   | { readonly kind: "producer"; readonly producer: Assignments };
 
-const mutationOrder: readonly string[] = [
+const mutationOrder = [
   "disconnect",
   "delete",
   "create",
@@ -47,8 +48,8 @@ const mutationOrder: readonly string[] = [
   "update",
   "set",
   "updateMany",
-];
-const collectionMutationOrder: readonly string[] = [
+] as const;
+const collectionMutationOrder = [
   "disconnect",
   "delete",
   "update",
@@ -60,7 +61,19 @@ const collectionMutationOrder: readonly string[] = [
   "connect",
   "create",
   "createMany",
-];
+] as const;
+/**
+ * The relation-write vocabulary, DERIVED from the two orders that already own
+ * it — the orders are what runs a payload's verbs, so nothing can be a verb
+ * here without being one there. Validation's nested-write object schemas
+ * (`validation/relations/{create,update,to-one-mutation-schema}.ts` and
+ * `relations/polymorphic/{create,update,collection-mutation}.ts`) are strict
+ * by `primitives/object.ts`'s default and admit no other key, which is what
+ * lets {@link RelationBody.expand} name the payload's keys at this type.
+ */
+type RelationVerb =
+  | (typeof mutationOrder)[number]
+  | (typeof collectionMutationOrder)[number];
 
 /** Two admitted unique selectors address the same row. */
 function sameTarget(
@@ -110,7 +123,7 @@ export class RelationBody {
     const rawMutation = this.raw;
     const direct = this.direct;
     const schema = this.commands.context.schema;
-    const order =
+    const order: readonly string[] =
       parent.model["~"].state.relations[name]!["~"].state.cardinality === "many"
         ? collectionMutationOrder
         : mutationOrder;
@@ -128,9 +141,14 @@ export class RelationBody {
       }
       return edge;
     };
-    for (const [verb, payload] of Object.entries(mutation).sort(
+    // Admission is the boundary: the relation's nested-write schema admits
+    // only the keys of {@link RelationVerb}, so the admitted payload's entries
+    // are read AT that type here, once, and every consumer below trusts it
+    // (ELEGANCE §5).
+    const verbs = Object.entries(mutation).sort(
       ([a], [b]) => order.indexOf(a) - order.indexOf(b)
-    )) {
+    ) as [RelationVerb, unknown][];
+    for (const [verb, payload] of verbs) {
       if (payload === undefined) continue;
       // One origin per verb for what the verb does as a whole (a set's clear,
       // a variant carrier's clear); each payload ENTRY of a verb is its own
@@ -208,7 +226,7 @@ export class RelationBody {
   }
   private relation(
     edge: Membership,
-    verb: string,
+    verb: RelationVerb,
     payload: unknown,
     rawPayload: unknown,
     origin: Origin
@@ -698,7 +716,7 @@ export class RelationBody {
                   kind: "update",
                   raw: record(rawMembers[index]!.data),
                 }
-              : { kind: "delete" };
+              : { kind: "delete", origin };
           const analysis: RecordCommand | Deletion =
             mutation.kind === "update"
               ? this.commands.update(
@@ -725,9 +743,7 @@ export class RelationBody {
         break;
       }
       default:
-        throw new Error(
-          `Raptor 3 G1 relation operation is not implemented: ${verb}`
-        );
+        unreachable(verb, "relation verb");
     }
   }
   private requireLookup(

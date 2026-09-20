@@ -309,6 +309,51 @@ it lacks — an invariant assertion is not a refusal, and a sentence no
 admitted payload reaches is not a public one — so the three outcomes stay
 apart in the next census.
 
+**4 as landed (commit 26, branch `n4`).** The census tool
+(`scripts/raptor3-refusal-census.mjs`) tells the three outcomes apart by
+construction, never by message text: an invariant throws through
+`shared/invariant.ts` (`EngineInvariantError`, deliberately not a
+`VibORMError`; `assertInvariant(condition, message)`, `unreachable(value:
+never, message)`), an internal sentence lies inside a declared private fit
+whose privacy every run re-checks against the tree (D-54's recursive read,
+eleven sentences), a refusal is everything else — registered when the shipped
+corpus, pinned at `0cc61e61f`, spells it, public when it does not. The first
+census's 63 / 59 / 55 reconciled: eight doc-comment fragments of a line-regex
+extractor, which a parser cannot produce. Public refusals 47 → 23
+distinct sentences (the base's 46 had one hidden in a method); invariants
+0 → 21. Closed by the type where the
+type could say it: `admittedOperation`'s switch over the client's
+`Operations` (`unreachable`, the `resolve` fallback deleted), the relation
+body's switch over `RelationVerb` derived from its own two order arrays,
+`Aggregate` derived from `AGGREGATES` at the one payload-keyed site, the
+delete series' `origin` required. Asserted where the type could not without
+a second enumeration of an admitted vocabulary (the filter, JSON and relation
+quantifier operators, the cache codec's scalar-less leaf, the occurrence-tree
+facts of `commands.ts`, the storage resolver's two sentences — unreachable
+through the schema builder, established three ways). Deleted with their dead
+owners: the `atomic-array` binding variant and `OperationContext.clear`
+(#32 was not unreachable but implemented — at `remove`'s junction arm;
+`clear` was its orphaned twin). #48's one admitted reach — a scalar named
+like a combinator, which validation lets win the key — closed at the engine's
+combinator read (`Queries.combinator`), pinned. Executed: #23, the batch publication of a
+non-int updated value is an ordered observation at the row's post-update
+identity through `flush`, the provider computing the row the shipped engine
+computed in JavaScript; #25, the capture is a segment of its own and the
+mutation's batch carries its premises — every captured identity present and
+still a member, no row joined an unlimited capture — and answers its row count
+by its own position, the cardinality sentence kept as the detection. Measured
+and NOT executed: #16 — the ruling's shape, a produced field that is not one
+increment key, is unreachable (a referenced non-key field is refused by the
+parent-id resolver first); the reachable shape is a composite generated key,
+which needs a multi-column store across the adapter seam, so it is a corrected
+ruling for Arnaud, pinned as the boundary it is. #13 refined: reachable only as
+a decimal PRIMARY key on a relation-free upsert found arm without RETURNING,
+where what is needed is the row's ADDRESS after the key moved — no observation
+supplies it; the execution is D-50's scratch at the declared type at
+`updatedIdentity`'s owner, and the sentence stays a transport boundary until
+then. Nothing was refused at the schema. Note, five group notes, receipts and
+the census under `g4/release/n4/`.
+
 ## 5. N5 — the rest of the gate
 
 - **A (26):** the retired root alias `t0` → `q0` (protocol §7.2) in

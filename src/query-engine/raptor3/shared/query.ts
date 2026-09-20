@@ -56,6 +56,11 @@ import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
 import {
+  assertInvariant,
+  EngineInvariantError,
+  unreachable,
+} from "./invariant";
+import {
   type Arguments,
   type EngineSchema,
   type Input,
@@ -316,7 +321,7 @@ type PreparedTarget =
     }
   | {
       readonly kind: "aggregate";
-      readonly aggregate: string;
+      readonly aggregate: Aggregate;
       readonly scalar?: PreparedScalar;
     };
 type PreparedPredicate =
@@ -465,7 +470,18 @@ const DISTANCE_FIELD = "_distance";
 const DISTANCE_NAME_COLLISION =
   "A distance result cannot be selected together with a model field named '_distance'.";
 const AGGREGATES = ["_count", "_avg", "_sum", "_min", "_max"] as const;
+/**
+ * The aggregate vocabulary as a TYPE, so the lowering switch over it is
+ * exhaustive by construction rather than by a sentence (N4, plan §4).
+ * {@link isAggregate} is the ONE narrowing of a payload key into it — the same
+ * set admission enumerates (`validation/model/args/aggregate.ts`), never a
+ * second one.
+ */
+type Aggregate = (typeof AGGREGATES)[number];
 const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
+function isAggregate(name: string): name is Aggregate {
+  return AGGREGATE_NAMES.has(name);
+}
 const BOOLEAN_LEAF: Leaf = Object.freeze({
   kind: "scalar",
   type: "boolean",
@@ -1060,10 +1076,26 @@ export class Queries {
    * rewrite that rounds half-even back to the field's scale and refuses an
    * intermediate the dialect cannot represent, and restating it here would be a
    * second arithmetic owner. The refusal is registered and recorded as a
-   * decision for Arnaud (note §R2.1). A decimal PRIMARY key never reaches it —
-   * the portability contract mirrored in `EngineSchema.admit` refuses decimal
-   * key arithmetic at admission, exactly as the shipped engine does — so the
-   * reachable shape is a decimal RELATION key.
+   * decision for Arnaud (note §R2.1).
+   *
+   * WHICH PAYLOAD REACHES IT, measured for the N4 census (the earlier reading
+   * of this paragraph named the wrong shape). A decimal RELATION key does NOT
+   * reach it: a relation key written beside a mutation of that relation must be
+   * a literal (`Assignments.requireLiteral`, `commands/relation-body.ts:127`),
+   * so no operator survives to be named, and a key transition is the only thing
+   * that would ask. The reachable shape is a decimal PRIMARY key on an UPSERT's
+   * FOUND arm whose update payload names NO relation: `EngineSchema.admit`
+   * states `keyPortabilityRefusal` for `update` / `updateMany`, and the found
+   * arm carries it only when the update payload names relations
+   * (`commands/commands.ts:1743`, the shipped gate) — so
+   * `upsert({ update: { decimalKey: { multiply: n } } })` arrives here through
+   * `OperationContext.updatedIdentity`, which has to ADDRESS the row it just
+   * wrote. It is a TRANSPORT boundary, not an invariant: the same payload
+   * succeeds on a provider with RETURNING, where the post-update key is read
+   * back instead of named. Executing it therefore belongs to that read-back's
+   * owner (D-50's scratch at the column's declared type), not here; an ordered
+   * observation cannot answer it, because what is missing is the row's address,
+   * not a value a dependent consumes.
    */
   updateValue(
     model: AnyModel,
@@ -1265,6 +1297,24 @@ export class Queries {
     );
   }
   /**
+   * A combinator, unless the model declares a field by that name: validation
+   * extends its three combinator entries with the model's own fields, so a
+   * scalar or relation literally named `AND` wins the key there
+   * (`validation/model/core/where.ts`, `validation/model/args/aggregate.ts`
+   * for `having`), and
+   * the engine reads the admitted payload the same way (N4).
+   */
+  private combinator(
+    model: AnyModel,
+    key: string,
+  ): key is "AND" | "OR" | "NOT" {
+    return (
+      (key === "AND" || key === "OR" || key === "NOT") &&
+      !model["~"].state.scalars[key] &&
+      !model["~"].state.relations[key]
+    );
+  }
+  /**
    * The one logical-combinator owner, shared by `where` and `having`. An arm
    * that builds no condition is absent: it contributes nothing to `AND`,
    * nothing to `NOT` and nothing to `OR`, and only `OR` turns "no surviving
@@ -1299,7 +1349,7 @@ export class Queries {
       kind: "and",
       predicates: Object.freeze(
         Object.entries(where).map(([field, operand]) => {
-          if (field === "AND" || field === "OR" || field === "NOT") {
+          if (this.combinator(model, field)) {
             if (field !== "AND") facts.exact = false;
             return this.combine(
               field,
@@ -2031,7 +2081,12 @@ export class Queries {
         );
       }
       default:
-        throw new QueryEngineError(
+        // Admission enumerates this operator set once, per scalar type
+        // (`validation/scalars/**`), and `prepareOperation` carries the key it
+        // admitted; there is no second operator list here to disagree with it
+        // (AGENTS.md: "Do not add a second operator switch"). The state this
+        // arm names is therefore one the code cannot be in when it is right.
+        throw new EngineInvariantError(
           `Raptor 3 filter operator is not implemented: ${operator}`,
         );
     }
@@ -2154,7 +2209,9 @@ export class Queries {
       case "array_ends_with":
         return a.operators.eq(a.json.lastElement(target), a.json.value(value));
       default:
-        throw new QueryEngineError(
+        // Same upstream owner as the scalar operator switch above: the JSON
+        // document operators are enumerated once at admission.
+        throw new EngineInvariantError(
           `Raptor 3 JSON filter operator is not implemented: ${predicate.operator}`,
         );
     }
@@ -2248,7 +2305,10 @@ export class Queries {
       case "isNot":
         return predicate.predicate ? a.filters.isNot(query) : a.filters.is(query);
       default:
-        throw new Error(
+        // Every relation filter that spells quantifiers refuses a payload
+        // naming none of them in its own registered sentence, at admission;
+        // this switch only ever receives an already-admitted quantifier.
+        throw new EngineInvariantError(
           `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`,
         );
     }
@@ -3112,7 +3172,7 @@ export class Queries {
   /** One aggregate leaf classification, shared by projection and `having`. */
   private aggregateLeaf(
     model: AnyModel,
-    aggregate: string,
+    aggregate: Aggregate,
     field: string,
   ): Leaf {
     if (aggregate === "_count") return COUNT_LEAF;
@@ -3127,7 +3187,7 @@ export class Queries {
     });
   }
   private aggregateExpression(
-    aggregate: string,
+    aggregate: Aggregate,
     scalar: PreparedScalar | undefined,
     alias?: string,
   ): Sql {
@@ -3148,9 +3208,7 @@ export class Queries {
           ? a.aggregates.decimalAvg(column!, state.decimal)
           : a.aggregates.avg(column!);
       default:
-        throw new QueryEngineError(
-          `Raptor 3 aggregate is not implemented: ${aggregate}`,
-        );
+        return unreachable(aggregate, "Raptor 3 aggregate is not implemented");
     }
   }
   selectSeries(
@@ -3928,8 +3986,13 @@ export class Queries {
   }
   private orphanedMemberships(edge: Membership, parentAlias: string): Sql {
     const a = this.adapter;
-    if (edge.kind !== "junction")
-      throw new Error("Raptor 3 variant integrity requires junction storage");
+    // The probe's subjects are built only for a junction-carried slot, whose
+    // members bind junction memberships (`prepareProjection`, D-26): an
+    // invariant of that one construction site, not a refusal (N4).
+    assertInvariant(
+      edge.kind === "junction",
+      "a junction-carried slot's integrity probe names junction memberships"
+    );
     const junction = this.alias();
     const target = this.alias();
     return a.subqueries.scalar(
@@ -4115,7 +4178,7 @@ export class Queries {
         Object.entries(having).flatMap(([key, value]) => {
           if (value === undefined) return [];
           // Prisma negates each NOT arm and conjoins the negations.
-          if (key === "AND" || key === "OR" || key === "NOT")
+          if (this.combinator(model, key))
             return [
               this.combine(
                 key,
@@ -4169,7 +4232,7 @@ export class Queries {
     return entries(input).flatMap((order) =>
       Object.entries(order).flatMap(([name, direction]) => {
         if (direction === undefined) return [];
-        if (!AGGREGATE_NAMES.has(name)) {
+        if (!isAggregate(name)) {
           if (!grouped.has(name))
             throw new QueryEngineError(
               `GroupBy orderBy field '${name}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`,

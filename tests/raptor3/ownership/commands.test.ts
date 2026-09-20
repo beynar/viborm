@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { TransactionError, UniqueConstraintError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
+import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
-import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -330,61 +330,14 @@ describe("G2.7 private execution ownership", () => {
     }
   });
 
-  it("refuses atomic-array binding before admission or provider work", async () => {
-    let defaultCalls = 0;
-    let inputReads = 0;
-    let transformCalls = 0;
-    const admitted = s
-      .model({
-        id: s
-          .int()
-          .id()
-          .default(() => {
-            defaultCalls++;
-            return 1;
-          }),
-        label: s.string().schema(
-          v.string({
-            transform(value) {
-              transformCalls++;
-              return value;
-            },
-          })
-        ),
-      })
-      .map("g27_records");
-    const factory = world("factory-decoy");
-    const rawArgs = new Proxy(
-      { data: { label: "must-not-admit" } },
-      {
-        get(target, property, receiver) {
-          inputReads++;
-          return Reflect.get(target, property, receiver);
-        },
-        ownKeys(target) {
-          inputReads++;
-          return Reflect.ownKeys(target);
-        },
-      }
-    );
-    try {
-      const engine = createCommandEngine({
-        schema: { record: admitted },
-        driver: factory.driver,
-      });
-      await assert.rejects(
-        engine.execute("record", "create", rawArgs, { kind: "atomic-array" }),
-        TransactionError
-      );
-
-      assert.equal(inputReads, 0);
-      assert.equal(defaultCalls, 0);
-      assert.equal(transformCalls, 0);
-      assert.equal(factory.driver.executeCalls, 0);
-      assert.equal(factory.driver.transactionCalls, 0);
-      assert.equal(factory.driver.disconnectCalls, 0);
-    } finally {
-      await closeWorld(factory);
-    }
+  it("an atomic-array binding does not exist: the type refuses it before admission or provider work (N4)", () => {
+    // N4 (D-52, census row 31): the `atomic-array` variant of
+    // `ExecutionBinding` was constructed by nothing — the array route prepares
+    // through `prepareBatch` — so the constructor's capability refusal was an
+    // invariant, and the type now states it: no raw argument is read, no
+    // default runs, no provider is touched, because the call does not compile.
+    // @ts-expect-error — `ExecutionBinding` has no "atomic-array" variant.
+    const binding: ExecutionBinding = { kind: "atomic-array" };
+    assert.equal(typeof binding, "object");
   });
 });

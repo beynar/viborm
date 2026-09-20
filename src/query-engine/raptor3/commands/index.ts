@@ -3,6 +3,7 @@ import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
+import { unreachable } from "../shared/invariant";
 import {
   type ExecutionBinding,
   OperationContext,
@@ -18,8 +19,16 @@ import {
 } from "../shared/schema";
 import { Commands, type PhysicalPlan } from "./commands";
 
-/** The admitted operation an `…OrThrow` verb shares its whole envelope with. */
-function admittedOperation(operation: Operations): Operation | undefined {
+/**
+ * The admitted operation an `…OrThrow` verb shares its whole envelope with.
+ *
+ * Every verb the client can spell is a member of the closed `Operations`
+ * union, so the arms below are the whole vocabulary and the compiler proves
+ * it: the `default` arm's value has no members left. There is no operation
+ * this engine does not implement — that was a sentence about a state the type
+ * forbids (N4, plan §4).
+ */
+function admittedOperation(operation: Operations): Operation {
   switch (operation) {
     case "findUniqueOrThrow":
       return "findUnique";
@@ -41,7 +50,7 @@ function admittedOperation(operation: Operations): Operation | undefined {
     case "groupBy":
       return operation;
     default:
-      return undefined;
+      return unreachable(operation, "client operation");
   }
 }
 
@@ -146,20 +155,12 @@ export function createCommandEngine(config: EngineConfig) {
     config.driver.adapter,
     config.driver.result
   );
-  const resolve = (operation: Operations): Operation => {
-    const admitted = admittedOperation(operation);
-    if (!admitted)
-      throw new Error(
-        `Raptor 3 G1 operation is not implemented: ${operation}`
-      );
-    return admitted;
-  };
   const prepare = (
     modelName: string,
     requested: Operations,
     rawArgs: unknown
   ): PreparedOperation => {
-    const operation = resolve(requested);
+    const operation = admittedOperation(requested);
     const model = config.schema[modelName]!;
     let admitted: Arguments | undefined;
     let prepared: Read | undefined;

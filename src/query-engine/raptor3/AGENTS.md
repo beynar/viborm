@@ -399,9 +399,10 @@ The private `execute(modelName, operation, rawArgs, binding?)` boundary resolves
 execution ownership once in `OperationContext`. With no binding, reads and
 writes keep their qualified standalone routes. A `borrowed-transaction` binding
 uses the exact supplied transaction driver and never disconnects, replays, or
-falls back to the factory driver. An `atomic-array` binding is a capability
-refusal and must throw `TransactionError` before raw-argument admission or
-provider work — it is raised in the constructor, before `admit`. `usesBatch`
+falls back to the factory driver. There is no `atomic-array` binding: the
+array route prepares through `prepareBatch`, `ExecutionBinding` names two
+variants, and a kind the type does not name is the compiler's refusal, before
+any raw argument is read (N4, census row 31). `usesBatch`
 describes only the standalone physical batch route; it is not
 an atomicity, lifecycle, recovery, or commit-certainty fact. The `program/`
 specimen stayed mechanically callable through that same private shape rather
@@ -977,6 +978,24 @@ A junction member set and a relation-bearing `updateMany` still capture, because
 one statement cannot express them. The `set` command is a WRITE with no read: it
 registers the unknown row-set footprint the shipped `appendTarget(unknown)`
 registered, so a LATER read of the same model is still analysed against it.
+
+**An invariant is not a refusal (N4, D-52).** A refusal is a sentence a
+caller can reach with an admitted payload and is a `VibORMError`; an
+invariant is a state the code cannot be in when it is right, established
+upstream by a type or by an earlier owner, and is `EngineInvariantError`
+(`shared/invariant.ts`: `assertInvariant(condition, message)` states the fact
+in one place; `unreachable(value: never, message)` closes a `switch` over a
+closed union so the compiler proves the arm). The refusal census
+(`scripts/raptor3-refusal-census.mjs`, its report under
+`docs/architecture/raptor3-evidence/g4/release/n4/census.md`) tells the two
+apart by CLASS, never by message text, and counts a third bucket apart: the
+sentences of the private recursive-read fit, internal until a public argument
+reaches them (D-54). Do not add a second enumeration of an admitted
+vocabulary inside a lowerer to close a union the admission already closed —
+where the type cannot say the invariant, the class carries the distinction.
+A declared field named like a combinator (`AND`, `OR`, `NOT`) is that field:
+validation lets the model's own entry win the key, and `Queries.combinator`
+reads `where` and `having` the same way.
 
 **A dependent read is an ordered observation (N1, D-51).** A nested lookup
 whose answer an earlier write of the same operation can change — the overlap

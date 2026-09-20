@@ -1,0 +1,108 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 224ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 28ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 40ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 58ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 19ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 79ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 60ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 31ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 56ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 22ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 22ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests) 10ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 7ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 36ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 15ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 223ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-commands.test.ts (4 tests) 29ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-commands.test.ts (4 tests) 37ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-commands.test.ts (10 tests) 53ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-commands.test.ts (3 tests) 21ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 78ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-commands.test.ts (14 tests) 61ms
+ ✓ |raptor3| tests/raptor3/transitions/required-commands.test.ts (8 tests) 34ms
+ ✓ |raptor3| tests/raptor3/transitions/variant-removals-legacy.test.ts (14 tests) 55ms
+ ✓ |raptor3| tests/raptor3/transitions/shared-key-suppliers-legacy.test.ts (4 tests) 22ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-legacy.test.ts (20 tests) 19ms
+ ✓ |raptor3| tests/raptor3/transitions/required-legacy.test.ts (8 tests) 8ms
+ ✓ |raptor3| tests/raptor3/transitions/series-staleness-legacy.test.ts (4 tests) 10ms
+ ✓ |raptor3| tests/raptor3/transitions/staleness-legacy.test.ts (3 tests) 7ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-legacy.test.ts (58 tests) 36ms
+ ✓ |raptor3| tests/raptor3/transitions/supplier-continuations-legacy.test.ts (10 tests) 15ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts [ tests/raptor3/transitions/recovery-boundaries-live-commands.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/recovery-boundaries-live.ts:15:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/recovery-boundaries-live-legacy.test.ts [ tests/raptor3/transitions/recovery-boundaries-live-legacy.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-commands.test.ts [ tests/raptor3/transitions/unique-races-live-commands.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/unique-races-live-legacy.test.ts [ tests/raptor3/transitions/unique-races-live-legacy.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/unique-races-live.ts:14:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-commands.test.ts [ tests/raptor3/transitions/staleness-live-pg-commands.test.ts ]
+ FAIL  |raptor3-live-provider| tests/raptor3/transitions/staleness-live-pg-legacy.test.ts [ tests/raptor3/transitions/staleness-live-pg-legacy.test.ts ]
+AssertionError: Required live provider is pg or mysql
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/transitions/live-world.ts:31:1
+     29| 
+     30| const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
+     31| assert(
+       | ^
+     32|   provider === "pg" || provider === "mysql",
+     33|   "Required live provider is pg or mysql"
+ ❯ tests/raptor3/transitions/staleness-live-pg.ts:15:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+
+ Test Files  6 failed | 32 passed (38)
+      Tests  484 passed (484)
+   Start at  07:55:11
+   Duration  6.99s (transform 2.23s, setup 37ms, collect 3.86s, tests 1.42s, environment 0ms, prepare 73ms)
+
+Vitest resources: 8.77s wall, 787.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

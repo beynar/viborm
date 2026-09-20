@@ -39,6 +39,7 @@ import {
   type PreparedOperation,
   type PreparedRead,
 } from "../commands";
+import { EngineInvariantError } from "../shared/invariant";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
 import type { Leaf, ProjectionShape } from "../shared/query";
 import type { ResolvedSchemaViews } from "../shared/schema";
@@ -193,6 +194,19 @@ export function createCandidateRoute(
           return prepared.read?.statement;
         },
         cacheResultCodec(): RouteCacheResultCodec {
+          // KEPT as a capability boundary (N4, plan §4). It alone owns "the
+          // cache layer asked this engine to encode a verb this engine
+          // publishes no prepared read for" — a boundary between two
+          // independently-maintained vocabularies in two layers:
+          // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
+          // including both `…OrThrow` variants) and the engine's own
+          // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
+          // only by `admittedOperation`'s `…OrThrow` normalization. No type
+          // ties them and no single upstream owner establishes the fact, so an
+          // assertion here would establish a missing fact rather than state an
+          // established one (ELEGANCE §5). The class stays public
+          // (`UnsupportedOperationError`) because this seam
+          // (`RoutedCandidateOperation`) is consumed outside raptor3.
           const read = prepared.read;
           if (!read)
             throw new UnsupportedOperationError(
@@ -338,6 +352,13 @@ function shapeCodec(
  * not a second scalar authority — it is the same classification the shipped
  * compiler makes in `compileAggregateLeafCodec` and in `compileRootCodec`'s
  * `existence`/`count` carriers.
+ *
+ * Those three exhaust the scalar-less leaves `Queries` constructs, so the last
+ * arm names a state this engine cannot be in when it is right: an INVARIANT,
+ * not a refusal a caller can reach (N4, plan §4). `Leaf.type` is a `string`
+ * because it also carries every declared scalar's type name, so the compiler
+ * cannot close the set here; the assertion states the fact the leaf builder
+ * upstream established.
  */
 function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
   const declared = leaf.scalar;
@@ -350,9 +371,8 @@ function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
   else if (leaf.type === "int") value = countCodec();
   else if (leaf.type === "number") value = numberCodec();
   else
-    throw new UnsupportedOperationError(
-      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`,
-      { meta: { operation: requestedOperation } }
+    throw new EngineInvariantError(
+      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`
     );
   return leaf.nullable ? nullableCodec(value) : value;
 }
