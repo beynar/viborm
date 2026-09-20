@@ -23,6 +23,7 @@ import type {
   SeriesOccurrence,
   SetMutation,
 } from "./commands";
+import { membershipRaceFailure } from "./commands";
 import {
   type BoundMembership,
   membershipFields,
@@ -243,6 +244,20 @@ export class RelationBody {
           );
           outgoing.origin = origin;
           this.membershipSource(edge, parent.located!.fields);
+          // Initial absence and loss after observation are distinct facts
+          // (ELEGANCE §6, D-32): `required` says what an empty slot means
+          // (lax or strict), `retained` what the captured member's loss
+          // between the plan-time read and the batch means, asserted where the
+          // observation is taken, before any write of the unit. Only the LAX
+          // form names no row: its loss is the membership race, and the one
+          // recovery re-plans the slot as the race left it. The strict form
+          // names a row by its selector; a recovery would re-read that selector
+          // and act on whatever row answers it now — the one thing a
+          // captured-row loss must not authorise (D-34) — so it keeps the
+          // identity sentence `requireLookup` supplies from `required`.
+          if (lax)
+            outgoing.retained = () =>
+              membershipRaceFailure(verb, edge.name, "removed");
           const outgoingOccurrence = this.requireLookup(outgoing);
           if (edge.kind === "reference" && edge.owner === "source") {
             if (!hasSupply && edge.clearability.kind === "columns") {

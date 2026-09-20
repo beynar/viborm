@@ -54,6 +54,7 @@ import {
   G4_GENERATION_SELFTEST_TESTS,
   G4_NATIVE_MYSQL_TESTS,
   G4_NATIVE_PG_TESTS,
+  G4_PARITY_TESTS,
   G4_READ_TESTS,
   G4_UNIT01_AUTHOR_TESTS,
   G4_UNIT02_AUTHOR_TESTS,
@@ -86,6 +87,7 @@ const testsRoot = resolve(projectRoot, "tests");
 
 const extendedLocalExclusions = new Set([
   ...RAPTOR3_TESTS,
+  ...G4_PARITY_TESTS,
   ...G1_COMPARISON_TESTS,
   ...G1_BASELINE_TESTS,
   ...G1_CONTRACT_TESTS,
@@ -179,6 +181,7 @@ const extendedLocalExclusions = new Set([
 
 export const RAPTOR3_FIXED_LOCAL_TESTS = Object.freeze([
   ...RAPTOR3_TESTS,
+  ...G4_PARITY_TESTS,
   ...G1_COMPARISON_TESTS,
   ...G1_CONTRACT_TESTS,
   ...G2_CONTRACT_TESTS,

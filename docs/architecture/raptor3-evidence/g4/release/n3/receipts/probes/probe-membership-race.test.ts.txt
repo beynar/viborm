@@ -1,0 +1,60 @@
+import { createClient } from "@client/client";
+import type { BatchQuery, QueryResult } from "@drivers/types";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { s } from "@schema";
+import { BatchOnlyPGliteDriver, usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { test } from "vitest";
+
+class StaleDriver extends BatchOnlyPGliteDriver {
+  armed = false; planted = false; batches = 0;
+  constructor(client: PGlite, namespace: string, private readonly plant: (c: PGlite) => Promise<void>) { super({ client, namespace }); }
+  protected override async executeBatch<T>(client: PGlite | Transaction, queries: BatchQuery[]): Promise<QueryResult<T>[]> {
+    this.batches++;
+    process.stderr.write(`BATCH #${this.batches}: ${queries.map((q) => q.sql.slice(0, 90)).join(" || ")}\n`);
+    if (this.armed && !this.planted) { this.planted = true; await this.plant(client as PGlite); }
+    try { return await super.executeBatch<T>(client, queries); }
+    catch (e) { const x = e as Error & { code?: unknown; meta?: unknown }; process.stderr.write(`BATCH ERROR ${x.name} code=${String(x.code)} ${x.message.slice(0, 100)} meta=${JSON.stringify(x.meta)}\n`); throw e; }
+  }
+}
+const owner = s.model({ id: s.int().id(), name: s.string(), tags: s.toMany(() => tag).through("probe_owner_tags").source("owner_ref").target("tag_ref") }).map("probe_owners");
+const tag = s.model({ id: s.int().id(), code: s.string().unique(), owners: s.toMany(() => owner) }).map("probe_tags");
+const schema = { owner, tag };
+const getFamily = usePGliteSchemaFamily(schema);
+
+test("probe: deleteMany with a member added after planning", async () => {
+  const family = getFamily();
+  const junction = `"${family.namespace}"."probe_owner_tags"`;
+  const driver = new StaleDriver(family.database, family.namespace, async (db) => { await db.query(`INSERT INTO ${junction} ("owner_ref", "tag_ref") VALUES ($1, $2)`, [400, 8]); });
+  const client = createClient({ schema, driver });
+  await client.owner.create({ data: { id: 400, name: "planned" } });
+  await client.tag.create({ data: { id: 7, code: "planned" } });
+  await client.owner.update({ where: { id: 400 }, data: { tags: { connect: { id: 7 } } } });
+  await client.tag.create({ data: { id: 8, code: "added" } });
+  driver.armed = true;
+  try {
+    await client.owner.update({ where: { id: 400 }, data: { tags: { deleteMany: {} } } });
+    process.stderr.write(`RESOLVED; tags left=${JSON.stringify(await client.tag.findMany())}\n`);
+  } catch (e) {
+    const x = e as Error & { code?: unknown; meta?: unknown };
+    process.stderr.write(`SURFACED ${x.name} code=${String(x.code)} ${x.message.slice(0, 120)} meta=${JSON.stringify(x.meta)}\n`);
+  }
+});
+
+test("probe: deleteMany with a member REMOVED after planning", async () => {
+  const family = getFamily();
+  const junction = `"${family.namespace}"."probe_owner_tags"`;
+  const driver = new StaleDriver(family.database, family.namespace, async (db) => { await db.query(`DELETE FROM ${junction} WHERE "owner_ref" = $1 AND "tag_ref" = $2`, [401, 17]); });
+  const client = createClient({ schema, driver });
+  await client.owner.create({ data: { id: 401, name: "removed" } });
+  await client.tag.create({ data: { id: 17, code: "removed-a" } });
+  await client.tag.create({ data: { id: 18, code: "removed-b" } });
+  await client.owner.update({ where: { id: 401 }, data: { tags: { connect: [{ id: 17 }, { id: 18 }] } } });
+  driver.armed = true;
+  try {
+    await client.owner.update({ where: { id: 401 }, data: { tags: { deleteMany: {} } } });
+    process.stderr.write(`RESOLVED2; tags left=${JSON.stringify(await client.tag.findMany({ where: { id: { in: [17, 18] } } }))}\n`);
+  } catch (e) {
+    const x = e as Error & { code?: unknown; meta?: unknown };
+    process.stderr.write(`SURFACED2 ${x.name} code=${String(x.code)} ${x.message.slice(0, 120)}\n`);
+  }
+});

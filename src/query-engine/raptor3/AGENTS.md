@@ -991,6 +991,42 @@ target, so it is the set-based membership clear (N2 of the
 nesting-and-refusals plan; admission allows only `true`/`false` for a to-one
 `delete`, so the strict form lives on the to-many edge).
 
+A premise about an OBSERVATION is asserted where the observation is taken —
+before any write of the unit — never where it is consumed (N3 of the
+nesting-and-refusals plan). Initial absence and loss after observation are
+distinct facts (ELEGANCE §6, Arnaud's D-32): a lookup's `required` says what
+an empty slot means (lax or strict), its `retained` what the captured
+member's loss between the plan-time read and the batch means — for a LAX
+disconnect or delete target, the raceable membership race, stated once by
+`membershipRaceFailure` ("a member was added/removed after the plan-time
+read; retry to converge"); for a strict one, which names a row by its
+selector, the non-raceable identity sentence, because a recovery would
+re-read the selector and act on whatever row answers it now (D-34) — and
+`runSelection` asserts `retained` right after the capture. A `deleteMany` series asserts each captured member's presence at
+capture, beside `requireNoAddedMember`. The deletion and removal commands
+assert nothing themselves: a premise placed after the parent's own UPDATE
+would make every rejection "uncertain" on a weak batch and forfeit the one
+recovery. On the ladder, attribution comes FIRST: the rejected premise is
+found by the provider's statement index, else by re-probing each registered
+premise after rollback, else as the sole guard. Where the provider said where
+it stopped, that position decides `rejectedBeforeAnyWrite`; where only the
+re-probe did, its answer is a fresh-state sentence, not a statement about
+the past (a premise found false now may have held when the batch ran), so
+the "nothing but premises ahead" claim is bounded by the LAST premise in the
+batch — a batch whose own committed write falsified an earlier premise is
+never read as having dispatched no write — and only then may D-25's recovery
+re-plan. What the bound cannot see, an ordinary statement arriving as the
+assertion class behind the last premise with writes ahead of it, rests on
+the shipped index-free transports' atomicity (D1, Neon); a transport that is
+neither atomic nor indexed owes its own witness (D-53) before the claim is
+made there. Two registries answer "was this row's presence premised": a
+lookup's own `Selection.retained`, which `runSelection` asserts on the spot,
+and `attempt.retained` for a row bound by `capture()` (a series member, the
+connect path) whose premise its owner queued directly. A premise the ladder
+cannot attribute surfaces as the typed floor (DESIGN §7.3 step 4,
+`m8-race-retry`): `NestedWriteError` with the assertion code, non-raceable,
+one attempt — never the driver-mapped `NestedWriteAssertionError`.
+
 Within one relation body, a `connectOrCreate` entry whose target an earlier
 entry PROVABLY creates is that earlier entry's association: first-create-wins
 locally and the later entry adopts the row (`docs/architecture/retired/write-engine-ATOM.md` §12), so it opens no second

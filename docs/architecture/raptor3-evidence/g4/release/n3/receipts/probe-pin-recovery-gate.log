@@ -1,0 +1,35 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+PROBE ladder: error=NestedWriteAssertionError providerIndex=2 failure=Cannot delete relation 'profile': a member was removed after attributedIndex=2 committedSegments=0 premises=0,2 n=5
+PROBE recoveryRejection: ownership=standalone committedProgress=true mayHave=true sameAsAtomic=false supportsBatch=true
+PROBE batchAttempt caught NestedWriteError
+PROBE recoveryRejection: ownership=standalone committedProgress=true mayHave=true sameAsAtomic=false supportsBatch=true
+ ❯ |extended-local| tests/raptor3/g4/parity/lax-to-one.test.ts (12 tests | 1 failed | 10 skipped) 28ms
+   ↓ N2: the lax to-one no-op on the live route > disconnect: true on the FK-holder side with nothing connected is a no-op
+   ↓ N2: the lax to-one no-op on the live route > disconnect: true on the inverse side with no related row is a no-op, through a set-based clear
+   ↓ N2: the lax to-one no-op on the live route > delete: true on the inverse side with no related row is a no-op (DESIGN §5.3; Prisma would throw)
+   ↓ N2: the lax to-one no-op on the live route > delete: true deletes the related row when the slot is occupied
+   ✓ N2: the lax to-one no-op on the live route > a lax delete of an occupied slot whose member was re-parented after the plan-time read converges to a no-op (N3, D-32) 0ms
+   ↓ N2: the lax to-one no-op on the live route > an explicit selector stays strict: a to-many delete of a missing member refuses
+   ↓ N2: the lax to-one no-op on the batch-only route > disconnect: true on the FK-holder side with nothing connected is a no-op
+   ↓ N2: the lax to-one no-op on the batch-only route > disconnect: true on the inverse side with no related row is a no-op, through a set-based clear
+   ↓ N2: the lax to-one no-op on the batch-only route > delete: true on the inverse side with no related row is a no-op (DESIGN §5.3; Prisma would throw)
+   ↓ N2: the lax to-one no-op on the batch-only route > delete: true deletes the related row when the slot is occupied
+   × N2: the lax to-one no-op on the batch-only route > a lax delete of an occupied slot whose member was re-parented after the plan-time read converges to a no-op (N3, D-32) 27ms
+     → Cannot delete relation 'profile': a member was removed after the plan-time read; retry to converge.
+   ↓ N2: the lax to-one no-op on the batch-only route > an explicit selector stays strict: a to-many delete of a missing member refuses
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/lax-to-one.test.ts > N2: the lax to-one no-op on the batch-only route > a lax delete of an occupied slot whose member was re-parented after the plan-time read converges to a no-op (N3, D-32)
+NestedWriteError: Cannot delete relation 'profile': a member was removed after the plan-time read; retry to converge.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 10 skipped (12)
+   Start at  01:53:08
+   Duration  1.51s (transform 826ms, setup 9ms, collect 1.26s, tests 28ms, environment 0ms, prepare 29ms)
+
+Vitest resources: 3.45s wall, 522.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

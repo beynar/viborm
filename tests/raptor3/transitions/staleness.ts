@@ -211,10 +211,11 @@ function capturedKeyScenario(
           assert.equal(observation.outcome.kind, "failure");
           if (observation.outcome.kind !== "failure") return;
           if (restoreAfterRollback) {
-            assert.equal(
-              observation.outcome.failure.name,
-              "NestedWriteAssertionError"
-            );
+            // The un-attributable batch abort surfaces as the typed floor
+            // (DESIGN §7.3 step 4, `m8-race-retry`): a `NestedWriteError`
+            // carrying the assertion code, never the driver-mapped internal
+            // class (N3a of the nesting-and-refusals plan).
+            assert.equal(observation.outcome.failure.name, "NestedWriteError");
             assert.equal(observation.outcome.failure.code, "V7006");
             assert.equal(
               observation.outcome.failure.message,

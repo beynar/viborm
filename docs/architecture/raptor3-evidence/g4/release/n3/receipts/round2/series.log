@@ -1,0 +1,4 @@
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 39ms
+ ✓ |raptor3| tests/raptor3/g4/parity/series-member-premise.test.ts (4 tests) 38ms
+ Test Files  2 passed (2)
+      Tests  8 passed (8)

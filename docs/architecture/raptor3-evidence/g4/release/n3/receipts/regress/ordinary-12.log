@@ -1,0 +1,6 @@
+[test:all] extended-local shard 12/13 (3 files; 179 ordinary of 191)
+ ✓ |extended-local| tests/unit/migrations/sqlite-datetime-recreation.test.ts (17 tests) 63ms
+ ✓ |extended-local| tests/unit/migrations/sqlite-datetime-diff-boundary.test.ts (3 tests) 10ms
+ Test Files  2 passed | 1 skipped (3)
+      Tests  20 passed | 6 skipped (26)
+[test:all] extended-local shard 12/13 (3 files; 179 ordinary of 191): 3.81s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

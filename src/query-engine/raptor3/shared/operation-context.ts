@@ -18,13 +18,15 @@ import type {
 import {
   attachRecordSeriesProgress,
   isVibORMError,
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
   QueryEngineError,
   type RecordSeriesProgress,
   TransactionError,
   UniqueConstraintError,
-  UnsupportedOperationError
+  UnsupportedOperationError,
+  VibORMErrorCode
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
@@ -1214,15 +1216,65 @@ export class OperationContext {
       // registered fact (`transitions/staleness-live-pg.ts`
       // `g2-pg-series-parent-reference-reused`: "the acknowledged prefix and
       // weak native dispatch uncertainty are distinct facts").
-      const rejectedIndex = isVibORMError(error)
-        ? error.meta.statementIndex
-        : undefined;
+      let failure: Error | undefined;
+      let attributedIndex: number | undefined;
+      if (error instanceof NestedWriteAssertionError) {
+        const statementIndex = error.meta.statementIndex;
+        if (typeof statementIndex === "number") {
+          failure = assertionFailures.get(statements[statementIndex]!)?.failure;
+          attributedIndex = statementIndex;
+        } else {
+          // Fresh-state diagnostics after rollback refine the error, not its
+          // original statement index: a premise found false NOW may have held
+          // when the batch ran (state moved on between the abort and the
+          // re-probe, DESIGN §7.3 step 4), so the position they name is a
+          // sentence, and the position claim below is bounded by the LAST
+          // premise instead. An unindexed native failure identifies our sole
+          // guard only when ordinary SQL cannot collide with it.
+          const soleGuard =
+            assertionFailures.size === 1 &&
+            !batchMayContainAssertionCollision(statements, this.driver.dialect);
+          for (const [index, statement] of statements.entries()) {
+            const assertion = assertionFailures.get(statement);
+            if (!assertion) continue;
+            const present = (await this.read(assertion.query, true)).length > 0;
+            if (present !== assertion.present || soleGuard) {
+              failure = assertion.failure;
+              attributedIndex = index;
+              break;
+            }
+          }
+        }
+      }
+      const providerIndex =
+        isVibORMError(error) && typeof error.meta.statementIndex === "number"
+          ? error.meta.statementIndex
+          : undefined;
+      const rejectedIndex = providerIndex ?? attributedIndex;
+      // Where the provider said where it stopped, that is the position. Where
+      // only the re-probe did, the claim "nothing but premises ahead" must hold
+      // for ANY premise that could have fired — the last one in the batch — so
+      // a batch whose own committed write falsified an earlier premise is never
+      // read as having dispatched no write. What the bound cannot see is an
+      // ordinary statement arriving as the assertion class BEHIND the last
+      // premise, with writes dispatched ahead of it: on the shipped index-free
+      // transports (D1, Neon) the batch is atomic, so nothing survives that
+      // abort; a transport that is neither atomic nor indexed owes its own
+      // witness (D-53) before the claim is made there.
+      let positionBound = rejectedIndex;
+      if (providerIndex === undefined && typeof attributedIndex === "number") {
+        let last = -1;
+        for (const [index, statement] of statements.entries())
+          if (assertionFailures.has(statement)) last = index;
+        positionBound = last;
+      }
       const rejectedBeforeAnyWrite =
         typeof rejectedIndex === "number" &&
+        typeof positionBound === "number" &&
         this.committedSegments === 0 &&
         statements.every(
           (statement, index) =>
-            index > rejectedIndex || assertionFailures.has(statement)
+            index > positionBound || assertionFailures.has(statement)
         );
       if (
         members.length > 0 &&
@@ -1241,56 +1293,42 @@ export class OperationContext {
         await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
       }
       let attributedError = error;
-      if (error instanceof NestedWriteAssertionError) {
-        const statementIndex = error.meta.statementIndex;
-        let failure =
-          typeof statementIndex === "number"
-            ? assertionFailures.get(statements[statementIndex]!)?.failure
-            : undefined;
-        if (statementIndex === undefined) {
-          // Fresh-state diagnostics after rollback refine the error, not its original statement index.
-          for (const statement of statements) {
-            const assertion = assertionFailures.get(statement);
-            if (!assertion) continue;
-            const present = (await this.read(assertion.query, true)).length > 0;
-            if (present !== assertion.present) {
-              failure = assertion.failure;
-              break;
-            }
-          }
-        }
-        // Unindexed native failures identify our sole guard only when ordinary SQL cannot collide.
+      if (failure && error instanceof NestedWriteAssertionError) {
+        attributedError = failure;
         if (
-          statementIndex === undefined &&
-          !failure &&
-          assertionFailures.size === 1 &&
-          !batchMayContainAssertionCollision(statements, this.driver.dialect)
+          this.driver.supportsBatch &&
+          !this.committedProgress &&
+          error.meta.commitCertainty === undefined &&
+          // Only a premise its own owner declared RACEABLE may be answered by
+          // another attempt. The mark is the estate's existing rule for
+          // exactly this question ("the `raceable` mark is what lets the
+          // routed retry re-plan and converge", `batch-error-attribution.ts`;
+          // `errors/base.ts` "the retry layer … re-runs the SPECIFIC raceable
+          // ones by their own marking"), and it is fixed by the guard's
+          // premise class (`query-engine/types.ts`). A non-raceable premise —
+          // the captured row's own presence — is a statement about IDENTITY:
+          // re-planning it would retry against whatever row now answers the
+          // selector, which is the one thing a captured-row replacement must
+          // not do (`docs/architecture/retired/write-engine-ATOM.md` §"A conditional-skip batch arm",
+          // `transitions/conditional-upsert.ts` "Captured-row replacement or
+          // deletion must not permit a retry against another identity").
+          isVibORMError(failure) &&
+          failure.meta.raceable === true
         )
-          failure = assertionFailures.values().next().value?.failure;
-        if (failure) {
-          attributedError = failure;
-          if (
-            this.driver.supportsBatch &&
-            !this.committedProgress &&
-            error.meta.commitCertainty === undefined &&
-            // Only a premise its own owner declared RACEABLE may be answered by
-            // another attempt. The mark is the estate's existing rule for
-            // exactly this question ("the `raceable` mark is what lets the
-            // routed retry re-plan and converge", `batch-error-attribution.ts`;
-            // `errors/base.ts` "the retry layer … re-runs the SPECIFIC raceable
-            // ones by their own marking"), and it is fixed by the guard's
-            // premise class (`query-engine/types.ts`). A non-raceable premise —
-            // the captured row's own presence — is a statement about IDENTITY:
-            // re-planning it would retry against whatever row now answers the
-            // selector, which is the one thing a captured-row replacement must
-            // not do (`docs/architecture/retired/write-engine-ATOM.md` §"A conditional-skip batch arm",
-            // `transitions/conditional-upsert.ts` "Captured-row replacement or
-            // deletion must not permit a retry against another identity").
-            isVibORMError(failure) &&
-            failure.meta.raceable === true
-          )
-            this.atomicAssertionRejection = failure;
-        }
+          this.atomicAssertionRejection = failure;
+      } else if (error instanceof NestedWriteAssertionError) {
+        // The un-attributable floor (N3a, the shipped `batch-error-attribution`
+        // floor): a batch assertion the ladder cannot attribute surfaces as
+        // the typed, non-raceable NestedWriteError carrying the assertion code
+        // — never the driver-mapped internal class, never a retry.
+        attributedError = new NestedWriteError(
+          NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
+          "",
+          {
+            code: VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED,
+            cause: error
+          }
+        );
       }
       throw publishingGeneratedOutput || this.continuationCount > 0
         ? this.failure(

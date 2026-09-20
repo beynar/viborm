@@ -1341,6 +1341,20 @@ export const RAPTOR3_LIVE_PROVIDER_TESTS = Object.freeze([
   ...G4_UNIT02_MYSQL_TESTS,
   ...G4_UNIT02_PG_TESTS,
 ]);
+/**
+ * The release units' deterministic pins (SQLite, both routes): D-46 the
+ * upsert on the array route, D-50 the increment key's width, N2 the lax
+ * to-one no-op with N3's race cells, N3 the series member premise at capture.
+ * Engine coverage is measured on them (`coverage-raptor3`); the live-PGlite
+ * pins are `D50_PROVIDER_TESTS`.
+ */
+export const G4_PARITY_COUNTS = Object.freeze({
+  "tests/raptor3/g4/parity/upsert-array-route.test.ts": 6,
+  "tests/raptor3/g4/parity/increment-key-width.test.ts": 1,
+  "tests/raptor3/g4/parity/lax-to-one.test.ts": 27,
+  "tests/raptor3/g4/parity/series-member-premise.test.ts": 4,
+});
+export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */
 export const D50_PROVIDER_TESTS = Object.freeze([
   "tests/raptor3/g4/parity/postgres-identity-scratch.test.ts",
@@ -1360,6 +1374,7 @@ export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
  */
 export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...RAPTOR3_TESTS,
+  ...G4_PARITY_TESTS,
   ...G1_COMPARISON_TESTS,
   ...G1_BASELINE_TESTS,
   ...G1_CONTRACT_TESTS,

@@ -1,0 +1,20 @@
+falsify-unbounded exit=1  Tests 2 failed | 52 passed (54)
+   × N2: the lax to-one no-op on the batch-only without a statement index route > a raceable premise ahead of a write, with a later premise behind that write, 
+   × N2: the lax to-one no-op on the batch-only without a statement index route > a raceable premise ahead of a write, with a later premise behind that write, 
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts > N2: the lax to-one no-op on the batch-only without a statement index route > a raceable p
+ FAIL  |raptor3| tests/raptor3/g4/parity/lax-to-one.test.ts > N2: the lax to-one no-op on the batch-only without a statement index route > a raceable premise ah
+restored: identical
+pins exit=0  Tests 54 passed (54);
+series exit=0  Tests 8 passed (8);
+uncertain exit=0  Tests 16 passed (16);
+m8 exit=0  Tests 4 passed (4);
+typecheck exit=0 
+biome operation-context: Checked 1 file in 59ms. No fixes applied. Found 6 errors. 
+biome lax-to-one: Checked 1 file in 7ms. No fixes applied. 
+fixed exit=0  Tests 796 passed (796);
+coverage:query-engine-core: no script
+coverage:policy: no script
+DONE
+coverage:query-engine-core exit=0 All files | 88 | 91.19 | 90.9 | 88 | 
+coverage:policy exit=0
+COVERAGE-DONE

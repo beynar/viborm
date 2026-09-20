@@ -11,7 +11,11 @@ import { type Membership, storedFields } from "../shared/storage";
 import type { TransportAttempt } from "../shared/transport-attempt";
 import type { Assignments } from "./assignments";
 import { CommandAttempt } from "./command-attempt";
-import { isRecordOccurrence, isSeriesOccurrence } from "./commands";
+import {
+  isRecordOccurrence,
+  isSeriesOccurrence,
+  membershipRaceFailure,
+} from "./commands";
 import type {
   Choose,
   CommandOccurrence,
@@ -538,7 +542,8 @@ export class CommandExecution {
         // slot: a lax `delete: true` deletes nothing (DESIGN §5.3). A
         // required selection threw in `runSelection` before reaching here.
         const row = attempt.rows.get(command.located);
-        if (row) await ctx.delete(command.located.model, row, member);
+        if (!row) return;
+        await ctx.delete(command.located.model, row, member);
         return;
       }
       case "set": {
@@ -736,11 +741,11 @@ export class CommandExecution {
             }),
           ]),
     ]);
-    const failure = new NestedWriteError(
-      `Cannot ${series.mutation.kind} relation '${membership.edge.name}': a member was added after the plan-time read; retry to converge.`,
-      membership.edge.name
+    const failure = membershipRaceFailure(
+      series.mutation.kind,
+      membership.edge.name,
+      "added"
     );
-    failure.meta.raceable = true;
     await ctx.requireAbsent(
       ctx.queries.select(
         selection.model,
@@ -842,6 +847,20 @@ export class CommandExecution {
           if (series.mutation.kind === "delete") {
             if (!selection.origin)
               throw new Error("Selected delete series has no mutation origin");
+            // The member's presence, asserted where the set is captured —
+            // before any write of the unit — so its loss after the plan-time
+            // read rejects at a premise and the operation re-plans once (D-32).
+            if (ctx.usesBatch && membership) {
+              ctx.requirePresent(
+                located.captured(undefined, membership, 1),
+                membershipRaceFailure(
+                  series.mutation.kind,
+                  membership.edge.name,
+                  "removed"
+                )
+              );
+              attempt.retained.add(located);
+            }
             return {
               kind: "delete",
               located,

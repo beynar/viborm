@@ -1,0 +1,26 @@
+[test:all] extended-local shared-family shard 8/8 (14 suites)
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests | 6 failed) 1041ms
+ ✓ |extended-local| tests/contracts/public-client/raw-sql.test.ts (67 tests) 1710ms
+ ✓ |extended-local| tests/contracts/engine/write/pk-transition-junction-mixed-edge.test.ts (16 tests) 764ms
+ ✓ |extended-local| tests/contracts/engine/write/located-target-depth.test.ts (8 tests) 651ms
+ ✓ |extended-local| tests/contracts/public-client/default-omit-extension.test.ts (9 tests) 538ms
+ ✓ |extended-local| tests/contracts/engine/query/m7-error-surface.test.ts (3 tests) 585ms
+ ❯ |extended-local| tests/contracts/engine/query/relation-key-update-legality-transition-arm.test.ts (7 tests | 1 failed) 618ms
+ ✓ |extended-local| tests/unit/migrations/resolution-result-boundary.test.ts (9 tests) 704ms
+ ✓ |extended-local| tests/contracts/engine/write/compiled-key-transition.test.ts (16 tests) 575ms
+ ✓ |extended-local| tests/contracts/engine/write/vacate-then-supply-parent-held-composed.test.ts (6 tests) 548ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-d4-deep-nonpk-reference.test.ts (2 tests) 462ms
+ ❯ |extended-local| tests/unit/instrumentation/namespace-attribute-segment.test.ts (1 test | 1 failed) 379ms
+ ✓ |extended-local| tests/contracts/engine/write/forward-declared-many-to-one-nested-update.test.ts (1 test) 501ms
+ ✓ |extended-local| tests/contracts/engine/write/skip-select-capture.test.ts (6 tests) 474ms
+ FAIL  |extended-local| tests/unit/instrumentation/namespace-attribute-segment.test.ts > progressive segment spans carry no database namespace
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > before-parent self connect is unaf
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > nested create keeps its before-par
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > root id transition allows a disj
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested payload update does not t
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested to-many update allows a d
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert uses i
+ FAIL  |extended-local| tests/contracts/engine/query/relation-key-update-legality-transition-arm.test.ts > relation-key update legality > allows primary-key arithmetic transition with cascade upsert
+ Test Files  3 failed | 11 passed (14)
+      Tests  8 failed | 173 passed (181)
+[test:all] extended-local shared-family shard 8/8 (14 suites): 13.61s wall, 2550.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

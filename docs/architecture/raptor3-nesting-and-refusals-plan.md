@@ -180,6 +180,22 @@ legality "QueryError" cells the triage filed under attribution were not:
 a probe showed a nested lookup naming the parent's post-transition key
 through the batch scratch before the batch — N3c, below.)
 
+**3 as landed (commit 23).** Two probes (`g4/release/n3/`) placed the facts:
+the raceable premise WAS attributed, and the recovery was refused because a
+premise placed after the parent's own write, or a batch reporting no
+statement index, made the rejection "uncertain". So (3a) the floor is
+translated at the ladder; (3b) attribution comes first, and where the
+provider reports no index the re-probe's answer is a sentence: the claim
+"nothing but premises ahead of the rejection" is bounded by the LAST premise
+in the batch; and the premise about a captured member is asserted
+where the observation is taken — `retained` on the deletion lookup for the
+LAX form (the strict form keeps its identity sentence, D-34), per-member
+presence at the series capture — never at the consuming deletion or removal
+(a premise after the parent's UPDATE forfeits the recovery on a weak batch).
+The deletion command asserts nothing; N2's disclosed exposure closes with it.
+The update-member premise stays the non-raceable not-found at the record
+(unchanged; D-32's application to update members is its own decision).
+
 **3c — withdrawn into N1.** The five legality "QueryError" cells were
 never attribution: the nested child's lookup, placed AFTER the parent's write
 (`relation-body.ts:870-871`), is dispatched on the batch route as a planning

@@ -139,6 +139,26 @@ export interface Deletion {
   origin: Origin;
 }
 /**
+ * The one sentence for a membership the plan observed and a race changed
+ * (Arnaud's D-32): a member added to, or removed from, a captured set after
+ * the plan-time read. Raceable — the unit aborts at the premise, which is
+ * asserted where the observation was taken, before any write of the unit,
+ * and the operation re-plans once from the admitted values against the set
+ * the race produced.
+ */
+export function membershipRaceFailure(
+  verb: string,
+  edge: string,
+  change: "added" | "removed"
+): NestedWriteError {
+  const failure = new NestedWriteError(
+    `Cannot ${verb} relation '${edge}': a member was ${change} after the plan-time read; retry to converge.`,
+    edge
+  );
+  failure.meta.raceable = true;
+  return failure;
+}
+/**
  * A nested set mutation: the ONE correlated statement a nested
  * `updateMany`/`deleteMany` needs when its physical form expresses the whole
  * operation. The membership and the member filter are both predicates the
@@ -1081,8 +1101,13 @@ export class Commands {
     const values = ctx.schema.scalars(model, args.data);
     const selector = ctx.queries.prepareSelector(model, args.where, true);
     return () =>
-      ctx.updateMany(model, selector, values, undefined, projection, () =>
-        new NotFoundError(model["~"].names.ts!, "update")
+      ctx.updateMany(
+        model,
+        selector,
+        values,
+        undefined,
+        projection,
+        () => new NotFoundError(model["~"].names.ts!, "update")
       );
   }
   /**
@@ -1266,7 +1291,9 @@ export class Commands {
       // How many statements the construction actually produces is the
       // construction's own answer, enforced at `OperationContext.dispatch`.
       return {
-        single: values.length === 0 || (!recoverableSkip && (!projection || returning)),
+        single:
+          values.length === 0 ||
+          (!recoverableSkip && (!projection || returning)),
         run: () =>
           ctx.createMany(model, values, projection, args.skipDuplicates),
       };
@@ -1274,10 +1301,14 @@ export class Commands {
     if (ctx.operation === "deleteMany") {
       const projection = bulkProjection(ctx, model, args);
       if (args.limit === 0)
-        return { single: true, run: async () => ctx.emptyBulkResult(projection) };
+        return {
+          single: true,
+          run: async () => ctx.emptyBulkResult(projection),
+        };
       const selector = ctx.queries.prepareSelector(model, args.where);
       return {
-        single: !projection || (returning && returningSafeProjection(projection)),
+        single:
+          !projection || (returning && returningSafeProjection(projection)),
         run: () => ctx.deleteMany(model, selector, args.limit, projection),
       };
     }
@@ -1291,8 +1322,12 @@ export class Commands {
       return {
         single: returning && returningSafeProjection(projection),
         run: () =>
-          ctx.deleteMany(model, selector, undefined, projection, () =>
-            new NotFoundError(model["~"].names.ts!, "delete")
+          ctx.deleteMany(
+            model,
+            selector,
+            undefined,
+            projection,
+            () => new NotFoundError(model["~"].names.ts!, "delete")
           ),
       };
     }

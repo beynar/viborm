@@ -65,7 +65,9 @@ identical to their base.
 
 ## 5. Still red, unverified, blockers, known exposure
 
-**Known exposure (the Opus review's finding, measured base against unit).**
+**Known exposure (the Opus review's finding, measured base against unit) —
+closed by N3 (commit 23): the deletion lookup's `retained` is the raceable
+membership race, asserted at capture; the pin gained the re-parented cell.**
 On the batch route the lax deletion no longer asserts the captured member's
 presence or membership inside the batch: the base emitted the member's
 `EXISTS` premise before the `DELETE`, the unit emits only the parent's. A
