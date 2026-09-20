@@ -280,16 +280,19 @@ are recorded in the ledger.
    D-9 measured, the three cells read 1.215 / 1.315 / 1.325 against the 1.12
    the decision states; nothing regressed since D-9, the acceptance was never
    met at its number. Decision: restate D-9 at the measured numbers, fund a
-   preparation-cost unit before the push, or hold.
+   preparation-cost unit before the push, or hold. **Ruled D-60 (2026-09-20):
+   restated at 1.22 / 1.32 / 1.33; closed as documented cost.**
 8. **The D-28 decode cell.** `fixed-collection-rowref-1000/parse` is newly
    8–9 % over on CPU and 12–14 % on wall on both passes (parity at identity
    4), the same single statement on both sides — the clearest
    ruling-attributable movement in the series. Decision: profile and repair
-   before the push, or accept as a documented cost.
+   before the push, or accept as a documented cost. **Ruled D-61
+   (2026-09-20): profile and repair before the push, unit P1.**
 9. **`bulk-update-returning-100/full` 0.838 → 0.963** between identity 4 and
    the release tree, same bracket, same statement count, still under parity;
    the cause is in the eight commits between and was not bisected.
-   Decision: bisect (measurement only), or accept.
+   Decision: bisect (measurement only), or accept. **Ruled D-62 (2026-09-20):
+   accepted, under parity; recorded, not bisected.**
 6. **Environment:** the live-provider harness leaks one database or schema
    per world (E-1; the qualification driver drops stale worlds before native
    groups); the source-cost tool cannot run in a tree whose `git status`
