@@ -1,0 +1,19 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-n4
+
+ ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 24ms
+ ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (4 tests) 5ms
+ ✓ |raptor3| tests/raptor3/candidate.test.ts (24 tests) 169ms
+ ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 11ms
+
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+   Start at  07:12:08
+   Duration  1.70s (transform 790ms, setup 11ms, collect 1.35s, tests 209ms, environment 0ms, prepare 23ms)
+
+JSON report written to /private/tmp/viborm-n4-tmp/viborm-raptor3-g0-mHGH4b/vitest.json
+Vitest resources: 3.34s wall, 666.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Missing candidate/profile/scenario cell in tests/raptor3/candidate.test.ts
+
+24 !== 25
+

@@ -11,10 +11,10 @@ export const RAPTOR3_TESTS = Object.freeze([
   "tests/raptor3/gate.test.ts",
 ]);
 export const G1_COMPARISON_COUNTS = Object.freeze({
-  "tests/raptor3/candidate.test.ts": 48,
+  "tests/raptor3/candidate.test.ts": 24,
   "tests/raptor3/candidate-handoff.test.ts": 6,
-  "tests/raptor3/candidate-ordering.test.ts": 4,
-  "tests/raptor3/candidate-pagination.test.ts": 8,
+  "tests/raptor3/candidate-ordering.test.ts": 2,
+  "tests/raptor3/candidate-pagination.test.ts": 4,
 });
 export const G1_COMPARISON_TESTS = Object.freeze(
   Object.keys(G1_COMPARISON_COUNTS)

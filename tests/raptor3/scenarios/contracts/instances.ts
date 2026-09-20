@@ -2,71 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import { isRecord } from "@validation/value-guards";
-import { assertEquivalentRunObservations } from "../../../../benchmarks/operation-pipeline-semantics.mjs";
-import type {
-  OperationOutcome,
-  ScenarioDefinition,
-} from "../../harness/protocol";
-import type { ObservedWorld } from "../../harness/sqlite-world";
-
-/**
- * Compare the client route with the PROGRAM engine.
- *
- * The one recorded difference between the two candidate engines is the
- * record-series progress a planning failure publishes: the commands engine —
- * and therefore the client route, which is built on it — names the
- * `memberPath` and the `totalMembers`, and the program engine does not. That
- * difference was adjudicated against the deleted engine's baseline before
- * C-01 and is stated here, where it now lives, so everything else still has to
- * agree exactly.
- */
-export function verifyProgramEnginePair(
-  route: ObservedWorld,
-  program: ObservedWorld
-): void {
-  route.fixture.assert(route.observation);
-  program.fixture.assert(program.observation);
-  assertEquivalentRunObservations(
-    route.record.scenarioId,
-    {
-      ...route.observation,
-      outcome: withoutMemberPath(route.observation.outcome),
-    },
-    program.observation
-  );
-}
-
-function withoutMemberPath(outcome: OperationOutcome): OperationOutcome {
-  if (outcome.kind !== "failure") return outcome;
-  const meta = outcome.failure.meta;
-  if (!isRecord(meta)) return outcome;
-  const progress = meta.recordSeriesProgress;
-  if (!isRecord(progress)) return outcome;
-  const narrowed = copyWithPrototype(progress, ["memberPath", "totalMembers"]);
-  const narrowedMeta = copyWithPrototype(meta, []);
-  narrowedMeta.recordSeriesProgress = narrowed;
-  return {
-    ...outcome,
-    failure: { ...outcome.failure, meta: narrowedMeta },
-  };
-}
-
-/**
- * A copy without the named keys that the deep comparison cannot otherwise tell
- * apart from its original — the engines publish a null-prototype `meta`, and a
- * plain object literal is a different value to `assert.deepEqual`.
- */
-function copyWithPrototype(
-  value: Record<string, unknown>,
-  omit: readonly string[]
-): Record<string, unknown> {
-  const copy = Object.create(
-    Object.getPrototypeOf(value) as object | null
-  ) as Record<string, unknown>;
-  for (const [key, entry] of Object.entries(value))
-    if (!omit.includes(key)) copy[key] = entry;
-  return copy;
-}
+import type { ScenarioDefinition } from "../../harness/protocol";
 
 const distinctDefaults: ScenarioDefinition = {
   id: "s2-distinct-defaults",
@@ -341,14 +277,14 @@ const changedDependency: ScenarioDefinition = {
             committedWriteMembers: 1,
             completedMembers: 0,
           });
-          // The program engine publishes the same segment record without the
-          // located pair — the one difference `verifyProgramEnginePair` strips
-          // — so those two fields are pinned for the engines that publish them.
-          if (memberPath !== undefined)
-            assert.deepEqual(
-              { memberPath, totalMembers },
-              { memberPath: [1], totalMembers: 2 }
-            );
+          // The deleted `program/` specimen published this same segment record
+          // WITHOUT the located pair, so the pair could only be pinned where it
+          // appeared. Every engine that remains publishes it; the pin is
+          // unconditional now, which is strictly the stronger record.
+          assert.deepEqual(
+            { memberPath, totalMembers },
+            { memberPath: [1], totalMembers: 2 }
+          );
         }
         assert.deepEqual(observation.defaults, [
           { name: "target.id", value: 1 },

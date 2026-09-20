@@ -218,9 +218,9 @@ const privateCandidates =
     ? null
     : {
         scope:
-          "Current private G1 source: commands selected and expanding; program remains the S1–S4 comparison specimen. Shared additions are charged whole to both. This is not whole-engine or candidate-only package coverage; the original G1-01 snapshot is archived separately.",
+          "Current private G1 source: commands is the sole expansion path (the S1–S4 comparison specimen was deleted at unit S). Shared additions are charged whole to it. This is not whole-engine or candidate-only package coverage; the original G1-01 snapshot is archived separately.",
         candidates: Object.fromEntries(
-          ["commands", "program"].map((name) => {
+          ["commands"].map((name) => {
             const language = candidateFiles.filter(({ file }) =>
               file.startsWith(`${candidateRoot}${name}/`)
             );

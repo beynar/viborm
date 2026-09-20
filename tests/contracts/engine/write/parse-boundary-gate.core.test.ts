@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
  *
  * F-2 moved the boundary into `raptor3/shared/` and deleted `write-engine/`, so the scope
  * follows it: `ENGINE` is the whole `raptor3/` route, walked RECURSIVELY (the route has
- * `commands/`, `program/`, `route/` and `shared/` under it; the flat `readdirSync` the
+ * `commands/`, `route/` and `shared/` under it; the flat `readdirSync` the
  * write-engine scope used would have read nothing). The two ratchets below are therefore
  * RE-MEASURED over the new scope, not carried over — carrying them would have kept
  * ceilings measured over 18 deleted files, which is exactly why they passed for the wrong

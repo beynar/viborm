@@ -18,15 +18,22 @@ package entry.
 > A `file:line` reference to one of them records WHAT V1 did and where the parity
 > argument came from; read it in git history (`e8114ed9`), not on disk.
 
-G1-01 compares structured commands (`commands/`) with a scoped relational
-program (`program/`) on the same S1–S4 public recipes. `shared/` may contain
-genuinely shared query/projection and boundary work; charge its full cost to
-each candidate. Do not make the alternatives cosmetic runners over one hidden
-mutation compiler. No per-fixture names, constants, algorithms or copied oracle.
+G1-01 compared structured commands (`commands/`) with a scoped relational
+program (`program/`) on the same S1–S4 public recipes, and charged `shared/`'s
+genuinely shared query/projection and boundary work whole to each candidate.
+`shared/` still holds that work; the cost rule now has one payer. The discipline
+the comparison imposed on its winner stands: no cosmetic runner over one hidden
+mutation compiler, and no per-fixture names, constants, algorithms or copied
+oracle.
 
 The executed G1-01 checkpoint selected `commands/` as the sole expansion path.
-`program/` is retained only as its private comparison specimen. Construction
-and same-tree dependency analysis belong to `commands/commands.ts`.
+`program/` was retained after that as its private comparison specimen and was
+DELETED at release unit S — 636 lines in two files, reachable from no public API,
+carrying a third copy of the dependency refusal, and no longer an ACTIVE
+comparison, which is the only form ELEGANCE admits inside the shipped graph.
+Read it in git history (`e19b20759`), not on disk; the `commands/` halves of
+`tests/raptor3/candidate*.test.ts` are the behavioral witnesses that remain.
+Construction and same-tree dependency analysis belong to `commands/commands.ts`.
 `commands/relation-body.ts` composes one parent's admitted relation body with
 its resolved slot, raw provenance, semantic verb order and supplier continuation.
 Its size reflects one cohesive relation-composition responsibility; do not split
@@ -100,9 +107,10 @@ not a divergence; do not widen the exception to a verb that admits a cursor.
 `Queries.read` states each read verb's cardinality and public shape over that
 one select/projection/decoder: every verb answers `{ query, single, value,
 result }`, and the private entry adds only the public `…OrThrow` error identity.
-Consumers read those published facts (`commands/index.ts` `publishedFacts`, and
-the retained `program/` specimen's single read entry) instead of deriving them;
-there is no second `findMany`/`findUnique`/`groupBy` dispatch. A prepared shape
+Consumers read those published facts (`commands/index.ts` `publishedFacts`; the
+deleted `program/` specimen's single read entry was the other) instead of
+deriving them; there is no second `findMany`/`findUnique`/`groupBy` dispatch. A
+prepared shape
 carries every fact the decoder needs, including the direction of a reversed
 window (`relationShape`), so a nested negative `take` is restored per parent by
 the same decoder rather than by a second reversal site.
@@ -354,7 +362,8 @@ Execution composes two replaceable regions: `commands/command-attempt.ts` owns
 positive row observations, captured junction pairs, runtime field bindings and
 exact missing-INSERT associations; `shared/transport-attempt.ts` owns pending
 statements, assertion attribution, scratch references and rejection evidence.
-The latter imports no command types and also serves the comparison specimen.
+The latter imports no command types; it also served the comparison specimen
+deleted at unit S.
 One recovery method replaces both regions synchronously, without callbacks or
 an await between installations. Dispatch keeps the identity of its own attempt.
 Do not reintroduce snapshot/restore, visited-node journals or per-field reset
@@ -376,8 +385,8 @@ cache value-codec owner and imports no compiler, lowerer, executor or result
 parser. The schema-to-`ValidationError` admission owner `shared/schema.ts` reads
 was the third until follow-up F-2 moved it INTO this tree: it is
 `shared/parse-boundary.ts`, the candidate's own source, and no longer a
-retention. Both candidates may import the two unchanged; charge the complete
-file and its engine-owned type dependencies to both. This exception does not
+retention. The candidate may import the two unchanged; charge the complete
+file and its engine-owned type dependencies to it. This exception does not
 admit legacy query or mutation algorithms.
 
 Public raw arguments enter existing admission at the required time. Internal
@@ -394,9 +403,10 @@ falls back to the factory driver. An `atomic-array` binding is a capability
 refusal and must throw `TransactionError` before raw-argument admission or
 provider work — it is raised in the constructor, before `admit`. `usesBatch`
 describes only the standalone physical batch route; it is not
-an atomicity, lifecycle, recovery, or commit-certainty fact. Keep the retained
-program specimen mechanically callable through the same private shape without
-adding another ownership model.
+an atomicity, lifecycle, recovery, or commit-certainty fact. The `program/`
+specimen stayed mechanically callable through that same private shape rather
+than gaining a second ownership model; it is deleted, and nothing that replaces
+it may add one either.
 
 ONE rule decides the physical envelope, and it lives in `OperationContext.run`:
 the envelope opens at the first statement that is not the operation's ONLY
