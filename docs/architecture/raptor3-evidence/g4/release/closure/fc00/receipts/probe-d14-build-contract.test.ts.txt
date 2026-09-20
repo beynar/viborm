@@ -1,0 +1,70 @@
+/**
+ * FC-00 probe — the D-14 public build contract, as the tree answers it today.
+ * Temporary: deleted after the run; the log is the receipt.
+ */
+
+import assert from "node:assert/strict";
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+
+const row = s
+  .model({
+    id: s.int().id(),
+    tag: s.string(),
+  })
+  .map("fc00_build_rows");
+const schema = { row };
+
+describe("FC-00: what buildStatement() answers per verb", () => {
+  let driver: RecordingSQLiteDriver;
+  afterEach(async () => {
+    await driver?.disconnect();
+  });
+
+  async function world() {
+    driver = new RecordingSQLiteDriver();
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.row.create({ data: { id: 1, tag: "x" } });
+    return client;
+  }
+
+  it("a read publishes its one statement", async () => {
+    const client = await world();
+    const pending = client.row.findMany({ where: { tag: "x" } });
+    const sql = (pending as unknown as { buildStatement(): unknown })
+      .buildStatement();
+    assert.ok(sql, "a read publishes an Sql");
+    console.log("FC00 findMany buildStatement =", JSON.stringify(String((sql as { strings?: unknown; text?: unknown }).text ?? sql)).slice(0, 200));
+    await pending;
+  });
+
+  for (const [verb, args] of [
+    ["create", { data: { id: 2, tag: "y" } }],
+    ["update", { where: { id: 1 }, data: { tag: "z" } }],
+    ["delete", { where: { id: 1 } }],
+    ["deleteMany", { where: { tag: "x" } }],
+  ] as const)
+    it(`a ${verb} answers undefined`, async () => {
+      const client = await world();
+      const pending = (
+        client.row as unknown as Record<
+          string,
+          (a: unknown) => { buildStatement(): unknown }
+        >
+      )[verb]!(args);
+      const sql = pending.buildStatement();
+      console.log(`FC00 ${verb} buildStatement =`, sql);
+      assert.equal(sql, undefined);
+      driver.reset();
+      await (pending as unknown as Promise<unknown>).catch(() => undefined);
+      console.log(
+        `FC00 ${verb} statements =`,
+        driver.statements.length,
+        driver.statements.map((entry) => entry.sql.slice(0, 60))
+      );
+    });
+});

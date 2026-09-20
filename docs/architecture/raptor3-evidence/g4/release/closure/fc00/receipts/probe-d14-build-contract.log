@@ -1,0 +1,38 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc00
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a read publishes its one statement
+FC00 findMany buildStatement = "[object Object]"
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a create answers undefined
+FC00 create buildStatement = [90mundefined[39m
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a create answers undefined
+FC00 create statements = [33m1[39m [ [32m'INSERT INTO "fc00_build_rows" ("id", "tag") VALUES (?, ?) RE'[39m ]
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a update answers undefined
+FC00 update buildStatement = [90mundefined[39m
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a update answers undefined
+FC00 update statements = [33m1[39m [ [32m'UPDATE "fc00_build_rows" SET "tag" = ? WHERE "fc00_build_row'[39m ]
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a delete answers undefined
+FC00 delete buildStatement = [90mundefined[39m
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a delete answers undefined
+FC00 delete statements = [33m1[39m [ [32m'DELETE FROM "fc00_build_rows" WHERE "fc00_build_rows"."id" ='[39m ]
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a deleteMany answers undefined
+FC00 deleteMany buildStatement = [90mundefined[39m
+
+stdout | tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts > FC-00: what buildStatement() answers per verb > a deleteMany answers undefined
+FC00 deleteMany statements = [33m1[39m [ [32m'DELETE FROM "fc00_build_rows" WHERE "fc00_build_rows"."tag" '[39m ]
+
+ ✓ |extended-local| tests/raptor3/g4/parity/fc00-build-contract.probe.test.ts (5 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  22:00:06
+   Duration  1.56s (transform 854ms, setup 9ms, collect 1.28s, tests 22ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.34s wall, 522.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

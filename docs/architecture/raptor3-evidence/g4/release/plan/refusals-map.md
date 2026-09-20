@@ -9,6 +9,19 @@ client API (`createClient`/model proxies), i.e. what a caller can construct
 with TypeScript types and what `EngineSchema.admit`/`validation/**` let through
 — not against internal unit tests that call engine internals directly.
 
+> **Addendum (FC-00, 2026-09-21, `29a7bf9d8`).** This map is preserved as written
+> and is still the per-row ruling the census defers to for the sentences that
+> remain. It is **stale on six rows**: #23, #25, #31, #32, #48 and #49 name
+> sentences that are no longer in `src/` at `29a7bf9d8` (each exact sentence
+> grepped). #48 and #49 were re-expressed as the invariants at
+> `shared/storage.ts:248` and `:72`; the other four were executed or deleted by
+> the parity, N-series and D-58 work. Its ranked "ten sentences whose removal
+> would most widen behavior" list is obsolete at positions 1, 2, 5, 6 and 7 for
+> the same reason. For **capability** — which admitted behaviors are supported,
+> refused, accepted as limits or pending a decision — the authority is now
+> `docs/architecture/raptor3-evidence/g4/release/closure/fc00/inventory.md`.
+> Nothing here is rewritten; read the two together.
+
 **Count discrepancy, stated up front:** the task brief says 63 unmatched
 sentences. `unmatched.json` as it exists on disk now has **59** entries. Of
 those, 4 are the garbage fragments named in the brief (3 comment fragments +
