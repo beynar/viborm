@@ -1,0 +1,12 @@
+file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:535
+      throw new Error(
+            ^
+
+Error: Mutation workload did not build one executable statement
+    at prepareForRawExecution (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:535:13)
+    at createMutationHarness (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:542:25)
+    at buildMutationWorkload (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-mutation-workloads.mjs:97:12)
+    at createWorkloadHarness (file:///private/tmp/viborm-perf-cand/benchmarks/operation-pipeline-workloads.mjs:61:12)
+    at async file:///private/tmp/viborm-perf/docs/architecture/raptor3-evidence/g4/release/perf/receipts/probes/statement-count-probe.mjs:20:30
+
+Node.js v24.21.0

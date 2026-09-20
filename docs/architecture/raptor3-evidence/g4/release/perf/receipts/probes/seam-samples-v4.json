@@ -1,0 +1,1802 @@
+[
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 10.4484,
+    "wallUsPerOp": 5.5697418,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 14.2726,
+    "wallUsPerOp": 7.241391600000003,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 10.1126,
+    "wallUsPerOp": 5.097183400000003,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 14.458,
+    "wallUsPerOp": 7.389733200000001,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 10.0376,
+    "wallUsPerOp": 5.101608400000001,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 14.2822,
+    "wallUsPerOp": 7.028283200000001,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 10.1586,
+    "wallUsPerOp": 5.055200000000002,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 14.6252,
+    "wallUsPerOp": 7.512266800000001,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 10.067,
+    "wallUsPerOp": 5.113983199999999,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 14.2988,
+    "wallUsPerOp": 7.278691600000003,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 13.7538,
+    "wallUsPerOp": 7.083825000000002,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 15.2856,
+    "wallUsPerOp": 7.741,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 14.3462,
+    "wallUsPerOp": 7.239425,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 14.5208,
+    "wallUsPerOp": 7.201925000000003,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 13.9878,
+    "wallUsPerOp": 7.161391600000001,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 14.4034,
+    "wallUsPerOp": 7.102324999999999,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 14.937,
+    "wallUsPerOp": 7.4882332,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 15.8152,
+    "wallUsPerOp": 8.2059834,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 14.5192,
+    "wallUsPerOp": 7.2916,
+    "checksum": 894000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "scalar-find-unique",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 15.6392,
+    "wallUsPerOp": 7.939525,
+    "checksum": 846000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 24.2844,
+    "wallUsPerOp": 11.557649999999999,
+    "checksum": 1860000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 27.0348,
+    "wallUsPerOp": 13.998508399999997,
+    "checksum": 2022000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 25.4408,
+    "wallUsPerOp": 12.462833400000001,
+    "checksum": 1860000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 26.9872,
+    "wallUsPerOp": 14.760350000000003,
+    "checksum": 2022000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 24.8578,
+    "wallUsPerOp": 11.9228584,
+    "checksum": 1860000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 27.2902,
+    "wallUsPerOp": 14.047041599999996,
+    "checksum": 2022000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 24.2804,
+    "wallUsPerOp": 11.7281,
+    "checksum": 1860000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 27.6824,
+    "wallUsPerOp": 14.2796916,
+    "checksum": 2022000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 25.433,
+    "wallUsPerOp": 12.454675000000003,
+    "checksum": 1860000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "statement",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 26.6966,
+    "wallUsPerOp": 14.8889584,
+    "checksum": 2022000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 29.2522,
+    "wallUsPerOp": 13.957875,
+    "checksum": 1848000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 28.4112,
+    "wallUsPerOp": 14.4826418,
+    "checksum": 2010000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 28.3156,
+    "wallUsPerOp": 13.331625,
+    "checksum": 1848000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 27.7506,
+    "wallUsPerOp": 14.059949999999997,
+    "checksum": 2010000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 28.3186,
+    "wallUsPerOp": 13.347575,
+    "checksum": 1848000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 28.1276,
+    "wallUsPerOp": 14.286308400000001,
+    "checksum": 2010000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 28.3952,
+    "wallUsPerOp": 13.607041600000002,
+    "checksum": 1848000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 27.8458,
+    "wallUsPerOp": 14.309091799999997,
+    "checksum": 2010000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 29.241,
+    "wallUsPerOp": 13.871750000000002,
+    "checksum": 1848000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-20",
+  "seam": "package",
+  "iterations": 5000,
+  "warmup": 1000,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 29.2564,
+    "wallUsPerOp": 15.3656416,
+    "checksum": 2010000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 41.768,
+    "wallUsPerOp": 17.733792000000008,
+    "checksum": 372000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 43.224,
+    "wallUsPerOp": 18.90275000000001,
+    "checksum": 404400
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 39.34,
+    "wallUsPerOp": 17.279459000000003,
+    "checksum": 372000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 42.898,
+    "wallUsPerOp": 19.466042,
+    "checksum": 404400
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 40.742,
+    "wallUsPerOp": 18.165166999999997,
+    "checksum": 372000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 40.589,
+    "wallUsPerOp": 18.553042000000005,
+    "checksum": 404400
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 38.67,
+    "wallUsPerOp": 16.58529200000001,
+    "checksum": 372000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 41.609,
+    "wallUsPerOp": 19.534334,
+    "checksum": 404400
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 40.448,
+    "wallUsPerOp": 18.00283299999998,
+    "checksum": 372000
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "statement",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "statement-seam",
+    "cpuUsPerOp": 41.201,
+    "wallUsPerOp": 18.513542,
+    "checksum": 404400
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 43.588,
+    "wallUsPerOp": 19.69012499999998,
+    "checksum": 369600
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 0,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 41.161,
+    "wallUsPerOp": 19.113041999999993,
+    "checksum": 402000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 41.518,
+    "wallUsPerOp": 18.825790999999995,
+    "checksum": 369600
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 1,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 43.063,
+    "wallUsPerOp": 20.006333000000012,
+    "checksum": 402000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 45.004,
+    "wallUsPerOp": 19.802458,
+    "checksum": 369600
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 2,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 46.181,
+    "wallUsPerOp": 21.470792000000003,
+    "checksum": 402000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 43.481,
+    "wallUsPerOp": 18.875625,
+    "checksum": 369600
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 3,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 42.746,
+    "wallUsPerOp": 19.377832999999995,
+    "checksum": 402000
+   }
+  ]
+ },
+ {
+  "side": "baseline",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-baseline",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 44.942,
+    "wallUsPerOp": 19.89854100000001,
+    "checksum": 369600
+   }
+  ]
+ },
+ {
+  "side": "candidate",
+  "pair": 4,
+  "root": "/private/tmp/viborm-perf-cand",
+  "workload": "fixed-collection-rowref-1000",
+  "seam": "package",
+  "iterations": 1000,
+  "warmup": 200,
+  "published": {
+   "statement": {
+    "answered": true,
+    "statementCount": 1
+   },
+   "package": {
+    "answered": true,
+    "statementCount": 1,
+    "sql": [
+     "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+    ]
+   }
+  },
+  "results": [
+   {
+    "label": "package-seam",
+    "cpuUsPerOp": 42.201,
+    "wallUsPerOp": 20.049166999999997,
+    "checksum": 402000
+   }
+  ]
+ }
+]

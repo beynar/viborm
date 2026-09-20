@@ -1,0 +1,9 @@
+2026-09-20T16:23:04Z
+18:23  up 20 days, 18:03, 3 users, load averages: 8.77 7.79 7.77
+--- top cpu ---
+ %CPU    RSS COMM
+ 67.8  47808 /usr/libexec/sysmond
+ 65.5 189856 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 35.9 2730240 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Renderer).app/Contents/MacOS/Devin Helper (Renderer)
+ 31.5 1642976 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/153.0.8010.48/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)
+ 28.2  84352 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper

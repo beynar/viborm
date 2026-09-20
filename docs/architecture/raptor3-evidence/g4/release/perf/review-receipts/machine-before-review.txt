@@ -1,0 +1,14 @@
+2026-09-20T17:03:02Z
+19:03  up 20 days, 18:43, 3 users, load averages: 7.21 6.77 7.12
+--- top consumers ---
+ %CPU COMM
+ 73.5 /usr/libexec/sysmond
+ 46.7 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 40.5 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper
+ 35.1 /Applications/Devin.app/Contents/Frameworks/Devin Helper (Renderer).app/Contents/MacOS/Devin Helper (Renderer)
+ 19.8 /Applications/Devin.app/Contents/Frameworks/Devin Helper.app/Contents/MacOS/Devin Helper
+ 15.8 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer)
+ 13.3 /Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/153.0.8010.48/Helpers/Codex (Renderer).app/Contents/MacOS/Codex (Renderer)
+--- viborm test processes ---
+--- locks ---
+/private/tmp/viborm-perf-tmp/viborm-test-c33ebb4c906dfea8.lock

@@ -1,0 +1,27 @@
+command: node receipts/probes/seam-run-v6.mjs
+started: 2026-09-20T17:21:49Z
+TMPDIR=/private/tmp/viborm-perf-tmp/run
+bulk-update-returning-100 statement baseline pair0 (baseline>candidate) cpu=41.09
+bulk-update-returning-100 statement candidate pair0 (baseline>candidate) cpu=59.79
+bulk-update-returning-100 statement candidate pair1 (candidate>baseline) cpu=60.02
+bulk-update-returning-100 statement baseline pair1 (candidate>baseline) cpu=45.84
+bulk-update-returning-100 statement baseline pair2 (baseline>candidate) cpu=42.64
+bulk-update-returning-100 statement candidate pair2 (baseline>candidate) cpu=56.04
+bulk-update-returning-100 statement candidate pair3 (candidate>baseline) cpu=56.75
+bulk-update-returning-100 statement baseline pair3 (candidate>baseline) cpu=42.39
+bulk-update-returning-100 statement baseline pair4 (baseline>candidate) cpu=41.41
+bulk-update-returning-100 statement candidate pair4 (baseline>candidate) cpu=60.04
+bulk-update-returning-100 package baseline pair0 (baseline>candidate) cpu=44.10
+bulk-update-returning-100 package candidate pair0 (baseline>candidate) cpu=59.02
+bulk-update-returning-100 package candidate pair1 (candidate>baseline) cpu=58.85
+bulk-update-returning-100 package baseline pair1 (candidate>baseline) cpu=44.86
+bulk-update-returning-100 package baseline pair2 (baseline>candidate) cpu=45.03
+bulk-update-returning-100 package candidate pair2 (baseline>candidate) cpu=59.11
+bulk-update-returning-100 package candidate pair3 (candidate>baseline) cpu=58.17
+bulk-update-returning-100 package baseline pair3 (candidate>baseline) cpu=44.55
+bulk-update-returning-100 package baseline pair4 (baseline>candidate) cpu=43.45
+bulk-update-returning-100 package candidate pair4 (baseline>candidate) cpu=63.68
+bulk-update-returning-100      statement    cpu 42.39 -> 59.79 = 1.411  wall ratio 1.229
+bulk-update-returning-100      package      cpu 44.55 -> 59.02 = 1.325  wall ratio 1.152
+EXIT=0
+finished: 2026-09-20T17:21:52Z

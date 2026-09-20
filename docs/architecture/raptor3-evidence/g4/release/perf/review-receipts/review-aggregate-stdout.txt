@@ -1,0 +1,27 @@
+{
+ "inconclusive after the one permitted repeat — blocks adoption": 5,
+ "blocks adoption": 5,
+ "pass": 6,
+ "not measurable comparably — NO end-to-end evidence retained": 3,
+ "blocks adoption — required contract divergence": 1
+}
+inconclusive after the one permitted repeat — blocks adoption scalar-find-unique/cold-prepare        pass1=inconclusive-repeat pass2=inconclusive-repeat  cpu=1.038/1.021 wall=1.039/1.031 rss=0.993/0.994
+blocks adoption                                            scalar-find-unique/prepare             pass1=blocks adoption pass2=blocks adoption  cpu=1.711/1.705 wall=1.448/1.472 rss=0.997/1.002
+inconclusive after the one permitted repeat — blocks adoption scalar-find-unique/execute             pass1=inconclusive-repeat pass2=pass  cpu=1.007/0.965 wall=1.015/0.973 rss=0.981/0.981
+pass                                                       scalar-find-unique/full                pass1=pass pass2=pass  cpu=0.899/0.907 wall=0.962/0.958 rss=0.980/0.976
+not measurable comparably — NO end-to-end evidence retained flat-scalar-update/prepare             pass1=refused pass2=refused  cpu=—/— wall=—/— rss=—/—
+not measurable comparably — NO end-to-end evidence retained flat-scalar-update/execute             pass1=refused pass2=refused  cpu=—/— wall=—/— rss=—/—
+not measurable comparably — NO end-to-end evidence retained flat-scalar-update/full                pass1=refused pass2=refused  cpu=—/— wall=—/— rss=—/—
+blocks adoption                                            fixed-collection-rowref-20/prepare     pass1=blocks adoption pass2=blocks adoption  cpu=1.212/1.164 wall=1.310/1.257 rss=0.983/0.992
+pass                                                       fixed-collection-rowref-20/execute     pass1=pass pass2=pass  cpu=1.038/1.027 wall=1.039/1.027 rss=0.978/0.984
+pass                                                       fixed-collection-rowref-20/full        pass1=pass pass2=pass  cpu=0.980/0.956 wall=1.035/1.022 rss=0.925/0.918
+pass                                                       nested-conditional-found/full          pass1=pass pass2=pass  cpu=0.801/0.795 wall=0.877/0.883 rss=0.899/0.902
+pass                                                       nested-conditional-missing/full        pass1=pass pass2=pass  cpu=0.796/0.795 wall=0.913/0.915 rss=0.901/0.901
+inconclusive after the one permitted repeat — blocks adoption key-transition-cascade/full            pass1=inconclusive-repeat pass2=inconclusive-repeat  cpu=0.870/0.909 wall=0.979/1.030 rss=0.792/0.792
+blocks adoption                                            bulk-update-returning-100/prepare      pass1=blocks adoption pass2=blocks adoption  cpu=1.556/1.432 wall=1.327/1.265 rss=0.985/0.982
+inconclusive after the one permitted repeat — blocks adoption bulk-update-returning-100/full         pass1=inconclusive-repeat pass2=pass  cpu=0.963/0.945 wall=1.041/1.005 rss=0.986/0.986
+blocks adoption — required contract divergence             relation-series-2/full                 pass1=refused pass2=refused  cpu=—/— wall=—/— rss=—/—
+blocks adoption                                            fixed-collection-rowref-1000/prepare   pass1=blocks adoption pass2=blocks adoption  cpu=1.466/1.457 wall=1.308/1.271 rss=0.969/0.965
+pass                                                       fixed-collection-rowref-1000/execute   pass1=pass pass2=pass  cpu=0.997/0.992 wall=0.995/0.994 rss=0.956/0.955
+blocks adoption                                            fixed-collection-rowref-1000/parse     pass1=blocks adoption pass2=blocks adoption  cpu=1.079/1.094 wall=1.120/1.138 rss=0.953/0.947
+inconclusive after the one permitted repeat — blocks adoption fixed-collection-rowref-1000/full      pass1=inconclusive-repeat pass2=inconclusive-repeat  cpu=1.032/1.062 wall=1.032/1.062 rss=1.050/1.055

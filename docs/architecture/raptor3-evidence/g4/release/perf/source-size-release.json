@@ -1,0 +1,171 @@
+{
+ "unit": "g4-release-perf (source size on the release tree 36c87710a)",
+ "generatedAt": "2026-09-20T16:52:43.600Z",
+ "method": "token-LOC as scripts/query-engine-structure.mjs and scripts/measure-raptor3-baseline.mjs both define it: physical lines on which at least one parser-owned TypeScript token starts. The denominator is the ledger method (g4.md, Census corrected, 16:40 2026-09-16): the frozen baseline charged 146 files under src/query-engine/** = 46,021 token-LOC, and 49,887 with the 12 client + 3 adapter integration files it also charged. The tool class charged-g3-prep-shared did not exist at the baseline and stays OUT of the like-for-like, exactly as the ledger ruled.",
+ "twoReadersAgree": {
+  "censusTool": {
+   "files": 38,
+   "physicalLines": 20319,
+   "tokenLines": 16036
+  },
+  "measurementScript": {
+   "files": 38,
+   "physicalLines": 20319,
+   "tokenLines": 16036
+  },
+  "equal": true
+ },
+ "engineOnly": {
+  "tokenLines": 16036,
+  "oldEngine": 46021,
+  "ratio": 0.3484,
+  "target": 0.6,
+  "meetsTarget": true,
+  "priorRecords": {
+   "commit 5": {
+    "tokenLines": 14511,
+    "ratio": 0.315
+   },
+   "parity (d82c123b)": {
+    "tokenLines": 15359,
+    "ratio": 0.334
+   }
+  }
+ },
+ "withSameIntegrationFiles": {
+  "tokenLines": 19896,
+  "files": 52,
+  "oldEngineWithIntegration": 49887,
+  "ratio": 0.3988,
+  "priorRecords": {
+   "commit 5": {
+    "tokenLines": 18344,
+    "ratio": 0.368
+   },
+   "parity": {
+    "tokenLines": 19192,
+    "ratio": 0.385
+   }
+  }
+ },
+ "excludedFromLikeForLike": {
+  "charged-g3-prep-shared": {
+   "files": 11,
+   "bytes": 223452,
+   "physicalLines": 6097,
+   "tokenLines": 3935
+  }
+ },
+ "censusToolOwnNumbers": {
+  "files": 38,
+  "lines": 20319,
+  "tokenLines": 16036,
+  "functions": 1095,
+  "parameters": 1653,
+  "highParameterFunctions": 36,
+  "branchNodes": 2561,
+  "runtimeImportCycleComponents": 1,
+  "runtimeFilesInCycles": 3,
+  "filesOver300Lines": 13,
+  "filesOver600Lines": 7,
+  "largeFiles": [
+   {
+    "file": "src/query-engine/cache-flow.ts",
+    "lines": 309
+   },
+   {
+    "file": "src/query-engine/pending-operation.ts",
+    "lines": 860
+   },
+   {
+    "file": "src/query-engine/raptor3/commands/commands.ts",
+    "lines": 1914
+   },
+   {
+    "file": "src/query-engine/raptor3/commands/execution.ts",
+    "lines": 1226
+   },
+   {
+    "file": "src/query-engine/raptor3/commands/index.ts",
+    "lines": 310
+   },
+   {
+    "file": "src/query-engine/raptor3/commands/relation-body.ts",
+    "lines": 1185
+   },
+   {
+    "file": "src/query-engine/raptor3/route/client-route.ts",
+    "lines": 433
+   },
+   {
+    "file": "src/query-engine/raptor3/shared/operation-context.ts",
+    "lines": 3453
+   },
+   {
+    "file": "src/query-engine/raptor3/shared/query.ts",
+    "lines": 4993
+   },
+   {
+    "file": "src/query-engine/raptor3/shared/schema.ts",
+    "lines": 603
+   },
+   {
+    "file": "src/query-engine/result/cache-value-codecs.ts",
+    "lines": 506
+   },
+   {
+    "file": "src/query-engine/result/result-shape.ts",
+    "lines": 445
+   },
+   {
+    "file": "src/query-engine/types.ts",
+    "lines": 543
+   }
+  ],
+  "runtimeImportCycles": [
+   [
+    "src/query-engine/raptor3/commands/commands.ts",
+    "src/query-engine/raptor3/commands/execution.ts",
+    "src/query-engine/raptor3/commands/relation-body.ts"
+   ]
+  ]
+ },
+ "chargedTotals": {
+  "files": 63,
+  "bytes": 1135185,
+  "physicalLines": 31085,
+  "tokenLines": 23831
+ },
+ "byClassification": {
+  "excluded-shared-boundary": {
+   "files": 360,
+   "bytes": 3000226,
+   "physicalLines": 89932,
+   "tokenLines": 64828
+  },
+  "charged-adapter-integration": {
+   "files": 2,
+   "bytes": 6631,
+   "physicalLines": 165,
+   "tokenLines": 101
+  },
+  "charged-g3-prep-shared": {
+   "files": 11,
+   "bytes": 223452,
+   "physicalLines": 6097,
+   "tokenLines": 3935
+  },
+  "charged-integration": {
+   "files": 12,
+   "bytes": 148974,
+   "physicalLines": 4504,
+   "tokenLines": 3759
+  },
+  "charged-engine": {
+   "files": 38,
+   "bytes": 756128,
+   "physicalLines": 20319,
+   "tokenLines": 16036
+  }
+ }
+}

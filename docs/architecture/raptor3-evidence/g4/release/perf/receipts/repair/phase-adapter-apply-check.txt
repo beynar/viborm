@@ -1,0 +1,24 @@
+# Does the protocol's phase adapter apply to the arms of THIS series?
+# date: 2026-09-20T17:25:32Z
+# patch: docs/architecture/raptor3-evidence/g4/cutover/phase-adapter.patch (5 files, all under benchmarks/)
+# 'git apply --check' writes nothing; each tree's porcelain is printed after the check.
+
+tree=/private/tmp/viborm-perf
+  HEAD=36c87710aa2526652867430f6e24f30005556394
+  git apply --check RC=0
+  porcelain after check: ?? docs/architecture/raptor3-evidence/g4/release/perf/
+tree=/private/tmp/viborm-perf-baseline
+  HEAD=5a37bcd7f371fe393cf7cecb8ec9f82ef8bd3062
+  git apply --check RC=0
+  porcelain after check: 
+tree=/private/tmp/viborm-perf-cand
+  HEAD=36c87710aa2526652867430f6e24f30005556394
+  git apply --check RC=0
+  porcelain after check: 
+
+# files the patch touches:
+  benchmarks/operation-pipeline-batch-workloads.mjs
+  benchmarks/operation-pipeline-catalog.mjs
+  benchmarks/operation-pipeline-harness.mjs
+  benchmarks/operation-pipeline-mutation-workloads.mjs
+  benchmarks/operation-pipeline-worker.mjs

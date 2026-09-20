@@ -1,0 +1,240 @@
+{
+ "method": "v4 (series setup, each arm run the way the worker runs its stage kind): 5 alternating fresh-process pairs per (workload, seam, side), medians; ONE seam per process; the frozen protocol own iteration counts per cell (5000/1000; rowref-1000 1000/200); sqlite3 :memory:, Node v24.21.0, darwin/arm64.",
+ "trees": {
+  "baseline": "/private/tmp/viborm-perf-baseline",
+  "candidate": "/private/tmp/viborm-perf-cand"
+ },
+ "cells": [
+  {
+   "workload": "scalar-find-unique",
+   "published": {
+    "baseline": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"t0\".\"id\" AS \"id\", \"t0\".\"name\" AS \"name\", \"t0\".\"email\" AS \"email\", \"t0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" = ? LIMIT 1"
+      ]
+     }
+    },
+    "candidate": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"email\" AS \"email\", \"q0\".\"age\" AS \"age\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" = ?"
+      ]
+     }
+    }
+   },
+   "seams": {
+    "statement": {
+     "baselineCpuMedian": 10.1126,
+     "candidateCpuMedian": 14.2988,
+     "cpuRatio": 1.4139588236457488,
+     "baselineWallMedian": 5.101608400000001,
+     "candidateWallMedian": 7.278691600000003,
+     "wallRatio": 1.4267444753305647,
+     "baselineCpuSamples": [
+      10.4484,
+      10.1126,
+      10.0376,
+      10.1586,
+      10.067
+     ],
+     "candidateCpuSamples": [
+      14.2726,
+      14.458,
+      14.2822,
+      14.6252,
+      14.2988
+     ]
+    },
+    "package": {
+     "baselineCpuMedian": 14.3462,
+     "candidateCpuMedian": 15.2856,
+     "cpuRatio": 1.0654807544855085,
+     "baselineWallMedian": 7.239425,
+     "candidateWallMedian": 7.741,
+     "wallRatio": 1.0692838174302517,
+     "baselineCpuSamples": [
+      13.7538,
+      14.3462,
+      13.9878,
+      14.937,
+      14.5192
+     ],
+     "candidateCpuSamples": [
+      15.2856,
+      14.5208,
+      14.4034,
+      15.8152,
+      15.6392
+     ]
+    }
+   }
+  },
+  {
+   "workload": "fixed-collection-rowref-20",
+   "published": {
+    "baseline": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ]
+     }
+    },
+    "candidate": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     }
+    }
+   },
+   "seams": {
+    "statement": {
+     "baselineCpuMedian": 24.8578,
+     "candidateCpuMedian": 27.0348,
+     "cpuRatio": 1.0875781444858355,
+     "baselineWallMedian": 11.9228584,
+     "candidateWallMedian": 14.2796916,
+     "wallRatio": 1.197673504199295,
+     "baselineCpuSamples": [
+      24.2844,
+      25.4408,
+      24.8578,
+      24.2804,
+      25.433
+     ],
+     "candidateCpuSamples": [
+      27.0348,
+      26.9872,
+      27.2902,
+      27.6824,
+      26.6966
+     ]
+    },
+    "package": {
+     "baselineCpuMedian": 28.3952,
+     "candidateCpuMedian": 28.1276,
+     "cpuRatio": 0.9905758719783626,
+     "baselineWallMedian": 13.607041600000002,
+     "candidateWallMedian": 14.309091799999997,
+     "wallRatio": 1.051594624359787,
+     "baselineCpuSamples": [
+      29.2522,
+      28.3156,
+      28.3186,
+      28.3952,
+      29.241
+     ],
+     "candidateCpuSamples": [
+      28.4112,
+      27.7506,
+      28.1276,
+      27.8458,
+      29.2564
+     ]
+    }
+   }
+  },
+  {
+   "workload": "fixed-collection-rowref-1000",
+   "published": {
+    "baseline": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"t0\".\"id\" AS \"id\", (SELECT COALESCE(json_group_array(json(\"t2\".\"_json\")), json_array()) FROM (SELECT json_object(?, \"t1\".\"title\") AS \"_json\" FROM \"bench_posts\" AS \"t1\" WHERE \"t0\".\"id\" = \"t1\".\"authorId\") \"t2\") AS \"posts\" FROM \"bench_users\" AS \"t0\" WHERE \"t0\".\"id\" GLOB ? ORDER BY \"t0\".\"id\" ASC LIMIT ?"
+      ]
+     }
+    },
+    "candidate": {
+     "statement": {
+      "answered": true,
+      "statementCount": 1
+     },
+     "package": {
+      "answered": true,
+      "statementCount": 1,
+      "sql": [
+       "SELECT \"q0\".\"id\" AS \"id\", (SELECT COALESCE(COALESCE(json_group_array(json(json_object(?, \"q2\".\"title\"))), json_array()), json_array()) FROM (SELECT \"q1\".\"title\" AS \"title\" FROM \"bench_posts\" AS \"q1\" WHERE \"q0\".\"id\" = \"q1\".\"authorId\") AS \"q2\") AS \"posts\" FROM \"bench_users\" AS \"q0\" WHERE \"q0\".\"id\" GLOB ? ORDER BY \"q0\".\"id\" ASC LIMIT ?"
+      ]
+     }
+    }
+   },
+   "seams": {
+    "statement": {
+     "baselineCpuMedian": 40.448,
+     "candidateCpuMedian": 41.609,
+     "cpuRatio": 1.0287035205696202,
+     "baselineWallMedian": 17.733792000000008,
+     "candidateWallMedian": 18.90275000000001,
+     "wallRatio": 1.06591697929016,
+     "baselineCpuSamples": [
+      41.768,
+      39.34,
+      40.742,
+      38.67,
+      40.448
+     ],
+     "candidateCpuSamples": [
+      43.224,
+      42.898,
+      40.589,
+      41.609,
+      41.201
+     ]
+    },
+    "package": {
+     "baselineCpuMedian": 43.588,
+     "candidateCpuMedian": 42.746,
+     "cpuRatio": 0.9806827567220336,
+     "baselineWallMedian": 19.69012499999998,
+     "candidateWallMedian": 20.006333000000012,
+     "wallRatio": 1.0160592175011602,
+     "baselineCpuSamples": [
+      43.588,
+      41.518,
+      45.004,
+      43.481,
+      44.942
+     ],
+     "candidateCpuSamples": [
+      41.161,
+      43.063,
+      46.181,
+      42.746,
+      42.201
+     ]
+    }
+   }
+  }
+ ]
+}

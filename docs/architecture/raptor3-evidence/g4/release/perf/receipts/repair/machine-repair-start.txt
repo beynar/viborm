@@ -1,0 +1,13 @@
+2026-09-20T17:21:44Z
+19:21  up 20 days, 19:01, 3 users, load averages: 5.88 7.62 7.54
+--- top cpu ---
+ %CPU    RSS COMM
+ 71.6  47312 /usr/libexec/sysmond
+ 54.0 157472 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+ 29.9 667280 /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine
+ 21.9 109760 /Applications/Devin.app/Contents/Frameworks/Devin Helper.app/Contents/MacOS/Devin Helper
+ 20.6 548320 /Applications/ChatGPT.app/Contents/Resources/codex
+--- live vitest/tsc/tsdown/tinypool ---
+none
+--- lock files under /private/tmp/viborm-*-tmp* ---
+/private/tmp/viborm-perf-tmp/viborm-test-c33ebb4c906dfea8.lock
