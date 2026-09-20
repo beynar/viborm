@@ -1,0 +1,7 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests | 2 failed) 1033ms
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > before-parent self connect is unaf
+AssertionError: expected 'Nested operation \'connect\' on relat…' to contain 'target record was not found'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > nested create keeps its before-par
+AssertionError: expected 'query-engine-v2 create has conflictin…' to contain 'target record was not found'
+ Test Files  1 failed (1)
+      Tests  2 failed | 28 passed (30)

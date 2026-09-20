@@ -96,6 +96,12 @@ export class Assignments {
   writesField(field: string): boolean {
     return this.writes.has(field);
   }
+  /** Whether a stated value of this write is read from `producer` (N1: the cycle test). */
+  consumes(producer: Assignments): boolean {
+    for (const value of this.writes.values())
+      if (value.kind === "field" && value.producer === producer) return true;
+    return false;
+  }
   contribute(
     field: string,
     value: FieldValue,

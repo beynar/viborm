@@ -1,0 +1,4 @@
+[test:all] extended-local shard 5/14 (3 files; 180 ordinary of 192)
+ Test Files  3 skipped (3)
+      Tests  67 skipped (67)
+[test:all] extended-local shard 5/14 (3 files; 180 ordinary of 192): 3.88s wall, 56.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

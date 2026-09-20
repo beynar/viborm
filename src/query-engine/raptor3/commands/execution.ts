@@ -4,7 +4,7 @@ import {
   NotFoundError,
   UniqueConstraintError,
 } from "@errors";
-import type { Member } from "../shared/operation-context";
+import type { Member, ObservationPremise } from "../shared/operation-context";
 import type { Query } from "../shared/query";
 import type { Arguments, Input } from "../shared/schema";
 import { type Membership, storedFields } from "../shared/storage";
@@ -237,7 +237,11 @@ export class CommandExecution {
       }
     }
   }
-  private async runSelection(selection: Selection): Promise<void> {
+  private async runSelection(
+    selection: Selection,
+    member?: Member,
+    premise?: ObservationPremise
+  ): Promise<void> {
     const attempt = this.attempt;
     if (attempt.rows.has(selection)) return;
     const source = selection.source;
@@ -251,12 +255,29 @@ export class CommandExecution {
       attempt.bind(selection.fields, row);
       return;
     }
-    const rows = await this.context.read(
-      selection.query(),
-      true,
-      false,
-      selection.model
-    );
+    // An ordered observation (N1) on the batch route reads through the barrier:
+    // the queued unit goes with its premises and the read rides the same native
+    // batch behind the writes it depends on; a required row is a premise of
+    // that batch too, so an absent target aborts it before anything commits.
+    const required = selection.required;
+    const rows =
+      selection.dependent && this.context.usesBatch
+        ? await this.context.flush(
+            selection.query(),
+            member,
+            premise ??
+              (required && {
+                query: selection.query(),
+                present: true,
+                failure: required,
+              })
+          )
+        : await this.context.read(
+            selection.query(),
+            true,
+            false,
+            selection.model
+          );
     const found = rows[0];
     if (!found) {
       if (selection.required) throw selection.required();
@@ -279,7 +300,7 @@ export class CommandExecution {
         command.fields.activate();
         if (occurrence.refusal) throw occurrence.refusal;
         if (command.located && !attempt.rows.has(command.located))
-          await this.runSelection(command.located);
+          await this.runSelection(command.located, member);
         if (
           ctx.usesBatch &&
           command.located &&
@@ -344,7 +365,7 @@ export class CommandExecution {
         return;
       }
       case "lookup": {
-        await this.runSelection(command);
+        await this.runSelection(command, member);
         return;
       }
       case "junction": {
@@ -410,10 +431,29 @@ export class CommandExecution {
             throw ctx.failure(error, "prefix", member);
           }
         }
+        // A found requirement rides the observation's batch as its premise:
+        // no row the selector names may stand outside the membership (N1).
+        const requirement = command.foundRequirement;
+        const premised =
+          requirement !== undefined &&
+          ctx.usesBatch &&
+          command.lookup.dependent === true;
         try {
-          await this.runSelection(command.lookup);
+          await this.runSelection(
+            command.lookup,
+            member,
+            premised
+              ? {
+                  query: requirement.selection.outsideMembership(
+                    requirement.membership
+                  ),
+                  present: false,
+                  failure: requirement.failure,
+                }
+              : undefined
+          );
           for (const condition of command.conditions?.probes ?? [])
-            await this.runSelection(condition.lookup);
+            await this.runSelection(condition.lookup, member);
         } catch (error) {
           throw supplied ? ctx.failure(error, "capture", member) : error;
         }
@@ -451,8 +491,7 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
-          if (command.foundRequirement) {
-            const requirement = command.foundRequirement;
+          if (requirement && !premised) {
             const rows = await ctx.read(
               requirement.selection.inspectMembership(requirement.membership),
               true,
@@ -537,7 +576,7 @@ export class CommandExecution {
         return;
       }
       case "delete": {
-        await this.runSelection(command.located);
+        await this.runSelection(command.located, member);
         // A selection that is not required and bound no row is an empty
         // slot: a lax `delete: true` deletes nothing (DESIGN §5.3). A
         // required selection threw in `runSelection` before reaching here.

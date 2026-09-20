@@ -93,7 +93,10 @@ async function dumpCreateRootDependency(
 
 const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
   {
-    name: "after-parent self connectOrCreate cannot depend on the current insert",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+    // target write"); now the after-parent lookup is an ordered observation
+    // taken after the root's own insert, so it finds the row that insert made.
+    name: "after-parent self connectOrCreate observes the current insert",
     act: (client) =>
       client.node.create({
         data: {
@@ -107,9 +110,7 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
-    expected: { nodes: [] },
+    expected: { nodes: [{ id: 1, label: "root", parentId: 1 }] },
   },
   {
     name: "after-parent self connectOrCreate allows a disjoint numeric id",
@@ -168,7 +169,10 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
     expected: { nodes: [] },
   },
   {
-    name: "missing top-level upsert applies the create-branch insert barrier",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'create'
+    // target write"); now the create branch executes and its after-parent
+    // lookup observes the insert that branch just made.
+    name: "missing top-level upsert observes its create-branch insert",
     act: (client) =>
       client.node.upsert({
         where: { id: 1 },
@@ -184,9 +188,7 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
         },
         update: { label: "unused" },
       }),
-    expectReject: true,
-    expectedError: "depends on an earlier 'create' target write",
-    expected: { nodes: [] },
+    expected: { nodes: [{ id: 1, label: "root", parentId: 1 }] },
   },
 ];
 
@@ -216,11 +218,13 @@ async function dumpUpdatePredicateDependency(
   return { nodes, links };
 }
 
-const UPDATE_PREDICATE_ERROR = "depends on an earlier 'update' target write";
-
 const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
   {
-    name: "root id transition rejects a later self decision on the old id",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the m2m lookup is an ordered observation taken after
+    // the root's own id transition, which left the old id free, so the
+    // connectOrCreate takes its create arm.
+    name: "root id transition frees the old id for a later self decision",
     seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
     act: (client) =>
       client.node.update({
@@ -235,15 +239,19 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_PREDICATE_ERROR,
     expected: {
-      nodes: [{ id: 1, label: "root", parentId: null }],
-      links: [],
+      nodes: [
+        { id: 1, label: "old", parentId: null },
+        { id: 2, label: "root", parentId: null },
+      ],
+      links: [{ sourceId: 2, targetIds: [1] }],
     },
   },
   {
-    name: "root id transition rejects a later self decision on the new id",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the observation after the id transition finds the
+    // root under its new id, so the connectOrCreate links the root to itself.
+    name: "root id transition is observed under its new id by a later self decision",
     seed: (client) => client.node.create({ data: { id: 1, label: "root" } }),
     act: (client) =>
       client.node.update({
@@ -258,11 +266,9 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_PREDICATE_ERROR,
     expected: {
-      nodes: [{ id: 1, label: "root", parentId: null }],
-      links: [],
+      nodes: [{ id: 2, label: "root", parentId: null }],
+      links: [{ sourceId: 2, targetIds: [2] }],
     },
   },
   {
@@ -383,7 +389,11 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
     },
   },
   {
-    name: "payload update conflicts with a recursive m2m deleteMany filter",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the junction capture moves behind the root's own
+    // update, so the filter matches the label that update just wrote and the
+    // deleteMany removes the row — which is the root itself on this self edge.
+    name: "payload update is observed by a recursive m2m deleteMany filter",
     seed: async (client) => {
       await client.node.create({ data: { id: 1, label: "before" } });
       await client.node.update({
@@ -399,15 +409,13 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
           links: { deleteMany: { AND: [{ label: "after" }] } },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_PREDICATE_ERROR,
-    expected: {
-      nodes: [{ id: 1, label: "before", parentId: null }],
-      links: [{ sourceId: 1, targetIds: [1] }],
-    },
+    expected: { nodes: [], links: [] },
   },
   {
-    name: "nested to-many update rejects its old selector inside the child",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the child's m2m lookup is observed after the child's
+    // own id transition, which left the old selector free to be created.
+    name: "nested to-many update frees its old selector inside the child",
     seed: async (client) => {
       await client.node.create({ data: { id: 10, label: "parent" } });
       await client.node.create({
@@ -434,14 +442,13 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: UPDATE_PREDICATE_ERROR,
     expected: {
       nodes: [
-        { id: 1, label: "child", parentId: 10 },
+        { id: 1, label: "old", parentId: null },
+        { id: 2, label: "child", parentId: 10 },
         { id: 10, label: "parent", parentId: null },
       ],
-      links: [],
+      links: [{ sourceId: 2, targetIds: [1] }],
     },
   },
   {
@@ -482,7 +489,11 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
     },
   },
   {
-    name: "nested to-one update uses an unknown child selector conservatively",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
+    // target write"); now the child identity transition executes and the
+    // root's own parentId, assigned before it, still names the old id — the
+    // database's foreign key answers (rule 5), and nothing commits.
+    name: "nested to-one update executes its child identity transition: the foreign key answers",
     seed: async (client) => {
       await client.node.create({ data: { id: 1, label: "parent" } });
       await client.node.create({
@@ -507,7 +518,7 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: UPDATE_PREDICATE_ERROR,
+    expectedError: "Foreign key constraint violation",
     expected: {
       nodes: [
         { id: 1, label: "parent", parentId: null },
@@ -545,8 +556,11 @@ const updatePredicateScenarios: Scenario<CreateRootDependencySchema>[] = [
 
 // ---------------------------------------------------------------------------
 // Group 6: same-relation own-write decisions over numeric identities. Unequal
-// integers are the portable disjoint control; overlapping or unknown target /
-// membership dependencies reject before either execution mode writes.
+// integers are the portable disjoint control; an overlapping target or
+// membership is an ordered observation taken after the write it overlaps
+// (N1, D-51), so the members run in the body's canonical verb order and the
+// last one has the last word — a refusal here names an execution fact (a
+// target absent at its observation, a combination admission refuses).
 // ---------------------------------------------------------------------------
 
 type NumericDependencySchema = typeof numericDependencySchema;
@@ -561,8 +575,6 @@ async function dumpNumericDependency(
   ]);
   return { owners, items, profiles };
 }
-
-const OWN_WRITE_ERROR = "depends on an earlier";
 
 const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
   {
@@ -743,6 +755,13 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier" write);
+    // now `delete` runs before `set` in the collection order, and the set's
+    // target lookup — which shares the set's origin and lands ahead of the
+    // set's own clear — is an ordered observation taken after that delete,
+    // so it finds no row and the relation body raises its own correlated
+    // refusal. Nothing commits on either substrate: the observation's
+    // required row rides its batch as a premise ahead of the projection.
     name: "delete then overlapping set rejects",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
@@ -756,7 +775,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
         data: { items: { delete: { id: 1 }, set: [{ id: 1 }] } },
       }),
     expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
+    expectedError: "Cannot set relation 'items': target record was not found.",
     expected: {
       owners: [{ id: 1, name: "Owner" }],
       items: [{ id: 1, label: "before", ownerId: 1 }],
@@ -764,7 +783,10 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    name: "overlapping update array rejects",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier"); now the
+    // two members run in series and the second observes the first's write, so
+    // the last member has the last word.
+    name: "overlapping update array applies both members in order",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -783,11 +805,9 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [{ id: 1, label: "before", ownerId: 1 }],
+      items: [{ id: 1, label: "second", ownerId: 1 }],
       profiles: [],
     },
   },
@@ -820,7 +840,10 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    name: "overlapping upsert array rejects",
+    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier"); now both
+    // members run in series, each upsert observing the previous write, so both
+    // find the row and the last update has the last word.
+    name: "overlapping upsert array applies both members in order",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -847,11 +870,9 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
           },
         },
       }),
-    expectReject: true,
-    expectedError: OWN_WRITE_ERROR,
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [{ id: 1, label: "before", ownerId: 1 }],
+      items: [{ id: 1, label: "second", ownerId: 1 }],
       profiles: [],
     },
   },

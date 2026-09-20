@@ -24,6 +24,7 @@ const ALTERNATING_CONNECT_TARGETS = [
   "n-connect",
   "b-connect-2",
 ] as const;
+const SET_KEPT_MEMBER = "n-set";
 
 interface ObservedStatement {
   readonly sql: string;
@@ -271,10 +272,34 @@ function directlyMutatesAny(sql: string, names: readonly string[]): boolean {
   return mentionsAny(head, names);
 }
 
+/**
+ * N1 (D-51): this pinned ONE guard phase — every SELECT on a target table
+ * ahead of the first junction clear — and a target write list that ran
+ * `updateMany` and `deleteMany` over the SEEDED membership. A member read of
+ * `updateMany` / `deleteMany` reads the junction that `set` (earlier in
+ * `collectionMutationOrder`) clears and links, so it is now an ORDERED
+ * OBSERVATION taken behind that whole mutation. The phases separate: the
+ * connect and set target guards still ask about existence before the clears,
+ * the membership observations follow the clear and the link of their own
+ * junction, and the effects follow them.
+ */
 function assertGuardClearWriteOrder(driver: VariantSQLiteDriver): void {
-  const guards = statementIndexes(
+  const sqlAt = (index: number): string => {
+    const statement = driver.statements[index];
+    assert(statement);
+    return statement.sql;
+  };
+  const targetSelects = statementIndexes(
     driver.statements,
     ({ sql }) => /^SELECT\b/.test(sql) && mentionsAny(sql, TARGET_TABLES)
+  );
+  // A target SELECT that names a member table reads a MEMBERSHIP; one that
+  // names none asks only whether the target row exists (N1).
+  const existenceGuards = targetSelects.filter(
+    (index) => !mentionsAny(sqlAt(index), MEMBER_TABLES)
+  );
+  const observations = targetSelects.filter((index) =>
+    mentionsAny(sqlAt(index), MEMBER_TABLES)
   );
   const clears = statementIndexes(
     driver.statements,
@@ -286,29 +311,53 @@ function assertGuardClearWriteOrder(driver: VariantSQLiteDriver): void {
       directlyMutatesAny(sql, [...TARGET_TABLES, ...MEMBER_TABLES]) &&
       !(directlyMutatesAny(sql, MEMBER_TABLES) && /^DELETE\b/.test(sql))
   );
-  assert(guards.length > 0);
+  const setLinks = writes.filter((index) => {
+    const statement = driver.statements[index];
+    assert(statement);
+    return (
+      directlyMutatesAny(statement.sql, MEMBER_TABLES) &&
+      statement.parameters.includes(SET_KEPT_MEMBER)
+    );
+  });
+  const effects = writes.filter((index) => !setLinks.includes(index));
+  assert(existenceGuards.length > 0);
   assert(writes.length > 0);
+  assert(effects.length > 0);
   assert.deepEqual(
     MEMBER_TABLES.map(
-      (table) =>
-        clears.filter((index) => {
-          const statement = driver.statements[index];
-          assert(statement);
-          return statement.sql.includes(table);
-        }).length
+      (table) => clears.filter((index) => sqlAt(index).includes(table)).length
     ),
     [1, 1, 1],
     "Set must clear every configured member table exactly once"
   );
   assert(
-    Math.max(...guards) < Math.min(...clears),
-    "Every target guard must complete before the first relation-wide clear"
+    setLinks.length === 1,
+    "Set must link the one member it keeps, behind its clears"
+  );
+  assert(
+    Math.max(...existenceGuards) < Math.min(...clears),
+    "Every target existence guard must complete before the first relation-wide clear"
   );
   assert(
     Math.max(...clears) < Math.min(...writes),
     "Every configured member clear must complete before target or membership writes"
   );
-  const guardedConnectTargets = guards.flatMap((index) => {
+  for (const table of MEMBER_TABLES) {
+    const read = observations.filter((index) => sqlAt(index).includes(table));
+    assert(
+      read.length === 1,
+      `${table} must be observed exactly once by the member read that depends on it`
+    );
+  }
+  assert(
+    Math.max(...clears, ...setLinks) < Math.min(...observations),
+    "Every membership observation must follow the clear and the link of its junction"
+  );
+  assert(
+    Math.max(...observations) < Math.min(...effects),
+    "Every membership observation must precede the effects the later verbs contribute"
+  );
+  const guardedConnectTargets = targetSelects.flatMap((index) => {
     const statement = driver.statements[index];
     assert(statement);
     return statement.parameters.filter(
@@ -322,6 +371,12 @@ function assertGuardClearWriteOrder(driver: VariantSQLiteDriver): void {
     ALTERNATING_CONNECT_TARGETS,
     "Alternating variant guards must retain their caller positions"
   );
+  // N1 (D-51): pinned the canonical verb order through the target writes
+  // `updateMany` and `deleteMany` made over the seeded membership
+  // ("UPDATE:clips, DELETE:notes, DELETE:books" ahead of the adders). After
+  // the set only `n-set` is a member of `c1`, so the clip `updateMany` (label
+  // "sweep") and the note/book `deleteMany` ("remove") bind no row and emit
+  // no statement; the adders are the operation's only target writes.
   assert.deepEqual(
     driver.statements
       .filter(({ sql }) => directlyMutatesAny(sql, TARGET_TABLES))
@@ -334,14 +389,8 @@ function assertGuardClearWriteOrder(driver: VariantSQLiteDriver): void {
         assert(table);
         return `${verb}:${table}`;
       }),
-    [
-      "UPDATE:g3p05_variant_clips",
-      "DELETE:g3p05_variant_notes",
-      "DELETE:g3p05_variant_books",
-      "INSERT:g3p05_variant_clips",
-      "INSERT:g3p05_variant_notes",
-    ],
-    "Canonical collection verb order must include deleteMany before adders"
+    ["INSERT:g3p05_variant_clips", "INSERT:g3p05_variant_notes"],
+    "Only create and createMany write a target once the set has emptied the collection"
   );
 }
 
@@ -357,6 +406,14 @@ async function itemsOf(
   return crate.items.map((item) => `${item.type}:${item.data.id}`).sort();
 }
 
+/**
+ * N1 (D-51): the MEMBERSHIPS are unchanged — the set already cleared what the
+ * `deleteMany` used to remove, and the adders run after it either way — but
+ * the TARGET rows the pre-set captures used to touch survive: `k-update`
+ * keeps its seeded "sweep", and `b-delete` and `n-remove` are no longer
+ * deleted, because after the set neither is a member of `c1` and the
+ * observation of the junction says so.
+ */
 async function assertMixedState(world: VariantWorld): Promise<void> {
   assert.deepEqual(await itemsOf(world, "c1"), [
     "book:b-connect",
@@ -380,6 +437,7 @@ async function assertMixedState(world: VariantWorld): Promise<void> {
     [
       { id: "b-connect", title: "connect" },
       { id: "b-connect-2", title: "connect" },
+      { id: "b-delete", title: "remove" },
       { id: "b-old", title: "old" },
       { id: "b-other", title: "remove" },
     ]
@@ -393,7 +451,7 @@ async function assertMixedState(world: VariantWorld): Promise<void> {
       { id: "k-connect", label: "connect" },
       { id: "k-created", label: "created" },
       { id: "k-other", label: "sweep" },
-      { id: "k-update", label: "updated-owned" },
+      { id: "k-update", label: "sweep" },
     ]
   );
   assert.deepEqual(
@@ -406,13 +464,17 @@ async function assertMixedState(world: VariantWorld): Promise<void> {
       { id: "n-connect", body: "connect" },
       { id: "n-old", body: "old" },
       { id: "n-other", body: "remove" },
+      { id: "n-remove", body: "remove" },
       { id: "n-set", body: "set" },
     ]
   );
 }
 
 describe("G3P-05 mixed variant collection ordering", () => {
-  it("guards every root target, clears each member table once, then writes", async () => {
+  // N1 (D-51): pinned one guard phase ahead of the clears. The `set` runs
+  // first in `collectionMutationOrder`, so the member reads of `updateMany`
+  // and `deleteMany` are ordered observations of the junctions it cleared.
+  it("guards every root target, clears each member table once, then observes and writes", async () => {
     const world = await createVariantWorld();
     try {
       await world.candidate.execute("crate", "update", {
@@ -428,7 +490,10 @@ describe("G3P-05 mixed variant collection ordering", () => {
     }
   });
 
-  it("keeps the same guard-clear-write contract in a nested record", async () => {
+  // N1 (D-51): the same four phases one record down — the nesting changes
+  // nothing, because the write and the read share the crate as their nearest
+  // common ancestor either way.
+  it("keeps the same guard-clear-observe-write contract in a nested record", async () => {
     const world = await createVariantWorld();
     try {
       await world.candidate.execute("warehouse", "update", {

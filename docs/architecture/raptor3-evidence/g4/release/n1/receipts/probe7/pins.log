@@ -1,0 +1,7 @@
+ ❯ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (39 tests | 3 failed) 198ms
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > a found requirement rides the observation's batch: the parent's own discon
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > a found requirement rides the observation's batch: the parent's own 
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > a found requirement rides the observation'
+AssertionError: Expected values to be strictly deep-equal:
+ Test Files  1 failed (1)
+      Tests  3 failed | 36 passed (39)

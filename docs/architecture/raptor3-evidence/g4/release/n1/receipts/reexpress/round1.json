@@ -1,0 +1,1181 @@
+[
+ {
+  "group": "root-dependency",
+  "files": [
+   "/private/tmp/viborm-n1/tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts"
+  ],
+  "finalRun": "Tests  3 failed | 27 passed (30)  \u2014 verbatim from /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/rootdep/final-run.log (node .../run-shared-family.mjs tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts, RUN root /private/tmp/viborm-n1, 4.17s wall, 1597.2 MiB peak RSS, teardown verified). The 3 remaining failures are: the 2 pre-existing reds (identical message to the base run) and the 1 tx-vs-batch disagreement below. Baseline for comparison: the same file at the unit's base (main tree, e772741eb, engine WITHOUT N1) = \"Tests  6 failed | 24 passed (30)\" \u2014 exactly the 6 listed pre-existing reds (log: .../scratchpad/n1/rootdep/base-run.log). Frozen-engine state before my edits: \"Tests 12 failed | 18 passed (30)\" (.../scratchpad/n1/probe2/conf-root-dependency.log). The main tree was only read (test run); git status of its src/ scripts/ tests/ is empty before and after.",
+  "cells": [
+   {
+    "name": "after-parent self connectOrCreate observes the current insert (was: \u2026 cannot depend on the current insert)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'create' target write\", nodes []",
+    "derived": "children is an after-parent relation, so the root INSERT (id 1) runs first and the connectOrCreate lookup {id:1} is an ordered observation taken after it (equally: an established producer, plan \u00a71 case 2) \u2014 it finds the row that insert made and takes the connect arm: nodes [{id:1,label:'root',parentId:1}]",
+    "measured": "executes; both substrates persist nodes [{id:1,label:'root',parentId:1}] (byte-identical)",
+    "action": "re-expressed"
+   },
+   {
+    "name": "after-parent self connectOrCreate allows a disjoint numeric id",
+    "before": "allows; nodes [{1,root,null},{2,child,1}]",
+    "derived": "disjoint (plan \u00a71 case 1): a capture-phase read, unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "before-parent self connect is unaffected by the future insert",
+    "before": "expectReject + \"target record was not found\", nodes []",
+    "derived": "the connect feeds parentId, which the root's own INSERT consumes, and its only producer IS that insert \u2014 the one shape no order satisfies (AGENTS.md, rule 4): it keeps the inherited sentence \"Nested operation 'connect' on relation 'parent' depends on an earlier 'create' target write \u2026 Split these operations into separate queries.\", nothing commits",
+    "measured": "rejects with exactly that sentence, under N1 AND at the base commit (identical message in base-run.log) \u2014 still red for the same reason; its recorded expectation is NOT the dependency sentence N1 retires, so it is not mine to re-express",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "nested create keeps its before-parent decision ahead of its insert",
+    "before": "expectReject + \"target record was not found\", nodes []",
+    "derived": "same rule-4 shape one level down (the nested create's parentId is consumed by its own insert), so I derived the inherited dependency sentence",
+    "measured": "rejects earlier, with \"query-engine-v2 create has conflicting final assignments for column 'parentId' on relation 'parent'.\" \u2014 the enclosing `children` edge and the nested `parent: connect` both assign parentId. Identical message at the base commit, so still red for the same reason; recorded expectation is not the dependency sentence, so not mine to re-express (my derivation and the measurement differ only in WHICH refusal fires first \u2014 the conflicting-assignment fact is decided at assignment composition, before the dependency question)",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "missing top-level upsert observes its create-branch insert (was: \u2026 applies the create-branch insert barrier)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'create' target write\", nodes []",
+    "derived": "empty table \u2192 the create branch runs; as an arm of a Choose it is not an established producer, so case 3: the after-parent lookup {id:1} is observed after the branch's insert and connects \u2192 nodes [{id:1,label:'root',parentId:1}]",
+    "measured": "executes; both substrates persist nodes [{id:1,label:'root',parentId:1}]",
+    "action": "re-expressed"
+   },
+   {
+    "name": "root id transition frees the old id for a later self decision (was: \u2026 rejects a later self decision on the old id)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'update' target write\", nodes [{1,root,null}], links []",
+    "derived": "the root's own UPDATE (id 1\u21922) runs before the m2m links body; the connectOrCreate {id:1} observes after it, finds nothing (id 1 is free) and takes its create arm, then links it \u2192 nodes [{1,old,null},{2,root,null}], links [{sourceId:2,targetIds:[1]}]",
+    "measured": "executes; both substrates persist exactly that",
+    "action": "re-expressed"
+   },
+   {
+    "name": "root id transition is observed under its new id by a later self decision (was: \u2026 rejects a later self decision on the new id)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'update' target write\", nodes [{1,root,null}], links []",
+    "derived": "the observation after the id transition finds the root under id 2, so connectOrCreate connects it to itself \u2192 nodes [{2,root,null}], links [{sourceId:2,targetIds:[2]}]",
+    "measured": "executes; both substrates persist exactly that",
+    "action": "re-expressed"
+   },
+   {
+    "name": "root id transition allows a disjoint numeric self decision",
+    "before": "allows; nodes [{2,root,null},{3,target,null}], links [{sourceId:2,targetIds:[3]}] \u2014 RED at the base commit (the base engine rejected a disjoint decision)",
+    "derived": "disjoint integers: a capture-phase read, unchanged, executes as written",
+    "measured": "green under N1 with the recorded expectation untouched",
+    "action": "newly-green"
+   },
+   {
+    "name": "payload update does not block self connectOrCreate by id",
+    "before": "allows",
+    "derived": "disjoint: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "payload update does not block self upsert by id",
+    "before": "allows",
+    "derived": "disjoint: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "nested payload update does not taint a sibling target decision",
+    "before": "allows; nodes [{1,after,10},{10,parent,null}], links [{sourceId:10,targetIds:[1]}] \u2014 RED at the base commit",
+    "derived": "the sibling's label update cannot change the identity the links lookup names, so the lookup executes as written",
+    "measured": "green under N1 with the recorded expectation untouched",
+    "action": "newly-green"
+   },
+   {
+    "name": "payload update is observed by a recursive m2m deleteMany filter (was: payload update conflicts with a recursive m2m deleteMany filter)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'update' target write\", nodes [{1,before,null}], links [{sourceId:1,targetIds:[1]}]",
+    "derived": "the root's own UPDATE writes label='after' before the links body; the junction capture is dependent and moves behind it, so the filter {label:'after'} now matches node 1, which is a member of its own links \u2014 deleteMany deletes that row, i.e. the root itself \u2192 nodes [], links []",
+    "measured": "executes; both substrates persist nodes [], links []",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested to-many update frees its old selector inside the child (was: \u2026 rejects its old selector inside the child)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'update' target write\", nodes [{1,child,10},{10,parent,null}], links []",
+    "derived": "the child's own UPDATE (id 1\u21922) runs before the child's links body; the connectOrCreate {id:1} observes after it, finds id 1 free and creates it, then links it from the child's new id \u2192 nodes [{1,old,null},{2,child,10},{10,parent,null}], links [{sourceId:2,targetIds:[1]}]",
+    "measured": "executes; both substrates persist exactly that",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested to-many update allows a disjoint child decision",
+    "before": "allows; nodes [{2,child,10},{3,target,null},{10,parent,null}], links [{sourceId:2,targetIds:[3]}] \u2014 RED at the base commit",
+    "derived": "disjoint integers: executes as written",
+    "measured": "green under N1 with the recorded expectation untouched",
+    "action": "newly-green"
+   },
+   {
+    "name": "nested to-one update executes its child identity transition: the foreign key answers (was: nested to-one update uses an unknown child selector conservatively)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + \"depends on an earlier 'update' target write\", state unchanged",
+    "derived": "the shape now executes: UPDATE node SET id=2 WHERE id=1 while the root (node 10) still holds parentId=1, assigned before it \u2014 no rule requires the engine to re-point an already-assigned parent-held FK, so the database's own integrity answer stands (rule 5): a foreign key violation, transaction rolled back / batch aborted, state unchanged",
+    "measured": "rejects on both substrates with the same mapped error, message \"Foreign key constraint violation\"; state unchanged (nodes [{1,parent,null},{10,root,1}], links [])",
+    "action": "re-expressed"
+   },
+   {
+    "name": "existing top-level upsert uses its exact pk for disjointness",
+    "before": "allows; nodes [{2,root,null},{3,target,null}], links [{sourceId:2,targetIds:[3]}] \u2014 RED at the base commit",
+    "derived": "disjoint: executes as written",
+    "measured": "green under N1 with the recorded expectation untouched",
+    "action": "newly-green"
+   },
+   {
+    "name": "create then overlapping update: the update's probe runs first",
+    "before": "rejects, \"Cannot update relation 'items': target record was not found\" (retargeted by N6-U3)",
+    "derived": "rule 3's correlated refusal, unaffected by N1",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "create then disjoint numeric update is allowed",
+    "before": "allows",
+    "derived": "disjoint: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "connect then overlapping update: the update's probe runs first",
+    "before": "rejects, \"Cannot update relation 'items': target record was not found\"",
+    "derived": "rule 3, unaffected",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "connect then overlapping upsert: the upsert's probe decides first",
+    "before": "rejects, \"Cannot upsert relation 'items': target record was not found\"",
+    "derived": "rule 3, unaffected",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "disconnect then to-one upsert rejects",
+    "before": "rejects, \"Unsupported to-one operation combination\"",
+    "derived": "an admission refusal, not a dependency: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "delete then to-one upsert rejects",
+    "before": "rejects, \"Unsupported to-one operation combination\"",
+    "derived": "an admission refusal: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "delete then overlapping set rejects",
+    "before": "DESIGN \u00a76.2's veto: expectReject + OWN_WRITE_ERROR (\"depends on an earlier\"), items [{1,before,1}]",
+    "derived": "canonical to-many order runs delete before set; the set's lookup for item 1 is observed after the delete, finds nothing, and is rule 3's correlated refusal \"Cannot set relation 'items': target record was not found.\" on BOTH routes, nothing commits",
+    "measured": "tx substrate = V7001 \"Cannot set relation 'items': target record was not found.\" (my derivation exactly); batch substrate = V7006 \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\" \u2014 the two substrates expose different error contracts, so the cell is LEFT UNTOUCHED (still red on the harness's expect(batch.error).toEqual(transaction.error))",
+    "action": "disagreement"
+   },
+   {
+    "name": "overlapping update array applies both members in order (was: overlapping update array rejects)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + OWN_WRITE_ERROR, items [{1,before,1}]",
+    "derived": "the two members run as a record series; the second observes the first's write; both find item 1 as a member \u2192 items [{1,second,1}]",
+    "measured": "executes; both substrates persist owners [{1,Owner}], items [{1,second,1}], profiles []",
+    "action": "re-expressed"
+   },
+   {
+    "name": "disjoint numeric update array is allowed",
+    "before": "allows",
+    "derived": "disjoint: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "overlapping upsert array applies both members in order (was: overlapping upsert array rejects)",
+    "before": "DESIGN \u00a76.2's veto: expectReject + OWN_WRITE_ERROR, items [{1,before,1}]",
+    "derived": "each upsert observes the previous write; both take the found arm \u2192 items [{1,second,1}]",
+    "measured": "executes; both substrates persist owners [{1,Owner}], items [{1,second,1}], profiles []",
+    "action": "re-expressed"
+   },
+   {
+    "name": "disjoint numeric upsert array is allowed",
+    "before": "allows",
+    "derived": "disjoint: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "to-one update slot mutation then upsert rejects",
+    "before": "rejects, \"Unsupported to-one operation combination\"",
+    "derived": "an admission refusal: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "upsert then updateMany: the targeted arm runs before the sweep",
+    "before": "allows (retargeted by N6-U3); items [{1,changed,1}]",
+    "derived": "canonical order already dissolves it: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   },
+   {
+    "name": "upsert then deleteMany: the removal has the last word",
+    "before": "allows (retargeted by N6-U3); items []",
+    "derived": "canonical order: unchanged",
+    "measured": "green at base and under N1",
+    "action": "unchanged"
+   }
+  ],
+  "disagreements": [
+   "\"nested-write conformance: own-write dependencies (tx vs batch) > delete then overlapping set rejects\" \u2014 the two substrates expose DIFFERENT error contracts for the same payload. Reproduce: cd /private/tmp/viborm-n1; TMPDIR=/private/tmp/viborm-n1-root-dependency-tmp node /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/run-shared-family.mjs tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts. Schema numericDependencySchema (owner 1\u2014* item, child-held ownerId). Seed: owner {id:1,name:'Owner'}, item {id:1,label:'before',ownerId:1}. Act: owner.update({where:{id:1},data:{items:{delete:{id:1},set:[{id:1}]}}}). DERIVED (rules 1+3): canonical to-many order runs `delete` before `set`; the set's lookup for item 1 is an ordered observation taken after the delete, finds nothing, and is the correlated refusal the relation body registers \u2014 \"Cannot set relation 'items': target record was not found.\" \u2014 on BOTH routes, with nothing committed. MEASURED: transaction substrate (PGliteDriver) = NestedWriteError code V7001 message \"Cannot set relation 'items': target record was not found.\" (matches the derivation); batch substrate (BatchOnlyPGliteDriver) = NestedWriteError code V7006 message \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\" The harness's expect(batch.error).toEqual(transaction.error) fails on that pair (full diff at /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/rootdep/final-run.log, failure [3/3]). MY READING: the transaction substrate is right \u2014 AGENTS.md's N1 paragraph and plan \u00a71 both say the dependent read's own `required` row is a premise of the batch (`requirePresent` ahead of the projection) so an absent target aborts the batch before anything commits, and rule 3 says that absence IS the correlated refusal the relation body already registers. On the batch route the premise aborts correctly but the attribution ladder hands back the generic V7006 assertion sentence instead of resolving the rejected premise to its registered correlated refusal. That is an error-identity defect in the batch attribution (N3's ladder), not something to pin, so the cell is left exactly as it was (it still names OWN_WRITE_ERROR, which is now the only user of that constant). NOTE the same generic-V7006-vs-correlated-refusal shape is worth checking across the other conformance slices before the integrator fixes it once."
+  ],
+  "biome": "Before (HEAD version of the file, checked at e772741eb via the main tree's untouched copy, `npx biome check tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts`): exit 0, \"Checked 1 file in 36ms. No fixes applied.\" \u2014 zero diagnostics in every category. After (my edited file in /private/tmp/viborm-n1, same command): exit 0, \"Checked 1 file in 24ms. No fixes applied.\" \u2014 zero diagnostics in every category. No category changed; no formatter/--write was run on the file; every edit was made by hand (python string replacement) and the only removal is the now-unused `UPDATE_PREDICATE_ERROR` constant, whose five users are the five cells N1 re-expressed (OWN_WRITE_ERROR stays, still named by the disagreement cell). Logs: .../scratchpad/n1/rootdep/biome-base.txt and biome-after.txt.",
+  "unverified": [
+   "Whether the two substrates also agree on the PERSISTED STATE for the disagreement cell (\"delete then overlapping set rejects\"): the harness asserts error parity before the state assertions, and nested-write-conformance-fixtures.ts is not my write target, so I could not observe the states without weakening the shared oracle. Both messages are consistent with nothing having committed, but that is reasoning, not measurement.",
+   "The RESULT VALUE of the root update in \"payload update is observed by a recursive m2m deleteMany filter\": the nested deleteMany removes the root row itself, and the operation does not throw \u2014 what the client returns for a root update whose own row the payload then deletes is not pinned by this oracle (it dumps persisted state only). Worth a ruling / a result-mode pin elsewhere (ELEGANCE: check result modes of newly reachable paths).",
+   "The two pre-existing reds are reported as such and left untouched, but both now sit against N1's text and may be the integrator's to re-express: (a) \"before-parent self connect is unaffected by the future insert\" records \"target record was not found\" while both the base and the N1 engine answer the inherited sentence \"Nested operation 'connect' on relation 'parent' depends on an earlier 'create' target write \u2026 Split these operations into separate queries.\" \u2014 which AGENTS.md rule 4 now positively RATIFIES as the contract's answer for a read the parent's own write consumes, so the cell's recorded expectation, not the engine, looks wrong; (b) \"nested create keeps its before-parent decision ahead of its insert\" records the same sentence while both engines answer \"query-engine-v2 create has conflicting final assignments for column 'parentId' on relation 'parent'.\" (the enclosing `children` edge and the nested `parent: connect` both assign parentId). My mandate covered only expectations that are the dependency sentence N1 retires, so I changed neither.",
+   "I did not run pnpm test:all, the other conformance slices, the N1 pin file, or a typecheck \u2014 only my own file (final run above) plus one read-only base run of the same file in the main tree. The unused-import/unused-variable question after removing UPDATE_PREDICATE_ERROR is covered by biome only; no tsc was run.",
+   "\"Foreign key constraint violation\" is pinned as a substring of the mapped error's message; the error CLASS/code for that cell is asserted only through the harness's tx-vs-batch equality (both substrates produced the identical error object), not named in the cell."
+  ]
+ },
+ {
+  "group": "transitive",
+  "files": [
+   "/private/tmp/viborm-n1/tests/contracts/engine/query/nested-write-conformance-transitive.test.ts",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/run-final.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/run1.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/typecheck.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/HEAD-copy.test.ts",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/edit.py",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/edit2.py",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/edit3.py"
+  ],
+  "finalRun": "Tests 31 passed (31) \u2014 Test Files 1 passed (1). Verbatim tail of /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/transitive/run-final.log: \" \u2713 |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests) 1478ms / Test Files 1 passed (1) / Tests 31 passed (31) / Duration 2.90s / Vitest resources: 4.66s wall, 1700.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.\" Run command: TMPDIR=/private/tmp/viborm-n1-transitive-tmp node <scratchpad>/run-shared-family.mjs tests/contracts/engine/query/nested-write-conformance-transitive.test.ts, cwd /private/tmp/viborm-n1 (vitest root printed as /private/tmp/viborm-n1, i.e. the frozen N1 engine). Every cell's tx-vs-batch parity assertion (expect(batch.state).toEqual(transaction.state), expect(batch.error).toEqual(transaction.error)) passed for all 31 cells; no substrate disagreement anywhere. Baseline for comparison (same runner, same worktree, before my edits, orchestrator's probe2): Tests 15 failed | 16 passed (31).",
+  "cells": [
+   {
+    "name": "sibling create then parent-holds connect rejects same target \u2192 \"sibling create then parent-holds connect observes the earlier insert\"",
+    "before": "expectReject: true + DESIGN \u00a76.2's veto \"depends on an earlier 'create' target write\"; expected = untouched seed (accounts [], record {1,null,null}).",
+    "derived": "Both to-one payloads are parent-held, so both are `before` children of the record's own UPDATE, and relations run in the model's declaration order (primary, then secondary): `secondary`'s lookup of account 2 is taken after `primary`'s INSERT (N1 case 2/3), so the UPDATE carries both keys. accounts [{2,'created'}], records [{1, primaryId 2, secondaryId 2}], no rejection.",
+    "measured": "Identical on both substrates \u2014 and identical to the create-family twin four cells below, which was already green.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested create then later root connectOrCreate rejects \u2192 \"nested create then later root connectOrCreate adopts the created tag\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "Workspace declares `projects` before `tags`, so the nested projects.update creates tag 100 on project 1 first; the root connectOrCreate's lookup is then an ordered observation that finds it and its adopt arm wins. workspaces [{1, projects [1], tags [100]}], projects [{1, tags [100]}], tags [100].",
+    "measured": "Identical on both substrates (and consistent with the disjoint id-101 twin immediately below, which was already green).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "outer create then nested connectOrCreate rejects (name kept \u2014 it still rejects)",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "Declaration order puts `projects` first despite the payload's key order, so the nested connectOrCreate finds no tag 100 and CREATES it; the outer `tags: { create: { id: 100 } }` then inserts the same primary key. That is rule 5 \u2014 the database's own integrity answer \u2014 so: expectReject stays true, expectedError becomes \"Unique constraint violation\", and nothing commits (rolled back on tx, batch aborted on the other), i.e. expected stays TRANSITIVE_TARGET_SEED.",
+    "measured": "Identical. The state assertion, previously unreachable (the run stopped at the error-substring assertion), now passes on both substrates \u2014 so \"nothing commits\" is verified, not assumed.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selected top-level upsert create branch gets inherited traversal (name kept)",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = { workspaces: [], projects: [], tags: [] }.",
+    "derived": "No seed, so the root upsert takes its create branch; inside it `projects` runs before `tags`, so projects.create makes project 1 and tag 100, and the branch's own tags.connectOrCreate observes tag 100 and adopts it. workspaces [{1, projects [1], tags [100]}], projects [{1, tags [100]}], tags [100].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selected top-level upsert update branch gets inherited traversal (name kept)",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "Workspace 1 exists, so the update branch runs and answers exactly as its `workspace.update` twin: the root connectOrCreate observes the tag the nested update created and adopts it. workspaces [{1, projects [1], tags [100]}], projects [{1, tags [100]}], tags [100].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "a connectOrCreate create alternative inherits earlier sibling writes \u2192 \"a connectOrCreate create alternative is skipped when its adopt arm wins\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\" (the pass traversed into the UNTAKEN Choose arm and refused); expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "Project 1 is seeded, so projects.connectOrCreate takes its adopt arm: the create alternative and the nested connectOrCreate it carries never run. The sibling `tags: { create: { id: 100 } }` runs last (declaration order) and creates tag 100 on the workspace, so nothing is 'inherited' \u2014 hence the rename. workspaces [{1, projects [1], tags [100]}], projects [{1, tags []}], tags [100]. Re-connecting the already-member project 1 is not a duplicate-junction failure.",
+    "measured": "Identical on both substrates; no rejection, no junction violation.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "a later sibling sees writes from a connectOrCreate create alternative \u2192 \"a later sibling sees no writes from an untaken connectOrCreate create alternative\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "Project 1 exists, so the adopt arm wins and the create alternative's `tags: { create: { id: 100 } }` never runs; the later sibling's own connectOrCreate finds no tag 100 and creates it. workspaces [{1, projects [1], tags [100]}], projects [{1, tags []}], tags [100].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "a later sibling sees writes from an upsert create alternative \u2192 \"a later sibling sees no writes from an untaken upsert create alternative\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = TRANSITIVE_TARGET_SEED.",
+    "derived": "The upsert finds project 1 among the parent's members and takes its empty update alternative, so the create alternative writes nothing; the later sibling creates tag 100 itself. workspaces [{1, projects [1], tags [100]}], projects [{1, tags []}], tags [100].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "a later sibling sees writes from an upsert update alternative \u2192 \"a later sibling sees no writes from an untaken upsert update alternative\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = { workspaces: [{1, [], []}], projects: [], tags: [] }.",
+    "derived": "The seed has no project, so the upsert takes its CREATE alternative ({ id: 1 }) and the update alternative that carries `tags: { create: { id: 100 } }` never runs; the later sibling creates tag 100 itself. workspaces [{1, projects [1], tags [100]}], projects [{1, tags []}], tags [100].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "upsert array merges a mismatched create identity before the next input (name kept)",
+    "before": "expectReject: true + \"depends on an earlier 'upsert' target write\"; expected = { workspaces: [{1, [], []}], projects: [], tags: [] }.",
+    "derived": "Member 1 (where id 100, not found) creates project 101 and links it to workspace 1; member 2's lookup (where id 101) is an ordered observation across that member boundary, finds project 101 among the parent's members and takes its empty update alternative. workspaces [{1, projects [101], tags []}], projects [{101, tags []}], tags [].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "upsert array keeps the found branch membership on its selector (name kept)",
+    "before": "expectReject: true + \"depends on an earlier 'upsert' membership write\"; expected = the seeded state (workspace 1 with project 100).",
+    "derived": "Both members carry the same selector { id: 100 }, which the seeded membership answers for both: each takes the found branch and each `update: {}` is a no-op, so the end state is exactly the seed \u2014 the same rows the veto's rollback used to leave. Only expectReject/expectedError go; the expected state is unchanged and still asserts rows AND memberships.",
+    "measured": "Identical on both substrates; no rejection.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "deep nested update create then root decision rejects \u2192 \"deep nested update create then root decision adopts the created tag\"",
+    "before": "expectReject: true + \"depends on an earlier 'create' target write\"; expected = DEEP_TRANSITIVE_TARGET_SEED.",
+    "derived": "Depth changes nothing: `projects` runs before `tags`, so the tag created three levels down (workspace \u2192 project \u2192 component) is there when the root connectOrCreate observes it, and the adopt arm wins. workspaces [{1, projects [1], tags [100]}], projects [{1, components [1]}], components [{1, tags [100]}], tags [100].",
+    "measured": "Identical on both substrates (and consistent with the disjoint id-101 twin below, already green).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested createMany then later decision rejects \u2192 \"nested createMany then later decision adopts the created item\"",
+    "before": "expectReject: true + \"depends on an earlier 'createMany' target write\"; expected = { owners [1], cohorts [{1, ownerId 1}], items [] }.",
+    "derived": "Owner declares `cohorts` before `selectedItems`, so the nested createMany inserts item 100 with groupId 1 first; the owner's selectedItems.connectOrCreate then observes it and adopts it (no second item). items [{100, groupId 1, selectedBy [{1}]}]. NOTE: the group's dump did not carry the owner\u2194item membership at all, so I STRENGTHENED dumpTransitiveCreateMany to include `selectedBy` \u2014 otherwise the newly executed membership write would be unasserted (brief rule d: rows AND memberships).",
+    "measured": "Identical on both substrates, including the membership the strengthened dump now sees.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested predicate update rejects a later overlapping root filter \u2192 \"nested predicate update allows a later overlapping root filter\"",
+    "before": "expectReject: true + \"depends on an earlier 'update' target write\"; expected = TRANSITIVE_PREDICATE_SEED.",
+    "derived": "The root `tags: { deleteMany: { label: 'after' } }` is a dependent predicate read placed after the nested tags.update that wrote label 'after' (projects declared before tags), so it matches tag 100 and deletes it with both memberships. workspaces [{1, projectIds [1], tagIds []}], projects [{1, tagIds []}], tags []. Same end state as the identity-only twin, reached through the observed label.",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "upsert update alternative exports its predicate delta to a later filter (name kept \u2014 the export is real now)",
+    "before": "expectReject: true + \"depends on an earlier 'update' target write\"; expected = TRANSITIVE_PREDICATE_SEED.",
+    "derived": "The upsert finds project 1 and takes its update alternative, which writes label 'after' on tag 100; the later root deleteMany observes that label and deletes the tag with both memberships. workspaces [{1, projectIds [1], tagIds []}], projects [{1, tagIds []}], tags [].",
+    "measured": "Identical on both substrates.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "create-family sibling create then connect observes the earlier insert",
+    "before": "Declared pre-existing red at the unit's base commit (orchestrator's pre-existing-red.json). Recorded expectation: no rejection, accounts [{2,'created'}], records [{1, primaryId 2, secondaryId 2}] \u2014 i.e. it already recorded N1's answer.",
+    "derived": "Under N1 the create-family root runs `primary`'s INSERT before `secondary`'s lookup (both parent-held `before` children, declaration order), so both keys land: exactly the recorded expectation.",
+    "measured": "Passes unchanged on both substrates; I did not touch it.",
+    "action": "newly-green"
+   },
+   {
+    "name": "nested predicate update allows a later identity-only root filter",
+    "before": "Declared pre-existing red at base. Recorded expectation: no rejection, workspaces [{1, projectIds [1], tagIds []}], projects [{1, tagIds []}], tags [].",
+    "derived": "deleteMany { id: 100 } needs no observation of the label the nested update wrote; it deletes the member tag and both memberships.",
+    "measured": "Passes unchanged on both substrates; I did not touch it.",
+    "action": "newly-green"
+   },
+   {
+    "name": "upsert update alternative predicate delta ignores an id-only filter",
+    "before": "Declared pre-existing red at base. Recorded expectation: no rejection, workspaces [{1, projectIds [1], tagIds []}], projects [{1, tagIds []}], tags [].",
+    "derived": "Same as the twin above with the delta written from inside the upsert's update alternative: an id-only filter does not consume the label delta, so the tag is deleted.",
+    "measured": "Passes unchanged on both substrates; I did not touch it.",
+    "action": "newly-green"
+   },
+   {
+    "name": "nested createMany and disjoint later decision succeed (green before and after \u2014 assertion STRENGTHENED, answer unchanged)",
+    "before": "Green; expected items [{100, groupId 1}, {101, groupId null}] \u2014 the owner\u2194item membership was not dumped at all.",
+    "derived": "Unchanged answer (the disjoint connectOrCreate creates item 101 and links it), but with `selectedBy` now in the dump the expectation becomes items [{100, groupId 1, selectedBy []}, {101, groupId null, selectedBy [{1}]}].",
+    "measured": "Identical on both substrates; still green. Nothing was loosened \u2014 this cell now asserts strictly more than before.",
+    "action": "unchanged"
+   }
+  ],
+  "disagreements": [],
+  "biome": "`npx biome check tests/contracts/engine/query/nested-write-conformance-transitive.test.ts` in /private/tmp/viborm-n1. BEFORE (file byte-identical to `git show HEAD:<file>`, verified by diff against the scratchpad copy): \"Checked 1 file in 11ms. No fixes applied.\" \u2014 zero diagnostics, no category. AFTER my edits: \"Checked 1 file in 11ms. No fixes applied.\" \u2014 zero diagnostics, no category. The formatter was never run on the file; every edit was written by hand (exact-string python replacements, each asserted to match exactly once) and comment wrapping was reflowed by hand to the file's existing ~80-column style. Two rolled-back-state constants lost their last user when their only cells stopped rejecting \u2014 DEEP_TRANSITIVE_TARGET_SEED (only user: the deep cell) and TRANSITIVE_PREDICATE_SEED (only users: the two predicate cells) \u2014 and were deleted so Biome's unused-variable rule stays clean; no cell, seed or assertion was removed with them. Whole-estate typecheck (`node scripts/run-typecheck.mjs`, 5.87s, 5202.9 MiB peak): exactly one diagnostic in the whole estate and it is NOT in my file \u2014 tests/contracts/engine/query/nested-write-conformance-m2m.test.ts(750,16): error TS2345, another agent's in-flight edit. My file: zero diagnostics.",
+  "unverified": [
+   "The \"pre-existing red at the base commit\" classification of the six named cells is taken from the orchestrator's /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/pre-existing-red.json. I did NOT re-measure the base: the worktree's src carries the frozen N1 change and I may not stash, checkout or commit. For \"outer create then nested connectOrCreate rejects\" this matters to the integrator's bookkeeping \u2014 its measured answer (Unique constraint violation) is the same one it gave at base, so N1 did not change that cell's behaviour; what N1 changes is that the sentence it recorded (\"depends on an earlier 'create' target write\") is retired, which is why I re-expressed it rather than reporting it as an untouched pre-existing red. If the integrator wants that cell counted as a pre-existing red instead, only its expectedError line moves.",
+   "The three cells reported \"newly-green\" are green under the frozen N1 engine in this worktree; I did not verify WHY they were red at base (same caveat: no base run available to me).",
+   "This harness witnesses only end state, rejection identity and tx-vs-batch parity. It cannot witness N1's transport-level claims \u2014 the barrier's committed segment, the premise riding with the queued writes, the number of native batches, `committedSegments`. Those live in tests/raptor3/g4/parity/ordered-observation.test.ts (24/24 green in the orchestrator's probe2), not here.",
+   "I did not run pnpm test:all, and I did not run the sibling conformance files (other agents own them). The one estate typecheck error I observed is in nested-write-conformance-m2m.test.ts line 750 and belongs to that agent's in-flight edit, not to N1.",
+   "Strengthening dumpTransitiveCreateMany with `include: { selectedBy: \u2026 }` is group-level machinery, shared by the two createMany cells; both are green after the change and the twin's expectation was widened, never loosened. If the integrator would rather keep group dumps frozen during N1, reverting that one hunk and dropping `selectedBy` from the two expectations restores the previous (membership-blind) witness."
+  ]
+ },
+ {
+  "group": "selector-history",
+  "files": [
+   "/private/tmp/viborm-n1/tests/raptor3/prep/selector-dependencies.test.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/post-prep/history-analysis.test.ts"
+  ],
+  "finalRun": "`node scripts/run-vitest-safe.mjs run tests/raptor3/prep/selector-dependencies.test.ts tests/raptor3/post-prep/history-analysis.test.ts` \u2192 \" Test Files  4 passed (4)\" / \"      Tests  32 passed (32)\" (16 cells \u00d7 the raptor3 and coverage-raptor3 projects; 4.63s wall, 605.6 MiB peak RSS)",
+  "cells": [
+   {
+    "name": "selector-dependencies: executes a root related-row write that changes a later relation predicate, then refuses the absent target (was \"refuses a root related-row write that changes a later relation predicate\")",
+    "before": "DESIGN \u00a76.2's mode-independent veto: a NestedWriteError (NESTED_WRITE_FAILED) raised with driver.statements.length === 0 \u2014 \"Semantic dependency refusal must precede every candidate statement\"",
+    "derived": "Rules 1\u20133: relations run in declaration order, so markers.update sets m1.flag='new' first; the accounts lookup (some {t1,m1,flag:'old'}) is an ordered observation taken after it, binds no row, so the relation body's correlated refusal \"Cannot update relation 'accounts': target record was not found for this parent.\" fires and nothing commits (live route rolls back \u2192 initial state)",
+    "measured": "message \"Cannot update relation 'accounts': target record was not found for this parent.\", meta {relation:'accounts'}, code NESTED_WRITE_FAILED; 4 statements: hub SELECT, marker member SELECT, UPDATE markers, hub-scoped accounts SELECT (write idx 2 < observation idx 3); assertInitialState passes",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: executes the same related-row dependency inside a selected nested record, then refuses the absent target (was \"refuses the same related-row dependency inside a selected nested record\")",
+    "before": "same veto, asserted ahead of every statement",
+    "derived": "identical to the root cell one record deeper: the nested hub's marker update executes, the accounts observation follows it and finds nothing \u2192 correlated refusal, whole unit rolled back",
+    "measured": "same message/meta; 5 statements (envelope SELECT, hub SELECT, marker SELECT, UPDATE markers, accounts observation), write idx 3 < observation idx 4; initial state intact",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: executes a membership write that changes a later predicate on the same edge, then refuses the absent target (was \"refuses a membership write that changes a later predicate on the same edge\")",
+    "before": "same veto, asserted ahead of every statement",
+    "derived": "the nested markers.update's accounts disconnect removes (a1,m1) first; the later accounts lookup (some {t1,m1}) observes the membership the removal left, binds no row \u2192 correlated refusal, nothing commits",
+    "measured": "same message/meta; 5 statements, the only mutation is DELETE FROM g3p05_dependency_account_markers (idx 3) and the single hub-scoped accounts observation is idx 4 (the earlier accounts SELECT at idx 2 is the disconnect's own member lookup, not hub-scoped); initial state intact",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: executes a selected updateMany write that changes a later relation predicate, then refuses the absent target (was \"refuses a selected updateMany write that changes a later relation predicate\")",
+    "before": "same veto, asserted ahead of every statement",
+    "derived": "the junction updateMany captures its members and writes m1.flag='new'; the accounts observation, taken after it, no longer matches flag 'old' \u2192 correlated refusal, rollback",
+    "measured": "same message/meta; 5 statements, UPDATE markers at idx 3, observation idx 4; initial state intact",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: executes the same selected updateMany dependency inside a nested record, then refuses the absent target (was \"refuses the same selected updateMany dependency inside a nested record\")",
+    "before": "same veto, asserted ahead of every statement",
+    "derived": "as above, one record deeper under envelope.update",
+    "measured": "same message/meta; 6 statements, UPDATE markers at idx 4, observation idx 5; initial state intact",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: executes a selected deleteMany whose removal changes later target existence, then refuses the absent target (was \"refuses a selected deleteMany whose removal changes later target existence\")",
+    "before": "same veto, asserted ahead of every statement",
+    "derived": "markers.deleteMany removes marker (t1,m1) first (markers precedes accounts in declaration order); the accounts observation then finds no marker to satisfy some {t1,m1} \u2192 correlated refusal, rollback",
+    "measured": "same message/meta; 5 statements, DELETE FROM g3p05_dependency_markers at idx 3, observation idx 4; initial state intact",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: does not treat a key nested under OR as proof of disjointness",
+    "before": "same veto \u2014 a refusal ahead of every statement was the proof that the OR-nested key proved nothing \u2014 plus the end state (m1 flag 'old', a1 label 'before', a1 markers [m1])",
+    "derived": "the key under OR still proves nothing, so the lookup is DEPENDENT: it is placed after the marker update rather than captured ahead of it. Read as disjoint it would run first, match flag 'old' and land 'must-not-land'; read as dependent it sees flag 'new', matches neither OR arm (m2 was disconnected from a1 in the setup), and the payload never lands",
+    "measured": "4 statements: hub SELECT, marker SELECT, UPDATE markers (idx 2), the single hub-scoped accounts observation carrying the OR predicate (idx 3); the operation's answer is the same correlated refusal, and the end state is unchanged (m1 flag 'old', a1 label 'before', markers [m1])",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: does not treat a key nested under NOT as proof of disjointness",
+    "before": "same veto plus the same end state",
+    "derived": "identical to the OR case with NOT {t1,m2} AND flag 'old'",
+    "measured": "4 statements, UPDATE markers at idx 2, the NOT-carrying hub-scoped observation at idx 3; end state unchanged",
+    "action": "re-expressed"
+   },
+   {
+    "name": "selector-dependencies: accepts a selected updateMany proven disjoint by another complete compound key",
+    "before": "the disjoint read executes and both writes land",
+    "derived": "unchanged by N1 (case 1: disjoint stays a capture-phase read)",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "selector-dependencies: accepts a relation predicate proven disjoint by the complete compound target key",
+    "before": "the disjoint read executes and both writes land",
+    "derived": "unchanged by N1 (case 1)",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "selector-dependencies: does not confuse equal slot names on different membership edges",
+    "before": "different edges are not an overlap; the operation executes",
+    "derived": "unchanged by N1",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "history-analysis: isolates alternative suffixes while exposing them to a later sibling",
+    "before": "analyze(root).refusal was a NestedWriteError whose meta read operation 'upsert', conflictsWith 'upsert', relation 'children' \u2014 DESIGN \u00a76.2's veto over the suffix the later sibling sees",
+    "derived": "N1: the pass spends the same overlap fact on placement, so analyze has no refusal; the later upsert's lookup reads a row only the earlier upsert's create ARM can produce, and a Choose arm is excluded from case 2 (established producer), so it falls to case 3 \u2014 an ordered observation: lookup.dependent === true on the later choice, not on the earlier one, and the later choice keeps its place behind the earlier (both `after` children, body order), so nothing moved",
+    "measured": "refusal undefined; laterChoice.lookup.dependent === true; earlierChoice.lookup.dependent undefined; isolatedChoice.lookup.dependent undefined; root's children = [earlierChoice, laterChoice], both placement 'after', neither carrying a refusal",
+    "action": "re-expressed"
+   },
+   {
+    "name": "history-analysis: keeps actual create spines linear at depths 1, 2, 8 and 32",
+    "before": "linear history, one occurrence per record",
+    "derived": "untouched by N1 (no dependent read in a create spine)",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "history-analysis: keeps actual create siblings linear at widths 1, 2, 8 and 32",
+    "before": "linear history across siblings",
+    "derived": "untouched by N1",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "history-analysis: retains repeated occurrences of the same record identity",
+    "before": "a repeated placement keeps two occurrences of one command",
+    "derived": "untouched by N1",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   },
+   {
+    "name": "history-analysis: keeps nested occurrences distinct across repeated compound placements",
+    "before": "nested occurrences stay distinct per placement",
+    "derived": "untouched by N1",
+    "measured": "green at the base and after",
+    "action": "unchanged"
+   }
+  ],
+  "disagreements": [],
+  "biome": "`npx biome check` on both files \u2014 BEFORE (HEAD copies): 10 errors, all lint/suspicious/noMisplacedAssertion (selector-dependencies 6 at 81/142/143/151/161/171; history-analysis 4 at 122/132/140/147); no formatter diagnostics. AFTER: 12 errors, same single category (selector-dependencies 8 at 81/171/186/187/191/205/215/225; history-analysis 4 at 121/131/139/146); no formatter diagnostics, no new category. The +2 are the file's own established shape: the retired `assertDependencyRefusal` held 2 assertions, the two replacement helpers hold 4 (`assertObservedAfterTheWrite` 2, `assertAbsentTargetRefusal` 4 \u2014 of which 2 replace the retired ones). The formatter was never run; all formatting was written by hand and `biome check` reports none.",
+  "unverified": [
+   "Both files exercise only the LIVE route (better-sqlite3 in-memory for the prep file; the post-prep file builds commands without executing). The batch-route behaviour of the same shapes \u2014 the barrier, the premises riding with the queued writes, the committed segment \u2014 is pinned by tests/raptor3/g4/parity/ordered-observation.test.ts, which is not my file and which I did not run.",
+   "The exact retired sentence per cell: the base cells asserted only `instanceof NestedWriteError` + `code === NESTED_WRITE_FAILED` + `statements.length === 0`, never a message, so my per-cell N1 comments name \"DESIGN \u00a76.2's veto raised before any statement\" rather than quoting each cell's old wording. I did not run the base commit to recover the per-cell sentences (the engine is frozen in this worktree and the brief forbids checkout/stash).",
+   "`node scripts/run-typecheck.mjs` (whole estate, under the shared lock) reports no diagnostic in either of my two files. It ran against a tree carrying seven other agents' in-flight edits; the diagnostics it did report are theirs (tests/raptor3/post-prep/g29-member-dependency.test.ts:826,835 TS2367, and on an earlier run tests/raptor3/core-structure/structural-reference.test.ts:689 TS2304, which had disappeared by the second run).",
+   "pnpm test:all was not run (forbidden by the task). No conformance/PGlite suite was run.",
+   "Judgement call to flag for the integrator: the two OR/NOT placement cells still END in the same correlated refusal as the six cells above them, but per the task instruction they no longer assert a refusal \u2014 they run the operation through a documented `runForPlacement` helper and pin the statement order plus the unchanged end state. They remain falsifiable: inverting `observation > write` fails all 8 re-expressed prep cells, and a regression to a disjoint (pre-write) read would land 'must-not-land' and break the end-state assertions."
+  ]
+ },
+ {
+  "group": "m2m",
+  "files": [
+   "/private/tmp/viborm-n1/tests/contracts/engine/query/nested-write-conformance-m2m.test.ts",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/derivation.md",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/run-final.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/run1.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/run-disconnect.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/run-set-selfref.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/run-selfref-state.log",
+   "/private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1/m2m/HEAD-copy.test.ts"
+  ],
+  "finalRun": "Test Files  1 failed (1)\n      Tests  3 failed | 31 passed (34)\n(node /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/run-shared-family.mjs tests/contracts/engine/query/nested-write-conformance-m2m.test.ts, cwd /private/tmp/viborm-n1, TMPDIR=/private/tmp/viborm-n1-m2m-tmp; 4.85s wall, 1667.4 MiB peak RSS, teardown verified. The 3 failures are 3 of the 5 pre-existing reds, at their recorded HEAD expectations, failing at the same assertion lines as the base gate recorded: fixtures.ts:140 for the two m2m ones, fixtures.ts:139 for the self-referential one. 11 cells were red before I started; 8 are now re-expressed and green.)",
+  "cells": [
+   {
+    "name": "m2m connectOrCreate string-selector array rejects unknown overlap",
+    "before": "PRE-EXISTING RED. Pinned DESIGN \u00a76.2's veto: expectReject true + \"depends on an earlier 'connectOrCreate' target write in the same nested write\", state = untouched baseline. Gate class C at base: expectReject true but transaction.rejected false.",
+    "derived": "One expanded series, two members in order: member 1 (where id t1) FINDS t1 and connects (create arm, name \"ignored\", not taken); member 2 (where id t9) finds nothing, creates t9 \"tag-9\" and connects. => membership p1 [t1,t9]; tags {t1,t2,t3,t9:\"tag-9\"}.",
+    "measured": "Exactly the derivation, both substrates agreeing. Renamed to \"m2m connectOrCreate string-selector array connects the found member and creates the unknown one\"; expected = m2mExpected({membership:{p1:[\"t1\",\"t9\"]}, tags:{...BASELINE,t9:\"tag-9\"}}).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m connectOrCreate then deleteMany rejects target dependency",
+    "before": "expectReject true + \"depends on an earlier 'connectOrCreate' target write\"; state = untouched baseline.",
+    "derived": "connectOrCreate (canonical position 5) runs before deleteMany (8). t9 absent -> created and linked; the removal's observation is placed behind the whole mutation INCLUDING its junction link, so t9 is a member, matches {id t9}, and its row plus membership go. => membership p1 []; tags {t1,t2,t3}.",
+    "measured": "Exactly the derivation. Renamed to \"m2m connectOrCreate then deleteMany removes the tag the connectOrCreate just created\"; expected stays m2mExpected() (the create-then-delete round trip returns the dump to baseline), expectReject/expectedError dropped.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m explicit delete then deleteMany rejects target dependency",
+    "before": "expectReject true + \"depends on an earlier 'delete' target write\"; state = p1 still connected to t1, all three tags alive.",
+    "derived": "delete (2) before deleteMany (8). delete {id t1}: t1 is a member -> row and junction row gone. deleteMany {id t1} observed behind it matches no member -> no-op. => membership p1 []; tags {t2,t3}.",
+    "measured": "Exactly the derivation. Renamed to \"m2m explicit delete then deleteMany finds no member left to remove\"; expected = m2mExpected({tags:{t2:\"tag-2\",t3:\"tag-3\"}}).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m update then deleteMany rejects target dependency",
+    "before": "expectReject true + \"depends on an earlier 'update' target write\"; state = p1 connected to t1, t1 still named \"tag-1\".",
+    "derived": "update (3) before deleteMany (8). The update renames t1 to \"changed\"; the removal's filter {name \"changed\"} is resolved against the state the update left, so it matches t1 (a member) and removes row and membership. => membership p1 []; tags {t2,t3}.",
+    "measured": "Exactly the derivation. Renamed to \"m2m update then deleteMany removes the row the update just renamed\"; expected = m2mExpected({tags:{t2:\"tag-2\",t3:\"tag-3\"}}).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m updateMany then deleteMany rejects filter dependency",
+    "before": "expectReject true + \"depends on an earlier 'updateMany' target write\"; state = p1 connected to t1, t1 still \"tag-1\".",
+    "derived": "updateMany (7) immediately before deleteMany (8). The bulk rename sets t1.name = \"changed\"; the removal's filter observes that result and removes t1's row and membership. => membership p1 []; tags {t2,t3}.",
+    "measured": "Exactly the derivation. Renamed to \"m2m updateMany then deleteMany removes the rows its filter just matched\"; expected = m2mExpected({tags:{t2:\"tag-2\",t3:\"tag-3\"}}).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m multiple deleteMany filters reject internal dependency",
+    "before": "PRE-EXISTING RED. expectReject true + \"depends on an earlier 'deleteMany' target write\"; state = p1 still connected to t1 and t2. Gate class C at base: expectReject true but transaction.rejected false.",
+    "derived": "One deleteMany series, two members; a read placed by construction is already behind every template write it may depend on (expandSeries only marks). Member 1 removes t1 (row + link); member 2 observes behind it, t2 is still a member, and removes t2. => membership p1 []; tags {t3}.",
+    "measured": "Exactly the derivation. Renamed to \"m2m multiple deleteMany filters each observe what the previous one left\"; expected = m2mExpected({tags:{t3:\"tag-3\"}}).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m upsert then deleteMany: the removal cannot read past the upsert",
+    "before": "expectReject true + \"depends on an earlier 'upsert' target write\" (N6-U3 had retargeted the attribution and called this \"ATOM \u00a74.1 case ii, the class no ordering can fix\"); state = p1 connected to t1.",
+    "derived": "Canonical order runs upsert (4) before deleteMany (8) despite the payload's key order. The upsert finds t1 present and a member -> update arm, name \"update\". The removal observes behind it, t1 is a member and matches {id t1}, so row and membership go. => membership p1 []; tags {t2,t3}.",
+    "measured": "Exactly the derivation \u2014 the shape N6-U3 called unfixable by ordering is executed by the order that actually runs. Renamed to \"m2m upsert then deleteMany: the removal observes the upserted row\"; expected = m2mExpected({tags:{t2:\"tag-2\",t3:\"tag-3\"}}); the N6-U3 note kept in condensed form.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "named likes create then stars connectOrCreate rejects target dependency",
+    "before": "expectReject true + \"depends on an earlier 'create' target write\"; state = alphas [{a1, likes [], stars []}], betas [].",
+    "derived": "Relations run in declaration order, and alpha declares likes before stars. likes.create inserts beta b1 and links it on the \"likes\" junction; stars.connectOrCreate {where id b1} observes behind the create, finds b1, and takes the connect arm on the second NAMED junction \u2014 no second beta row. => alphas [{a1, likes [b1], stars [b1]}]; betas [b1].",
+    "measured": "Exactly the derivation. Renamed to \"named likes create then stars connectOrCreate connects the beta the create just made\"; expected = {alphas:[{id:\"a1\",likes:[{id:\"b1\"}],stars:[{id:\"b1\"}]}], betas:[{id:\"b1\"}]}.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "m2m overlapping set and deleteMany reject membership dependency",
+    "before": "PRE-EXISTING RED. expectReject true + \"depends on an earlier 'set' membership write\"; state = untouched baseline. Gate class C at base (nested-conformance.md:81): expectReject true, transaction.rejected false \u2014 the dependency detector misses this shape entirely, so the write executes.",
+    "derived": "set (6) before deleteMany (8). set [t1] gives p1 the membership {t1}; the removal's observation, taken behind it, sees t1 as a member and deletes the row it was just given. => membership p1 []; tags {t2,t3}.",
+    "measured": "CONTRADICTS the derivation, both substrates agreeing: membership p1 [t1], tags [t1,t2,t3]. The removal read BEFORE the set and matched nothing. Cell left verbatim at its recorded expectation (brief rule e); it now fails at fixtures.ts:140 with the same class-C signature the gate recorded at base.",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "m2m disconnect then deleteMany rejects membership dependency",
+    "before": "PRE-EXISTING RED. expectReject true + \"depends on an earlier 'disconnect' membership write\"; state = p1 still connected to t1. Gate class C at base (nested-conformance.md:82), same signature as the set cell.",
+    "derived": "disconnect heads the canonical order (1), deleteMany is 8th. The strict selector disconnect removes the junction row and keeps t1's row; the removal observes the emptied membership behind it and matches nothing. => membership p1 []; tags {t1,t2,t3} (the ROW survives).",
+    "measured": "CONTRADICTS the derivation, both substrates agreeing: membership p1 [] and tags [t2,t3] \u2014 t1's ROW was deleted, i.e. the removal read BEFORE the disconnect and still saw t1 as a member. Cell left verbatim at its recorded expectation; fails at fixtures.ts:140, base signature unchanged.",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "self m2m connect then inverse upsert rejects shared junction dependency",
+    "before": "PRE-EXISTING RED. expectReject true + \"depends on an earlier 'connect' membership write\"; state = {follows: [], followedBy: []}. Gate at base (nested-conformance.md:84): batch.rejected (true) != transaction.rejected (false) \u2014 tx/batch parity break on a self-referential m2m.",
+    "derived": "follows runs before followedBy (declaration order). follows.connect {id u1} writes the self junction row; the inverse followedBy.upsert {where id u1} observes behind it on the junction they share, finds u1 in u1.followedBy, and takes the found/update arm (the create arm would collide on the PK). => users [{u1,\"updated\"}]; follows u1->[u1]; followedBy u1->[u1].",
+    "measured": "SUBSTRATES DISAGREE. tx: no refusal, state {users:[{id:u1,name:\"updated\"}], follows:[u1->[u1]], followedBy:[u1->[u1]]} \u2014 EXACTLY the derivation, the live route's sequential dispatch answers the ordered observation correctly. batch: NestedWriteError \"Cannot upsert relation 'followedBy': target record was not found for this parent.\" Cell left verbatim; fails at fixtures.ts:139, the identical parity break the gate recorded at base.",
+    "action": "pre-existing-red"
+   }
+  ],
+  "disagreements": [
+   "JUNCTION MEMBERSHIP OVERLAPS ARE NEVER COMPUTED, SO N1 NEVER PLACES THEM (the one cause of all three remaining reds). src/query-engine/raptor3/commands/commands.ts:559 `readMembership` returns on its first line when `membership.edge.kind !== \"reference\"` \u2014 a junction edge (shared/storage.ts:27 `kind: \"junction\"`) never reaches `depend()`. That guard is present verbatim at the base commit (`git show HEAD:src/.../commands.ts | grep -n 'edge.kind !== \"reference\"'` -> line 559) and the N1 diff does not touch `readMembership`, so nothing about it changed. `readTarget`'s link/remove branch (commands.ts:607+) is not a substitute: it only fires when the READ's own selector scope path traverses the same edge, which a junction `deleteMany` capture's membership read does not. Consequence: the lookup is neither refused nor re-placed, it stays in the capture phase ahead of every `after` effect, and the consumer gets a STALE observation. This contradicts the unit's own contract text, which says the overlap \"the dependency pass computes in checkPair -> readTarget / readMembership\" is taken at its consumer's execution point (AGENTS.md:971-975) and that BOTH inherited sentences ('target / membership write') disappear (plan \u00a71 'What disappears'). Reproduce: cd /private/tmp/viborm-n1; TMPDIR=/private/tmp/viborm-n1-m2m-tmp; node <scratchpad>/run-shared-family.mjs tests/contracts/engine/query/nested-write-conformance-m2m.test.ts -t \"<cell>\".",
+   "DISAGREEMENT 1 \u2014 \"m2m overlapping set and deleteMany reject membership dependency\". Seed: baseline (p1,p2; t1,t2,t3; no memberships). Act: post.update p1 { tags: { set: [{id:t1}], deleteMany: {id:t1} } }. Derived from rules 1-2: set (canonical 6) runs before deleteMany (8), so the removal observes t1 as a member and deletes its row => membership p1 [], tags {t2,t3}. Measured (tx and batch identical, so the parity check passes): membership p1 [t1], tags [t1,t2,t3] \u2014 the removal resolved its filter against the membership as it stood BEFORE the set and matched nothing. My reading: the engine is wrong; the derivation follows D-51 and the principle that every consumer receives an observation valid at its execution point. Receipt: scratchpad/n1/m2m/run-set-selfref.log (isolated diff).",
+   "DISAGREEMENT 2 \u2014 \"m2m disconnect then deleteMany rejects membership dependency\". Seed: baseline + p1 connected to t1. Act: post.update p1 { tags: { disconnect: {id:t1}, deleteMany: {id:t1} } }. Derived: disconnect heads the canonical order, so the removal observes the emptied membership, matches nothing, and t1's ROW survives => membership p1 [], tags {t1,t2,t3}. Measured (tx and batch identical): membership p1 [], tags [t2,t3] \u2014 t1's row was DELETED, i.e. the removal still saw t1 as a member. This is the mirror of disagreement 1 and the more damaging direction: a row the caller explicitly only disconnected is destroyed. My reading: the engine is wrong. Receipt: scratchpad/n1/m2m/run-disconnect.log (isolated diff).",
+   "DISAGREEMENT 3 \u2014 \"self m2m connect then inverse upsert rejects shared junction dependency\" \u2014 a TX/BATCH PARITY BREAK (brief rule 6: a defect, not something to pin). Seed: user u1 \"Alice\". Act: user.update u1 { follows: { connect: {id:u1} }, followedBy: { upsert: { where:{id:u1}, create:{id:u1,name:\"create\"}, update:{name:\"updated\"} } } }. Derived: follows before followedBy (declaration order); the inverse upsert observes the self-junction row the connect just wrote, finds u1 in u1.followedBy and takes the update arm => users [{u1,\"updated\"}], follows u1->[u1], followedBy u1->[u1]. Measured: the TX substrate produces EXACTLY that (captured with a temporary diagnostic, since the harness stops at the parity assertion: TEMP-DIAGNOSTIC ok {\"users\":[{\"id\":\"u1\",\"name\":\"updated\"}],\"follows\":[{\"userId\":\"u1\",\"followsIds\":[\"u1\"]}],\"followedBy\":[{\"userId\":\"u1\",\"followedByIds\":[\"u1\"]}]}), while the BATCH substrate rejects with NestedWriteError \"Cannot upsert relation 'followedBy': target record was not found for this parent.\" The live route answers the ordered observation by sequential dispatch; the batch route asserts the upsert's found/membership premise in the batch AHEAD of the sibling connect, so the correlated refusal fires against a membership that the same unit is about to create. The two halves of the fix are one: give the junction membership overlap its placement (disagreement 0) and the premise then rides the right batch. Receipts: scratchpad/n1/m2m/run-set-selfref.log, run-selfref-state.log. Note for whoever re-expresses this cell after the fix: `dumpSelfRefM2m` currently carries memberships only, no rows, so it cannot witness WHICH upsert arm ran; I added an id+name `users` key for the measurement and reverted it with the cell."
+  ],
+  "biome": "npx biome check tests/contracts/engine/query/nested-write-conformance-m2m.test.ts, run in /private/tmp/viborm-n1. BEFORE (file byte-identical to `git show HEAD:<file>`, verified against a scratch copy): \"Checked 1 file in 46ms. No fixes applied.\" \u2014 zero diagnostics, no category. AFTER: \"Checked 1 file in 37ms. No fixes applied.\" \u2014 zero diagnostics, no category. No formatter was run on the file; every edit was written by hand in the existing style (the re-expressed names exceed no line rule Biome enforces here, and the added comments wrap at the file's existing width).",
+  "unverified": [
+   "I could not measure the base commit (e772741eb) engine's produced STATE for the three membership cells: that needs a run against the clean base engine, and the only tree at that commit is the main tree /Users/arnaud/code/viborm, which the brief forbids touching. I relied instead on (a) the gate triage's recorded base signature, docs/architecture/raptor3-evidence/g4/release/gate/nested-conformance.md lines 80-84, (b) the fact that the N1 working diff contains no hunk in `readMembership` and its junction guard is present verbatim at HEAD, and (c) the final run reproducing the same assertion line and the same expected/received booleans the gate recorded. The base-commit RECEIPTS I could find (g4/release/n3/receipts/nested-write-conformance-m2m.log, gate/inventory/shared-family-6.log) are summary-only and carry no state diffs.",
+   "The re-expressed cell \"m2m connectOrCreate then deleteMany removes the tag the connectOrCreate just created\" has an end state that coincides with the untouched baseline, so the persisted-state oracle alone cannot distinguish \"created then deleted\" from \"nothing happened\". What the cell still pins strictly is that the shape does NOT reject (expectReject is now false, so a refusal fails it) and that both substrates agree. Witnessing the round trip itself would need a statement-level pin, which belongs to the unit's own pin file, not to this oracle; I did not add one (not my file).",
+   "I ran only my assigned file. The pin file tests/raptor3/g4/parity/ordered-observation.test.ts, the other five conformance slices and the wider gate were not run by me (other agents own them, and the machine allows one vitest process at a time). The counts I quote for other files come from the pre-existing probe receipts under scratchpad/n1/probe2, not from my own runs.",
+   "The temporary diagnostics I used to read the batch-route error and the tx-route state were reverted; the file's final diff touches only the eight re-expressed cells (verified with `git diff`, which shows no hunk in dumpSelfRefM2m or in the three membership cells)."
+  ]
+ },
+ {
+  "group": "membership",
+  "files": [
+   "/private/tmp/viborm-n1/tests/contracts/engine/query/nested-write-conformance-membership.test.ts"
+  ],
+  "finalRun": "Tests  6 failed | 24 passed (30) \u2014 Test Files  1 failed (1); Vitest resources: 6.28s wall, 1569 MiB peak sampled RSS (ceiling 2560 MiB), teardown verified. Remaining red (all six reproduce identically at the base commit except the last): \"self to-one inverse upsert rejects a current-row FK membership move\", \"self to-many inverse update rejects the moved current row\", \"same-node non-self FK rebind rejects inverse descent through the final target\" (NEW under N1: green at base), \"non-self child-holds cascade keeps membership through a key transition\", \"nested physical membership rejects a later same-edge root update\", \"nested physical membership rejects a later same-edge root upsert\". Logs: /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1-membership/{run0-base.log (base commit, main tree, clean src), run1-worktree.log (frozen engine, before my edits), run2-derived.log, run3-probe.log, run4-probe.log, run5-final.log}",
+  "cells": [
+   {
+    "name": "nested create membership rejects a later cross-scope to-one upsert  \u2192  renamed \"nested create membership collides with the earlier cross-scope to-one upsert on the unique partner slot\"",
+    "before": "DESIGN \u00a76.2's veto, expectReject + expectedError \"depends on an earlier 'create' membership write\", state = the seed. Red at base too: the base engine already answered 'Unique constraint violation' here, so N1 did not change this cell's answer \u2014 only its recorded sentence is one N1 retires.",
+    "derived": "Relations run in declaration order, so `container` (parent-held) precedes `children`: the cross-scope upsert observes node 1's empty partner slot and creates node 3 with partnerId 1; the nested create of node 2 then claims the same UNIQUE slot. Rule 5: the database's integrity answer is the operation's failure, transaction rolled back / batch aborted, nothing commits.",
+    "measured": "Both substrates reject with one identical error, message exactly \"Unique constraint violation\"; both persist CROSS_SCOPE_MEMBERSHIP_BASE (the seed). Matches the derivation, including the rollback.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "connectOrCreate membership rejects a later cross-scope to-one upsert  \u2192  renamed \"connectOrCreate membership collides with the earlier cross-scope to-one upsert on the unique partner slot\"",
+    "before": "expectReject + \"depends on an earlier 'connectOrCreate' membership write\", state = the seed. Red at base with the same 'Unique constraint violation'.",
+    "derived": "The earlier cross-scope upsert creates node 3 in node 1's unique partner slot; the connectOrCreate finds node 2 and rebinds it onto the same slot \u21d2 unique violation (rule 5), nothing commits.",
+    "measured": "Both substrates reject with the identical \"Unique constraint violation\"; state = CROSS_SCOPE_MEMBERSHIP_WITH_TARGET (the seed). Matches.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "found connect membership rejects a later cross-scope to-one upsert  \u2192  renamed \"found connect membership collides with the earlier cross-scope to-one upsert on the unique partner slot\"",
+    "before": "expectReject + \"depends on an earlier 'connect' membership write\", state = the seed. Red at base with the same 'Unique constraint violation'.",
+    "derived": "Upsert first (declaration order) creates node 3 with partnerId 1; the connect rebinds node 2 onto the same unique slot \u21d2 unique violation, nothing commits.",
+    "measured": "Both substrates reject with the identical \"Unique constraint violation\"; state = the seed. Matches.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested to-many child update carries its selector into inverse membership (name kept \u2014 it still describes the shape)",
+    "before": "expectReject + UPDATE_MEMBERSHIP_ERROR; at base the engine refused with the inherited \"Nested operation 'upsert' on relation 'partnerOf' depends on an earlier 'update' target write \u2026 Split these operations\" (the sentence N1 retires); state = the seed.",
+    "derived": "Container 10's `nodes` update reaches node 1 (member \u2713); node 1's own write moves partnerId 1\u21922; the `partnerOf` observation is taken AFTER that write, where nothing holds partnerId 1, so the upsert takes its create branch: node 3 {label three, partnerId 1}. containers [10]; nodes 1{one,c10,p null,partner 2}, 2{two,null,null,null}, 3{three,null,null,partner 1}.",
+    "measured": "Executes on both substrates; persisted state byte-identical to the derived state on tx and batch.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "non-self nested FK rebind rejects a later inverse read of the same holder  \u2192  renamed \"non-self nested FK rebind follows the inverse read of the same holder\"",
+    "before": "expectReject + UPDATE_MEMBERSHIP_ERROR; at base the inherited \"Nested operation 'update' on relation 'children' depends on an earlier 'update' target write \u2026\"; state = the seed.",
+    "derived": "`container` is declared before `children` (and is the parent-held/before child), so the inverse read runs first and finds node 1 still in container 10 \u21d2 label \"after\"; the rebind then moves it to container 20. containers [10, 20]; nodes 1{after, c20, parent 9}, 9{root, c10}.",
+    "measured": "Executes on both substrates; state byte-identical to the derived state.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested scalar FK rebind rejects a later inverse read of the same holder  \u2192  renamed \"nested scalar FK rebind follows the inverse read of the same holder\"",
+    "before": "expectReject + \"depends on an earlier 'update' membership write\"; at base the inherited 'target write' sentence; state = the seed.",
+    "derived": "`children` is declared before `friends`: the child update observes node 1 still under parent 10 \u21d2 label \"after\"; the friend update (junction (10,1) intact) then sets parentId 2. nodes 1{after, parent 2}, 2{two}, 10{root}; friends [(10,1)]; allies [].",
+    "measured": "Executes on both substrates; state byte-identical to the derived state (the order is load-bearing: friends-first would have failed the children membership).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested scalar FK rebind rejects a later inverse upsert of the same holder  \u2192  renamed \"nested scalar FK rebind follows the inverse upsert of the same holder\"",
+    "before": "expectReject + \"depends on an earlier 'update' membership write\"; at base the inherited 'target write' sentence; state = the seed.",
+    "derived": "`children` before `friends`: the upsert observes node 1 still under parent 10 and takes its FOUND branch (label \"after\", no create \u2014 a create would collide on the primary key); the friend update then rebinds parentId to 2. Same end state as the read variant.",
+    "measured": "Executes on both substrates; state byte-identical to the derived state.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "nested identity transition exports the exact final membership source",
+    "before": "No expectReject; the recorded end state (node 1 \u2192 id 4 with friend 2, node 3's friend update renaming node 2). At the base commit this REJECTED (transaction.rejected true where false was expected), so it was red.",
+    "derived": "The `children.update` array runs member by member: node 1 takes identity 4 and connects friend 2 under its final identity; node 3's friends update then finds member 2 and renames it. nodes 2{after}, 3{three,p10}, 4{one,p10}; friends [(3,2),(4,2)].",
+    "measured": "Passes on both substrates under the frozen engine, unchanged file. N1's ordered observation made it green.",
+    "action": "newly-green"
+   },
+   {
+    "name": "self to-one inverse upsert rejects a current-row FK membership move",
+    "before": "expectReject + UPDATE_MEMBERSHIP_ERROR, state = the seed. Red at base with exactly the same symptom.",
+    "derived": "The root write moves node 1's partnerId 1\u21922; the `partnerOf` observation taken after it finds the slot vacated \u21d2 create node 3 {three, partnerId 1}. Executes; nodes 1{one,partner 2}, 2{two}, 3{three,partner 1}.",
+    "measured": "SUBSTRATES DISAGREE (same at base): transaction.rejected = false (the tx route executes \u2014 my derivation), batch.rejected = true. The harness stops at `expect(batch.rejected).toBe(transaction.rejected)`, so no state is reported. Rule 6 makes this a defect, not something to pin; left untouched.",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "self to-many inverse update rejects the moved current row",
+    "before": "expectReject + UPDATE_MEMBERSHIP_ERROR, state = the seed. Red at base with exactly the same symptom.",
+    "derived": "The root write moves node 1's parentId 1\u21922; the `children` update's membership observation, taken after it, finds node 1 is no longer a child of node 1 \u21d2 rule 3's correlated refusal \"Cannot update relation 'children': target record was not found for this parent.\", nothing commits (the seed).",
+    "measured": "Both substrates reject and nothing commits, but with DIFFERENT error identities: tx = V7001 \"Cannot update relation 'children': target record was not found for this parent.\" (exactly the derivation), batch = V7006 \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\" The harness fails at `expect(batch.error).toEqual(transaction.error)`. Left untouched (rule 6).",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "non-self child-holds cascade keeps membership through a key transition",
+    "before": "No expectReject; end state containers [11], node 1 {after, containerId 11}. Red at base with exactly the same symptom (its recorded expectation is NOT a dependency sentence).",
+    "derived": "Container 10's own write takes id 11, the FK cascades node 1 to containerId 11, and the `nodes` observation taken after the parent's write sees node 1 in container 11 \u21d2 label \"after\". Executes, matching the recorded state.",
+    "measured": "SUBSTRATES DISAGREE (same at base): tx executes (rejected false \u2014 the derivation), batch rejects. Stops at the rejected-parity assertion. Left untouched.",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "nested physical membership rejects a later same-edge root update",
+    "before": "expectReject + \"depends on an earlier 'connect' membership write\", state = the seed. Red at base with exactly the same message as now.",
+    "derived": "`children` is declared before `friends`: the nested child update connects junction (1,2) first, so the root's `friends.update where id=2` observation, taken at its execution point, FINDS member 2 \u21d2 label \"after\"; nodes 1{one,p1}, 2{after}; friends [(1,2)].",
+    "measured": "Both substrates reject, identically and atomically, with \"Cannot update relation 'friends': target record was not found for this parent.\" (probe run4 confirms both persist the seed). Contradicts the derivation \u2014 the junction observation was taken ahead of the nested connect. NOT re-expressed; see Disagreements.",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "nested physical membership rejects a later same-edge root upsert",
+    "before": "expectReject + \"depends on an earlier 'connect' membership write\", state = the seed. Red at base with exactly the same symptom.",
+    "derived": "Same order as the update variant: the connect of (1,2) precedes the root's `friends.upsert where id=2`, so the upsert finds the member and takes its update branch \u21d2 nodes 1{one,p1}, 2{after}; friends [(1,2)].",
+    "measured": "SUBSTRATES DISAGREE (same at base): tx executes (rejected false \u2014 the derivation), batch rejects. Stops at the rejected-parity assertion. Left untouched (rule 6).",
+    "action": "pre-existing-red"
+   },
+   {
+    "name": "same-node non-self FK rebind rejects inverse descent through the final target",
+    "before": "expectReject + UPDATE_MEMBERSHIP_ERROR, state = the seed. NOT in the pre-existing-red list and correctly so: it was GREEN at the base commit (the base engine produced the veto sentence). It is red only under the frozen N1 engine.",
+    "derived": "Node 1's own write sets containerId 10\u219220 and its `container` update descends to `nodes.update where id=1`. Under either consistent placement the operation executes: if the parent-held lookup keeps its pre-write point, it resolves container 10 and the membership read at that same point finds node 1 in 10; if it moves behind the root write (rule 2), it resolves container 20 and the membership read finds node 1 in 20. Either way: containers [10,20], node 1 {after, containerId 20}.",
+    "measured": "Both substrates reject, identically and atomically, with \"Cannot update relation 'nodes': target record was not found for this parent.\" (probe run4 confirms both persist the seed). This requires an INCONSISTENT split \u2014 the container resolved before the root write (10) while its membership premise is asserted after it (node 1 now in 20). Measured \u2260 derived, so NOT re-expressed; recorded as the unit's one N1-caused disagreement.",
+    "action": "disagreement"
+   }
+  ],
+  "disagreements": [
+   "N1-CAUSED (the only one). Cell: \"same-node non-self FK rebind rejects inverse descent through the final target\", /private/tmp/viborm-n1/tests/contracts/engine/query/nested-write-conformance-membership.test.ts:663-697 (membershipDependencySchema). GREEN at the base commit e772741eb (the base engine answered the retired veto), RED under the frozen engine. Repro: seed containers 10 and 20, node 1 {label one, containerId 10}; act client.node.update({where:{id:1}, data:{containerId:20, container:{update:{nodes:{update:{where:{id:1},data:{label:'after'}}}}}}}). DERIVED (AGENTS.md N1 paragraph + plan \u00a71 case 3): the operation executes \u2014 with the parent-held lookup kept at its pre-write point it resolves container 10 and its membership read, at that same point, finds node 1 in 10; with the lookup moved behind the root write it resolves container 20 and finds node 1 in 20. Both consistent placements give containers [{10},{20}], node 1 {label 'after', containerId 20}. MEASURED (both substrates, identical error object, both persisting the seed \u2014 verified by a temporary expectedError probe, run4-probe.log): NestedWriteError \"Cannot update relation 'nodes': target record was not found for this parent.\" That is only possible if the container was resolved BEFORE the root's own write while the membership premise was asserted AFTER it \u2014 the stale-observation split that plan \u00a71 'What each observation is valid for' forbids ('An observation made before a sibling write of the same target is stale for every consumer placed after that write'). The failure boundary is intact (atomic on both routes); only the answer is wrong. No pin in tests/raptor3/g4/parity/ordered-observation.test.ts covers a parent-held to-one lookup whose answer the parent's OWN write changes; that is the missing pin.",
+   "PRE-EXISTING, engine-level (identical at base, so not N1's doing). Cell: \"nested physical membership rejects a later same-edge root update\", membership file line ~896 (transitiveMembershipDependencySchema). Repro: seed node 1 {parentId 1}, node 2; act client.node.update({where:{id:1}, data:{children:{update:{where:{id:1},data:{friends:{connect:{id:2}}}}}, friends:{update:{where:{id:2},data:{label:'after'}}}}}). DERIVED: `children` is declared before `friends`, so the nested connect inserts junction (1,2) first and the root's friends membership observation, taken at its execution point, finds member 2 \u21d2 nodes 1{one,p1}, 2{after}, friends [(1,2)]. MEASURED (both substrates, identical, atomic): \"Cannot update relation 'friends': target record was not found for this parent.\" The junction observation is still taken ahead of a write that lives in a SIBLING relation's nested subtree \u2014 the overlap the dependency pass sees within one relation body (pinned by 'a dependent junction capture moves behind the write it depends on') is not seen across relations/depths. Same message at base, so N1 neither caused nor fixed it.",
+   "PRE-EXISTING, substrate parity (rule 6 defects; all three identical at the base commit, harness stops at `expect(batch.rejected).toBe(transaction.rejected)` so no state is reported). (a) \"self to-one inverse upsert rejects a current-row FK membership move\": tx executes (agreeing with the derivation \u2014 the vacated partner slot takes the upsert's create branch), batch rejects. (b) \"non-self child-holds cascade keeps membership through a key transition\": tx executes (the cascaded key 11 carries the membership, as the cell's recorded state says), batch rejects. (c) \"nested physical membership rejects a later same-edge root upsert\": tx executes (the upsert finds member 2 after the nested connect), batch rejects. In all three the BATCH route refuses what the tx route executes \u2014 i.e. the membership premise is asserted ahead of the write it must observe, instead of at the observation point. This is the same family as N3's 'a premise about an observation is asserted where the observation is taken', one level deeper.",
+   "PRE-EXISTING, error identity across substrates. Cell \"self to-many inverse update rejects the moved current row\": both routes refuse and nothing commits, but tx raises V7001 \"Cannot update relation 'children': target record was not found for this parent.\" (exactly rule 3's correlated refusal, = my derivation) while the batch route collapses it to V7006 \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\" Identical at base. Once the batch route carries the correlated refusal's identity, this cell needs re-expressing to the V7001 sentence (its current expectedError, UPDATE_MEMBERSHIP_ERROR, is a sentence N1 retires); I left it untouched because the measurement is ambiguous across substrates today.",
+   "HARNESS NOTE for the integrator: the orchestrator's pre-existing-red list for this file (scratchpad/n1/pre-existing-red.json, taken from probe1 at 03:58) is two cells off against the real base. Measured against e772741eb with a clean src/ (main tree, byte-identical test file): \"nested identity transition exports the exact final membership source\" IS red at base (now green), and \"same-node non-self FK rebind rejects inverse descent through the final target\" is NOT red at base (green there, red now). The probes' conf-* runs predate the last engine edit (src/query-engine/raptor3/commands/commands.ts mtime 04:14:36, probe2's conf run 04:12). Also: run-shared-family.mjs passes `cwd` to startBoundedProcess, which never forwards it to spawn, so the child inherits the CALLER's cwd \u2014 which is how the base run in /Users/arnaud/code/viborm and the unit run in /private/tmp/viborm-n1 were both taken with the sanctioned runner, lock and RSS ceiling."
+  ],
+  "biome": "`npx biome check tests/contracts/engine/query/nested-write-conformance-membership.test.ts` \u2014 BEFORE (HEAD copy at /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1-membership/HEAD-copy.test.ts, identical to git HEAD): \\\"Checked 1 file in 12ms. No fixes applied.\\\" \u2014 zero diagnostics in every category (format, lint, assist). AFTER my edits: \\\"Checked 1 file in 13ms. No fixes applied.\\\" \u2014 zero diagnostics in every category. All formatting was written by hand to match the surrounding style; the formatter was never run on the file. Diff: 52 insertions, 22 deletions, 7 cells touched, no cell deleted, no `.skip`, no assertion loosened (the four executing cells now pin a full post-write end state \u2014 rows and junction memberships \u2014 which is strictly stronger than the rolled-back seed they pinned before).",
+  "unverified": [
+   "The transaction-route END STATE of the three substrate-parity cells (self to-one inverse upsert\u2026, non-self child-holds cascade\u2026, nested physical membership \u2026root upsert). The harness aborts at the rejected-parity assertion before dumping, and nested-write-conformance-fixtures.ts is not one of my write targets, so I could not surface it.",
+   "The error `code` of the three re-expressed \"Unique constraint violation\" cells. Only the message is observable through the harness (the code prints only when the two substrates disagree, and here they matched); `expectedError` can pin a message substring only \u2014 the message is the whole string \"Unique constraint violation\".",
+   "Whether the pre-existing parity breaks originate in the engine's batch lowering or in BatchOnlyPGliteDriver itself \u2014 not investigated (pre-existing, and outside this unit's frozen engine).",
+   "Nothing outside this file was run: no sibling conformance suites, no tests/raptor3/g4/parity/ordered-observation.test.ts re-run, no typecheck, and no `pnpm test:all` (forbidden by the task).",
+   "The base-commit measurement was taken by running the byte-identical file in /Users/arnaud/code/viborm (HEAD e772741eb, `git status --short src/` empty). I did not revert the worktree engine to double-check in-place, since it is frozen and shared with seven sibling agents."
+  ]
+ },
+ {
+  "group": "core-structure",
+  "files": [
+   "/private/tmp/viborm-n1/tests/raptor3/core-structure/structural-reference.test.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/core-structure/member-scope.contract.test.ts"
+  ],
+  "finalRun": "structural-reference.test.ts: \"Test Files  2 passed (2) / Tests  20 passed (20)\" (10 cells x the |raptor3| and |coverage-raptor3| projects); Vitest resources: 5.35s wall, 539.0 MiB peak sampled process-group RSS. member-scope.contract.test.ts: \"Test Files  2 passed (2) / Tests  16 passed (16)\" (8 cells x 2 projects); Vitest resources: 4.42s wall, 502.7 MiB peak. No remaining failures in either file. Receipts: /private/tmp/claude-501/-Users-arnaud-code-viborm/c2c775da-2927-4590-8677-3bb0f5d1aa98/scratchpad/n1-cs-struct-final2.txt and .../n1-cs-member-final.txt (first, red run: .../n1-cs-struct-run1.txt, .../n1-cs-member-run1.txt; measurement dumps: .../n1-cs-struct-measure.txt, .../n1-cs-member-measure.txt).",
+  "cells": [
+   {
+    "name": "CS-01 member-major/read-major priority (sqlite-interactive) > \"chooses member zero's later guard-observed active-arm conflict before member one's earlier read\" -> renamed \"connects member one's ticket at the earlier read, then member zero's at the later guard-observed active arm\"",
+    "before": "DESIGN \u00a76.2's veto, and WHICH of the two dependent connects was refused first: NestedWriteError NESTED_WRITE_FAILED, meta {relation 'lateTicket', operation 'connect', conflictsWith 'create'} (member-major: member zero's guard-observed active arm beats member one's earlier read), recordSeriesProgress undefined on the live route, no ticket written, shelf label left 'initial' by the rollback, tickets empty.",
+    "derived": "Rule 1-2: relations run in declaration order (bins, earlyHolders, lateHolders); the bins series creates ticket 'first' (b1, member 0) then 'second' (b2, member 1). Both connects are reads whose answer an earlier write of the same operation changes, and both consumers sit after the bins body, so each is an ordered observation taken after the creates: no refusal (the pass marks, it does not move \u2014 nothing is a read the parent's own write consumes, rule 4). The late choice's guard observation found 'late', so its active arm is the update arm and its connect observes member zero's ticket 'first'; the early holder's connect observes member one's 'second'. End state: shelves [s1/prefix], tickets [first/member/b1, second/member/b2], earlyHolders [early/s1/second], lateHolders [late/s1/first]; produced {id:'s1', label:'prefix'}; admissions unchanged.",
+    "measured": "Exactly the derivation: failure undefined, produced {id:'s1',label:'prefix'}, admissions [template 'other', member 'first', member 'second'], 2 ticket INSERTs then 2 ticket reads (dispatch indices 6,7 then 8,11), end state as derived.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 member-major/read-major priority (sqlite-atomic-batch) > same cell (lateFound = true)",
+    "before": "Same veto, plus the batch route's planning progress: meta.recordSeriesProgress {atomicity 'segment', phase 'planning', committedSegments 1, committedWriteMembers 1, completedMembers 0, memberPath [0], totalMembers 2}; shelf label 'prefix' (the first segment had committed), tickets empty.",
+    "derived": "Same as the interactive cell (rule 6: the two substrates must agree on the end state). On the batch route each observation is read through the barrier \u2014 the queued unit goes with its premises and the read rides the same native batch behind the writes (rule 2/3), so the succession D-51 accepts replaces the planning refusal and both routes reach one end state. The progress meta only exists on a failure and therefore leaves this cell.",
+    "measured": "Identical to the interactive profile (reads at indices 18 and 23, after the INSERTs at 13 and 17; a requirePresent premise on tickets rides ahead of the late read in the same batch). End state and produced value identical to the live route.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 member-major/read-major priority (sqlite-interactive) > \"reobserves the guard-observed absence, ignores that untaken arm, and reports member one's earlier read\" -> renamed \"reobserves the guard-observed absence, creates through that untaken arm, and connects member one's ticket at the earlier read\"",
+    "before": "The same veto, reported for the OTHER member: meta {relation 'earlyTicket', operation 'connect', conflictsWith 'create'} \u2014 with the late target absent the untaken arm's connect raises nothing, so member one's earlier read is what is refused. No ticket written; shelf label 'initial'.",
+    "derived": "The guard leaves an absent selection uncached, so the late choice reobserves 'missing' at its execution point and takes the create arm, which holds no connect and therefore opens NO observation. The only ordered observation is the early holder's connect on member one's ticket 'second'. End state: tickets [first, second], earlyHolders [early/s1/second], lateHolders [late/s1/null, missing/s1/null], shelves [s1/prefix].",
+    "measured": "Exactly the derivation: one ticket read only (index 8, after the two INSERTs at 6,7), then INSERT late_holders('missing','s1',NULL); produced {id:'s1',label:'prefix'}; admissions unchanged.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 member-major/read-major priority (sqlite-atomic-batch) > same cell (lateFound = false)",
+    "before": "Same veto with memberPath [1] and the same batch-route planning progress; shelf label 'prefix'.",
+    "derived": "As the interactive cell, with rule 6's parity: one end state on both substrates.",
+    "measured": "Identical to the interactive profile (one ticket read at index 18, after the INSERTs at 13 and 17).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 reconciles the whole body before authoritative contribution publication: agree-partial",
+    "before": "DESIGN \u00a76.2's MEMBERSHIP veto, raised before any statement: NestedWriteError NESTED_WRITE_FAILED, meta {operation 'updateMany', conflictsWith 'upsert', relation 'kids'}, driver.statements.length === 0, nothing written (pair row absent, kid left 'stored'/old/pair).",
+    "derived": "The consumer's membership lookup ('kids of the new pair, slug found') is answered by the upsert's earlier membership write, so under rule 2 it is an ordered observation: the capture leaves the capture phase and is taken after the upsert published the agreeing pa/pb contribution. Reconciliation itself is untouched (the agreeing contribution is still admitted; the conflicting one is still the 'owns pa, pb' refusal). End state: pairs [north/west/parent, old/pair/old], kid {target, found, label 'must-not-run', parent_a 'north', parent_b 'west'}, value {a:'north', b:'west', label:'parent'}.",
+    "measured": "First measurement contradicted the derivation with an internal Error \"Selected series was not captured\" \u2014 the cell's white-box scaffolding placed the selectedSeries WITHOUT the captureSeries that the public recipe always places beside it (RelationBody.requireSeriesCapture, relation-body.ts:698-723); under the veto that half-built shape never executed. With the act completed to the recipe it claims to use, the measurement is exactly the derivation: INSERT pair, SELECT kid (upsert decision), UPDATE kid SET parent_a,parent_b, SELECT pair (capture's parent publication), SELECT kids (the observation, after the publication), UPDATE kid SET label, and the derived rows and value.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 reconciles the whole body before authoritative contribution publication: agree-reordered",
+    "before": "Identical to agree-partial (the cell's point is that the parent's key order does not change the answer): the same membership veto with meta {updateMany, upsert, kids} and no statement dispatched.",
+    "derived": "Identical to agree-partial: key order changes nothing, so the observation is taken after the same publication and the same member is updated.",
+    "measured": "Identical to agree-partial in every statement and row (same act completion applied \u2014 the capture is placed inside the shared helper executeReconciliationPublication).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-01 reconciles the whole body before authoritative contribution publication: agree-complete",
+    "before": "Success, value {a:'north', b:'west', label:'parent'}; pairs both rows, kid {target, found, 'first', north, west}. Runs the public create, not the synthetic consumer.",
+    "derived": "Untouched by N1: no second consumer, so no dependent read. Same success and rows.",
+    "measured": "Green throughout (the expected values are byte-identical; only the surrounding ternaries were re-pivoted from 'agree-complete ? A : B' to 'conflict ? B : A' so the two re-expressed cells can share the executed rows).",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-01 reconciles the whole body before authoritative contribution publication: conflict",
+    "before": "UnsupportedOperationError matching /owns 'pa, pb'/; nothing written (pairs [old/pair/old], kid stored/old/pair).",
+    "derived": "Untouched by N1: the reconciliation refusal names an authority fact, not a dependency (D-52 keeps it).",
+    "measured": "Green throughout, same error and same rows.",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-01 Selection observation identity versus occurrence identity > observes one present Selection once across two ordered placements",
+    "before": "Statements ['SELECT','INSERT'] \u2014 a present Selection is observed once across a before- and an after-placement.",
+    "derived": "No dependency: the selection's answer is not changed by the record's own write (disjoint, rule 2's first case), so nothing moves and the positive cache still answers the later placement.",
+    "measured": "Green, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-01 Selection observation identity versus occurrence identity > reobserves an absent Selection at its later placement after a producer",
+    "before": "Statements ['SELECT','INSERT','SELECT'] and the created row.",
+    "derived": "Unchanged: an absent selection keeps no cache and is reobserved at its later placement \u2014 the same shape N1 generalises, already expressed here.",
+    "measured": "Green, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-03 peer member scope (sqlite-interactive) > cs03-peer-scope-surrounding",
+    "before": "DESIGN \u00a76.2's veto: outcome failure, NestedWriteError code V7001, meta {relation 'artifacts', operation 'update', conflictsWith 'create'}; forbiddenWrite === false (the surrounding update must not run); final === initial (the live route rolled everything back).",
+    "derived": "The surrounding read's selector ('lookup' = 'shared', admitted in check c1's member scope) names the very row the nested branch's member n2 creates, and the groups body runs before the probes body (declaration order), so under rule 2 it is an ordered observation taken after those creates: the update finds the row and runs. Scope order is untouched (capture:n2 < admit:writer:shared:n2 < effect:writer < capture:c1 < admit:reader:shared:c1). End state: artifacts [safe/expanded-write/n1/c1, shared/must-not-run/n2/c1]; value {id:'root'}.",
+    "measured": "Exactly the derivation: outcome success {id:'root'}, the two artifacts with 'shared' carrying 'must-not-run', the forbidden write dispatched after the last writer effect and after its own member-scope admission, and every recorded scope-order assertion still true with the same admissions list.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-03 peer member scope (sqlite-atomic-batch) > cs03-peer-scope-surrounding",
+    "before": "Same veto and meta; final.artifacts [safe/expanded-write, shared/expanded-write] \u2014 the creates had committed in an earlier segment before the planning refusal.",
+    "derived": "Same as the live route (rule 6): one end state on both substrates, now including the dependent update.",
+    "measured": "Identical to the interactive profile \u2014 outcome success {id:'root'} and the same two rows; the profile branch in the expectation disappears (a strengthening for the live route, which now pins two rows instead of 'unchanged').",
+    "action": "re-expressed"
+   },
+   {
+    "name": "CS-03 peer member scope (sqlite-interactive | sqlite-atomic-batch) > cs03-peer-scope-root",
+    "before": "Success {count: 2}; three audit-id admissions before the first write; nodes/audits rows as recorded.",
+    "derived": "No dependent read (the audits create names no row an earlier write changes), so N1 does not reach this cell.",
+    "measured": "Green in both profiles, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-03 peer member scope (sqlite-interactive | sqlite-atomic-batch) > cs03-peer-scope-nested",
+    "before": "Success {count: 2}; one shared target created and both nodes pointing at it; capture:n1 < admit:n1 < effect:target-create < capture:n2 < admit:n2.",
+    "derived": "The second member's connectOrCreate is first-create-wins inside one relation body (the established-producer case the contract already had), not a dependency the veto ever touched.",
+    "measured": "Green in both profiles, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "CS-03 peer member scope (sqlite-interactive | sqlite-atomic-batch) > cs03-peer-scope-static",
+    "before": "Success {id:'board'}; one author, two posts pointing at it.",
+    "derived": "A static createMany series with a provable local producer: unchanged by N1.",
+    "measured": "Green in both profiles, unchanged.",
+    "action": "unchanged"
+   }
+  ],
+  "disagreements": [],
+  "biome": "Before (HEAD copies, `npx biome check --max-diagnostics=200`): structural-reference.test.ts 16 \u2014 1 assist/source/organizeImports, 4 lint/performance/useTopLevelRegex, 11 lint/suspicious/noMisplacedAssertion; member-scope.contract.test.ts 38 \u2014 38 lint/suspicious/noMisplacedAssertion. After: structural-reference.test.ts 14 \u2014 1 organizeImports, 4 useTopLevelRegex, 9 noMisplacedAssertion; member-scope.contract.test.ts 32 \u2014 32 noMisplacedAssertion. No new category and no new instance anywhere; the two drops are the four separate end-state assertions of the priority cell merged into one object comparison, and the failure-meta block of the CS-03 cell replaced by one requireSuccess. The formatter was never run on either file; every edit was hand-formatted and no `format` diagnostic appeared. The new helpers use startsWith/includes rather than regex literals so useTopLevelRegex stays at 4.",
+  "unverified": [
+   "ACT CHANGE NEEDING THE INTEGRATOR'S REVIEW (not an expectation change, not a seed change): in `executeReconciliationPublication` (structural-reference.test.ts) I added the `captureSeries` placement that the public recipe always places beside a `selectedSeries` (`RelationBody.requireSeriesCapture`, src/query-engine/raptor3/commands/relation-body.ts:698-723). Without it the frozen engine throws its internal invariant `Selected series was not captured` (execution.ts:919) as soon as the veto stops firing, because the cell built half the recipe it claims to reproduce. I judged completing it to be restoring fidelity, not weakening the cell; if the integrator disagrees, the alternative is to report agree-partial/agree-reordered as blocked and leave them red.",
+   "The whole-estate typecheck (`node scripts/run-typecheck.mjs`, ~4.5 GB) was NOT run \u2014 seven other agents share this machine. Instead I typechecked a two-file program over the same tsconfig (scratch config in TMPDIR, 2.0 GB peak, 2 s): zero diagnostics in either owned file; the only errors reported were 9 pre-existing `StandardSchemaOf` TS2724s in src/schema/scalars/*, an artifact of the scratch config's resolution, untouched by me.",
+   "The batch route's planning progress meta (`recordSeriesProgress` {committedSegments: 1, memberPath: [...]}) that the CS-01 priority cell used to pin exists only on a failure, so it no longer has a home in this file; I did not relocate it. Per plan \u00a71 the unit's own pin file tests/raptor3/g4/parity/ordered-observation.test.ts owns `committedSegments` for the ordered observation \u2014 worth the integrator confirming that claim is still pinned somewhere.",
+   "Both owned files are SQLite-only (better-sqlite3 in-memory, the two structural profiles); no PGlite/conformance parity leg applies to them, so rule 6's tx-versus-batch agreement is witnessed here only by the two SQLite profiles reaching the same end state, which I did assert."
+  ]
+ },
+ {
+  "group": "g29",
+  "files": [
+   "/private/tmp/viborm-n1/tests/raptor3/post-prep/g29-member-dependency.test.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/post-prep/g29-dependency-choices.test.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/post-prep/g29-dependency-boundaries.test.ts"
+  ],
+  "finalRun": "Combined final run (node scripts/run-vitest-safe.mjs on the three files, TMPDIR=/private/tmp/viborm-n1-g29-tmp): \" Test Files  2 failed | 4 passed (6)\" / \"      Tests  2 failed | 54 passed (56)\". Per file (each file is collected twice, by the `raptor3` and `coverage-raptor3` vitest projects, so N tests = 2 x N cells): g29-dependency-choices.test.ts \"Tests  20 passed (20)\"; g29-dependency-boundaries.test.ts \"Tests  8 passed (8)\"; g29-member-dependency.test.ts \"Tests  2 failed | 26 passed (28)\". The only remaining red is the one disagreement below, once per project: \" FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until the inner capture\" (and the identical |coverage-raptor3| line). Whole-estate typecheck after the edits: `node scripts/run-typecheck.mjs` exit 0, 0 diagnostics (\"TypeScript (whole estate, native): 5.20s wall, 5305.2 MiB peak\").",
+  "cells": [
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-interactive) > \"template wanted refuses before capture\" -> \"template wanted executes the create it names and takes the missing-target refusal\"",
+    "before": "DESIGN \u00a76.2's mode-independent veto: NestedWriteError \"Nested operation 'update' on relation 'tickets' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.\", meta {conflictsWith:'create',operation:'update',relation:'tickets'}, raised before ANY statement (driver.statements.length === 0), only the template admitted, shelves 'initial', tickets [].",
+    "derived": "Rule 1/2: shelf UPDATE (label 'prefix') runs, then relation `bins` (declaration order) whose updateMany member create inserts a ticket with the MEMBER-admitted id 'other2' on bin b1 (shelfId null), then relation `tickets` whose `update where {id:'wanted'}` is a dependent read taken AFTER that create. shelf.tickets never gains a member with id 'wanted', so rule 3 answers with the correlated refusal and nothing further commits: live route rolls back (shelves 'initial', tickets []).",
+    "measured": "NestedWriteError \"Cannot update relation 'tickets': target record was not found for this parent.\", meta {relation:'tickets'}; admissions [{template,'wanted'},{member,'other2'}]; shelfWrite true, ticketWrite true; shelves [{s1,'initial'}], tickets []. Identical through the client route (`engine: \"shipped\"`).",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-atomic-batch) > \"template wanted refuses before capture\" -> renamed as above",
+    "before": "Same veto; on the batch profile no recordSeriesProgress was expected (the template-wanted arm passed `undefined`), refusal before any statement, shelves 'initial', tickets [].",
+    "derived": "Same as the live derivation, except that the barrier before the dependent read commits the preceding segment (D-51's succession of statements), so the shelf prefix and the member's created ticket stay durable and the refusal carries the progress record.",
+    "measured": "Same message; meta {relation:'tickets', recordSeriesProgress:{atomicity:'segment', phase:'member', committedSegments:2, completedMembers:1, committedWriteMembers:2}}; shelves [{s1,'prefix'}], tickets [{id:'other2',note:'created',binId:'b1',shelfId:null}]. Identical through the client route.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-interactive) > \"actual member wanted refuses before member effects\" -> \"actual member wanted executes the create it names and takes the missing-target refusal\"",
+    "before": "Same veto with meta.recordSeriesProgress {phase:'planning', memberPath:[0], totalMembers:1, committedSegments:1, committedWriteMembers:1} on the batch profile; ticketWrite asserted FALSE (\"Dependency refusal must precede every selected member effect\"); tickets [].",
+    "derived": "The member admission makes the create's id 'wanted'; the create runs on bin b1 (shelfId null); the dependent `tickets.update where {id:'wanted'}` observes after it, finds no member of shelf s1, rule 3 refuses, live route rolls back.",
+    "measured": "\"Cannot update relation 'tickets': target record was not found for this parent.\", meta {relation:'tickets'}; admissions [{template,'other'},{member,'wanted'}]; ticketWrite true; shelves [{s1,'initial'}], tickets [].",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-atomic-batch) > \"actual member wanted refuses before member effects\" -> renamed as above",
+    "before": "Same veto, phase 'planning', committedSegments 1, committedWriteMembers 1, memberPath [0], totalMembers 1; tickets [] at the end.",
+    "derived": "As above plus the committed segment: shelf prefix and the created ticket durable.",
+    "measured": "Same message; meta {relation:'tickets', recordSeriesProgress:{atomicity:'segment', phase:'member', committedSegments:2, completedMembers:1, committedWriteMembers:2}}; shelves [{s1,'prefix'}], tickets [{id:'wanted',note:'created',binId:'b1',shelfId:null}].",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-interactive) > \"later actual member wanted refuses before either member\" -> \"later actual member wanted executes both creates and takes the missing-target refusal\"",
+    "before": "Same veto with memberPath [1], totalMembers 2, committedSegments 1, committedWriteMembers 1 on the batch profile; ticketWrite false; tickets [].",
+    "derived": "Both bin members' creates run (ids 'second' on b1, 'wanted' on b2, both shelfId null), then the dependent lookup observes and finds no shelf member 'wanted'; rule 3 refuses; live route rolls back.",
+    "measured": "\"Cannot update relation 'tickets': target record was not found for this parent.\", meta {relation:'tickets'}; admissions [{template,'other'},{member,'second'},{member,'wanted'}]; ticketWrite true; shelves [{s1,'initial'}], tickets [].",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-atomic-batch) > \"later actual member wanted refuses before either member\" -> renamed as above",
+    "before": "Same veto, phase 'planning', committedSegments 1, committedWriteMembers 1, memberPath [1], totalMembers 2; tickets [].",
+    "derived": "As above plus two committed member segments.",
+    "measured": "Same message; meta {relation:'tickets', recordSeriesProgress:{atomicity:'segment', phase:'member', committedSegments:3, completedMembers:2, committedWriteMembers:3}}; shelves [{s1,'prefix'}], tickets [{id:'second',note:'created',binId:'b1',shelfId:null},{id:'wanted',note:'created',binId:'b2',shelfId:null}].",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-interactive) > \"disjoint actual member preserves an independent wanted update\"",
+    "before": "Success: value {s1,'prefix'}; shelves [{s1,'prefix'}]; tickets [{other2,'created',b1,null},{wanted,'looked-up',null,s1}].",
+    "derived": "Disjoint lookup (rule 2, the capture-phase read is unchanged): unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 exact selected-member dependency (sqlite-atomic-batch) > \"disjoint actual member preserves an independent wanted update\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 self-relation occurrence roles (sqlite-interactive) > \"keeps disjoint writes separate even when every occurrence has one model\"",
+    "before": "Success: root 'prefix', a created node 'other2' under branch's watches, 'wanted' relabelled 'looked-up'.",
+    "derived": "Disjoint occurrences; no dependent read; unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 self-relation occurrence roles (sqlite-atomic-batch) > \"keeps disjoint writes separate even when every occurrence has one model\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 nested selected-series dependency (sqlite-atomic-batch) > \"keeps an inner unresolved dependency until the inner capture\" -> \"runs the inner create found at the inner capture and takes the database's answer\"",
+    "before": "DESIGN \u00a76.2's veto \"Nested operation 'update' on relation 'notes' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.\", meta {conflictsWith:'create',operation:'update',relation:'notes', recordSeriesProgress:{phase:'planning', memberPath:[0,0], totalMembers:1, committedSegments:2, committedWriteMembers:2}}, noteWrite false, shelves 'prefix', bins 'outer-member', the seeded note untouched.",
+    "derived": "Rules 1/5: bin b1's own UPDATE, then relation `tickets` (declared before `notes`) whose inner updateMany member creates a note with the inner-member-admitted id 'wanted' \u2014 the seeded note's own primary key. The INSERT executes and the database's integrity answer is the operation's failure; the batch carrying it aborts, the two segments the barrier already committed stay committed, and the seeded note is untouched.",
+    "measured": "UniqueConstraintError \"Unique constraint violation\"; admissions ['other','other','wanted']; noteWrite true; shelves [{s1,'prefix'}], bins [{b1,'outer-member',s1}], notes [{wanted,'independent',null,b1}]. Statement probe: the inner INSERT names (\"id\",\"text\",\"binId\",\"ticketId\").",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 nested selected-series dependency (sqlite-interactive) > \"keeps an inner unresolved dependency until the inner capture\"",
+    "before": "Same veto (no recordSeriesProgress on the live profile), noteWrite false, shelves 'initial', bins 'bin', the seeded note untouched.",
+    "derived": "Same inner create executes with id 'wanted' and duplicates the seeded note; rule 5's answer is UniqueConstraintError with the transaction rolled back (shelves 'initial', bins 'bin', note untouched), and the three admissions of the single plan.",
+    "measured": "NotNullConstraintError \"Not-null constraint violation\"; admissions ['other','other','wanted',undefined,undefined] (FIVE); shelves 'initial', bins 'bin', note untouched. Statement probe shows the whole plan running TWICE: statements 1-8 end in INSERT INTO g29_nested_notes (\"id\",\"text\",\"binId\",\"ticketId\") (the duplicate 'wanted'), statements 9-16 re-run the same tree and end in INSERT INTO g29_nested_notes (\"text\",\"binId\",\"ticketId\") with no id column.",
+    "action": "disagreement"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 published-parent dependency (sqlite-interactive) > \"lets a member lookup consume its already-published parent values\"",
+    "before": "Success: value {s1,'code-1','prefix'}; ticket t1 note 'member-used-parent'.",
+    "derived": "No dependent read (the parent's published value is a producer reference, N1 case 2); unaffected.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-member-dependency \u00b7 published-parent dependency (sqlite-atomic-batch) > \"lets a member lookup consume its already-published parent values\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-interactive) > \"refuses the same conflicting lookup when its create arm is taken\" -> \"executes the same dependent lookup when its create arm is taken\"",
+    "before": "DESIGN \u00a76.2's veto \"Nested operation 'connect' on relation 'ticket' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.\", meta {conflictsWith:'create',operation:'connect',relation:'ticket'}; no INSERT or UPDATE on holders; shelves 'initial'; tickets []; holders [{h1,'initial',s1,null}].",
+    "derived": "Rule 4 does NOT apply: the producer (the `bins.updateMany` ticket create) runs BEFORE the holder's own write, not after it, so this parent-held lookup is an ordered observation (rule 2), not a read the parent's own write consumes. The upsert probes h2, misses, takes the create arm, whose `ticket: {connect:{id:'wanted'}}` observes the ticket the earlier sibling made and supplies the key to the arm's INSERT. Success.",
+    "measured": "No failure; value {id:'s1',label:'prefix'}; admissions [{template,'other'},{member,'wanted'}]; shelfUpdate true, ticketInsert true, holderInsert true, holderUpdate false; shelves [{s1,'prefix'}]; tickets [{wanted,'created',b1}]; holders [{h1,'initial',s1,null},{h2,'missing',s1,'wanted'}]. Exactly the shape the unit pin `ordered-observation.test.ts` calls \"a parent-held lookup ordered behind a sibling's create of its target executes: both keys land on the parent\".",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-atomic-batch) > \"refuses the same conflicting lookup when its create arm is taken\" -> renamed as above",
+    "before": "Same veto with recordSeriesProgress {phase:'member', committedSegments:2, committedWriteMembers:2, completedMembers:1}; shelves 'prefix'; tickets [{wanted,'created',b1}]; holders only h1.",
+    "derived": "Same as the live derivation; both substrates must reach the same end state (rule 6).",
+    "measured": "Identical to the live substrate, including holders [{h1,...},{h2,'missing',s1,'wanted'}] \u2014 the two substrates agree.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-interactive) > \"ignores a conflicting lookup in an untaken create arm\"",
+    "before": "Success: label 'found' on h1, ticket 'wanted' created, no holder INSERT.",
+    "derived": "Locality of the untaken Choose arm is unchanged by N1 (`commands.ts` Choose arms / activeRefusal walked by plan \u00a71).",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-atomic-batch) > \"ignores a conflicting lookup in an untaken create arm\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-interactive) > \"preserves the selected update when the untaken arm has no lookup\"",
+    "before": "Same success end state (control for the arm with no lookup).",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 dependency choice locality (sqlite-atomic-batch) > \"preserves the selected update when the untaken arm has no lookup\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 one-arm dependency locality (sqlite-interactive) > \"ignores a conflicting lookup in an untaken found body\"",
+    "before": "\"Cannot update relation 'holders': target record was not found for this parent.\", meta {relation:'holders'}; no holder statement; shelves 'initial'; tickets [] (rolled back).",
+    "derived": "The `holders.update where {id:'h2'}` lookup overlaps no earlier write (holders are untouched), so it stays a capture-phase read (rule 2, disjoint) and rule 3's correlated refusal is unchanged; the nested connect inside the never-run found body is still local.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 one-arm dependency locality (sqlite-atomic-batch) > \"ignores a conflicting lookup in an untaken found body\"",
+    "before": "Same message with recordSeriesProgress {phase:'member', committedSegments:2, committedWriteMembers:2, completedMembers:1}; shelves 'prefix'; tickets [{wanted,'created',b1}] (committed segment).",
+    "derived": "Unchanged by N1, including the committed segment already recorded.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 one-arm dependency locality (sqlite-interactive) > \"preserves missing-target behavior when the untaken body has no lookup\"",
+    "before": "Same missing-holder refusal, control without the nested connect.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-choices \u00b7 one-arm dependency locality (sqlite-atomic-batch) > \"preserves missing-target behavior when the untaken body has no lookup\"",
+    "before": "Same missing-holder refusal with the same progress record.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-boundaries \u00b7 dependency boundaries (sqlite-interactive) > \"refuses an actual member lookup that conflicts with an earlier sibling write\" -> \"runs an actual member lookup behind the earlier sibling write it observes\"",
+    "before": "DESIGN \u00a76.2's veto \"Nested operation 'update' on relation 'tickets' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.\", meta {conflictsWith:'create',operation:'update',relation:'tickets'}; ticketInsert FALSE and ticketUpdate FALSE (the refusal was raised at the bins capture, ahead of the earlier sibling's own effect); shelves [{s1,'initial'},{s2,'decoy'}]; tickets [].",
+    "derived": "Rules 1/2: shelf UPDATE 'prefix', then relation `tickets` (declared first) creates ticket 'created' with lookupKey 'wanted', binId b1, shelfId s1; then relation `bins`, whose member b1 carries `tickets.update where {lookupKey:<member-admitted 'wanted'>}` \u2014 a dependent read taken after that create. It binds the created row (binId b1 makes it a member of b1.tickets) and the member effect runs. Success on both routes; end state identical.",
+    "measured": "No failure; value {id:'s1',label:'prefix'}; admissions [{template,'raw-member-lookup','other'},{member,'raw-member-lookup','wanted'}]; shelfWrite true, ticketInsert true, ticketUpdate true; shelves [{s1,'prefix'},{s2,'decoy'}]; tickets [{id:'created',lookupKey:'wanted',note:'member-effect',binId:'b1',shelfId:'s1'}].",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-dependency-boundaries \u00b7 dependency boundaries (sqlite-atomic-batch) > \"refuses an actual member lookup that conflicts with an earlier sibling write\" -> renamed as above",
+    "before": "Same veto with recordSeriesProgress {phase:'planning', committedSegments:1, committedWriteMembers:1, completedMembers:0, memberPath:[0], totalMembers:1}, and shelves [{s1,'prefix'},...] \u2014 i.e. this cell WAS the file's measurement that a capture's flush commits what was queued ahead of a planning refusal.",
+    "derived": "Identical to the live derivation; both substrates succeed and agree (rule 6). The old committed-segment-under-a-refusal measurement is no longer reachable in this shape, because there is no planning refusal left here.",
+    "measured": "Identical to the live substrate, byte for byte in the diagnostic.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g29-dependency-boundaries \u00b7 dependency boundaries (sqlite-interactive) > \"admits only the template and preserves a later sibling after an empty capture\"",
+    "before": "Success: only the template admitted; value {s1,'prefix'}; ticket 'existing' note 'looked-up'; no ticket INSERT.",
+    "derived": "Empty capture: no member, no dependent read; unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g29-dependency-boundaries \u00b7 dependency boundaries (sqlite-atomic-batch) > \"admits only the template and preserves a later sibling after an empty capture\"",
+    "before": "Same success end state.",
+    "derived": "Unaffected by N1.",
+    "measured": "Unchanged, green.",
+    "action": "unchanged"
+   }
+  ],
+  "disagreements": [
+   "DISAGREEMENT 1 \u2014 a plain create's duplicate key spends D-25's one recovery on the LIVE route only, so the two substrates no longer agree (rule 6). Cell: /private/tmp/viborm-n1/tests/raptor3/post-prep/g29-member-dependency.test.ts, `G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until the inner capture` (helper `runNestedSeriesRefusal`, line ~807). NOT re-expressed; the recorded expectation and the cell name stand. DERIVATION (before measuring): the payload is shelf.update{label,bins.updateMany[b1]{label:'outer-member', tickets.updateMany[t1]{notes.create{text:'created'}}, notes.update where {id:'wanted'}}}. `bin.tickets` is declared before `bin.notes`, so the inner ticket member's note create runs first; its id default is admitted at the inner member scope as 'wanted', which is the seeded note's own primary key. Rule 5: the executed INSERT's unique violation is the operation's failure \u2014 UniqueConstraintError, transaction rolled back on the live route (shelves 'initial', bins 'bin', the seeded note untouched), with the plan's three admissions ['other','other','wanted']. MEASURED, batch substrate (sqlite-atomic-batch, BoundaryBatch-style driver, no region): exactly the derivation \u2014 UniqueConstraintError 'Unique constraint violation', admissions ['other','other','wanted'], shelves [{s1,'prefix'}], bins [{b1,'outer-member','s1'}], notes [{wanted,'independent',null,b1}]. MEASURED, live substrate (sqlite-interactive): NotNullConstraintError 'Not-null constraint violation', admissions ['other','other','wanted',undefined,undefined] (FIVE), everything rolled back. A statement probe (temporary `PROBE_statements` dump of driver.statements, since reverted) shows the WHOLE plan running twice: statements 1-8 end in `INSERT INTO \"g29_nested_notes\" (\"id\",\"text\",\"binId\",\"ticketId\") VALUES (?,?,NULL,?)` (the duplicate 'wanted'); statements 9-16 re-run shelf SELECT/UPDATE, bin SELECT/UPDATE, ticket SELECT and end in `INSERT INTO \"g29_nested_notes\" (\"text\",\"binId\",\"ticketId\") VALUES (?,NULL,?)` \u2014 no id column, because the re-plan asked the id default again and this cell's three-value stub answered `undefined`. CODE SITES: src/query-engine/raptor3/shared/operation-context.ts:2333-2341 (`insert`, the non-batch path) records `attempt.rejectedInsert = {error, producer}` for ANY UniqueConstraintError from an insert that has a producer \u2014 no `missingChoices`/selected-constraint condition; :1391-1412 `recoveryRejection` then returns {kind:'insert'} (gated only on ownership 'standalone' and !committedProgress); :840-855 `regionAttempt` spends `spendRecovery()` and re-runs the body. The batch/in-place path is guarded much more tightly: src/query-engine/raptor3/shared/operation-context.ts:1203-1216 additionally requires !memberAdmissionStarted, a direct provider cause and a statement index, and src/query-engine/raptor3/commands/execution.ts:185-214 (`CommandExecution.recover`) requires `attempt.missingChoices.get(rejection.producer)` AND `matchesSelectedConstraint`. MY READING: the batch substrate is right and matches the contract; the live substrate's second attempt is the defect. D-25's re-plan converges for a lost create RACE with an adopt arm (connectOrCreate); a plain `create` whose key duplicates an existing row has no adopt arm, so the re-plan does not converge \u2014 it merely re-rolls whatever the id default yields. With a stable id the caller sees the same UniqueConstraintError after two attempts; with a generating default (a real cuid) the live route would INSERT a fresh id and SUCCEED while the batch route fails \u2014 the two substrates would then end in different states, which rule 6 calls a defect. The narrow fix I would propose to the owner: give `regionAttempt`'s insert arm the same missing-choice condition `CommandExecution.recover` applies, so the one recovery is spent only where an adopt arm exists. This path is PRE-EXISTING behaviour that N1 merely made reachable (ELEGANCE, 'Removing a refusal makes previously unreachable paths reachable'), so it is not N1's regression \u2014 but it is N1's to rule on. REPRODUCE: cd /private/tmp/viborm-n1 && TMPDIR=/private/tmp/viborm-n1-g29-tmp node scripts/run-vitest-safe.mjs tests/raptor3/post-prep/g29-member-dependency.test.ts \u2014 the cell's own diagnostic JSON carries admissions, dispatch and finalDatabase."
+  ],
+  "biome": "\"npx biome check --max-diagnostics=500 <file>\" on each file, BEFORE (worktree files were pristine at HEAD e772741eb, so the HEAD copy and the before state are the same bytes) and AFTER. No formatter was ever run on these files; formatting was written by hand and verified non-destructively with `npx biome format --stdin-file-path=<path> < <path> | diff` \u2014 all three are format-clean, and `biome check` reports zero `format/` diagnostics. g29-member-dependency.test.ts: BEFORE 31 errors + 1 info (1 lint/correctness/noUnusedVariables, 2 lint/performance/useTopLevelRegex, 29 lint/suspicious/noMisplacedAssertion) -> AFTER 36 errors + 1 info (1 noUnusedVariables, 2 useTopLevelRegex, 34 noMisplacedAssertion). Delta: +5 noMisplacedAssertion only \u2014 every assertion in this file lives in a helper (`assertMissingTicketFailure` contributes 4, the new batch branch of `runNestedSeriesRefusal` the rest), which is the file's pre-existing structure and the sole reason for the 29 baseline. The single noUnusedVariables is unchanged and pre-existing: `captureFailure` at line 82, unused before my change and after it. g29-dependency-choices.test.ts: BEFORE 50 errors (18 lint/performance/useTopLevelRegex, 32 lint/suspicious/noMisplacedAssertion) -> AFTER 51 errors (19 useTopLevelRegex, 32 noMisplacedAssertion). Delta: +1 useTopLevelRegex \u2014 the re-expressed cell needs `/^INSERT\\\\b.*g29_branch_holders/` where the retired one tested `/^(?:INSERT|UPDATE)\\\\b.*g29_branch_holders/`; it is written in the same inline style as the file's 18 existing ones, and hoisting it alone would make it the odd one out. g29-dependency-boundaries.test.ts: BEFORE 26 errors (1 assist/source/organizeImports, 8 lint/performance/useTopLevelRegex, 17 lint/suspicious/noMisplacedAssertion) -> AFTER 25 errors (1 organizeImports, 8 useTopLevelRegex, 16 noMisplacedAssertion). Delta: -1 noMisplacedAssertion (the retired `assertDependencyFailure` helper is gone). The organizeImports assist diagnostic is pre-existing and was deliberately NOT fixed: this file imports `v from \\\"@validation/primitives/v\\\"` after `isRecord`, and letting Biome sort that import re-introduces the validation barrel cycle.",
+  "unverified": [
+   "Each file is collected twice, by the `raptor3` and the `coverage-raptor3` vitest projects, so vitest's \"Tests N\" counts are 2 x the number of cells (14 + 10 + 4 = 28 cells -> 56 tests). Every cell figure in this report is per cell, not per test.",
+   "I ran only my three files (and, once, the whole-estate typecheck). I did not run the PGlite conformance suites, `tests/raptor3/g4/parity/ordered-observation.test.ts`, `tests/raptor3/post-prep/native-g29-member-dependency.test.ts` (which the runner's path filter also collects when given a bare `g29-member-dependency` substring \u2014 I always passed the full path, and its 14 cells are not mine), or pnpm test:all.",
+   "The `engine: \"shipped\"` leg of the three re-expressed matrix cells (`client.shelf.update`, run only when template === 'wanted') now answers IDENTICALLY to `createCommandEngine` on both profiles \u2014 I verified this with a temporary probe (since reverted) and then asserted the single full expectation for both legs, which is strictly stronger than the retired `assertShippedDependencyFailure` regex it replaces. I did not investigate why the client route and the command engine coincide on this branch; if a separate shipped engine is meant to be exercised here, that leg is now a duplicate of the commands leg.",
+   "The committed-segment measurement that `src/query-engine/raptor3/AGENTS.md` attributes to `g29-dependency-boundaries.test.ts` (\"a capture flushes, and on the batch route a flush COMMITS everything queued before it ... a planning refusal the capture then raises can no longer undo it\") is no longer observable in that file: with N1 the cell succeeds on both substrates, so nothing is left uncommitted. I did NOT add a replacement pin there (out of scope: re-express, do not invent cells). The equivalent measurement is now carried by the three re-expressed matrix cells of `g29-member-dependency.test.ts` on the sqlite-atomic-batch profile, which assert the durable segments AND `recordSeriesProgress.committedSegments`. Plan \u00a71 says \"g29-dependency-boundaries keeps its measurement\" \u2014 the integrator should decide whether that sentence still holds or whether the AGENTS pointer should move.",
+   "One cosmetic, meaning-preserving touch inside the NOT-re-expressed live nested-series cell: its two `profile === \"sqlite-atomic-batch\" ? A : B` label ternaries were hoisted VERBATIM into two consts above the new batch branch (`expectedShelfLabel`, `expectedBinLabel`). This was required because the batch branch's early `return` narrows `profile` and would otherwise make those in-place comparisons a TS2367 error. The expressions, and therefore the recorded expectation, are unchanged.",
+   "`tests/raptor3/post-prep/history-analysis.test.ts` appeared as modified in the worktree partway through my run. It is not one of my files and I never opened or wrote it; another agent owns it.",
+   "Originals of my three files are preserved at /private/tmp/viborm-n1-g29-tmp/backup/*.test.ts.orig; run logs and the two temporary probes' output are under /private/tmp/viborm-n1-g29-tmp/ (run-member-1/2/3.txt, run-choices-1/2.txt, run-bound-1/2.txt, run-final.txt, probe-nested.txt, probe-shipped.txt, typecheck.txt). Both probe instrumentations were reverted before the final runs. Nothing was committed, staged, reset, stashed or checked out."
+  ]
+ },
+ {
+  "group": "transitions",
+  "files": [
+   "/private/tmp/viborm-n1/tests/raptor3/transitions/own-write.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/transitions/membership-own-write.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/transitions/singular.ts",
+   "/private/tmp/viborm-n1/tests/raptor3/transitions/singular-lattice.ts"
+  ],
+  "finalRun": "Combined (all four wrappers, one vitest process, both projects `raptor3` + `coverage-raptor3`, both profiles): \"Tests  8 failed | 200 passed (208)\" / \"Test Files  4 failed | 4 passed (8)\" / \"Vitest resources: 5.70s wall, 728.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.\"\n\nPer file, verbatim:\n- own-write-commands.test.ts: \"Tests  6 failed | 30 passed (36)\". Remaining failures: \"G2 OwnWrite: commands sqlite-interactive > g2-own-coc-set-same\", \"G2 OwnWrite: commands sqlite-atomic-batch > g2-own-coc-set-same\", \"G2 OwnWrite: commands sqlite-atomic-batch > g2-own-delete-update-refused\" (each once per vitest project).\n- membership-own-write-commands.test.ts: \"Tests  2 failed | 14 passed (16)\". Remaining failure: \"G2 membership OwnWrite: commands sqlite-atomic-batch > g2-own-membership-disconnect\" (once per project).\n- singular-commands.test.ts: \"Tests  40 passed (40)\" / \"Test Files  2 passed (2)\".\n- singular-lattice-commands.test.ts: \"Tests  116 passed (116)\" / \"Test Files  2 passed (2)\".\n\nWhole-estate typecheck after the edits: \"TypeScript (whole estate, native): 5.31s wall, 4961.1 MiB peak sampled process-group RSS\" \u2014 zero diagnostics (not even the two permitted Pattern TS2345 ones).",
+  "cells": [
+   {
+    "name": "g2-own-delete-update-refused (own-write.ts)",
+    "before": "DESIGN \u00a76.2's mode-independent veto: NestedWriteError V7001 \"Nested operation 'update' on relation 'notes' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.\", final == initial, and an afterStatement guard that the refusal PRECEDES the root and relation effects.",
+    "derived": "Canonical to-many order runs `delete` (2nd) before `update` (3rd): the delete removes note 801, and the update's lookup is an ordered observation taken after it, finding nothing. Rule 3 -> the relation body's correlated refusal \"Cannot update relation 'notes': target record was not found for this parent.\" Nothing commits (final == initial); the root `name: \"root-effect\"` write now runs and rolls back, so the pre-effect guard is replaced by the ordered-observation witness (the target was already gone when the refusal was raised).",
+    "measured": "sqlite-interactive: exactly as derived \u2014 NestedWriteError V7001, that message, meta {relation:'notes'}, final == initial, and SQL order [SELECT author][SELECT note 801 for parent (the delete's disjoint planning read)][UPDATE authors SET name][DELETE note 801][SELECT note 801 for parent -> empty]. sqlite-atomic-batch: same end state (nothing commits, the premise aborts the batch) but the failure is the N3 assertion FLOOR, code V7006, message \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\", meta {relation:''}, plus a redacted cause chain. Cell is GREEN on interactive, RED on batch.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g2-own-update-coc-refused (own-write.ts)",
+    "before": "DESIGN \u00a76.2's veto: NestedWriteError V7001 \"Nested operation 'connectOrCreate' on relation 'notes' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.\", final == initial, pre-effect guard.",
+    "derived": "Canonical order runs `update` (3rd) before `connectOrCreate` (5th): the update renames member 802 to body \"changed\"; the conditional's lookup observes after it, finds 802, connects the member it found and mints nothing (the `create: {id:802, body:\"never\"}` arm is not taken). Success, value {id:1,email:'one@x',name:'root-effect'}; notes = [801 member-801/1, 802 \"changed\"/1, 803 free-803/null, 804 member-804/1, 899 untouched/2].",
+    "measured": "Exactly as derived on BOTH profiles. Cell GREEN.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g2-own-coc-set-same (own-write.ts)",
+    "before": "DESIGN \u00a76.2's veto: NestedWriteError V7001 \"Nested operation 'set' on relation 'notes' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.\", final == initial, pre-effect guard.",
+    "derived": "Canonical order runs `connectOrCreate` (5th) before `set` (6th): COC mints note 905 (body \"adopted-905\") and connects it; `set: [{id:905}]` then observes 905 and makes the membership EXACTLY {905}, so 801, 802 and 804 leave (authorId null). Success; notes = [801/null, 802/null, 803/null, 804/null, 899/2, 905 \"adopted-905\"/1]. (The green sibling g2-own-coc-set-distinct proves `set` disconnects the non-listed members, including the row COC just minted.)",
+    "measured": "Success, but the departing members KEEP their membership: notes = [801/1, 802/1, 803/null, 804/1, 899/2, 905/1]. Cause, from the dispatched SQL: the set's removal leg is UPDATE \"g2_own_notes\" SET \"authorId\" = NULL WHERE (\"authorId\" = ? AND NOT (\"id\" = NULL)) with params [1] \u2014 the retained member's key is rendered as the SQL literal NULL, so `NOT (id = NULL)` is never true and the removal matches no row. The green -distinct cell emits the same statement correctly: ... AND NOT (\"id\" = ?) with params [1,801]. Both substrates produce the same wrong end state, so no parity check catches it. Cell RED on both profiles; its recorded expectation left UNCHANGED per brief rule (e).",
+    "action": "disagreement"
+   },
+   {
+    "name": "g2-own-filter-write-refused (own-write.ts)",
+    "before": "NestedWriteError V7001 \"Nested operation 'update' on relation 'badge' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.\", final == initial, refusal precedes effects.",
+    "derived": "Not derived \u2014 the cell was green under the frozen engine, so the ruling did not change its answer (the read is one the enclosing own write consumes, rule 4).",
+    "measured": "Green on both profiles, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g2-own-membership-disconnect (membership-own-write.ts)",
+    "before": "DESIGN \u00a76.2's veto: NestedWriteError V7001 \"Nested operation 'upsert' on relation 'children' depends on an earlier 'disconnect' membership write in the same nested write. Split these operations into separate queries.\", meta {operation:'upsert', conflictsWith:'disconnect', relation:'children'}, final == initial, and the guard that NO carrier column or target row changed before the refusal.",
+    "derived": "`parent` is parent-held, so `parent: { disconnect: true }` contributes its null literals to the record's OWN write, which runs before the child relation's `after` phase. The `children.upsert` then looks up its global target (node 910 still exists) and requires the membership captured AFTER the disconnect \u2014 AGENTS.md: \"a foreign target is not an absent target\" \u2014 so the found arm is refused with \"Cannot upsert relation 'children': target record was not found for this parent.\" (V7001, meta {relation:'children'}, cause undefined), the create arm (id 911) is never reached, and nothing commits. New witness: the carrier was observed cleared before the refusal.",
+    "measured": "sqlite-interactive: exactly as derived (message, code, meta, cause, final == initial, carrier cleared first). SQL: [SELECT node 910][UPDATE nodes SET parent_type=NULL,parent_id=NULL WHERE id=910][SELECT node 910][SELECT nodes WHERE parent_type='tree.node.v1' AND parent_id=910 AND id=910 -> empty]. sqlite-atomic-batch: same failure identity, but the batch that carried the own write COMMITTED before the dependent membership read ran (the read is dispatched outside any batch, inTx=false), so node 910 ends with parent_type/parent_id NULL, and the failure meta additionally carries recordSeriesProgress {atomicity:'segment', phase:'member', committedSegments:1, completedMembers:0, committedWriteMembers:1}. Cell GREEN on interactive, RED on batch.",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g2-own-membership-connect (membership-own-write.ts)",
+    "before": "NestedWriteError V7001 \"Nested operation 'upsert' on relation 'parent' depends on an earlier 'connect' membership write in the same nested write. Split these operations into separate queries.\", meta {operation:'upsert', conflictsWith:'connect', relation:'parent'}.",
+    "derived": "Not derived \u2014 green under the frozen engine: the upsert's read is one the record's own write CONSUMES (rule 4), so the inherited sentence stays. Its assertion text is preserved verbatim, only re-shaped so the disconnect cell can branch beside it.",
+    "measured": "Green on both profiles, unchanged expectation.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g2-child-delete-connect-modify-refused (singular.ts)",
+    "before": "DESIGN \u00a76.2's veto: NestedWriteError V7001 \"Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.\", final == initial, and an afterStatement guard that the dependent modifier refuses BEFORE the deletion or the supplier's adoption.",
+    "derived": "Canonical to-one order runs `delete`, `connect`, `update`: the lax delete removes the incumbent b1, the connect adopts b-alt (stationId='s1'), and the selector-free modifier is correlated to the parent \u2014 its lookup is an ordered observation naming the member the connect established, so b-alt.tag becomes \"never\". Success, value {id:'s1',label:'selected'}; badges = [{b-alt,'never',5,'s1'}, {b-decoy,'untouched',9,'s2'}] (b1 deleted). Guard re-expressed to the ordering fact: b-alt is never seen carrying tag 'never' while its stationId is still NULL.",
+    "measured": "Exactly as derived on BOTH profiles. Cell GREEN. (The payload keeps its recorded spelling `tag: \"never\"`; that name belonged to the retired veto.)",
+    "action": "re-expressed"
+   },
+   {
+    "name": "g2-parent-delete-connect-refused (singular.ts)",
+    "before": "NestedWriteError V7001 \"Nested operation 'connect' on relation 'depot' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.\"",
+    "derived": "Not derived \u2014 green under the frozen engine, and it is the shape rule 4 names: a read the parent's own write consumes (the parent-held depotId). It is the same shape the unit's own pin file asserts.",
+    "measured": "Green on both profiles, unchanged.",
+    "action": "unchanged"
+   },
+   {
+    "name": "g2-lattice-delete-connect-update (singular-lattice.ts)",
+    "before": "Recipe outcome \"own-write\": NestedWriteError V7001 \"Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries.\", badges == initial, and the \"refused arms must have no effects\" guard.",
+    "derived": "Same shape as the singular cell above: `delete` removes incumbent b1, `connect` adopts b-alt, the selector-free `update` observes the adopted member and sets tag 'u'. New FinalState \"delete-adopt-modify\": badges = [{b-alt,'u','s1'}, {b-foreign,'untouched-foreign','s9'}, {b-free,'untouched-free',null}]. Success, value {id:'s1',label:'L'}.",
+    "measured": "Exactly as derived on BOTH profiles. Cell GREEN. The table's fourth outcome kind, \"own-write\", is now reached by no arm combination of this lattice and was removed with its assert branch (D-51 named in a comment at the type).",
+    "action": "re-expressed"
+   }
+  ],
+  "disagreements": [
+   "DEFECT 1 \u2014 the `set` removal leg loses the retained key when the retained member is the one an earlier sibling produced (`g2-own-coc-set-same`, RED on sqlite-interactive AND sqlite-atomic-batch, both vitest projects). Reproduce: cd /private/tmp/viborm-n1 && TMPDIR=/private/tmp/viborm-n1-transitions-tmp node scripts/run-vitest-safe.mjs run tests/raptor3/transitions/own-write-commands.test.ts. Payload: author.update({where:{id:1}, data:{name:'root-effect', notes:{ set:[{id:905}], connectOrCreate:[{where:{id:905}, create:{id:905, body:'adopted-905'}}] }}}). Canonical order runs connectOrCreate then set. Emitted SQL: UPDATE \"g2_own_notes\" SET \"authorId\" = NULL WHERE (\"authorId\" = ? AND NOT (\"id\" = NULL)) with params [1] \u2014 the retained member's key is the SQL literal NULL, so `NOT (id = NULL)` is NULL and the removal matches nothing; members 801, 802, 804 keep authorId 1. The green sibling g2-own-coc-set-distinct (set:[{id:801}], a key no sibling produces) emits the same statement correctly: ... AND NOT (\"id\" = ?) with params [1,801]. Derived end state: notes = [801/null, 802/null, 803/null, 804/null, 899/2, 905 'adopted-905'/1], outcome success. Measured end state (identical on both substrates, so the tx-vs-batch parity check is blind to it): notes = [801/1, 802/1, 803/null, 804/1, 899/2, 905 'adopted-905'/1]. My reading: the engine is wrong \u2014 this is N1's established-producer/ordered-observation seam failing to carry the observed key into the set's exclusion predicate, and it fails SILENTLY (a predicate no row satisfies) rather than as a refusal, which is the worst failure mode for a membership verb. Per brief rule (e) the cell's recorded expectation was left UNCHANGED; the exact re-expression to install once the predicate carries the key is written in the comment beside `setSame` in tests/raptor3/transitions/own-write.ts.",
+   "DEFECT 2 \u2014 the batch route loses the correlated refusal's identity to the N3 assertion floor (`g2-own-delete-update-refused`, GREEN on sqlite-interactive, RED on sqlite-atomic-batch). Same reproduce command. Payload: author.update({where:{id:1}, data:{name:'root-effect', notes:{ update:[{where:{id:801}, data:{body:'never'}}], delete:[{id:801}] }}}). Both routes agree on the end state (nothing commits) and on the class (NestedWriteError). Live: code V7001, message \"Cannot update relation 'notes': target record was not found for this parent.\", meta {relation:'notes'}, cause undefined. Batch: code V7006 (NESTED_WRITE_ASSERTION_FAILED), message \"Nested write assertion failed: a batch precondition (e.g. a connect/disconnect target or ownership check) did not hold.\", meta {relation:''}, plus a redacted cause chain. The batch's completed statements show the ladder re-probing after the abort \u2014 SELECT id FROM g2_own_authors WHERE (id=1 AND id=1) and SELECT id FROM g2_own_notes WHERE (authorId=1 AND id=801 AND id=801) \u2014 which, run after the segment rolled back, finds note 801 present again and therefore cannot attribute the rejection to the premise that failed. That is a premise whose truth depends on an earlier write of the SAME batch: it is not re-probable after a rollback. My reading: the engine is wrong \u2014 brief rule 3 gives one correlated refusal for this fact and ELEGANCE requires error identity to survive the transport; this is the same family as plan \u00a75 C's \"the batch route's typed errors lost to QueryError\". The cell now pins the derived (live-verified) answer on both profiles and stays red on batch.",
+   "DEFECT 3 (or an authorised packaging difference the brief's rule 6 forbids me to pin) \u2014 the two substrates disagree on the END STATE when a dependent membership observation follows the record's own write (`g2-own-membership-disconnect`, GREEN on sqlite-interactive, RED on sqlite-atomic-batch). Reproduce: TMPDIR=/private/tmp/viborm-n1-transitions-tmp node scripts/run-vitest-safe.mjs run tests/raptor3/transitions/membership-own-write-commands.test.ts. Payload: node.update({where:{id:910}, data:{ children:{ upsert:{where:{id:910}, create:{id:911,label:'must not create'}, update:{label:'must not update'}} }, parent:{disconnect:true} }}). Both routes raise the same failure (NestedWriteError V7001 \"Cannot upsert relation 'children': target record was not found for this parent.\"). Live: the transaction rolls back, node 910 keeps parent_type='tree.node.v1'/parent_id=910. Batch: the barrier's batch \u2014 [assert node 910 exists][UPDATE g2_membership_nodes SET parent_type=NULL, parent_id=NULL WHERE id=910][SELECT node 910] \u2014 COMMITS, and the dependent membership read is then dispatched OUTSIDE any batch (inTx=false), so the disconnect is durable: node 910 ends with parent_type=NULL/parent_id=NULL, and the failure meta additionally carries recordSeriesProgress {atomicity:'segment', phase:'member', committedSegments:1, completedMembers:0, committedWriteMembers:1}. Note the tension the integrator must resolve: AGENTS.md:986-996 says the dependent read rides IN the write's batch with its `required` row as a premise \"so an absent target aborts the batch before anything commits\" (which is what DEFECT 2's cell measures), while the AGENTS.md paragraph at :1016-1019 and plan \u00a71 case 3 say a dependent observation on a batch-only transport COMMITS the segment before it and reports it as progress (which is what this cell measures). Brief rule 6 (\"the tx substrate and the batch substrate must agree on the end state; a disagreement is a DEFECT, not something to pin\") is why I did not make `final` profile-dependent. The cell pins the derived, live-verified answer (nothing commits, meta exactly {relation:'children'}) and stays red on batch. If the committed segment is in fact the intended contract for this shape, the fix is at the contract, not at this cell, and the cell's `final` and `meta` then need a profile branch via `prepare(controls).profile` (the precedent is tests/raptor3/transitions/supplier-continuations.ts:36).",
+   "REQUESTED CHANGE in a file I do not own (tests/raptor3/contracts.ts) \u2014 two scenario ids now misdescribe their cells: `g2-own-update-coc-refused` and `g2-child-delete-connect-modify-refused` both EXECUTE now. I did not rename them: the ids are pinned by G2_OWN_WRITE_CASE_IDS / G2_SINGULAR_CASE_IDS in tests/raptor3/contracts.ts (asserted by the -legacy wrappers, which I may not edit) and are the recorded cell identities inside sealed evidence receipts under docs/architecture/raptor3-evidence/** (post-g3-fact-ownership/*, g3-prep-06-review-repair/*), which ELEGANCE says to preserve. Each cell instead carries a comment naming what it now pins. If Arnaud wants the rename, it is one edit in contracts.ts plus one in the table, and the evidence correspondence is knowingly broken. `g2-own-delete-update-refused` keeps its name honestly (it still refuses, now for the correlated reason)."
+  ],
+  "biome": "Per file, `npx biome check --max-diagnostics=200 <file>`, category by category. No `format` and no `parse` diagnostics before or after in any of the four; every change was made by hand and the formatter was never run on these files.\n- own-write.ts: before 23 (lint/suspicious/noMisplacedAssertion 23) -> after 24 (noMisplacedAssertion 24). +1, same category: one added assertion (the ordered-observation witness) inside the fixture's `assert()` method, which is this file's whole idiom \u2014 every assertion in these tables is a noMisplacedAssertion.\n- membership-own-write.ts: before 19 (noMisplacedAssertion 17, lint/complexity/useSimplifiedLogicExpression 1, lint/style/useObjectSpread 1) -> after 20 (noMisplacedAssertion 18, useSimplifiedLogicExpression 1, useObjectSpread 1). +1 noMisplacedAssertion (the carrier-cleared witness). The other two are the pre-existing ones on the pre-existing lines (:152 `!laterConnect && !isDeepStrictEqual(...)`, :212 `Object.assign({}, failure.meta)`); I deliberately consolidated the two refusal branches into one `Object.assign` + one `assert.deepEqual` so no second useObjectSpread was introduced.\n- singular.ts: before 25 (noMisplacedAssertion 24, lint/style/noNegationElse 1) -> after 21 (noMisplacedAssertion 20, noNegationElse 1). -4: the retired refusal branch's four assertions are gone.\n- singular-lattice.ts: before 16 (noMisplacedAssertion 16) -> after 13 (noMisplacedAssertion 13). -3: the retired \"own-write\" outcome's three assertions are gone.",
+  "unverified": [
+   "The `-legacy.test.ts` wrappers of these four tables (own-write-legacy, membership-own-write-legacy, singular-legacy, singular-lattice-legacy) were not run \u2014 they are not my targets. They should follow: the `-commands` wrapper already evaluates `baseline.fixture.assert(baseline.observation)` against the default-route client with the same fixture, which is exactly what the legacy wrapper does, and I changed no scenario id, so their `assert.deepEqual(ids, G2_*_CASE_IDS)` preamble is untouched.",
+   "No PGlite / shared-family conformance cell was run (none of my files is one), so the tx-vs-batch parity booleans of the conformance harness were not exercised; DEFECT 3's substrate disagreement is measured on the SQLite profiles of this harness only.",
+   "I did not determine whether DEFECT 2's V7006 floor and DEFECT 3's committed segment are owned by N1 or by a later unit (N3b's attribution ladder / N4's committed-segment reporting). I judged both against the brief's rules 3 and 6 and the AGENTS.md paragraphs, and flagged the AGENTS.md internal tension in DEFECT 3 rather than choosing a winner.",
+   "`pnpm test:all` was not run (forbidden by the task). Only the four `-commands` wrappers and `node scripts/run-typecheck.mjs` were run.",
+   "Whether the `NOT (\"id\" = NULL)` predicate of DEFECT 1 also reaches non-`set` verbs (e.g. `deleteMany`/`updateMany` exclusions) or other providers was not probed \u2014 I only measured the two cells of my own table that exercise it."
+  ]
+ }
+]

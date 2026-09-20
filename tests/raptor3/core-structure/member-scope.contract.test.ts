@@ -446,7 +446,7 @@ function surroundingReadScenario(): ScenarioDefinition {
           },
         },
       };
-      let forbiddenWrite = false;
+      let dependentWrite = false;
       return {
         publicInput: { model: "container", operation: "update", args },
         requiredCuts: [],
@@ -524,30 +524,24 @@ function surroundingReadScenario(): ScenarioDefinition {
             isWrite(completion) &&
             completion.sql.includes("cs03_scope_artifacts") &&
             completion.parameters.includes("must-not-run")
-          )
-            forbiddenWrite = true;
+          ) {
+            dependentWrite = true;
+            phases.push("effect:reader");
+          }
         },
         assert(observation) {
-          assert.equal(observation.outcome.kind, "failure");
-          if (observation.outcome.kind === "failure") {
-            assert.equal(observation.outcome.failure.name, "NestedWriteError");
-            assert.equal(observation.outcome.failure.code, "V7001");
-            assert.equal(isRecord(observation.outcome.failure.meta), true);
-            if (isRecord(observation.outcome.failure.meta)) {
-              assert.equal(
-                observation.outcome.failure.meta.relation,
-                "artifacts"
-              );
-              assert.equal(
-                observation.outcome.failure.meta.operation,
-                "update"
-              );
-              assert.equal(
-                observation.outcome.failure.meta.conflictsWith,
-                "create"
-              );
-            }
-          }
+          // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on
+          // relation 'artifacts' depends on an earlier 'create' target write in
+          // the same nested write. Split these operations into separate queries.",
+          // meta relation `artifacts` / operation `update` / conflictsWith
+          // `create`) — the surrounding read was refused because a member of the
+          // nested branch admits the row it names. The veto is retired: the
+          // surrounding read is an ORDERED OBSERVATION taken after those member
+          // creates, so it finds the row member `n2` admitted and updates it. What
+          // this cell owns is unchanged and still asserted below: each scope
+          // admits its own values, and the surrounding read is admitted and taken
+          // in the SCOPE of its own member, after the nested branch's effects.
+          requireSuccess(observation, { id: "root" });
           assert.equal(admissions[0], "writer:template-write");
           assert.equal(admissions.includes("reader:template-read"), true);
           assert.equal(admissions.includes("writer:shared"), true);
@@ -576,24 +570,29 @@ function surroundingReadScenario(): ScenarioDefinition {
             phases.join(" -> ")
           );
           assert.equal(surroundingCapture < surroundingReadAdmission, true);
-          assert.equal(forbiddenWrite, false);
-          if (controls.profile === "sqlite-interactive")
-            assert.deepEqual(observation.final, observation.initial);
-          else
-            assert.deepEqual(observation.final.artifacts, [
-              {
-                lookup: "safe",
-                text: "expanded-write",
-                nodeId: "n1",
-                checkId: "c1",
-              },
-              {
-                lookup: "shared",
-                text: "expanded-write",
-                nodeId: "n2",
-                checkId: "c1",
-              },
-            ]);
+          // The write the veto forbade is the one the observation now consumes:
+          // it is dispatched after the nested branch's last effect and after its
+          // own member-scope admission, never before them.
+          assert.equal(dependentWrite, true);
+          const dependentEffect = phases.indexOf("effect:reader");
+          assert.equal(dependentEffect > nestedWriteEffect, true);
+          assert.equal(dependentEffect > surroundingReadAdmission, true);
+          // Both routes reach one end state: the row member `n2` created carries
+          // the surrounding member's update; `n1`'s own row is untouched by it.
+          assert.deepEqual(observation.final.artifacts, [
+            {
+              lookup: "safe",
+              text: "expanded-write",
+              nodeId: "n1",
+              checkId: "c1",
+            },
+            {
+              lookup: "shared",
+              text: "must-not-run",
+              nodeId: "n2",
+              checkId: "c1",
+            },
+          ]);
         },
       };
     },

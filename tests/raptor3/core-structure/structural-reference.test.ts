@@ -5,13 +5,13 @@ import {
   NestedWriteError,
   NotFoundError,
   UnsupportedOperationError,
-  VibORMErrorCode,
 } from "@errors";
 import {
   Commands,
   type Choose,
   type RecordCommand,
   type SelectedSeries,
+  type SeriesCapture,
 } from "@query-engine/raptor3/commands/commands";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
@@ -101,6 +101,25 @@ function hasWrite(
   return statements.some(
     ({ sql }) => /^(?:INSERT|UPDATE|DELETE)\b/.test(sql) && sql.includes(table)
   );
+}
+
+/** The dispatch positions of the statements a claim about ORDER names (N1). */
+function statementIndexes(
+  statements: readonly StatementObservation[],
+  matches: (sql: string) => boolean
+): number[] {
+  const positions: number[] = [];
+  for (const [index, { sql }] of statements.entries())
+    if (matches(sql)) positions.push(index);
+  return positions;
+}
+
+/** A read of `table`, never one of the batch route's premise assertions. */
+function reads(table: string): (sql: string) => boolean {
+  return (sql) =>
+    sql.startsWith("SELECT") &&
+    sql.includes(`FROM "${table}"`) &&
+    !sql.includes("__viborm_assert__");
 }
 
 function prioritySchema(nextTicketId: () => string) {
@@ -295,53 +314,83 @@ async function runPriorityCase(
     const occurrence = commands.analyze(root);
 
     let failure: unknown;
+    let produced: unknown;
     try {
-      await context.run(() =>
+      produced = await context.run(() =>
         commands.execution.complete(occurrence, admitted)
       );
     } catch (caught) {
       failure = caught;
     }
 
-    assert(failure instanceof NestedWriteError);
-    assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
+    // N1 (D-51): pinned DESIGN §6.2's veto — WHICH of the two dependent connects
+    // was refused first ("Nested operation 'connect' on relation '<edge>' depends
+    // on an earlier 'create' target write in the same nested write. Split these
+    // operations into separate queries.", member-major: member zero's guard-observed
+    // active arm before member one's earlier read), with its planning progress and
+    // no ticket written. The veto is retired: each connect is an ORDERED
+    // OBSERVATION taken at its consumer's execution point, after the bins member
+    // that creates its target, so both execute in body order and the cell now pins
+    // which member each observation resolves against — and that no observation is
+    // taken for the arm the guard did not activate.
+    assert.equal(failure, undefined);
+    assert.deepEqual(produced, { id: "s1", label: "prefix" });
     assert.deepEqual(admissions, [
       { scope: "template", value: "other" },
       { scope: "member", value: "first" },
       { scope: "member", value: "second" },
     ]);
-    const expectedRelation = lateFound ? "lateTicket" : "earlyTicket";
-    assert.equal(failure.meta.relation, expectedRelation);
-    assert.equal(failure.meta.operation, "connect");
-    assert.equal(failure.meta.conflictsWith, "create");
-    if (profile === "sqlite-atomic-batch") {
-      assert.deepEqual(failure.meta.recordSeriesProgress, {
-        atomicity: "segment",
-        phase: "planning",
-        committedSegments: 1,
-        committedWriteMembers: 1,
-        completedMembers: 0,
-        memberPath: [lateFound ? 0 : 1],
-        totalMembers: 2,
-      });
-    } else {
-      assert.equal(failure.meta.recordSeriesProgress, undefined);
-    }
-    assert.equal(hasWrite(driver.statements, "cs01_priority_tickets"), false);
-    assert.deepEqual(
-      database
-        .prepare("SELECT id,label FROM cs01_priority_shelves ORDER BY id")
-        .all(),
-      [
-        {
-          id: "s1",
-          label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
-        },
-      ]
+    assert.equal(hasWrite(driver.statements, "cs01_priority_tickets"), true);
+    const created = statementIndexes(driver.statements, (sql) =>
+      sql.startsWith('INSERT INTO "cs01_priority_tickets"')
     );
+    const observed = statementIndexes(
+      driver.statements,
+      reads("cs01_priority_tickets")
+    );
+    assert.equal(created.length, 2);
+    // The untaken arm opens no observation; the taken ones are read after BOTH
+    // creates, never at the capture phase that precedes them.
+    assert.equal(observed.length, lateFound ? 2 : 1);
+    assert.equal(observed[0]! > created[1]!, true);
+    // One end state for both routes: member one's ticket answers the earlier
+    // read, member zero's answers the guard-observed active arm, and the arm the
+    // guard found absent creates its holder instead of connecting one.
     assert.deepEqual(
-      database.prepare("SELECT * FROM cs01_priority_tickets").all(),
-      []
+      {
+        shelves: database
+          .prepare("SELECT id,label FROM cs01_priority_shelves ORDER BY id")
+          .all(),
+        tickets: database
+          .prepare(
+            "SELECT id,note,binId FROM cs01_priority_tickets ORDER BY id"
+          )
+          .all(),
+        earlyHolders: database
+          .prepare(
+            "SELECT id,shelfId,ticketId FROM cs01_priority_early_holders ORDER BY id"
+          )
+          .all(),
+        lateHolders: database
+          .prepare(
+            "SELECT id,shelfId,ticketId FROM cs01_priority_late_holders ORDER BY id"
+          )
+          .all(),
+      },
+      {
+        shelves: [{ id: "s1", label: "prefix" }],
+        tickets: [
+          { id: "first", note: "member", binId: "b1" },
+          { id: "second", note: "member", binId: "b2" },
+        ],
+        earlyHolders: [{ id: "early", shelfId: "s1", ticketId: "second" }],
+        lateHolders: lateFound
+          ? [{ id: "late", shelfId: "s1", ticketId: "first" }]
+          : [
+              { id: "late", shelfId: "s1", ticketId: null },
+              { id: "missing", shelfId: "s1", ticketId: null },
+            ],
+      }
     );
   } finally {
     await client.$disconnect();
@@ -351,11 +400,11 @@ async function runPriorityCase(
 
 for (const profile of ["sqlite-interactive", "sqlite-atomic-batch"] as const) {
   describe(`CS-01 member-major/read-major priority (${profile})`, () => {
-    it("chooses member zero's later guard-observed active-arm conflict before member one's earlier read", async () => {
+    it("connects member one's ticket at the earlier read, then member zero's at the later guard-observed active arm", async () => {
       await runPriorityCase(profile, true);
     });
 
-    it("reobserves the guard-observed absence, ignores that untaken arm, and reports member one's earlier read", async () => {
+    it("reobserves the guard-observed absence, creates through that untaken arm, and connects member one's ticket at the earlier read", async () => {
       await runPriorityCase(profile, false);
     });
   });
@@ -569,7 +618,19 @@ async function executeReconciliationPublication(
     analysis,
     mutation: { kind: "update", raw: mutationRaw },
   };
-  commands.place(root, commands.selectedSeries(series), "after", origin);
+  const target = commands.place(
+    root,
+    commands.selectedSeries(series),
+    "after",
+    origin
+  );
+  // The recipe's own second half (`RelationBody.requireSeriesCapture`): a
+  // selected series is always placed with its capture. Under DESIGN §6.2's
+  // veto this consumer never reached execution and the capture could be left
+  // out; N1 executes it, and a series without its capture is not the shape the
+  // public recipe builds.
+  const capture: SeriesCapture = { kind: "captureSeries", target };
+  commands.place(root, capture, "capture");
   for (const field of engineSchema.keys(schema.pair)) root.fields.field(field);
   const occurrence = commands.analyze(root);
   return context.run(() => commands.execution.complete(occurrence, admitted));
@@ -633,28 +694,49 @@ for (const testCase of [
           label: "parent",
         });
       } else {
+        // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'updateMany' on
+        // relation 'kids' depends on an earlier 'upsert' membership write in the
+        // same nested write. Split these operations into separate queries.",
+        // meta operation `updateMany` / conflictsWith `upsert`), raised before any
+        // statement. The reconciliation it guarded is unchanged — an agreeing
+        // contribution is still admitted in either key order, a conflicting one is
+        // still the `owns 'pa, pb'` refusal — and the consumer now takes its
+        // MEMBERSHIP observation after the upsert published that contribution.
         const diagnostic =
           failure instanceof Error
             ? `${failure.name}: ${failure.message}`
             : `thrown: ${String(failure)}`;
-        assert(failure instanceof NestedWriteError, diagnostic);
-        assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
-        assert.equal(failure.meta.operation, "updateMany");
-        assert.equal(failure.meta.conflictsWith, "upsert");
-        assert.equal(failure.meta.relation, "kids");
+        assert.equal(failure, undefined, diagnostic);
+        assert.deepEqual(value, { a: "north", b: "west", label: "parent" });
       }
-      if (testCase === "agree-partial" || testCase === "agree-reordered")
-        assert.equal(driver.statements.length, 0);
+      if (testCase === "agree-partial" || testCase === "agree-reordered") {
+        const published = statementIndexes(driver.statements, (sql) =>
+          sql.startsWith('UPDATE "cs01_reconcile_kids" SET "parent_a"')
+        );
+        assert.equal(published.length, 1);
+        const observed = statementIndexes(
+          driver.statements,
+          reads("cs01_reconcile_kids")
+        ).filter((index) => index > published[0]!);
+        const consumed = statementIndexes(driver.statements, (sql) =>
+          sql.startsWith('UPDATE "cs01_reconcile_kids" SET "label"')
+        );
+        // The observation is taken between the publication and its consumer, in
+        // either key order: the capture no longer precedes the upsert it depends on.
+        assert.equal(observed.length, 1);
+        assert.equal(consumed.length, 1);
+        assert.equal(observed[0]! < consumed[0]!, true);
+      }
       assert.deepEqual(
         database
           .prepare("SELECT a,b,label FROM cs01_reconcile_pairs ORDER BY a,b")
           .all(),
-        testCase === "agree-complete"
-          ? [
+        testCase === "conflict"
+          ? [{ a: "old", b: "pair", label: "old" }]
+          : [
               { a: "north", b: "west", label: "parent" },
               { a: "old", b: "pair", label: "old" },
             ]
-          : [{ a: "old", b: "pair", label: "old" }]
       );
       assert.deepEqual(
         database
@@ -662,20 +744,22 @@ for (const testCase of [
             "SELECT id,slug,label,parent_a,parent_b FROM cs01_reconcile_kids"
           )
           .get(),
-        testCase === "agree-complete"
+        testCase === "conflict"
           ? {
-              id: "target",
-              slug: "found",
-              label: "first",
-              parent_a: "north",
-              parent_b: "west",
-            }
-          : {
               id: "target",
               slug: "found",
               label: "stored",
               parent_a: "old",
               parent_b: "pair",
+            }
+          : {
+              id: "target",
+              slug: "found",
+              // The consumer's own data, named "must-not-run" by the veto that
+              // refused it; the member the observation finds is updated (D-51).
+              label: testCase === "agree-complete" ? "first" : "must-not-run",
+              parent_a: "north",
+              parent_b: "west",
             }
       );
     } finally {

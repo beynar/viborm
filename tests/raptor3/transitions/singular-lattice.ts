@@ -26,10 +26,16 @@ type FinalState =
   | "delete-create"
   | "orphan-adopt-modify"
   | "orphan-create-modify"
+  | "delete-adopt-modify"
   | "delete-create-modify";
+// N1 (D-51) removed the fourth outcome this table carried, "own-write": the
+// veto it named ("Nested operation 'update' on relation 'badge' depends on an
+// earlier 'delete' target write in the same nested write. Split these
+// operations into separate queries.") is retired, and its one cell now names
+// the state the arms produce. No arm combination of this lattice reaches it.
 type Recipe = {
   arms: readonly (keyof typeof publicArms)[];
-  outcome: FinalState | "validation" | "occupancy" | "own-write";
+  outcome: FinalState | "validation" | "occupancy";
   /** Exact declaration-order names from the public validation contract. */
   rejectedKinds?: string;
 };
@@ -149,7 +155,10 @@ const recipes: Record<(typeof G2_LATTICE_CASE_IDS)[number], Recipe> = {
   },
   "g2-lattice-delete-connect-update": {
     arms: ["delete", "connect", "update"],
-    outcome: "own-write",
+    // The arms run `delete`, `connect`, `update`: the incumbent goes, the
+    // alternate is adopted, and the selector-free modifier observes the member
+    // the connect established.
+    outcome: "delete-adopt-modify",
   },
   "g2-lattice-delete-coc-update": {
     arms: ["delete", "connectOrCreate", "update"],
@@ -241,17 +250,15 @@ export const singularLatticeScenarios: ScenarioDefinition[] =
           createdModified,
           orphan,
         ],
+        "delete-adopt-modify": [adoptedModified, foreign, free],
         "delete-create-modify": [alternate, foreign, free, createdModified],
       };
-      const refused =
-        recipe.outcome === "validation" || recipe.outcome === "own-write";
+      const refused = recipe.outcome === "validation";
       const failed = refused || recipe.outcome === "occupancy";
       const final = {
         stations: initial.stations,
         badges:
-          recipe.outcome === "validation" ||
-          recipe.outcome === "own-write" ||
-          recipe.outcome === "occupancy"
+          recipe.outcome === "validation" || recipe.outcome === "occupancy"
             ? initial.badges
             : expectedBadges[recipe.outcome],
       };
@@ -326,15 +333,6 @@ export const singularLatticeScenarios: ScenarioDefinition[] =
             assert.equal(
               failure.message,
               `Validation failed for update: Unsupported to-one operation combination: ${recipe.rejectedKinds}`
-            );
-            return;
-          }
-          if (recipe.outcome === "own-write") {
-            assert.equal(failure.name, "NestedWriteError");
-            assert.equal(failure.code, "V7001");
-            assert.equal(
-              failure.message,
-              "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
             );
             return;
           }

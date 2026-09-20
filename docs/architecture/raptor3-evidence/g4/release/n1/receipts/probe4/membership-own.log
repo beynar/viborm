@@ -1,0 +1,8 @@
+ ❯ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests | 1 failed) 66ms
+ ❯ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests | 1 failed) 68ms
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts > G2 membership OwnWrite: commands sqlite-atomic-batch > g2-own-membership-disconnect
+AssertionError: Expected values to be strictly deep-equal:
+ FAIL  |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts > G2 membership OwnWrite: commands sqlite-atomic-batch > g2-own-membership-disconnect
+AssertionError: Expected values to be strictly deep-equal:
+ Test Files  2 failed (2)
+      Tests  2 failed | 14 passed (16)

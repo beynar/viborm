@@ -966,20 +966,79 @@ set-oriented", the shipped `RelationWritePart.buildUpdateMany`/`buildDeleteMany`
 A junction member set and a relation-bearing `updateMany` still capture, because
 one statement cannot express them. The `set` command is a WRITE with no read: it
 registers the unknown row-set footprint the shipped `appendTarget(unknown)`
-registered, so a LATER read of the same model is still analysed against it, and
-`readTarget`'s refusal is untouched — it fires exactly when a planning read that
-does exist follows a sibling write it cannot be proven disjoint from.
+registered, so a LATER read of the same model is still analysed against it.
 
-The capture phase runs before the effect phase, and that is MEASURED, not
-stylistic. A capture flushes, and on the batch route a flush COMMITS everything
-queued before it — so a capture placed after a sibling effect makes that effect
-DURABLE, and a planning refusal the capture then raises can no longer undo it
-(`tests/raptor3/post-prep/g29-dependency-boundaries.test.ts` measures exactly
-this: with the two passes merged into the declared body order, the earlier
-sibling `create` commits at `committedSegments: 1` before the member lookup
-refuses). Sibling order is restored where it was actually inverted — by
-compiling a set mutation as ONE statement instead of a capture — never by moving
-the captures that remain. Do not merge the passes.
+**A dependent read is an ordered observation (N1, D-51).** A nested lookup
+whose answer an earlier write of the same operation can change — the overlap
+the dependency pass computes in `checkPair` → `readTarget` / `readMembership`
+(disjoint, equal, unknown) — is taken at its consumer's execution point, after
+that write; the pass spends the fact on placement (`Commands.depend`), not on
+a refusal. Execution order is the run order of `CommandExecution.run`: the
+`before` children, the record's own write, the captures, the `after` children,
+each in body order — where the body order is the relation body's canonical
+verb order (`mutationOrder`, `collectionMutationOrder`: a to-many runs
+`disconnect, delete, update, upsert, connectOrCreate, set, updateMany,
+deleteMany, connect, create, createMany`), relations in declaration order,
+and each payload ENTRY of a verb is its own mutation with its own origin (a
+set's targets share the set's). The write's and the read's execution points
+are the two children of their nearest common ancestor on each path; a
+membership contribution executes with the record whose fields carry it (a
+parent-held choice publishes the parent's key for the parent's own UPDATE);
+the read's point is the occurrence that RUNS it — its early `before` lookup
+or its `capture` when one is placed. A mutation never depends on its own
+effects, which stand behind its read by construction. A read already behind
+its write is marked `Selection.dependent`: on the live route nothing changes
+(sequential dispatch already answers it); on the batch route `runSelection`
+reads it through the barrier — `OperationContext.flush`, which submits the
+queued unit and reads in the same native batch, behind the writes; its
+trailing premises step aside as for a planning read (they protect writes not
+yet queued) while the premises stated ahead of the queued writes ride with
+them, and what the consumer requires of the row rides that batch as a premise
+ahead of the read (`ObservationPremise`: the row present, or — an upsert's
+found requirement — no row outside the membership, `Queries.outsideWhere`,
+NULL-safe), so a target that is not what the consumer needs aborts the batch
+before anything commits. The consumer's write then follows in the next batch
+— a committed segment on a batch-only transport, D-51's succession of
+statements, after which D-25's recovery is gone (`committedProgress`) and a
+later integrity failure leaves that segment durable, reported as progress. A
+read that would run first — a `before` lookup, a capture, a parent-held
+choice whose subtree reads what the parent's own write changes — moves to the
+`after` phase, to its consumer's execution point: behind the write, ahead of
+the first `after` effect of its own or a later mutation by origin order
+(`Link` and `Removal` carry theirs). The one shape no order satisfies is a
+read the ancestor's own write CONSUMES (`Assignments.consumes`: a parent-held
+target's key, the retired engine's "vacate then supply" answer) — it keeps
+the inherited sentence "depends on an earlier … write … Split these
+operations", which now names exactly that: an earlier write the read cannot
+follow. What a membership read depends on: for a junction, any link, removal
+or member set of the same junction table (either side, any parent — a
+self-referential inverse is the same rows; the overlap is not computed finer
+than the table, because an observation costs a placement, not a refusal); for
+a reference, a record write of the member side's foreign key or of the
+parent's own referenced key (a key transition, a self-held key); a CREATE
+whose written literal for the member-side key — followed through its
+producer to a known or located identity, `literalOf` — is null or another
+parent's key makes no member of this parent and is disjoint, while an UPDATE
+of that key may take a member out and is observed whatever it writes. At the ladder, a premise stated BEHIND the
+unit's own writes (an observation's requirement the unit's own delete or
+disconnect falsified) is not re-probable after the rollback; when every
+premise ahead of the writes holds now and exactly one stands behind them, the
+ladder attributes that one, so the refusal keeps its correlated identity on
+an index-free transport. Once members are expanded (`Commands.expanded`)
+nothing moves any more; a read placed by construction is already behind every
+template write it may depend on, so `expandSeries`'s pass only marks. The
+array route keeps refusing a member that needs a dynamic read (D-46,
+`preparesBatch`). Pins: `tests/raptor3/g4/parity/ordered-observation.test.ts`.
+
+A capture that depends on nothing keeps its place ahead of the effects, and
+the reason is MEASURED, not stylistic: a capture flushes, and on the batch
+route a flush COMMITS everything queued before it — so a capture placed after
+a sibling effect makes that effect DURABLE, and a planning refusal the capture
+then raises can no longer undo it (`tests/raptor3/post-prep/g29-dependency-boundaries.test.ts`
+measures the committed segment). A DEPENDENT capture pays exactly that price by
+design (N1): the earlier effect is what it must observe, and on a batch-only
+transport the segment it commits is the succession D-51 accepts, reported as
+the operation's progress.
 
 A to-one `disconnect: true` or `delete: true` is LAX (DESIGN §5.3: an empty
 slot is a no-op) and an explicit member selector is STRICT (a missing target

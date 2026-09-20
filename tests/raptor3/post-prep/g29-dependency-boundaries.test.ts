@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { NestedWriteError, VibORMErrorCode } from "@errors";
+import { NestedWriteError } from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -242,42 +242,6 @@ function failureObservation(failure: unknown): object {
   return { thrown: String(failure) };
 }
 
-function assertDependencyFailure(
-  failure: unknown,
-  profile: Profile,
-  diagnostic: string
-): void {
-  assert(failure instanceof NestedWriteError, diagnostic);
-  assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED, diagnostic);
-  assert.equal(
-    failure.message,
-    "Nested operation 'update' on relation 'tickets' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.",
-    diagnostic
-  );
-  assert.deepEqual(
-    { ...failure.meta },
-    {
-      conflictsWith: "create",
-      operation: "update",
-      relation: "tickets",
-      ...(profile === "sqlite-atomic-batch"
-        ? {
-            recordSeriesProgress: {
-              atomicity: "segment",
-              phase: "planning",
-              committedSegments: 1,
-              committedWriteMembers: 1,
-              completedMembers: 0,
-              memberPath: [0],
-              totalMembers: 1,
-            },
-          }
-        : {}),
-    },
-    diagnostic
-  );
-}
-
 async function runBoundary(
   profile: Profile,
   capturedMember: boolean
@@ -377,9 +341,19 @@ async function runBoundary(
       diagnostic
     );
     if (capturedMember) {
+      // N1 (D-51): this cell pinned DESIGN §6.2's mode-independent veto
+      // ("Nested operation 'update' on relation 'tickets' depends on an earlier
+      // 'create' target write in the same nested write. Split these operations
+      // into separate queries."), raised at the capture that had already made
+      // the root's prefix durable on the batch substrate; now the member's
+      // lookup is an ordered observation taken AFTER the earlier sibling's
+      // create, binds the ticket that create made, and the member effect runs.
+      // Both substrates reach the same end state, so the committed segment the
+      // capture's flush produces is no longer observable as a partial write
+      // here — `g29-member-dependency` carries that measurement.
       assert.equal(
         hasStatement(driver.statements, /^INSERT\b.*g29_boundary_tickets/),
-        false,
+        true,
         diagnostic
       );
       assert.deepEqual(
@@ -398,24 +372,34 @@ async function runBoundary(
         ],
         diagnostic
       );
-      assertDependencyFailure(failure, profile, diagnostic);
+      assert.equal(failure, undefined, diagnostic);
+      assert.deepEqual(value, { id: "s1", label: "prefix" }, diagnostic);
       assert.equal(
         hasStatement(driver.statements, /^UPDATE\b.*g29_boundary_tickets/),
-        false,
+        true,
         diagnostic
       );
       assert.deepEqual(
         shelves,
         [
-          {
-            id: "s1",
-            label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
-          },
+          { id: "s1", label: "prefix" },
           { id: "s2", label: "decoy" },
         ],
         diagnostic
       );
-      assert.deepEqual(tickets, [], diagnostic);
+      assert.deepEqual(
+        tickets,
+        [
+          {
+            id: "created",
+            lookupKey: "wanted",
+            note: "member-effect",
+            binId: "b1",
+            shelfId: "s1",
+          },
+        ],
+        diagnostic
+      );
       return;
     }
 
@@ -476,7 +460,7 @@ const profiles: readonly Profile[] = [
 
 for (const profile of profiles) {
   describe(`G2.9 dependency boundaries [commands] (${profile})`, () => {
-    it("refuses an actual member lookup that conflicts with an earlier sibling write", async () => {
+    it("runs an actual member lookup behind the earlier sibling write it observes", async () => {
       await runBoundary(profile, true);
     });
 

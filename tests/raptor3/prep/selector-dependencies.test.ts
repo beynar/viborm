@@ -134,17 +134,71 @@ async function captureFailure(run: () => Promise<unknown>): Promise<unknown> {
   throw new Error("Expected the candidate operation to fail");
 }
 
-function assertDependencyRefusal(
-  world: DependencyWorld,
-  failure: unknown
-): void {
+/** The operation's own mutations, apart from the reads that surround them. */
+const MUTATION = /^(?:INSERT|UPDATE|DELETE)\b/;
+/**
+ * The nested `accounts.update` lookup: the only statement that resolves an
+ * account through the parent hub's membership, and the read whose answer the
+ * marker write of the same operation changes.
+ */
+const HUB_SCOPED_ACCOUNT_LOOKUP =
+  /^SELECT .*FROM "g3p05_dependency_accounts".*"g3p05_dependency_hub_accounts"/;
+
+/**
+ * N1 (D-51, `AGENTS.md` "A dependent read is an ordered observation"): a lookup
+ * whose answer an earlier write of the same operation can change is taken at
+ * its consumer's execution point, AFTER that write. The dependency pass still
+ * computes the overlap this file constructs; it spends the fact on placement,
+ * not on the retired sentences "Nested operation '…' on relation '…' depends on
+ * an earlier '…' target / membership write in the same nested write. Split
+ * these operations into separate queries."
+ *
+ * So the proof that a read was judged DEPENDENT (not disjoint) is its position:
+ * the operation's one mutation runs first, and the one hub-scoped account
+ * lookup is taken once, behind it — never a capture ahead of it, which is where
+ * a read proven disjoint stays.
+ */
+function assertObservedAfterTheWrite(world: DependencyWorld): void {
+  const statements = world.driver.statements;
+  const log = statements.join("\n");
+  const count = (pattern: RegExp) =>
+    statements.filter((statement) => pattern.test(statement)).length;
+  const write = statements.findIndex((statement) => MUTATION.test(statement));
+  const observation = statements.findIndex((statement) =>
+    HUB_SCOPED_ACCOUNT_LOOKUP.test(statement)
+  );
+  assert(write >= 0 && observation > write, log);
+  assert.deepEqual(
+    [count(MUTATION), count(HUB_SCOPED_ACCOUNT_LOOKUP)],
+    [1, 1],
+    log
+  );
+}
+
+/**
+ * N1 rule 3: a required target absent at its observation is the correlated
+ * refusal the relation body already registers, and NOTHING of the operation
+ * commits — the live route rolls the transaction back, which
+ * {@link assertInitialState} reads back row by row.
+ */
+function assertAbsentTargetRefusal(failure: unknown): void {
   assert(failure instanceof NestedWriteError);
   assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
   assert.equal(
-    world.driver.statements.length,
-    0,
-    "Semantic dependency refusal must precede every candidate statement"
+    failure.message,
+    "Cannot update relation 'accounts': target record was not found for this parent."
   );
+  assert.equal(failure.meta.relation, "accounts");
+}
+
+/**
+ * The two placement cells below run the operation for the PLACEMENT of its
+ * reads, not for its answer: the answer — the correlated refusal of a target
+ * absent at the observation — is the subject of the cells above, and repeating
+ * it would say nothing about a key nested under OR / NOT.
+ */
+async function runForPlacement(run: () => Promise<unknown>): Promise<void> {
+  await run().catch(() => undefined);
 }
 
 async function assertInitialState(world: DependencyWorld): Promise<void> {
@@ -205,9 +259,12 @@ function relatedRowMutation(world: DependencyWorld) {
 }
 
 describe("G3P-05 cross-table selector dependencies", () => {
-  it("refuses a root related-row write that changes a later relation predicate", async () => {
+  it("executes a root related-row write that changes a later relation predicate, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned DESIGN §6.2's veto — a NestedWriteError raised
+      // before any statement ran; now the marker update executes and the
+      // account lookup, taken after it, no longer finds its target.
       const failure = await captureFailure(() =>
         world.candidate.execute("hub", "update", {
           where: { id: "h1" },
@@ -215,16 +272,19 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
     }
   });
 
-  it("refuses the same related-row dependency inside a selected nested record", async () => {
+  it("executes the same related-row dependency inside a selected nested record, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned the same veto one record deeper; now the nested
+      // hub's marker update executes and the account lookup observes it.
       const failure = await captureFailure(() =>
         world.candidate.execute("envelope", "update", {
           where: { id: "e1" },
@@ -239,16 +299,20 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
     }
   });
 
-  it("refuses a membership write that changes a later predicate on the same edge", async () => {
+  it("executes a membership write that changes a later predicate on the same edge, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned the veto a membership write raised; now the
+      // disconnect executes and the account lookup, taken after it, reads the
+      // membership the removal left.
       const failure = await captureFailure(() =>
         world.candidate.execute("hub", "update", {
           where: { id: "h1" },
@@ -272,16 +336,19 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
     }
   });
 
-  it("refuses a selected updateMany write that changes a later relation predicate", async () => {
+  it("executes a selected updateMany write that changes a later relation predicate, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned the veto over a selected bulk write; now the
+      // updateMany executes and the account lookup observes its rows.
       const failure = await captureFailure(() =>
         world.candidate.execute("hub", "update", {
           where: { id: "h1" },
@@ -308,16 +375,19 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
     }
   });
 
-  it("refuses the same selected updateMany dependency inside a nested record", async () => {
+  it("executes the same selected updateMany dependency inside a nested record, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned the same bulk veto one record deeper; now the
+      // nested updateMany executes and the account lookup observes it.
       const failure = await captureFailure(() =>
         world.candidate.execute("envelope", "update", {
           where: { id: "e1" },
@@ -354,16 +424,20 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
     }
   });
 
-  it("refuses a selected deleteMany whose removal changes later target existence", async () => {
+  it("executes a selected deleteMany whose removal changes later target existence, then refuses the absent target", async () => {
     const world = await createDependencyWorld();
     try {
+      // N1 (D-51): pinned the veto over a removal a later read would miss;
+      // now the deleteMany executes and the account lookup, taken after it,
+      // finds no marker to satisfy the predicate.
       const failure = await captureFailure(() =>
         world.candidate.execute("hub", "update", {
           where: { id: "h1" },
@@ -383,7 +457,8 @@ describe("G3P-05 cross-table selector dependencies", () => {
         })
       );
 
-      assertDependencyRefusal(world, failure);
+      assertAbsentTargetRefusal(failure);
+      assertObservedAfterTheWrite(world);
       await assertInitialState(world);
     } finally {
       await closeWorld(world);
@@ -567,7 +642,14 @@ describe("G3P-05 cross-table selector dependencies", () => {
           data: { markers: { disconnect: world.markerWhere("m2") } },
         });
         world.driver.resetStatements();
-        const failure = await captureFailure(() =>
+        // N1 (D-51): pinned DESIGN §6.2's veto — a NestedWriteError raised
+        // before any statement ran — as the proof that a key under OR / NOT
+        // proves nothing. The veto is gone and the same fact is now the
+        // read's PLACEMENT: the account lookup is an ordered observation,
+        // taken after the marker update. Read as disjoint it would run ahead
+        // of that update instead, match the flag it has not yet changed, and
+        // land "must-not-land".
+        await runForPlacement(() =>
           world.candidate.execute("hub", "update", {
             where: { id: "h1" },
             data: {
@@ -590,7 +672,7 @@ describe("G3P-05 cross-table selector dependencies", () => {
           })
         );
 
-        assertDependencyRefusal(world, failure);
+        assertObservedAfterTheWrite(world);
         assert.deepEqual(
           await world.client.marker.findMany({
             orderBy: { code: "asc" },

@@ -3,14 +3,14 @@
  *
  * U6.2: a nested `updateMany`/`deleteMany` whose payload names no relation is
  * ONE correlated statement at its own position in the declared body order, so
- * it manufactures no planning read for the dependency analyser to refuse. The
- * refusal itself is untouched: a relation-bearing nested `updateMany` still
- * captures, and a genuine one-operation feedback loop still raises the
- * registered `NestedWriteError`.
+ * it manufactures no planning read. A relation-bearing nested `updateMany`
+ * still captures — and its capture is an ordered observation (N1, D-51): a
+ * one-operation feedback loop no longer raises DESIGN §6.2's veto, the
+ * capture observes what the sibling wrote.
  *
  * U6.3: `docs/architecture/retired/write-engine-ATOM.md` §12 "Same-operation duplicate" — first-create-wins locally, the
  * later entry adopts that row; an entry whose target an earlier entry only
- * HAPPENS to produce is still a feedback loop and still refuses.
+ * HAPPENS to produce observes that row too (N1) and adopts it.
  *
  * U6.6 (round 2): a `skipDuplicates` member whose target row already exists
  * writes the MEMBERSHIP it declared against that existing row and nothing else
@@ -22,7 +22,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
-import { NestedWriteError, UniqueConstraintError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -264,35 +264,47 @@ describe("lane X — nested set mutations", () => {
     );
   });
 
-  it("still refuses a relation-bearing updateMany that reads what a sibling update wrote", async () => {
+  it("a relation-bearing updateMany observes what a sibling update wrote", async () => {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'updateMany' on
+    // relation 'posts' depends on an earlier 'update' target write in the same
+    // nested write. Split these operations into separate queries."). The
+    // collection order runs `update` before `updateMany`; the capture is an
+    // ordered observation behind the update, finds the renamed member, and
+    // the member's own children follow.
     world = await createWorld();
     const { client } = world;
 
-    await assert.rejects(
-      async () => {
-        await client.author.update({
-          where: { id: 1 },
-          data: {
-            posts: {
-              update: { where: { id: 10 }, data: { title: "Moved" } },
-              updateMany: {
-                where: { title: "Moved" },
-                data: {
-                  rank: 7,
-                  tags: { createMany: { data: [{ id: 30, label: "t" }] } },
-                },
-              },
+    await client.author.update({
+      where: { id: 1 },
+      data: {
+        posts: {
+          update: { where: { id: 10 }, data: { title: "Moved" } },
+          updateMany: {
+            where: { title: "Moved" },
+            data: {
+              rank: 7,
+              tags: { createMany: { data: [{ id: 30, label: "t" }] } },
             },
           },
-        });
+        },
       },
-      (error: unknown) =>
-        error instanceof NestedWriteError &&
-        error.message ===
-          "Nested operation 'updateMany' on relation 'posts' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries."
+    });
+    assert.deepEqual(
+      (await client.post.findMany({ orderBy: { id: "asc" } })).map((row) => [
+        row.id,
+        row.title,
+        row.rank,
+        row.authorId,
+      ]),
+      [
+        [10, "Moved", 7, 1],
+        [11, "Queued", 2, 1],
+        [12, "Queued", 3, 2],
+      ]
     );
-    const rows = await client.post.findMany({ where: { title: "Moved" } });
-    assert.equal(rows.length, 0);
+    assert.deepEqual(await client.tag.findMany(), [
+      { id: 30, label: "t", postId: 10 },
+    ]);
   });
 
   it("collapses duplicate connectOrCreate targets to the first entry's row", async () => {
@@ -381,36 +393,39 @@ describe("lane X — nested set mutations", () => {
     assert.equal((await client.post.findMany({})).length, 0);
   });
 
-  it("still refuses a connectOrCreate whose target a different earlier entry creates", async () => {
+  it("a connectOrCreate whose target a different earlier entry creates observes and adopts it", async () => {
+    // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'connectOrCreate'
+    // on relation 'posts' depends on an earlier 'connectOrCreate' target write
+    // in the same nested write. Split these operations into separate
+    // queries."). The first entry finds no 51 and creates 50 "elsewhere"; the
+    // second entry's lookup is an ordered observation behind that create arm,
+    // finds 50, and takes the connect arm — its own create never runs.
     world = await createWorld();
     const { client } = world;
 
-    await assert.rejects(
-      async () => {
-        await client.author.update({
-          where: { id: 2 },
-          data: {
-            posts: {
-              connectOrCreate: [
-                {
-                  where: { id: 51 },
-                  create: { id: 50, title: "elsewhere", rank: 1 },
-                },
-                {
-                  where: { id: 50 },
-                  create: { id: 50, title: "collides", rank: 2 },
-                },
-              ],
+    await client.author.update({
+      where: { id: 2 },
+      data: {
+        posts: {
+          connectOrCreate: [
+            {
+              where: { id: 51 },
+              create: { id: 50, title: "elsewhere", rank: 1 },
             },
-          },
-        });
+            {
+              where: { id: 50 },
+              create: { id: 50, title: "collides", rank: 2 },
+            },
+          ],
+        },
       },
-      (error: unknown) =>
-        error instanceof NestedWriteError &&
-        error.message ===
-          "Nested operation 'connectOrCreate' on relation 'posts' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries."
+    });
+    assert.deepEqual(
+      (await client.post.findMany({ where: { id: { gte: 50 } } })).map(
+        (row) => [row.id, row.title, row.rank, row.authorId]
+      ),
+      [[50, "elsewhere", 1, 2]]
     );
-    assert.equal((await client.post.findMany({ where: { id: 50 } })).length, 0);
   });
 
   it("writes a suppressed member's membership but not its nested record children", async () => {

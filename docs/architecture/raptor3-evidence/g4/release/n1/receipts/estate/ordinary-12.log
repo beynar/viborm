@@ -1,0 +1,6 @@
+[test:all] extended-local shard 12/14 (3 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/unit/migrations/polymorphic-push.test.ts (7 tests) 63ms
+ ✓ |extended-local| tests/unit/migrations/sqlite-datetime-diff-boundary.test.ts (3 tests) 19ms
+ Test Files  2 passed | 1 skipped (3)
+      Tests  10 passed | 6 skipped (16)
+[test:all] extended-local shard 12/14 (3 files; 180 ordinary of 192): 5.10s wall, 56.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

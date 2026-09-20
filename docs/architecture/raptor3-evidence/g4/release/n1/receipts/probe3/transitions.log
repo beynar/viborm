@@ -1,0 +1,30 @@
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 212ms
+ ❯ |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests | 1 failed) 41ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 77ms
+ ❯ |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests | 4 failed) 81ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-lattice-commands.test.ts (58 tests) 210ms
+ ❯ |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts (8 tests | 1 failed) 41ms
+ ✓ |raptor3| tests/raptor3/transitions/singular-commands.test.ts (20 tests) 76ms
+ ❯ |raptor3| tests/raptor3/transitions/own-write-commands.test.ts (18 tests | 4 failed) 79ms
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts > G2 membership OwnWrite: commands sqlite-atomic-batch > g2-own-membership-disconnect
+AssertionError: Expected values to be strictly deep-equal:
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |coverage-raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |raptor3| tests/raptor3/transitions/membership-own-write-commands.test.ts > G2 membership OwnWrite: commands sqlite-atomic-batch > g2-own-membership-disconnect
+AssertionError: Expected values to be strictly deep-equal:
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-interactive > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-coc-set-same
+AssertionError: OwnWrite refusal must precede root and relation effects, not merely roll them back
+ FAIL  |raptor3| tests/raptor3/transitions/own-write-commands.test.ts > G2 OwnWrite: commands sqlite-atomic-batch > g2-own-filter-write-refused
+AssertionError: The filter dependency must refuse before the root tag write or supplier adoption
+ Test Files  4 failed | 4 passed (8)
+      Tests  10 failed | 198 passed (208)

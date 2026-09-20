@@ -1,0 +1,22 @@
+ ❯ |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts (24 tests | 17 failed) 107ms
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > a later member's lookup observes an earlier member's write: the delete fin
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > an absent target behind the barrier is the correlated refusal, and nothing
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > an absent target behind the barrier is the correlated refusal, and n
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > an absent target behind the barrier is the
+AssertionError: The validation function is expected to return "true". Received false
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > a parent-held lookup ordered behind a sibling's create of its target execu
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > a dependent junction capture moves behind the write it depends on: deleteM
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the live route > two consumers of one target across a write take two observations
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > a later member's lookup observes an earlier member's write: the dele
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > a parent-held lookup ordered behind a sibling's create of its target
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > a dependent junction capture moves behind the write it depends on: d
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > two consumers of one target across a write take two observations
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only route > the array route keeps refusing a member that needs a dynamic read (D
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > the array route keeps refusing a member th
+AssertionError: The validation function is expected to return "true". Received false
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > a later member's lookup observes an earlie
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > a parent-held lookup ordered behind a sibl
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > a dependent junction capture moves behind 
+ FAIL  |extended-local| tests/raptor3/g4/parity/ordered-observation.test.ts > N1: the ordered observation on the batch-only without a statement index route > two consumers of one target across a write
+ Test Files  1 failed (1)
+      Tests  17 failed | 7 passed (24)

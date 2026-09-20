@@ -156,10 +156,15 @@ export function generatedTransitions(
       const own =
         recipe.mode.startsWith("coc-") || recipe.mode.startsWith("delete-");
       const singular = recipe.mode === "singular-supply-modify";
-      const refused =
-        recipe.mode === "required-depart" ||
-        recipe.mode === "coc-set-same" ||
-        recipe.mode === "delete-update";
+      // N1 (D-51): a nested lookup whose answer an earlier write of the same
+      // operation can change is an ordered observation taken after that write,
+      // not DESIGN §6.2's mode-independent veto. Only the refusal the relation
+      // body raises before it writes anything — the required set's departure —
+      // still precedes every effect: `coc-set-same` executes (the expected
+      // world below) and `delete-update` refuses behind the delete it observes.
+      const refusedBeforeEffects = recipe.mode === "required-depart";
+      const refusedAfterDelete = recipe.mode === "delete-update";
+      const refused = refusedBeforeEffects || refusedAfterDelete;
       // One evaluation per admitted input (D-8), on every arm: since C-01 the
       // public client IS this engine, so the second admission the deleted
       // engine published for the other modes has no arm left.
@@ -368,6 +373,25 @@ export function generatedTransitions(
             body: label,
             ownerId: null,
           });
+        // N1 (D-51): this world pinned DESIGN §6.2's veto ("Nested operation
+        // 'set' on relation 'members' depends on an earlier 'connectOrCreate'
+        // target write in the same nested write. Split these operations into
+        // separate queries."). `connectOrCreate` runs before `set` in the
+        // relation body's canonical order, so the set's target lookup is an
+        // ordered observation of the member the conditional just minted: the
+        // set keeps that member, and the incumbent is the one it clears.
+        if (recipe.mode === "coc-set-same") {
+          expected.members[0] = {
+            id: memberId,
+            body: "incumbent",
+            ownerId: null,
+          };
+          expected.members.splice(1, 0, {
+            id: newMemberId,
+            body: label,
+            ownerId: selectedId,
+          });
+        }
         if (recipe.mode === "delete-create")
           expected.members[0] = {
             id: memberId,
@@ -398,6 +422,8 @@ export function generatedTransitions(
       let starts = 0;
       let settlements = 0;
       let specimenApplied = false;
+      let deletedTargetObserved = false;
+      let suppliedMemberObserved = false;
       const inspect = (database: Database.Database) => ({
         owners: database
           .prepare("SELECT * FROM g2_generated_owners ORDER BY id")
@@ -555,7 +581,7 @@ export function generatedTransitions(
         inspect,
         afterStatement(database, completion) {
           const reached: string[] = [];
-          if (refused) {
+          if (refusedBeforeEffects) {
             assert.deepEqual(
               database
                 .prepare("SELECT * FROM g2_generated_owners WHERE id=?")
@@ -569,6 +595,60 @@ export function generatedTransitions(
                 .all(),
               initial.members,
               "transition:refusal-before-member-effect"
+            );
+          }
+          // N1 (D-51): the supply precedes the set's clear, which the end
+          // state alone cannot say — a set that ran FIRST, found nothing and
+          // cleared every member would leave the same rows once the
+          // conditional minted and linked its target. The boundary at which
+          // the minted member is already this owner's while the incumbent
+          // still is names the order the observation was taken in.
+          if (recipe.mode === "coc-set-same") {
+            const supplied = database
+              .prepare(
+                "SELECT 1 FROM g2_generated_members WHERE id=? AND ownerId=?"
+              )
+              .get(newMemberId, selectedId);
+            const incumbent = database
+              .prepare(
+                "SELECT 1 FROM g2_generated_members WHERE id=? AND ownerId=?"
+              )
+              .get(memberId, selectedId);
+            if (supplied !== undefined && incumbent !== undefined)
+              suppliedMemberObserved = true;
+          }
+          // N1 (D-51): the root's own write runs before its member-held
+          // children and `delete` before `update`, so this refusal no longer
+          // precedes every effect — it follows them, and they roll back. What
+          // holds at every boundary is that the refused update never lands
+          // (the target is its seeded self or already gone), the selected key
+          // never moves, and no other member row is touched.
+          if (refusedAfterDelete) {
+            assert.deepEqual(
+              database
+                .prepare("SELECT id FROM g2_generated_owners WHERE id=?")
+                .get(selectedId),
+              { id: selectedId },
+              "transition:refusal-keeps-the-selected-key"
+            );
+            const target = database
+              .prepare("SELECT * FROM g2_generated_members WHERE id=?")
+              .get(memberId);
+            if (target === undefined) deletedTargetObserved = true;
+            else
+              assert.deepEqual(
+                target,
+                initial.members[0],
+                "transition:refused-update-never-lands"
+              );
+            assert.deepEqual(
+              database
+                .prepare(
+                  "SELECT * FROM g2_generated_members WHERE id<>? ORDER BY id"
+                )
+                .all(memberId),
+              initial.members.filter((row) => row.id !== memberId),
+              "transition:refusal-leaves-the-other-members"
             );
           }
           if (
@@ -674,6 +754,12 @@ export function generatedTransitions(
             return;
           }
           if (!failedPrimary) {
+            if (recipe.mode === "coc-set-same")
+              assert.equal(
+                suppliedMemberObserved,
+                true,
+                "transition:ordered-observation-behind-the-supply"
+              );
             assert.deepEqual(
               observation.outcome,
               {
@@ -684,6 +770,12 @@ export function generatedTransitions(
             );
             return;
           }
+          if (refusedAfterDelete)
+            assert.equal(
+              deletedTargetObserved,
+              true,
+              "transition:ordered-observation-behind-the-delete"
+            );
           assert.equal(observation.outcome.kind, "failure");
           if (observation.outcome.kind !== "failure") return;
           assert.equal(
@@ -702,7 +794,15 @@ export function generatedTransitions(
               ? "Unique constraint violation"
               : recipe.mode === "required-depart"
                 ? "Cannot set relation 'members' because foreign key field(s) ownerId are required: rows removed from the set cannot be disconnected. Delete them instead."
-                : `Nested operation '${recipe.mode === "coc-set-same" ? "set" : "update"}' on relation 'members' depends on an earlier '${recipe.mode === "coc-set-same" ? "connectOrCreate" : "delete"}' target write in the same nested write. Split these operations into separate queries.`
+                : // N1 (D-51): this world pinned DESIGN §6.2's veto ("Nested
+                  // operation 'update' on relation 'members' depends on an
+                  // earlier 'delete' target write in the same nested write.
+                  // Split these operations into separate queries."). `delete`
+                  // runs before `update` in the relation body's canonical
+                  // order, and the update's lookup is an ordered observation
+                  // of what it left: the correlated not-found the relation
+                  // body registers, with nothing of the operation committed.
+                  "Cannot update relation 'members': target record was not found for this parent."
           );
         },
       };

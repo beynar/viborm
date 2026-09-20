@@ -1,0 +1,6 @@
+[test:all] extended-local shard 3/14 (3 files; 180 ordinary of 192)
+ ✓ |extended-local| tests/contracts/drivers/sqlite-statement-execution.provider.test.ts (3 tests) 15ms
+ ✓ |extended-local| tests/contracts/engine/write/captured-row-key-decode.test.ts (1 test) 13ms
+ Test Files  2 passed | 1 skipped (3)
+      Tests  4 passed | 28 skipped (32)
+[test:all] extended-local shard 3/14 (3 files; 180 ordinary of 192): 3.89s wall, 55.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified.

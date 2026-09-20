@@ -468,8 +468,12 @@ export function registerSupplierContinuationBehavior(
 }
 
 /**
- * The two shapes that stay refused, kept beside the accepted ones because the lift is
- * only honest if the neighbours it did NOT move are shown not to have moved.
+ * The neighbours of the accepted shapes, kept here because the lift is only honest if
+ * what it did NOT move is shown beside what it did. Admission still refuses two
+ * suppliers for one slot. The second shape's refusal was the own-write ledger's, and
+ * N1 (D-51) replaced that veto with an ordered observation — so it executes now, and
+ * what it pins is the executed end state, which carries the same claim from the other
+ * side: the continuation lands on the CONNECTED row, never on the deleted incumbent.
  */
 export function registerSupplierContinuationRefusals(
   name: string,
@@ -501,13 +505,19 @@ export function registerSupplierContinuationRefusals(
       ]);
     });
 
-    test("delete + connect + update is still the own-write ledger's refusal", async () => {
+    test("delete + connect + update vacates, then continues on the connected row", async () => {
       const client = await connect();
       await resetSupplierContinuation(client);
 
-      // The `connect` half is UNCHANGED by this package: its modify is located by the
-      // supplier's own selector at construction, so the analyzer still has a target read
-      // to place against the sibling `delete`, and still refuses it.
+      // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on relation
+      // 'badge' depends on an earlier 'delete' target write in the same nested write.
+      // Split these operations into separate queries."); now the modify's target read is
+      // an ordered observation. The canonical to-one order runs `delete`, then `connect`,
+      // then `update`, and the read lands behind both — the badge's key is CHILD-held, so
+      // the station's OWN write consumes nothing of it and no order is impossible here.
+      // So: the incumbent is removed, the vacated slot admits `b-alt` (nothing is left to
+      // the database's unique index, because the delete ran first), and the continuation
+      // tags the row that now holds the slot.
       await expect(
         client.station.update({
           where: { id: "s1" },
@@ -519,13 +529,10 @@ export function registerSupplierContinuationRefusals(
             },
           },
         })
-      ).rejects.toThrow(
-        "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
-      );
-      expect(await badges(client)).toEqual([
-        ["b-alt", "alt", 5, null],
-        ["b1", "incumbent", 1, "s1"],
-      ]);
+      ).resolves.toEqual({ id: "s1", label: "L" });
+      // `b1` is GONE — not orphaned — and the continuation landed on the CONNECTED row,
+      // which kept the decoy's rank and now carries the membership.
+      expect(await badges(client)).toEqual([["b-alt", "u", 5, "s1"]]);
     });
   });
 }

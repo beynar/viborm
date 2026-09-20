@@ -139,6 +139,27 @@ disjoint read unchanged; the stale-observation case (two consumers of one
 target across a write, two observation points). `g29-dependency-boundaries`
 keeps its measurement.
 
+**1 as landed (commit 24, branch `n1`).** The dependency pass keeps computing
+the overlap and spends it on placement: `Commands.depend` finds the write's
+and the read's execution points (a membership contribution executing with the
+record whose fields carry it) in the run order of `CommandExecution.run` and
+the relation body's canonical verb order, marks a read already behind its
+write `dependent`, moves a read that would run first to the `after` phase at
+its consumer's execution point (every effect carries its mutation's origin;
+each payload entry is its own mutation; a set's targets share the set's), and
+keeps the inherited sentence only for a read the ancestor's own write
+consumes. Case 3 on the batch route is `flush` — its withhold is trailing
+premises only, so the queued unit's premises ride — with the consumer's
+requirement asserted inside the batch (`ObservationPremise`: the row present,
+or no row outside the membership, NULL-safe). Case 2 is not a mechanism: an
+observation answers it; the scratch leg is an optimisation to be measured.
+A junction membership observes any link, removal or member set of its table;
+a membership read observes a write of the fields it is read through unless
+the written literal cannot be this parent's key. The ladder attributes the
+one premise behind the unit's own writes when the re-probe clears the rest.
+The `program/` specimen is a separate commit. Note and receipts under
+`g4/release/n1/`.
+
 ## 2. N2 — the lax to-one no-op
 
 **What must be expressed.** DESIGN §5.3: `disconnect: true` and

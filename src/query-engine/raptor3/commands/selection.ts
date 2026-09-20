@@ -116,6 +116,14 @@ export class Selection {
   origin?: Origin;
   retained?: DeferredFailure;
   membershipOnly?: boolean;
+  /**
+   * The answer depends on an earlier write of this operation (N1): the read is
+   * taken at its execution point, after that write — on the batch route through
+   * the barrier that submits the queued unit with its premises and reads in the
+   * same native batch ({@link OperationContext.flush}), never the raw read that
+   * would race a queued write.
+   */
+  dependent?: boolean;
 
   constructor(
     private readonly execution: CommandExecution,
@@ -183,6 +191,20 @@ export class Selection {
       this.selector,
       membership,
       this.execution.identity(this.fields),
+    );
+  }
+  /**
+   * The rows the selector names OUTSIDE the membership: a batch premise of
+   * the observation that finds this row (N1) — absent, the row is either not
+   * there or a member, which is what a found requirement asks.
+   */
+  outsideMembership(membership: BoundMembership) {
+    const bound = this.bindMembership(membership);
+    return this.execution.context.queries.select(
+      this.model,
+      { take: 1 },
+      bound && { ...bound, outside: true },
+      { projection: this.identityProjection, selector: this.selector },
     );
   }
   query() {

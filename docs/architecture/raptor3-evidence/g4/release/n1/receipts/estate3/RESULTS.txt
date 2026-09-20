@@ -1,0 +1,11 @@
+typecheck exit=0 
+pins exit=0  Test Files 1 passed (1); Tests 36 passed (36);
+generated exit=0  Test Files 4 passed (4); Tests 94 passed (94);
+fixed exit=0  Test Files 69 passed (69); Tests 796 passed (796);
+shard-1 exit=1  Test Files 3 failed | 12 passed (15); Tests 31 failed | 225 passed (256);
+shard-2 exit=1  Test Files 3 failed | 11 passed (14); Tests 9 failed | 192 passed | 5 skipped (206);
+shard-5 exit=1  Test Files 5 failed | 9 passed (14); Tests 11 failed | 225 passed (236);
+shard-7 exit=1  Test Files 4 failed | 10 passed (14); Tests 29 failed | 224 passed (253);
+coverage:query-engine-core exit=0 All files | 88.06 | 91.21 | 91.06 | 88.06 | 
+coverage:policy exit=0
+DONE

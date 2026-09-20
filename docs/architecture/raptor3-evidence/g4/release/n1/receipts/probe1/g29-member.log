@@ -1,0 +1,36 @@
+ ❯ |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests | 8 failed) 76ms
+ ❯ |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts (14 tests | 8 failed) 76ms
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > template wanted refuses before capture
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > actual member wanted refuses before member eff
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > later actual member wanted refuses before eith
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > template wanted refuses before capture
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > actual member wanted refuses before member ef
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > later actual member wanted refuses before eit
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until th
+AssertionError: {
+ FAIL  |coverage-raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-atomic-batch) > keeps an inner unresolved dependency until t
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > template wanted refuses before capture
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > actual member wanted refuses before member effects
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-interactive) > later actual member wanted refuses before either member
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > template wanted refuses before capture
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > actual member wanted refuses before member effects
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 exact selected-member dependency [commands] (sqlite-atomic-batch) > later actual member wanted refuses before either membe
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-interactive) > keeps an inner unresolved dependency until the inner c
+AssertionError: {
+ FAIL  |raptor3| tests/raptor3/post-prep/g29-member-dependency.test.ts > G2.9 nested selected-series dependency [commands] (sqlite-atomic-batch) > keeps an inner unresolved dependency until the inner 
+AssertionError: {
+ Test Files  2 failed (2)
+      Tests  16 failed | 12 passed (28)

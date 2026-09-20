@@ -1,0 +1,8 @@
+73	14	src/query-engine/raptor3/AGENTS.md
+6	0	src/query-engine/raptor3/commands/assignments.ts
+365	37	src/query-engine/raptor3/commands/commands.ts
+54	15	src/query-engine/raptor3/commands/execution.ts
+36	5	src/query-engine/raptor3/commands/relation-body.ts
+22	0	src/query-engine/raptor3/commands/selection.ts
+71	7	src/query-engine/raptor3/shared/operation-context.ts
+33	2	src/query-engine/raptor3/shared/query.ts

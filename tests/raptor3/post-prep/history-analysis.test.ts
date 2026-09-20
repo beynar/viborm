@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { NestedWriteError } from "@errors";
 import {
   type Choose,
   type CommandOccurrence,
@@ -307,6 +306,9 @@ describe("post-G3 command history analysis", () => {
 
     const isolatedAnalysis = isolated.commands.analyze(isolated.root);
     assert.equal(isolatedAnalysis.refusal, undefined);
+    // Nothing earlier can change this choice's answer, so its lookup keeps the
+    // place it always had: it is not an ordered observation (N1).
+    assert.equal(isolatedChoice.lookup.dependent, undefined);
     const analyzedChoice = isolatedAnalysis.children[0];
     assert(analyzedChoice);
     assert.equal(
@@ -323,9 +325,22 @@ describe("post-G3 command history analysis", () => {
     const laterChoice = requireChoose(visible.root.body[1]);
     const visibleAnalysis = visible.commands.analyze(visible.root);
     assert.notEqual(earlierChoice, laterChoice);
-    assert(visibleAnalysis.refusal instanceof NestedWriteError);
-    assert.equal(visibleAnalysis.refusal.meta.operation, "upsert");
-    assert.equal(visibleAnalysis.refusal.meta.conflictsWith, "upsert");
-    assert.equal(visibleAnalysis.refusal.meta.relation, "children");
+    // N1 (D-51): pinned DESIGN §6.2's veto over the exposed suffix (a
+    // NestedWriteError whose meta read operation 'upsert', conflictsWith
+    // 'upsert', relation 'children'); now the pass spends that same overlap
+    // fact on placement — the later sibling's lookup is an ORDERED
+    // OBSERVATION, marked dependent and left behind the arm that can produce
+    // the row it reads, while the sibling it reads across keeps its own place.
+    assert.equal(visibleAnalysis.refusal, undefined);
+    assert.equal(laterChoice.lookup.dependent, true);
+    assert.equal(earlierChoice.lookup.dependent, undefined);
+    assert.deepEqual(
+      visibleAnalysis.children.map((child) => child.placement),
+      ["after", "after"]
+    );
+    assert.equal(visibleAnalysis.children[0]?.command, earlierChoice);
+    assert.equal(visibleAnalysis.children[1]?.command, laterChoice);
+    assert.equal(visibleAnalysis.children[0]?.refusal, undefined);
+    assert.equal(visibleAnalysis.children[1]?.refusal, undefined);
   });
 });

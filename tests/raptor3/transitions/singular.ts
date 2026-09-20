@@ -27,7 +27,16 @@ function childHeldScenario(
       const deleting =
         id === "g2-child-delete-connect" ||
         id === "g2-child-delete-connect-modify-refused";
-      const dependencyRefused = id === "g2-child-delete-connect-modify-refused";
+      // N1 (D-51): this cell pinned DESIGN §6.2's mode-independent veto
+      // ("Nested operation 'update' on relation 'badge' depends on an earlier
+      // 'delete' target write in the same nested write. Split these operations
+      // into separate queries."). The to-one body now runs `delete`, then
+      // `connect`, then `update`, and the selector-free modifier's correlated
+      // lookup is an ordered observation: it names the member the connect
+      // established. The payload keeps its recorded spelling, `tag: "never"`,
+      // whose name belonged to the retired veto.
+      const dependencyModified =
+        id === "g2-child-delete-connect-modify-refused";
       const station = s
         .model({
           id: s.string().id(),
@@ -52,7 +61,7 @@ function childHeldScenario(
         ? {
             connect: { id: "b-alt" },
             delete: true,
-            ...(dependencyRefused ? { update: { tag: "never" } } : {}),
+            ...(dependencyModified ? { update: { tag: "never" } } : {}),
           }
         : producing
           ? {
@@ -123,11 +132,15 @@ function childHeldScenario(
           };
         },
         afterStatement(database) {
-          if (dependencyRefused)
-            assert.deepEqual(
-              database.prepare("SELECT * FROM g2_badges ORDER BY id").all(),
-              initial.badges,
-              "The dependent modifier must refuse before deletion or supplier adoption"
+          if (dependencyModified)
+            assert.equal(
+              database
+                .prepare(
+                  "SELECT id FROM g2_badges WHERE id='b-alt' AND tag=? AND stationId IS NULL"
+                )
+                .all("never").length,
+              0,
+              "The dependent modifier observes after the supplier's adoption, never before it"
             );
           return undefined;
         },
@@ -135,14 +148,14 @@ function childHeldScenario(
           assert.deepEqual(observation.initial, initial);
           assert.deepEqual(
             observation.final,
-            occupiedFailure || dependencyRefused
+            occupiedFailure
               ? initial
               : {
                   stations: initial.stations,
                   badges: [
                     {
                       id: "b-alt",
-                      tag: "alternate",
+                      tag: dependencyModified ? "never" : "alternate",
                       rank: 5,
                       stationId: producing ? null : "s1",
                     },
@@ -173,17 +186,6 @@ function childHeldScenario(
           );
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, []);
-          if (dependencyRefused) {
-            assert.equal(observation.outcome.kind, "failure");
-            if (observation.outcome.kind !== "failure") return;
-            assert.equal(observation.outcome.failure.name, "NestedWriteError");
-            assert.equal(observation.outcome.failure.code, "V7001");
-            assert.equal(
-              observation.outcome.failure.message,
-              "Nested operation 'update' on relation 'badge' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
-            );
-            return;
-          }
           if (occupiedFailure) {
             assert.equal(observation.outcome.kind, "failure");
             if (observation.outcome.kind !== "failure") return;

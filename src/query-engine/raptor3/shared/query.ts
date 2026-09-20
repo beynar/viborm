@@ -2318,6 +2318,33 @@ export class Queries {
   memberWhere(edge: Membership, parent: Input, alias: string): Sql {
     return this.membershipWhere(edge, alias, parent);
   }
+  /**
+   * The rows OUTSIDE a membership, in three-valued logic: a member-side
+   * column left NULL, or a parent that holds no key, is outside — where a
+   * plain negation of {@link memberWhere} would answer NULL and select nothing
+   * (an ordered observation's found requirement, N1).
+   */
+  outsideWhere(edge: Membership, parent: Input, alias: string): Sql {
+    const a = this.adapter;
+    const inside = this.membershipWhere(edge, alias, parent);
+    if (edge.kind !== "reference") return a.operators.not(inside);
+    const unbound = edge.pairs.some(
+      (pair) => parent[pair.source] === null || parent[pair.source] === undefined,
+    );
+    if (unbound) return sql`1 = 1`;
+    const columns = [
+      ...(edge.discriminator?.side === "target"
+        ? [edge.discriminator.field]
+        : []),
+      ...edge.pairs.map((pair) => pair.target),
+    ];
+    return a.operators.or(
+      a.operators.not(inside),
+      ...columns.map((field) =>
+        a.operators.isNull(this.column(edge.target, field, alias)),
+      ),
+    );
+  }
   private membershipWhere(
     edge: Membership,
     target: string,
@@ -2771,7 +2798,7 @@ export class Queries {
   select(
     model: AnyModel,
     args: Partial<Arguments>,
-    membership?: { edge: Membership; parent: Input },
+    membership?: { edge: Membership; parent: Input; outside?: boolean },
     controls: {
       condition?: Sql;
       forUpdate?: boolean;
@@ -2805,7 +2832,11 @@ export class Queries {
         from: this.table(model, alias),
         where: this.adapter.operators.and(
           ...(membership
-            ? [this.memberWhere(membership.edge, membership.parent, alias)]
+            ? [
+                membership.outside
+                  ? this.outsideWhere(membership.edge, membership.parent, alias)
+                  : this.memberWhere(membership.edge, membership.parent, alias),
+              ]
             : []),
           ...(filter ? [filter] : []),
           ...(page.cursor ? [page.cursor] : []),

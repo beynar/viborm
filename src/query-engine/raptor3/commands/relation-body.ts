@@ -132,7 +132,14 @@ export class RelationBody {
       ([a], [b]) => order.indexOf(a) - order.indexOf(b)
     )) {
       if (payload === undefined) continue;
+      // One origin per verb for what the verb does as a whole (a set's clear,
+      // a variant carrier's clear); each payload ENTRY of a verb is its own
+      // mutation and gets its own origin (N1): entries run in declaration
+      // order, a later entry's read observes an earlier entry's write, and a
+      // mutation's own effects — placed behind its read — are told apart from
+      // a sibling entry's by that origin.
       const origin = this.commands.createOrigin(name, verb);
+      const entryOrigin = () => this.commands.createOrigin(name, verb);
       if (!direct) {
         this.relation(membership(), verb, payload, rawMutation[verb], origin);
         continue;
@@ -174,7 +181,7 @@ export class RelationBody {
           const edge = membership(tagged.type as string);
           return {
             edge,
-            target: this.setTargets(edge, [record(tagged.where)])[0]!,
+            target: this.setTargets(edge, [record(tagged.where)], origin)[0]!,
           };
         });
         for (const member of carrier.members)
@@ -183,6 +190,7 @@ export class RelationBody {
         continue;
       }
       for (const [index, tagged] of entries(payload).entries()) {
+        const origin = entryOrigin();
         const rawTagged = entries(rawMutation[verb])[index]!;
         const edge = membership(tagged.type as string);
         const untag = (value: Input) =>
@@ -207,6 +215,14 @@ export class RelationBody {
   ): void {
     const parent = this.parent;
     const hasSupply = this.hasSupply;
+    // Each payload entry is its own mutation (N1): its own origin, in
+    // declaration order behind the verb's.
+    const entryOrigin = () =>
+      this.commands.createOrigin(
+        origin.relation,
+        origin.operation,
+        origin.slot
+      );
     if (
       parent.fields.operation === "update" &&
       edge.kind === "reference" &&
@@ -226,6 +242,7 @@ export class RelationBody {
         // missing target is the correlated refusal.
         const lax = payload === true;
         for (const selector of lax ? [undefined] : entries(payload)) {
+          const origin = entryOrigin();
           const outgoing = this.commands.lookup(
             edge.target,
             {
@@ -296,6 +313,7 @@ export class RelationBody {
               source: parent.fields,
               target: lax ? undefined : outgoing.fields,
               keep: [],
+              origin,
             };
             // A JUNCTION `delete` removes the LINK row before the target, in
             // this one region: the link references the target, so deleting the
@@ -322,6 +340,7 @@ export class RelationBody {
       }
       case "create":
         for (const [index, child] of entries(payload).entries()) {
+          const origin = entryOrigin();
           const target = this.commands.create(
             edge.target,
             child,
@@ -374,6 +393,7 @@ export class RelationBody {
         // PROVABLY create.
         const createdTargets: ReadonlyMap<string, unknown>[] = [];
         for (const [index, supplied] of entries(payload).entries()) {
+          const origin = entryOrigin();
           const source = entries(rawPayload)[index]!;
           const conditional: Input =
             verb === "connect" ? { where: supplied } : supplied;
@@ -609,6 +629,7 @@ export class RelationBody {
         parent.fields.select(this.commands.context.schema.keys(parent.model));
         this.membershipSource(edge, parent.fields);
         for (const [index, member] of entries(payload).entries()) {
+          const origin = entryOrigin();
           const input = record(member);
           // The same owner, at the third nested position that admits an update
           // payload. A `deleteMany` member has no `data`, so it asks nothing.
@@ -730,11 +751,15 @@ export class RelationBody {
     selectors: Input[],
     origin: Origin
   ): void {
-    const targets = this.setTargets(edge, selectors);
+    const targets = this.setTargets(edge, selectors, origin);
     this.clearMembership(edge, targets, origin);
     for (const target of targets) this.association(edge, target);
   }
-  private setTargets(edge: Membership, selectors: Input[]): Choose[] {
+  private setTargets(
+    edge: Membership,
+    selectors: Input[],
+    origin: Origin
+  ): Choose[] {
     return selectors.map((where): Choose => {
       const lookup = this.commands.lookup(
         edge.target,
@@ -749,7 +774,10 @@ export class RelationBody {
             edge.name
           )
       );
-      lookup.origin = this.commands.createOrigin(edge.name, "set");
+      // One origin for the whole set: its lookups, its clear and its
+      // associations are one mutation, and a dependent lookup lands ahead of
+      // the clear that keeps its row (N1).
+      lookup.origin = origin;
       this.requireLookup(lookup);
       const target: Choose = {
         kind: "choose",
@@ -803,6 +831,7 @@ export class RelationBody {
             edge,
             source: parent.fields,
             keep: targets.map((target) => target.lookup.fields),
+            origin,
           },
           "after",
           origin
@@ -810,7 +839,7 @@ export class RelationBody {
     } else
       this.commands.place(
         parent,
-        { kind: "remove", edge, source: parent.fields, keep: [] },
+        { kind: "remove", edge, source: parent.fields, keep: [], origin },
         "after",
         origin
       );
@@ -994,6 +1023,7 @@ export class RelationBody {
           values: this.linkFields(edge, source.fields, target.fields),
           captured,
           removals,
+          origin,
         },
         "after",
         origin
@@ -1013,6 +1043,7 @@ export class RelationBody {
             source.fields,
             target.missing.command.fields
           ),
+          origin,
         },
         "after",
         origin

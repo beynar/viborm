@@ -1,0 +1,27 @@
+[test:all] extended-local shared-family shard 2/8 (14 suites)
+ ✓ |extended-local| tests/contracts/engine/query/nested-write-conformance-transitive.test.ts (31 tests) 1535ms
+ ✓ |extended-local| tests/unit/migrations/decimal-descriptor-transitions.test.ts (16 tests) 1482ms
+ ✓ |extended-local| tests/contracts/engine/write/compound-key.test.ts (27 tests) 1129ms
+ ❯ |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts (14 tests | 5 failed | 5 skipped) 631ms
+ ✓ |extended-local| tests/contracts/public-client/statement-transforms-integration.test.ts (10 tests) 633ms
+ ✓ |extended-local| tests/contracts/drivers/transaction-options-behavior.provider.test.ts (19 tests) 611ms
+ ❯ |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts (21 tests | 3 failed) 901ms
+ ✓ |extended-local| tests/contracts/public-client/namespace-isolation.test.ts (11 tests) 548ms
+ ❯ |extended-local| tests/contracts/engine/write/nested-create-context-grandchild.test.ts (3 tests | 1 failed) 573ms
+ ✓ |extended-local| tests/contracts/engine/write/polymorphic-compound-target.test.ts (12 tests) 695ms
+ ✓ |extended-local| tests/contracts/engine/query/nested-m2m-parent-pk-dataflow.test.ts (6 tests) 641ms
+ ✓ |extended-local| tests/contracts/engine/write/generated-output-continuation-race.test.ts (2 tests) 557ms
+ ✓ |extended-local| tests/contracts/engine/write/nested-update-pk-transition-cascade-located.test.ts (4 tests) 546ms
+ ✓ |extended-local| tests/contracts/engine/write/vacate-then-supply-substrates.test.ts (30 tests) 668ms
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > default-mode startsWith becomes an index range
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > the range narrows to the matching rows, and they are the right o
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > PostgreSQL prefix plans (C-collated substrate) > endsWith seq-scans under either spelling, which is why it did no
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > SQLite prefix plans > default-mode startsWith becomes an index range
+ FAIL  |extended-local| tests/contracts/engine/query/starts-with-prefix-plan.test.ts > SQLite prefix plans > the range returns exactly the matching rows
+ FAIL  |extended-local| tests/contracts/engine/write/nested-create-context-grandchild.test.ts > CLASS VI key 3 — root-create nested createMany skipDuplicates > direct, transaction, and batch preserv
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — the composed continuation on ordered committed segments > carries the parent and captured-target guards into
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — the composed continuation on ordered committed segments > routes the composition's placement through the pre
+ FAIL  |extended-local| tests/contracts/engine/write/supplier-continuation.test.ts > E4 — supplier continuation keeps the write-side membership premise > a reused non-PK reference cannot redirect th
+ Test Files  3 failed | 11 passed (14)
+      Tests  9 failed | 192 passed | 5 skipped (206)
+[test:all] extended-local shared-family shard 2/8 (14 suites): 15.62s wall, 1971.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated live-PGlite provider). Teardown verified.

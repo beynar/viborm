@@ -142,6 +142,16 @@ const NO_CONTINUATIONS: readonly { query: Query; model: AnyModel }[] =
   Object.freeze([]);
 
 /** One operation owns its SQL scopes, transport binding, and batch scratch lifetime. */
+/**
+ * What an ordered observation (N1) requires of the batch it reads in: a row
+ * present, or no row outside a membership — asserted as a premise ahead of
+ * the read, so the batch aborts before anything commits.
+ */
+export interface ObservationPremise {
+  readonly query: Query;
+  readonly present: boolean;
+  readonly failure: () => Error;
+}
 export class OperationContext {
   readonly queries: Queries;
   readonly driver: AnyDriver;
@@ -1035,11 +1045,16 @@ export class OperationContext {
       )
     };
   }
-  async flush(query?: Query, member?: Member): Promise<Input[]>;
+  async flush(
+    query?: Query,
+    member?: Member,
+    premise?: ObservationPremise
+  ): Promise<Input[]>;
   async flush(queries: Query[], member?: Member): Promise<Input[][]>;
   async flush(
     query?: Query | Query[],
-    member?: Member
+    member?: Member,
+    premise?: ObservationPremise
   ): Promise<Input[] | Input[][]> {
     const projections = Array.isArray(query) ? query : query ? [query] : [];
     // Arnaud's D-29, stated where planning reads become batches. A planning
@@ -1051,15 +1066,35 @@ export class OperationContext {
     // only while the unit is being dispatched anyway (the values it reads are
     // the ones those statements produce). With nothing else waiting it is what
     // it is: a read, through the one owner of reads.
+    //
+    // An ordered observation (N1) is the other caller: a read the queued unit's
+    // own writes can answer. The trailing premises step aside for it exactly as
+    // for a planning read — they protect writes not yet queued — while the
+    // premises stated before the queued writes ride with them. Its `premise`
+    // (the row the consumer needs, or no row outside its membership) is
+    // asserted inside the same batch, behind the writes and ahead of the read,
+    // so a target that is not what the consumer needs aborts the batch before
+    // anything commits.
     if (projections.length > 0) this.attemptStore?.withholdPremises();
     try {
       if (!this.usesBatch || this.queued.length === 0) {
+        // Nothing queued to ride with: an ABSENCE premise (no row outside the
+        // membership) is checked here, at the observation, by its own read —
+        // never left to a batch that will not run. A PRESENCE premise is the
+        // observation itself: its query is the projection, and an empty answer
+        // is the absence its consumer refuses.
+        if (
+          premise &&
+          !premise.present &&
+          (await this.read(premise.query, true)).length > 0
+        )
+          throw premise.failure();
         const rows: Input[][] = [];
         for (const projection of projections)
           rows.push(await this.read(projection, true));
         return Array.isArray(query) ? rows : (rows[0] ?? []);
       }
-      return await this.flushQueued(projections, query, member);
+      return await this.flushQueued(projections, query, member, premise);
     } finally {
       this.attemptStore?.restorePremises();
     }
@@ -1067,8 +1102,12 @@ export class OperationContext {
   private async flushQueued(
     projections: Query[],
     query: Query | Query[] | undefined,
-    member?: Member
+    member?: Member,
+    premise?: ObservationPremise
   ): Promise<Input[] | Input[][]> {
+    if (premise?.present) this.requirePresent(premise.query, premise.failure());
+    else if (premise)
+      await this.requireAbsent(premise.query, premise.failure());
     const resultIndex = this.queued.length;
     for (const projection of projections) this.queue(projection.sql);
     const responses = await this.submit(false, member);
@@ -1231,9 +1270,11 @@ export class OperationContext {
           // sentence, and the position claim below is bounded by the LAST
           // premise instead. An unindexed native failure identifies our sole
           // guard only when ordinary SQL cannot collide with it.
-          const soleGuard =
-            assertionFailures.size === 1 &&
-            !batchMayContainAssertionCollision(statements, this.driver.dialect);
+          const mayCollide = batchMayContainAssertionCollision(
+            statements,
+            this.driver.dialect
+          );
+          const soleGuard = assertionFailures.size === 1 && !mayCollide;
           for (const [index, statement] of statements.entries()) {
             const assertion = assertionFailures.get(statement);
             if (!assertion) continue;
@@ -1242,6 +1283,29 @@ export class OperationContext {
               failure = assertion.failure;
               attributedIndex = index;
               break;
+            }
+          }
+          // A premise stated BEHIND the unit's own writes may be about what
+          // those writes did (an ordered observation's requirement, N1); the
+          // rollback that preceded the re-probe undid them, so its answer now
+          // says nothing about the abort. When every premise ahead of the
+          // writes holds now and exactly one premise stands behind them, that
+          // one is the only candidate the re-probe could not clear — the sole
+          // guard's inference, applied to the one premise the rollback hides.
+          if (failure === undefined && !mayCollide) {
+            const firstWrite = statements.findIndex(
+              (statement) => !assertionFailures.has(statement)
+            );
+            const blind = [...statements.entries()].filter(
+              ([index, statement]) =>
+                firstWrite >= 0 &&
+                index > firstWrite &&
+                assertionFailures.has(statement)
+            );
+            if (blind.length === 1) {
+              const [index, statement] = blind[0]!;
+              failure = assertionFailures.get(statement)!.failure;
+              attributedIndex = index;
             }
           }
         }

@@ -1,0 +1,6 @@
+ ✓ |coverage-raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 543ms
+ ✓ |coverage-raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 1688ms
+ ✓ |raptor3| tests/raptor3/g2-generated.test.ts (46 tests) 571ms
+ ✓ |raptor3| tests/raptor3/g2-campaign.test.ts (1 test) 1716ms
+ Test Files  4 passed (4)
+      Tests  94 passed (94)

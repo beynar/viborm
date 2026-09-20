@@ -24,10 +24,20 @@ function collectionOwnWriteScenario(
     prepare() {
       const conditional =
         id === "g2-own-coc-set-distinct" || id === "g2-own-coc-set-same";
-      const refused =
-        id === "g2-own-coc-set-same" ||
-        id === "g2-own-delete-update-refused" ||
-        id === "g2-own-update-coc-refused";
+      // N1 (D-51): the verbs of one relation body run in its canonical order
+      // and a later lookup whose answer an earlier verb can change is an
+      // ordered observation of the state that verb left. The veto these cells
+      // pinned ("Nested operation '<verb>' on relation 'notes' depends on an
+      // earlier '<verb2>' target write in the same nested write. Split these
+      // operations into separate queries.") is retired; what remains is the
+      // relation body's correlated not-found, where the earlier write REMOVED
+      // the row the later verb observes.
+      const notFound = id === "g2-own-delete-update-refused";
+      // N1 (D-51): `set` no longer vetoes the sibling `connectOrCreate` it
+      // retains; the set's target lookup is an ordered observation behind the
+      // create arm and lands ahead of the set's own clear, which keeps the row
+      // it names — 801, 802 and 804 leave, the adopted 905 stays.
+      const setSame = id === "g2-own-coc-set-same";
       const setCreate = id === "g2-own-set-create";
       const updateConditional = id === "g2-own-update-coc-refused";
       const author = s
@@ -63,7 +73,7 @@ function collectionOwnWriteScenario(
             }
           : conditional
             ? {
-                set: [{ id: refused ? 905 : 801 }],
+                set: [{ id: setSame ? 905 : 801 }],
                 connectOrCreate: [
                   {
                     where: { id: 905 },
@@ -71,7 +81,7 @@ function collectionOwnWriteScenario(
                   },
                 ],
               }
-            : refused
+            : notFound
               ? {
                   update: [{ where: { id: 801 }, data: { body: "never" } }],
                   delete: [{ id: 801 }],
@@ -99,7 +109,9 @@ function collectionOwnWriteScenario(
         ],
       };
       const publicValue = { id: 1, email: "one@x", name: "root-effect" };
-      const final = refused
+      // N1 (D-51): the refusal that stays is an execution fact taken after the
+      // delete it depends on, so nothing of the operation commits.
+      const final = notFound
         ? initial
         : {
             authors: [publicValue, initial.authors[1]!],
@@ -114,20 +126,37 @@ function collectionOwnWriteScenario(
                 ]
               : conditional
                 ? [
-                    initial.notes[0]!,
+                    setSame
+                      ? { id: 801, body: "member-801", authorId: null }
+                      : initial.notes[0]!,
                     { id: 802, body: "member-802", authorId: null },
                     initial.notes[2]!,
                     { id: 804, body: "member-804", authorId: null },
                     initial.notes[4]!,
-                    { id: 905, body: "adopted-905", authorId: null },
+                    {
+                      id: 905,
+                      body: "adopted-905",
+                      authorId: setSame ? 1 : null,
+                    },
                   ]
-                : [
-                    { id: 801, body: "reborn-801", authorId: 1 },
-                    initial.notes[1]!,
-                    initial.notes[2]!,
-                    initial.notes[3]!,
-                    initial.notes[4]!,
-                  ],
+                : updateConditional
+                  ? // `update` runs before `connectOrCreate`: the renamed 802
+                    // is what the conditional observes, so it connects the
+                    // member it found and mints nothing.
+                    [
+                      initial.notes[0]!,
+                      { id: 802, body: "changed", authorId: 1 },
+                      initial.notes[2]!,
+                      initial.notes[3]!,
+                      initial.notes[4]!,
+                    ]
+                  : [
+                      { id: 801, body: "reborn-801", authorId: 1 },
+                      initial.notes[1]!,
+                      initial.notes[2]!,
+                      initial.notes[3]!,
+                      initial.notes[4]!,
+                    ],
           };
       const inspect = (database: Database.Database) => ({
         authors: database
@@ -135,6 +164,10 @@ function collectionOwnWriteScenario(
           .all(),
         notes: database.prepare("SELECT * FROM g2_own_notes ORDER BY id").all(),
       });
+      // N1 (D-51): the update's lookup is taken AFTER the delete it depends on,
+      // so the target is already gone when the refusal is raised. The refusal
+      // no longer precedes the effects; it follows them and they roll back.
+      let deletedTargetObserved = false;
       return {
         publicInput: { model: "author", operation: "update", args },
         requiredCuts: [],
@@ -157,12 +190,12 @@ function collectionOwnWriteScenario(
         },
         inspect,
         afterStatement(database) {
-          if (refused)
-            assert.deepEqual(
-              inspect(database),
-              initial,
-              "OwnWrite refusal must precede root and relation effects, not merely roll them back"
-            );
+          if (
+            notFound &&
+            database.prepare("SELECT id FROM g2_own_notes WHERE id=801").all()
+              .length === 0
+          )
+            deletedTargetObserved = true;
           return undefined;
         },
         assert(observation) {
@@ -170,24 +203,28 @@ function collectionOwnWriteScenario(
           assert.deepEqual(observation.final, final);
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, []);
-          if (!refused) {
+          if (!notFound) {
             assert.deepEqual(observation.outcome, {
               kind: "success",
               value: publicValue,
             });
             return;
           }
+          if (notFound)
+            assert.equal(
+              deletedTargetObserved,
+              true,
+              "the update's lookup is an ordered observation: the delete it depends on ran first"
+            );
           assert.equal(observation.outcome.kind, "failure");
           if (observation.outcome.kind !== "failure") return;
           assert.equal(observation.outcome.failure.name, "NestedWriteError");
           assert.equal(observation.outcome.failure.code, "V7001");
+          // N1 (D-51): the correlated refusal the relation body registers,
+          // taken at the observation the delete precedes.
           assert.equal(
             observation.outcome.failure.message,
-            updateConditional
-              ? "Nested operation 'connectOrCreate' on relation 'notes' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries."
-              : conditional
-                ? "Nested operation 'set' on relation 'notes' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries."
-                : "Nested operation 'update' on relation 'notes' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
+            "Cannot update relation 'notes': target record was not found for this parent."
           );
         },
       };
@@ -298,45 +335,32 @@ function wrapperFilterScenario(
           return createClient({ schema, driver }).badge.update(args);
         },
         inspect,
-        afterStatement(database) {
-          if (!conditional)
-            assert.deepEqual(
-              inspect(database),
-              initial,
-              "The filter dependency must refuse before the root tag write or supplier adoption"
-            );
-          return undefined;
-        },
         assert(observation) {
-          // COC reaches native uniqueness before its wrapper-filter continuation;
-          // plain connect instead declares an early planning dependency.
-          if (conditional) {
-            assert.equal(observation.outcome.kind, "failure");
-            if (observation.outcome.kind === "failure") {
-              assert.equal(
-                observation.outcome.failure.name,
-                "UniqueConstraintError"
-              );
-              assert.equal(observation.outcome.failure.code, "V3001");
-              assert.equal(
-                observation.outcome.failure.message,
-                "Unique constraint violation"
-              );
-            }
+          // N1 (D-51): the plain-connect cell pinned DESIGN §6.2's veto ahead
+          // of any effect ("Nested operation 'update' on relation 'badge'
+          // depends on an earlier 'update' target write in the same nested
+          // write. Split these operations into separate queries."). Now the
+          // wrapper's filter read is an ordered observation behind the root's
+          // tag write, and both supplies reach the same integrity answer: the
+          // inverse to-one slot the incumbent (the root itself) still holds
+          // refuses the supplied badge at the database — native uniqueness,
+          // rolled back, the state as it was.
+          assert.equal(observation.outcome.kind, "failure");
+          if (observation.outcome.kind === "failure") {
+            assert.equal(
+              observation.outcome.failure.name,
+              "UniqueConstraintError"
+            );
+            assert.equal(observation.outcome.failure.code, "V3001");
+            assert.equal(
+              observation.outcome.failure.message,
+              "Unique constraint violation"
+            );
           }
           assert.deepEqual(observation.initial, initial);
           assert.deepEqual(observation.final, initial);
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, []);
-          if (conditional) return;
-          assert.equal(observation.outcome.kind, "failure");
-          if (observation.outcome.kind !== "failure") return;
-          assert.equal(observation.outcome.failure.name, "NestedWriteError");
-          assert.equal(observation.outcome.failure.code, "V7001");
-          assert.equal(
-            observation.outcome.failure.message,
-            "Nested operation 'update' on relation 'badge' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries."
-          );
         },
       };
     },

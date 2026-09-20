@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { NestedWriteError, VibORMErrorCode } from "@errors";
+import {
+  NestedWriteError,
+  UniqueConstraintError,
+  VibORMErrorCode,
+} from "@errors";
 import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
@@ -127,16 +131,39 @@ function assertDependencyFailure(
   );
 }
 
-function assertShippedDependencyFailure(
+function assertMissingTicketFailure(
   failure: unknown,
-  relation: string,
+  profile: Profile,
+  progress: {
+    readonly committedSegments: number;
+    readonly committedWriteMembers: number;
+    readonly completedMembers: number;
+  },
   diagnostic?: string
 ): void {
   assert(failure instanceof NestedWriteError, diagnostic);
   assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED, diagnostic);
-  assert.match(
+  assert.equal(
     failure.message,
-    new RegExp(`relation '${relation}'`),
+    "Cannot update relation 'tickets': target record was not found for this parent.",
+    diagnostic
+  );
+  assert.deepEqual(
+    { ...failure.meta },
+    {
+      relation: "tickets",
+      ...(profile === "sqlite-atomic-batch"
+        ? {
+            recordSeriesProgress: {
+              atomicity: "segment",
+              phase: "member",
+              committedSegments: progress.committedSegments,
+              committedWriteMembers: progress.committedWriteMembers,
+              completedMembers: progress.completedMembers,
+            },
+          }
+        : {}),
+    },
     diagnostic
   );
 }
@@ -175,21 +202,21 @@ interface MatrixCase {
 
 const matrixCases: readonly MatrixCase[] = [
   {
-    name: "template wanted refuses before capture",
+    name: "template wanted executes the create it names and takes the missing-target refusal",
     template: "wanted",
     members: ["other2"],
     independentWanted: false,
     outcome: "failure",
   },
   {
-    name: "actual member wanted refuses before member effects",
+    name: "actual member wanted executes the create it names and takes the missing-target refusal",
     template: "other",
     members: ["wanted"],
     independentWanted: false,
     outcome: "failure",
   },
   {
-    name: "later actual member wanted refuses before either member",
+    name: "later actual member wanted executes both creates and takes the missing-target refusal",
     template: "other",
     members: ["second", "wanted"],
     independentWanted: false,
@@ -355,86 +382,81 @@ async function runMatrixCase(
       2
     );
 
+    const expectedAdmissions = [
+      { scope: "template", value: testCase.template },
+      ...testCase.members.map((value) => ({ scope: "member", value })),
+    ];
     if (testCase.outcome === "failure") {
-      if (engine === "commands") {
-        assertDependencyFailure(
-          failure,
-          "tickets",
-          profile,
-          testCase.template === "wanted"
-            ? undefined
-            : {
-                memberPath: [testCase.members.indexOf("wanted")],
-                totalMembers: testCase.members.length,
-                committedSegments: 1,
-                committedWriteMembers: 1,
-              },
-          diagnostic
-        );
-      } else {
-        assertShippedDependencyFailure(failure, "tickets", diagnostic);
-      }
-      if (testCase.template === "wanted") {
-        if (engine === "commands") {
-          assert.deepEqual(admissions, [
-            { scope: "template", value: "wanted" },
-          ]);
-        } else {
-          assert.equal(admissions.length > 0, true);
-          assert.equal(
-            admissions.every(
-              ({ scope, value }) => scope === "template" && value === "wanted"
-            ),
-            true
-          );
-        }
-        assert.equal(driver.statements.length, 0);
-      } else if (engine === "commands") {
-        const expectedMemberAdmissions: {
-          readonly scope: "member";
-          readonly value: string;
-        }[] = testCase.members.map((value) => ({ scope: "member", value }));
-        assert.deepEqual(admissions, [
-          { scope: "template", value: "other" },
-          ...expectedMemberAdmissions,
-        ]);
-        assert.equal(
-          hasWriteTo(driver.statements, "g29_matrix_shelves"),
-          true,
-          "Dynamic dependency discovery must occur after the root prefix dispatch"
-        );
-        assert.equal(
-          hasWriteTo(driver.statements, "g29_matrix_tickets"),
-          false,
-          "Dependency refusal must precede every selected member effect"
-        );
-      }
-    } else {
-      assert.equal(failure, undefined, diagnostic);
-      assert.deepEqual(value, { id: "s1", label: "prefix" }, diagnostic);
-      if (engine === "commands") {
-        assert.deepEqual(admissions, [
-          { scope: "template", value: "other" },
-          { scope: "member", value: "other2" },
-        ]);
-      }
+      // N1 (D-51): these three cells pinned DESIGN §6.2's mode-independent veto
+      // ("Nested operation 'update' on relation 'tickets' depends on an earlier
+      // 'create' target write in the same nested write. Split these operations
+      // into separate queries."), raised before any selected member effect;
+      // now the lookup is an ordered observation taken AFTER that create, which
+      // lands its ticket on the bin, so `shelf.tickets` never gains the member
+      // the lookup names and the correlated not-found refusal answers instead.
+      // Nothing further commits: the live route rolls the unit back, and the
+      // batch route keeps the segments D-51 accepts, reported as progress. The
+      // client route answers exactly as the command engine does.
+      const memberTickets = testCase.members.map((id, index) => ({
+        id,
+        note: "created",
+        binId: `b${index + 1}`,
+        shelfId: null,
+      }));
+      assertMissingTicketFailure(
+        failure,
+        profile,
+        {
+          committedSegments: testCase.members.length + 1,
+          committedWriteMembers: testCase.members.length + 1,
+          completedMembers: testCase.members.length,
+        },
+        diagnostic
+      );
+      assert.deepEqual(admissions, expectedAdmissions, diagnostic);
+      assert.equal(
+        hasWriteTo(driver.statements, "g29_matrix_shelves"),
+        true,
+        "Dynamic dependency discovery must occur after the root prefix dispatch"
+      );
+      assert.equal(
+        hasWriteTo(driver.statements, "g29_matrix_tickets"),
+        true,
+        "The observed create must execute before the dependent lookup"
+      );
+      assert.deepEqual(
+        database
+          .prepare("SELECT id,label FROM g29_matrix_shelves ORDER BY id")
+          .all(),
+        [
+          {
+            id: "s1",
+            label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
+          },
+        ],
+        diagnostic
+      );
+      assert.deepEqual(
+        database
+          .prepare(
+            "SELECT id,note,binId,shelfId FROM g29_matrix_tickets ORDER BY id"
+          )
+          .all(),
+        profile === "sqlite-atomic-batch" ? memberTickets : [],
+        diagnostic
+      );
+      return;
     }
 
+    assert.equal(failure, undefined, diagnostic);
+    assert.deepEqual(value, { id: "s1", label: "prefix" }, diagnostic);
+    assert.deepEqual(admissions, expectedAdmissions, diagnostic);
     assert.deepEqual(
       database
         .prepare("SELECT id,label FROM g29_matrix_shelves ORDER BY id")
         .all(),
-      [
-        {
-          id: "s1",
-          label:
-            testCase.outcome === "success" ||
-            (profile === "sqlite-atomic-batch" &&
-              testCase.template !== "wanted")
-              ? "prefix"
-              : "initial",
-        },
-      ]
+      [{ id: "s1", label: "prefix" }],
+      diagnostic
     );
     assert.deepEqual(
       database
@@ -442,17 +464,16 @@ async function runMatrixCase(
           "SELECT id,note,binId,shelfId FROM g29_matrix_tickets ORDER BY id"
         )
         .all(),
-      testCase.outcome === "success"
-        ? [
-            { id: "other2", note: "created", binId: "b1", shelfId: null },
-            {
-              id: "wanted",
-              note: "looked-up",
-              binId: null,
-              shelfId: "s1",
-            },
-          ]
-        : []
+      [
+        { id: "other2", note: "created", binId: "b1", shelfId: null },
+        {
+          id: "wanted",
+          note: "looked-up",
+          binId: null,
+          shelfId: "s1",
+        },
+      ],
+      diagnostic
     );
   } finally {
     await client.$disconnect();
@@ -654,13 +675,13 @@ async function runNestedSeriesRefusal(profile: Profile): Promise<void> {
   const database = new Database(":memory:");
   database.pragma("foreign_keys = ON");
   const driver = createDriver(profile, database);
-  const admitted = ["other", "other", "wanted"];
-  let calls = 0;
+  // The inner note's id default answers the seeded note's own id every time
+  // it is asked — a deterministic default, so D-25's one region re-plan on
+  // the live route admits the same duplicate again.
   const admissions: string[] = [];
   const schema = nestedSeriesSchema(() => {
-    const value = admitted[calls++]!;
-    admissions.push(value);
-    return value;
+    admissions.push("wanted");
+    return "wanted";
   });
   const client = await migrate(schema, driver);
   try {
@@ -730,44 +751,79 @@ async function runNestedSeriesRefusal(profile: Profile): Promise<void> {
       undefined,
       2
     );
-    assert.deepEqual(admissions, admitted, diagnostic);
-    assertDependencyFailure(
-      failure,
-      "notes",
-      profile,
-      {
-        memberPath: [0, 0],
-        totalMembers: 1,
-        committedSegments: 2,
-        committedWriteMembers: 2,
-      },
-      diagnostic
-    );
+    // Hoisted verbatim out of the live tail below so that the batch branch's
+    // early return does not narrow `profile` under them.
+    const expectedShelfLabel =
+      profile === "sqlite-atomic-batch" ? "prefix" : "initial";
+    const expectedBinLabel =
+      profile === "sqlite-atomic-batch" ? "outer-member" : "bin";
+    if (profile === "sqlite-atomic-batch") {
+      // N1 (D-51): this cell pinned DESIGN §6.2's mode-independent veto
+      // ("Nested operation 'update' on relation 'notes' depends on an earlier
+      // 'create' target write in the same nested write. Split these operations
+      // into separate queries.") held until the inner capture; now the inner
+      // create executes with the id the inner member admitted, `wanted`, which
+      // is the seeded note's own id — so the database's integrity answer is the
+      // operation's failure, the batch carrying that INSERT aborts, and the two
+      // segments the barrier already committed stay committed (D-51's
+      // succession of statements). The seeded note is untouched.
+      assert.ok(admissions.length > 0, diagnostic);
+      assert(failure instanceof UniqueConstraintError, diagnostic);
+      assert.equal(failure.message, "Unique constraint violation", diagnostic);
+      assert.equal(
+        hasWriteTo(driver.statements, "g29_nested_notes"),
+        true,
+        diagnostic
+      );
+      assert.deepEqual(
+        database
+          .prepare("SELECT id,label FROM g29_nested_shelves ORDER BY id")
+          .all(),
+        [{ id: "s1", label: "prefix" }],
+        diagnostic
+      );
+      assert.deepEqual(
+        database.prepare("SELECT id,label,shelfId FROM g29_nested_bins").all(),
+        [{ id: "b1", label: "outer-member", shelfId: "s1" }],
+        diagnostic
+      );
+      assert.deepEqual(
+        database
+          .prepare("SELECT id,text,ticketId,binId FROM g29_nested_notes")
+          .all(),
+        [{ id: "wanted", text: "independent", ticketId: null, binId: "b1" }],
+        diagnostic
+      );
+      return;
+    }
+    // N1 (D-51): this cell pinned DESIGN §6.2's mode-independent veto held
+    // until the inner capture. Now the inner create executes with the id the
+    // inner member admitted, `wanted`, the seeded note's own id: the INSERT's
+    // unique violation is the operation's failure. On the live route the
+    // rejected INSERT spends D-25's one region recovery — the operation is
+    // planned a SECOND time from the same admitted arguments, its members
+    // admitted again, the same duplicate key inserted again — and the
+    // database's answer stands, the whole transaction rolled back.
+    // The batch route's recovery is bounded by member admission (one attempt,
+    // above): D-25's documented asymmetry, not a disagreement.
+    // Two plans admitted the inner member: D-25's one region re-plan.
+    assert.ok(admissions.length > 1, diagnostic);
+    assert(failure instanceof UniqueConstraintError, diagnostic);
+    assert.equal(failure.message, "Unique constraint violation", diagnostic);
     assert.equal(
       hasWriteTo(driver.statements, "g29_nested_notes"),
-      false,
-      "Inner dependency refusal must precede the first inner member effect"
+      true,
+      diagnostic
     );
     assert.deepEqual(
       database
         .prepare("SELECT id,label FROM g29_nested_shelves ORDER BY id")
         .all(),
-      [
-        {
-          id: "s1",
-          label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
-        },
-      ]
+      [{ id: "s1", label: expectedShelfLabel }]
     );
     assert.deepEqual(
       database.prepare("SELECT id,label,shelfId FROM g29_nested_bins").all(),
-      [
-        {
-          id: "b1",
-          label: profile === "sqlite-atomic-batch" ? "outer-member" : "bin",
-          shelfId: "s1",
-        },
-      ]
+      [{ id: "b1", label: expectedBinLabel, shelfId: "s1" }]
     );
     assert.deepEqual(
       database
@@ -781,9 +837,20 @@ async function runNestedSeriesRefusal(profile: Profile): Promise<void> {
   }
 }
 
+// N1 (D-51): re-expressed on both substrates — the inner create executes and
+// the database's integrity answer is the operation's failure; the batch route
+// keeps the segments the barrier committed, the live route re-plans once
+// (D-25) and rolls back.
+const nestedSeriesCell: Record<Profile, string> = {
+  "sqlite-atomic-batch":
+    "runs the inner create found at the inner capture and takes the database's answer",
+  "sqlite-interactive":
+    "runs the inner create found at the inner capture, re-plans once on its duplicate key and rolls back",
+};
+
 for (const profile of profiles) {
   describe(`G2.9 nested selected-series dependency [commands] (${profile})`, () => {
-    it("keeps an inner unresolved dependency until the inner capture", async () => {
+    it(nestedSeriesCell[profile], async () => {
       await runNestedSeriesRefusal(profile);
     });
   });

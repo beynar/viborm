@@ -1,0 +1,44 @@
+failing cells before 137 after 97 | newly red 0 | newly green 40 | same cell, different message 2
+  GREEN  : nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > root id transition allows 
+  GREEN  : nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested payload update does
+  GREEN  : nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested to-many update allo
+  GREEN  : nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > existing top-level upsert 
+  GREEN  : polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > connectOrCreate FOUND duplicates coale
+  GREEN  : polymorphic-collection-write-family.test.ts > polymorphic collection write family (transaction) > connectOrCreate MISSING duplicates kee
+  GREEN  : polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > connectOrCreate FOUND duplicates coale
+  GREEN  : polymorphic-collection-write-family.test.ts > polymorphic collection write family (atomicBatch) > connectOrCreate MISSING duplicates kee
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: cross-relation targets (tx vs batch) > create-family sibling cre
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > nested predica
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: transitive predicate dependencies (tx vs batch) > upsert update 
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: transitive target dependencies (tx vs batch) > outer create then
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > a connectOrCreat
+  GREEN  : nested-write-conformance-transitive.test.ts > nested-write conformance: alternative branch dependencies (tx vs batch) > upsert array kee
+  GREEN  : supplier-continuation.test.ts > E — supply then update on a to-one slot (PGlite transaction) > the continuation carries a 
+  GREEN  : nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m connectOrCreate string-selector
+  GREEN  : nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m overlapping set and deleteMany 
+  GREEN  : nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m disconnect then deleteMany reje
+  GREEN  : nested-write-conformance-m2m.test.ts > nested-write conformance: many-to-many (tx vs batch) > m2m multiple deleteMany filters rej
+  GREEN  : nested-write-conformance-m2m.test.ts > nested-write conformance: self-referential m2m (tx vs batch) > self m2m connect then inver
+  GREEN  : relation-key-update-legality-occupied-to-one.test.ts > relation-key update legality > rejects an occupied setNull child-held UPDATE under a PK tr
+  GREEN  : relation-key-update-legality-occupied-to-one.test.ts > relation-key update legality > rejects an occupied restrict child-held UPDATE under a PK t
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested create membership 
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > connectOrCreate membershi
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > found connect membership 
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-one inverse upser
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self child-holds casc
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physic
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > self to-many inverse upda
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > nested to-many child upda
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: update membership root (tx vs batch) > non-self nested FK rebind
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested scalar
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested physic
+  GREEN  : nested-write-conformance-membership.test.ts > nested-write conformance: transitive membership dependencies (tx vs batch) > nested identi
+  GREEN  : relation-key-update-legality-referenced-column.test.ts > relation-key update legality > allows literal non-PK referenced transition with cascade
+  GREEN  : relation-key-update-legality-occupied-to-many.test.ts > relation-key update legality > rejects an occupied setNull TO-MANY UPDATE under a PK trans
+  GREEN  : relation-key-update-legality-occupied-to-many.test.ts > relation-key update legality > rejects an occupied target UPDATE while an occupied sibling
+  GREEN  : create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (transaction) > M7: two upsert items are refused even
+  GREEN  : create-junction-upsert.test.ts > E5-U1 m2m upsert under a create root (atomic batch) > M7: two upsert items are refused eve
+  MOVED  : relation-key-update-legality-transition-arm.test.ts > relation-key update legality > allows primary-key arithmetic transition with cas | AssertionError: expected { name: 'NestedWriteError', …(1) } to deeply  -> AssertionError: expected { name: 'NotFoundError', …(1) } to deeply equ
+  MOVED  : shared-pk-update-root.test.ts > Package E shared-PK update root (PGlite atomic batch) > update publishes the tar | NestedWriteError: Nested write assertion failed: a batch precondition  -> NestedWriteError: Cannot update relation 'chits': target record was no
+failing cells before 2 after 2 | newly red 0 | newly green 0 | same cell, different message 0

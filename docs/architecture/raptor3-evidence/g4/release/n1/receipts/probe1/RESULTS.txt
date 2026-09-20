@@ -1,0 +1,11 @@
+conf-m2m exit=1  Tests 11 failed | 23 passed (34);
+conf-membership exit=1  Tests 13 failed | 17 passed (30);
+conf-transitive exit=1  Tests 15 failed | 16 passed (31);
+conf-root-dependency exit=1  Tests 12 failed | 18 passed (30);
+conf-fk exit=1  Tests 1 failed | 27 passed (28);
+conf-to-one exit=0  Tests 19 passed (19);
+g29-boundaries exit=1  Tests 4 failed | 4 passed (8);
+g29-choices exit=1  Tests 4 failed | 16 passed (20);
+g29-member exit=1  Tests 16 failed | 12 passed (28);
+fixed exit=1  Tests 41 failed | 755 passed (796);
+DONE

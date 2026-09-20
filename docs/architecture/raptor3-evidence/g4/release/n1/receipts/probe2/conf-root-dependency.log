@@ -1,0 +1,32 @@
+ ❯ |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts (30 tests | 12 failed) 1039ms
+     → expected false to be true // Object.is equality
+     → expected 'Nested operation \'connect\' on relat…' to contain 'target record was not found'
+     → expected 'query-engine-v2 create has conflictin…' to contain 'target record was not found'
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+     → expected 'Foreign key constraint violation' to contain 'depends on an earlier \'update\' targ…'
+     → expected { name: 'NestedWriteError', …(2) } to deeply equal { name: 'NestedWriteError', …(2) }
+     → expected false to be true // Object.is equality
+     → expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > after-parent self connectOrCreate 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > missing top-level upsert applies t
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > root id transition rejects a lat
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > root id transition rejects a lat
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > payload update conflicts with a 
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested to-many update rejects it
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: own-write dependencies (tx vs batch) > overlapping update array reject
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: own-write dependencies (tx vs batch) > overlapping upsert array reject
+AssertionError: expected false to be true // Object.is equality
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > before-parent self connect is unaf
+AssertionError: expected 'Nested operation \'connect\' on relat…' to contain 'target record was not found'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: create root barrier (tx vs batch) > nested create keeps its before-par
+AssertionError: expected 'query-engine-v2 create has conflictin…' to contain 'target record was not found'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: update predicate root (tx vs batch) > nested to-one update uses an unk
+AssertionError: expected 'Foreign key constraint violation' to contain 'depends on an earlier \'update\' targ…'
+ FAIL  |extended-local| tests/contracts/engine/query/nested-write-conformance-root-dependency.test.ts > nested-write conformance: own-write dependencies (tx vs batch) > delete then overlapping set rej
+AssertionError: expected { name: 'NestedWriteError', …(2) } to deeply equal { name: 'NestedWriteError', …(2) }
+ Test Files  1 failed (1)
+      Tests  12 failed | 18 passed (30)

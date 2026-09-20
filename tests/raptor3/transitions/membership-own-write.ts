@@ -108,6 +108,10 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         .all(),
     });
     let ownEffectObserved = false;
+    // N1 (D-51): the record's own write carries the parent-held membership, so
+    // the disconnect empties the carrier BEFORE the child relation's `after`
+    // phase runs; the upsert's membership is captured at that later point.
+    let carrierClearedBeforeRefusal = false;
     return {
       publicInput: { model: "node", operation: "update", args },
       requiredCuts: [],
@@ -147,14 +151,29 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
       afterStatement(database) {
         if (!laterConnect && !isDeepStrictEqual(inspect(database), initial))
           ownEffectObserved = true;
+        if (
+          disconnect &&
+          database
+            .prepare(
+              "SELECT id FROM g2_membership_nodes WHERE id=? AND parent_id IS NULL"
+            )
+            .all(selectedId).length === 1
+        )
+          carrierClearedBeforeRefusal = true;
         return undefined;
       },
       assert(observation) {
-        if (!laterConnect)
+        if (!(laterConnect || disconnect))
           assert.equal(
             ownEffectObserved,
             false,
             "membership-own-write-before-effects: refuse before changing either carrier column or any target row"
+          );
+        if (disconnect)
+          assert.equal(
+            carrierClearedBeforeRefusal,
+            true,
+            "the upsert's membership is an ordered observation: the disconnect the record's own write carries ran first"
           );
         assert.deepEqual(observation.initial, initial);
         assert.deepEqual(observation.final, final);
@@ -170,20 +189,35 @@ const selfMembershipScenarios: ScenarioDefinition[] = cases.map((id) => ({
         assert.equal(observation.outcome.kind, "failure");
         if (observation.outcome.kind !== "failure") return;
         const failure = observation.outcome.failure;
-        const relation = disconnect ? "children" : "parent";
-        const earlier = disconnect ? "disconnect" : "connect";
         assert.equal(failure.name, "NestedWriteError");
         assert.equal(failure.code, "V7001");
+        // N1 (D-51): the disconnect cell pinned DESIGN §6.2's veto ("Nested
+        // operation 'upsert' on relation 'children' depends on an earlier
+        // 'disconnect' membership write in the same nested write. Split these
+        // operations into separate queries."). The record's own write carries
+        // that disconnect, so the upsert now looks up its global target and
+        // requires the membership captured AFTER it — a foreign target is not
+        // an absent target, so the found arm is refused, the create arm is
+        // never reached, and nothing commits. The connect cell keeps the
+        // inherited sentence: its read is one the record's own write CONSUMES.
         assert.equal(
           failure.message,
-          `Nested operation 'upsert' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`
+          disconnect
+            ? "Cannot upsert relation 'children': target record was not found for this parent."
+            : "Nested operation 'upsert' on relation 'parent' depends on an earlier 'connect' membership write in the same nested write. Split these operations into separate queries."
         );
-        // dependency/overlap are not in the public diagnostic disclosure set.
-        assert.deepEqual(Object.assign({}, failure.meta), {
-          operation: "upsert",
-          conflictsWith: earlier,
-          relation,
-        });
+        // dependency/overlap are not in the public diagnostic disclosure set;
+        // the correlated refusal names its relation and nothing else.
+        assert.deepEqual(
+          Object.assign({}, failure.meta),
+          disconnect
+            ? { relation: "children" }
+            : {
+                operation: "upsert",
+                conflictsWith: "connect",
+                relation: "parent",
+              }
+        );
         assert.equal(failure.cause, undefined);
       },
     };

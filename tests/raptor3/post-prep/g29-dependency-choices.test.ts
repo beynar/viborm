@@ -202,42 +202,6 @@ function failureObservation(failure: unknown): object {
   return { thrown: String(failure) };
 }
 
-function assertDependencyFailure(
-  failure: unknown,
-  diagnostic: string,
-  progress?: {
-    readonly phase: "member";
-    readonly committedSegments: number;
-    readonly committedWriteMembers: number;
-    readonly completedMembers: number;
-  }
-): void {
-  assert(failure instanceof NestedWriteError, diagnostic);
-  assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED, diagnostic);
-  assert.equal(
-    failure.message,
-    "Nested operation 'connect' on relation 'ticket' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.",
-    diagnostic
-  );
-  assert.deepEqual(
-    { ...failure.meta },
-    {
-      conflictsWith: "create",
-      operation: "connect",
-      relation: "ticket",
-      ...(progress
-        ? {
-            recordSeriesProgress: {
-              atomicity: "segment",
-              ...progress,
-            },
-          }
-        : {}),
-    },
-    diagnostic
-  );
-}
-
 function assertMissingHolderFailure(
   failure: unknown,
   diagnostic: string,
@@ -369,58 +333,47 @@ async function runChoiceCase(
     );
 
     if (testCase === "taken-conflict") {
-      assertDependencyFailure(
-        failure,
-        diagnostic,
-        profile === "sqlite-atomic-batch"
-          ? {
-              phase: "member",
-              committedSegments: 2,
-              committedWriteMembers: 2,
-              completedMembers: 1,
-            }
-          : undefined
-      );
-      if (profile === "sqlite-atomic-batch") {
-        assert.equal(
-          hasStatement(driver.statements, /^UPDATE\b.*g29_branch_shelves/),
-          true,
-          diagnostic
-        );
-        assert.equal(
-          hasStatement(driver.statements, /^INSERT\b.*g29_branch_tickets/),
-          true,
-          diagnostic
-        );
-      }
+      // N1 (D-51): this cell pinned DESIGN §6.2's mode-independent veto
+      // ("Nested operation 'connect' on relation 'ticket' depends on an earlier
+      // 'create' target write in the same nested write. Split these operations
+      // into separate queries."); the taken create arm's parent-held lookup is
+      // now an ordered observation of the ticket the earlier sibling made — it
+      // runs behind that create, binds the row, and the arm's INSERT carries
+      // the key. Both substrates reach the same end state.
+      assert.equal(failure, undefined, diagnostic);
+      assert.deepEqual(value, { id: "s1", label: "prefix" }, diagnostic);
       assert.equal(
-        hasStatement(
-          driver.statements,
-          /^(?:INSERT|UPDATE)\b.*g29_branch_holders/
-        ),
+        hasStatement(driver.statements, /^UPDATE\b.*g29_branch_shelves/),
+        true,
+        diagnostic
+      );
+      assert.equal(
+        hasStatement(driver.statements, /^INSERT\b.*g29_branch_tickets/),
+        true,
+        diagnostic
+      );
+      assert.equal(
+        hasStatement(driver.statements, /^INSERT\b.*g29_branch_holders/),
+        true,
+        diagnostic
+      );
+      assert.equal(
+        hasStatement(driver.statements, /^UPDATE\b.*g29_branch_holders/),
         false,
         diagnostic
       );
-      assert.deepEqual(
-        shelves,
-        [
-          {
-            id: "s1",
-            label: profile === "sqlite-atomic-batch" ? "prefix" : "initial",
-          },
-        ],
-        diagnostic
-      );
+      assert.deepEqual(shelves, [{ id: "s1", label: "prefix" }], diagnostic);
       assert.deepEqual(
         tickets,
-        profile === "sqlite-atomic-batch"
-          ? [{ id: "wanted", note: "created", binId: "b1" }]
-          : [],
+        [{ id: "wanted", note: "created", binId: "b1" }],
         diagnostic
       );
       assert.deepEqual(
         holders,
-        [{ id: "h1", label: "initial", shelfId: "s1", ticketId: null }],
+        [
+          { id: "h1", label: "initial", shelfId: "s1", ticketId: null },
+          { id: "h2", label: "missing", shelfId: "s1", ticketId: "wanted" },
+        ],
         diagnostic
       );
       return;
@@ -629,7 +582,7 @@ describe("G2.9 dependency choice locality [commands] (sqlite-interactive)", () =
     await runChoiceCase("sqlite-interactive", "untaken-clean");
   });
 
-  it("refuses the same conflicting lookup when its create arm is taken", async () => {
+  it("executes the same dependent lookup when its create arm is taken", async () => {
     await runChoiceCase("sqlite-interactive", "taken-conflict");
   });
 });
@@ -643,7 +596,7 @@ describe("G2.9 dependency choice locality [commands] (sqlite-atomic-batch)", () 
     await runChoiceCase("sqlite-atomic-batch", "untaken-clean");
   });
 
-  it("refuses the same conflicting lookup when its create arm is taken", async () => {
+  it("executes the same dependent lookup when its create arm is taken", async () => {
     await runChoiceCase("sqlite-atomic-batch", "taken-conflict");
   });
 });
