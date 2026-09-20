@@ -406,6 +406,60 @@ insert (`SELECT UUID()` and its kin, an N1-style observation) and inserted as
 a literal — as one unit ("M1") after the D-53 transport witnesses and before
 the perf lane, pinned on the MySQL Docker lane; both sentences leave the
 census. The public refusals then read 21.
+D-58 (Arnaud, 2026-09-21): the cross-segment scratch on a sessionless
+batch-only transport that D-53 measured is EXECUTED by carrying the VALUE, not a
+reference — each dispatched unit its own scratch, a value produced in one
+segment read back at the boundary and bound as a literal in the next; no new
+sentence; a unit after M1, before the perf lane.
+D-59 (Arnaud, 2026-09-21): after M1's measurement — no database-side
+default exists in this ORM, so #26 / #33 are reachable only by two `increment`
+columns on a provider without RETURNING, which MySQL refuses at DDL — both
+sentences are KEPT and the refusals-map's reachable column corrected (the
+review then measured that the declaration alone reaches them on mysql2 against
+a table the ORM did not create; the disposition stands); the census stays 23
+and D-57's 21 is withdrawn.
+
+**M1 as landed (commit 29, branch `m1` from `fd406f2ed`; ruling D-59: keep
+both, the map corrected).** D-57's mechanism has nothing
+to observe, and the unit says so with the measurement the brief asked for. The
+correction is to the ruling's PREMISE: **this ORM has no spelling for a
+database-side default.** A declared default is `DefaultValue<T> = T | (() => T)`;
+every generator except `increment` installs a JavaScript closure
+(`generatorDefault` — `uuid`, `ulid`, `nanoid`, `cuid`, `now`, `updatedAt`, and
+`s.string().id()`'s own ULID), `.nullable()` installs `null`, `.default(v)`
+installs `v`, and a scalar that is neither defaulted nor optional must be
+supplied (`mustBeSuppliedOnCreate`), so a scalar absent from an ADMITTED create
+payload is an `increment` column and nothing else — measured on every create
+route, and falsified by removing `.id()`'s closure, after which three cells
+answer with the two sentences under study. The DDL defaults the migration
+drivers write (`gen_random_uuid()`, `NOW()`, `CURRENT_TIMESTAMP`; MySQL
+deliberately declines `UUID()`) are never the value a row receives. With N4's
+row-16 measurement, #26 and #33 therefore reduce to ONE shape — more than one
+`increment` column among the fields the operation must know, which is #16's
+shape (D-55) — and no schema this ORM can push to a shipped non-RETURNING
+provider holds that shape: MySQL is the only `supportsReturning: false` adapter
+and refuses a second AUTO_INCREMENT column with errno 1075 / SQLSTATE 42000
+(measured, MySQL 8.4.11); the guard reads the declaration before any statement,
+so a schema declaring two `.increment()` columns still reaches both sentences on
+mysql2 against a table the ORM did not create (the review's measurement).
+An AUTO_INCREMENT is precisely the brief's own exception, a default that cannot
+be observed apart from its insert: `SELECT UUID()` is an ordinary observation,
+but the catalog's next auto-increment is a statistic, not a reservation (two
+reads, same number). So **both shapes keep their sentence, no engine change,
+census unchanged at 23 public** — not the 21 this section predicted. Pinned
+instead, as the boundary it is: seven credential-free cells in
+`g4/parity/generated-key-reach.test.ts` (in `G4_PARITY_COUNTS`; the family
+135 / 135) and five gated cells in
+`tests/providers/docker/mysql2-generated-key.test.ts` on the live lane, which
+owns four `m1gk_*` tables and drops only those; the lane is identical before and
+after by cell identity (161 non-passing both sides, NEW [], HEALED []). The
+disposition is a ruling, `g4/release/m1/note.md` §6: KEEP both with the map's
+*reachable* column corrected to "no schema this ORM can push holds the shape;
+the declaration alone reaches it on mysql2"; or tell them apart by
+construction as invariants, the only route to 21, whose objection is that half
+of what forecloses the state is a PROVIDER fact and not an owner in this tree;
+or add the public spelling the ruling assumes, which is a public-contract
+change and would make the observation mechanism real.
 
 ## 5. N5 — the rest of the gate
 

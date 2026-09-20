@@ -1095,6 +1095,49 @@ this paragraph is the rule. Pins:
 `tests/raptor3/g4/parity/transport-seam-pglite.test.ts` (live PGlite), and the
 credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
 
+**The key a provider without RETURNING must already know (M1, D-57).** A driver
+whose adapter declares `supportsReturning: false` cannot read back the row its
+INSERT wrote, so the engine NAMES that row from what it already holds, and it
+holds three things: a key the payload SPELLED, a key the ORM itself produced in
+JavaScript at admission, and ONE column the PROVIDER generated and then reported
+for the statement that produced it (`insertId` / `LAST_INSERT_ID`,
+`OperationContext.insertIdField`; its width is D-50's). The second is the one
+worth stating, because it is a schema fact and not a transport one: every
+generator except `increment` installs a default CLOSURE
+(`schema/scalars/common.ts`'s `generatorDefault` — `uuid`, `ulid`, `nanoid`,
+`cuid`, `now`, `updatedAt`, and `s.string().id()`'s own ULID), `.nullable()`
+installs `null` and `.default(v)` installs `v`, and a scalar that is neither
+defaulted nor optional MUST be supplied (`validation/model/core/create.ts`'s
+`mustBeSuppliedOnCreate`) — so a scalar absent from an ADMITTED create payload
+is an `increment` column and nothing else, on every create route alike (root,
+nested, the upsert's create arm, `connectOrCreate`, `createMany`, a nested
+`createMany`). A provider-side DDL default (`gen_random_uuid()`, `NOW()`,
+`CURRENT_TIMESTAMP`, written by the migration drivers) is therefore never the
+value a row receives: the statement always spells one. There is no builder
+spelling for "let the database compute this", so nothing on a non-RETURNING
+provider is observed ahead of its INSERT — `SELECT UUID()` would be an ordinary
+N1-style observation if a column could be routed to it, and an AUTO_INCREMENT
+cannot be: the catalog's next value is a statistic, not a reservation (two
+readers are handed the same number). What follows is the exact reach of the two
+refusals `Raptor 3 interactive output requires RETURNING or one generated
+increment field` and `Driver 'X' cannot locate one selected createMany row after
+insertion`: ONE shape, a model with MORE THAN ONE generated column among the
+fields the operation must know, which is also #16's shape on the batch route
+(D-55). A compound key of a spelled part and one generated part is named; of two
+generated parts it is not. No schema this ORM can PUSH to MySQL holds that
+table — MySQL is the only `supportsReturning: false` adapter and refuses a
+second AUTO_INCREMENT column at DDL time (errno 1075, SQLSTATE 42000) — but the
+guard reads the DECLARATION and the adapter capability before any statement is
+emitted, so a schema that declares two `.increment()` columns among the fields
+the operation must know reaches both sentences on the shipped mysql2 driver
+against a table the ORM did not create, or before any push; both are measured
+on a capability-forced transport and on the live lane. Do not widen `insertIdField` to a second column
+and do not add an adapter seam for a default expression without a ruling: the
+first needs a provider that names two, the second a schema spelling that does
+not exist. Pins: `tests/raptor3/g4/parity/generated-key-reach.test.ts` and the
+credential-gated `tests/providers/docker/mysql2-generated-key.test.ts`; the
+measurement is `docs/architecture/raptor3-evidence/g4/release/m1/note.md`.
+
 **The gate's mechanisms (N5).** The retired engine's contract suites are the
 gate; every cell that pinned a retired physical detail or a retired refusal is
 re-expressed to the shipped answer with its ruling named (D-15 the scalar

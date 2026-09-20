@@ -1344,7 +1344,8 @@ export const RAPTOR3_LIVE_PROVIDER_TESTS = Object.freeze([
 /**
  * The release units' deterministic pins (SQLite, both routes): D-46 the
  * upsert on the array route, D-50 the increment key's width, N2 the lax
- * to-one no-op with N3's race cells, N3 the series member premise at capture.
+ * to-one no-op with N3's race cells, N3 the series member premise at capture,
+ * M1 the key a provider without RETURNING must already know.
  * Engine coverage is measured on them (`coverage-raptor3`); the live-PGlite
  * pins are `D50_PROVIDER_TESTS`.
  */
@@ -1365,6 +1366,7 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/published-key.test.ts": 12,
   "tests/raptor3/g4/parity/captured-identity-domains.test.ts": 9,
   "tests/raptor3/g4/parity/transport-witnesses.test.ts": 6,
+  "tests/raptor3/g4/parity/generated-key-reach.test.ts": 7,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */
