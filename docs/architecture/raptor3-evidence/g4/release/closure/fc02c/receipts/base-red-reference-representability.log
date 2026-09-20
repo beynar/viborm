@@ -1,0 +1,62 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02c
+
+ ❯ |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts (12 tests | 4 failed) 96ms
+   ✓ FC-02C: reference representability on the interactive route > connects a representable target through both verbs 34ms
+   × FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 8ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > keeps the plain connect's own sentence and its written state 6ms
+   × FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 5ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the interactive route > leaves a nullable scalar that is never consumed as a reference alone 5ms
+   ✓ FC-02C: reference representability on the interactive route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 8ms
+   ✓ FC-02C: reference representability on the segmented route > connects a representable target through both verbs 7ms
+   × FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing 4ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > keeps the plain connect's own sentence and its written state 4ms
+   × FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable 5ms
+     → Missing expected rejection.
+   ✓ FC-02C: reference representability on the segmented route > leaves a nullable scalar that is never consumed as a reference alone 5ms
+   ✓ FC-02C: reference representability on the segmented route > asks nothing of a JUNCTION choice, whose captured pair is the target's row key 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+ FAIL  |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses a FOUND connectOrCreate whose reference is unrepresentable, and disconnects nothing
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:223:7
+    221|       // it — the pre-N5 behaviour the `folded` narrowing had restored.
+    222|       const client = await world();
+    223|       await assert.rejects(
+       |       ^
+    224|         async () => {
+    225|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the interactive route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+ FAIL  |extended-local| tests/raptor3/g4/parity/reference-representability.test.ts > FC-02C: reference representability on the segmented route > refuses on a COMPOUND edge when one member of the pair is unrepresentable
+AssertionError: Missing expected rejection.
+
+simple
+
+ ❯ tests/raptor3/g4/parity/reference-representability.test.ts:281:7
+    279|     it("refuses on a COMPOUND edge when one member of the pair is unre…
+    280|       const client = await world();
+    281|       await assert.rejects(
+       |       ^
+    282|         async () => {
+    283|           await client.gate.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 8 passed (12)
+   Start at  23:16:36
+   Duration  2.04s (transform 1.09s, setup 10ms, collect 1.63s, tests 96ms, environment 0ms, prepare 37ms)
+
+Vitest resources: 4.29s wall, 521.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

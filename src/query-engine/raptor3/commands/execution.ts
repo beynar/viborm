@@ -153,54 +153,66 @@ export class CommandExecution {
     }
   }
   /**
-   * What a parent-held `connect`'s LOCATED row supplies to the row that SPENDS
-   * it — the ONE arm whose located value the parent's own SET writes.
+   * What a LOCATED row supplies to the row that SPENDS it, and the one place a
+   * concrete reference becomes a relation.
    *
-   * The probe answers EXISTENCE and the branch this arm takes. The value the
-   * consumer's own statement writes is read inside that statement, over this
-   * arm's own selector ({@link Queries.locatedValue}), so a probe row that
-   * changed under us cannot move the written key and what lands in the column
-   * is the target's own bytes. Reading the referenced column is also how the
-   * arm SEES a located target holding NULL there: writing that NULL would
-   * DISCONNECT the holder the payload asked to connect, so the arm refuses by
-   * name — here, ahead of every write of the unit, the sibling scalars of the
-   * same SET included.
+   * Two facts meet here, and only one of them is an arm's.
    *
-   * The gate asks TWO things because `membershipOnly` answers only one of
-   * them: it says this arm's value is not a pure membership, and it is FALSE
-   * for every verb but `connect` — so the verb is asked here as well. Every
-   * other arm binds what the probe read, unchanged: a junction writes its
-   * captured pair, and a `connectOrCreate` FOUND arm spends the bytes its own
-   * probe returned — the retired engine folded the `connect` lookup and no
-   * other, which is what the scripted transport replies still spell
-   * (`tests/raptor3/transport/world.ts`, `coc-found`).
+   * The REQUIREMENT is the relation's, whatever verb located the target: a
+   * value the holder writes for the edge must be able to REPRESENT it. A
+   * nullable referenced unique can read NULL on the row the probe found, and
+   * writing that NULL does not connect the relation — it DISCONNECTS the
+   * holder the payload asked to connect. So every demanded field the choice
+   * supplies from its located row is asked — before any write of the unit
+   * wherever the arm stands before its holder (a parent-held edge,
+   * `relation-body.ts:960`); a junction's demanded fields are row keys and
+   * cannot be NULL — the sibling scalars of the same SET included, and the
+   * sentence is the
+   * relation's one inherited sentence — `connect`, the retired engine's fixed
+   * wording, because what is refused is the CONNECTION and not the verb that
+   * spelled it (`write-engine/messages.ts:lookupKeyIsNull`, asserted there for
+   * a plain `connect` AND for a `connectOrCreate`'s FOUND arm,
+   * `RecordUpdateCompiler.assertLookupKeyPresent`). Narrowing it to the folded
+   * arm is what let a found `connectOrCreate` write that NULL (N5's residual).
+   *
+   * The FOLD is the arm's: a parent-held `connect`'s value is the one a
+   * consumer's own SET writes, so it is read inside that statement over this
+   * arm's own selector ({@link Queries.locatedValue}) and a probe row that
+   * changed under us cannot move the written key. `membershipOnly` says this
+   * arm's value is not a pure membership and is FALSE for every verb but
+   * `connect`, so the verb is asked with it. Every other arm binds what the
+   * probe read, unchanged: a junction writes its captured pair, and a
+   * `connectOrCreate` FOUND arm spends the bytes its own probe returned — the
+   * retired engine folded the `connect` lookup and no other, which is what the
+   * scripted transport replies still spell (`tests/raptor3/transport/world.ts`,
+   * `coc-found`).
    */
-  private folded(
+  private suppliedValues(
     command: Choose,
     enclosing: Command | undefined,
     captured: Input
   ): Input {
     const origin = command.lookup.origin;
+    if (!origin) return captured;
+    for (const field of command.fields.demands)
+      if (captured[field] === null)
+        throw new NestedWriteError(
+          `Cannot connect relation '${origin.relation}': the located target's referenced field '${field}' is null.`,
+          origin.relation
+        );
     if (
-      !origin ||
       origin.operation !== "connect" ||
       command.lookup.membershipOnly !== false
     )
       return captured;
     const values: Input = { ...captured };
-    for (const field of command.fields.demands) {
-      if (captured[field] === null)
-        throw new NestedWriteError(
-          `Cannot ${origin.operation} relation '${origin.relation}': the located target's referenced field '${field}' is null.`,
-          origin.relation
-        );
+    for (const field of command.fields.demands)
       values[field] = this.context.queries.locatedValue(
         command.model,
         field,
         command.lookup.selector,
         enclosing?.kind === "record" ? enclosing.model : undefined
       );
-    }
     return values;
   }
   /**
@@ -662,7 +674,7 @@ export class CommandExecution {
           } else
             attempt.bind(
               command.fields,
-              this.folded(command, occurrence.parent?.command, captured)
+              this.suppliedValues(command, occurrence.parent?.command, captured)
             );
         } else if (missing) {
           attempt.missingChoices.set(missing.command.fields, command);

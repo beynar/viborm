@@ -1335,6 +1335,31 @@ from the rule, not from the spelling of the nesting. Pins:
 `captured-identity-domains`, the N1 pin's index-free cells, the E1 and E4
 contract files.
 
+**Addendum (FC-02C, 2026-09-21) — the two sentences above about the located
+NULL are corrected; the rest of the paragraph stands.** The refusal is NOT the
+fold's and does not belong to the `connect` arm: *a concrete reference that
+becomes a relation must be representable* is the RELATION's requirement, and
+the retired engine states it once with the verb fixed at `connect`
+(`write-engine/messages.ts:lookupKeyIsNull`) and asserts it from both a plain
+`connect` and a parent-held `connectOrCreate`'s FOUND arm
+(`RecordUpdateCompiler.assertLookupKeyPresent`). Narrowing it to the folded arm
+let a found `connectOrCreate` write the NULL and DISCONNECT the holder (N5's
+recorded residual). It now stands at `CommandExecution.supplied` — the method
+that was `folded` — outside the fold's gate: every field a choice supplies out
+of its LOCATED row is asked, whatever verb located it and however many members
+the reference has, ahead of every write of the unit, and the sentence is the
+inherited one, `connect`, because what is refused is the CONNECTION and not the
+verb that spelled it. The FOLD keeps its own gate and its own claim unchanged:
+that arm is still the only folded one, and every other arm still binds what the
+probe read. Two placements this requirement does NOT reach, measured and listed
+in the unit's note: a `connectOrCreate`'s CREATE arm supplying its own NULL
+(owned by `Commands.assignMembership`, whose `producer` for a choice is the
+choice's `select` `Assignments`), and the CHILD-held direction, where the
+concrete reference is the holder's parent's own value and is spent by the
+member's statement. Pins:
+`tests/raptor3/g4/parity/reference-representability.test.ts`,
+`tests/contracts/engine/write/parent-held-lookup.test.ts`.
+
 A capture that depends on nothing keeps its place ahead of the effects, and
 the reason is MEASURED, not stylistic: a capture flushes, and on the batch
 route a flush COMMITS everything queued before it — so a capture placed after

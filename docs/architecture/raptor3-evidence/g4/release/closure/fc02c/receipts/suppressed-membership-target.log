@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc02c
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/suppressed-membership-target.test.ts (7 tests) 63ms
+ ✓ |raptor3| tests/raptor3/g4/parity/suppressed-membership-target.test.ts (7 tests) 58ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  23:14:37
+   Duration  3.82s (transform 2.14s, setup 18ms, collect 3.30s, tests 121ms, environment 0ms, prepare 68ms)
+
+Vitest resources: 5.95s wall, 543.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
