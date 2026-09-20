@@ -1,0 +1,28 @@
+  16 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [LONE] 1
+  14 a partial compound shared edge publishes every transitioned member, not only the row's own key :: [LONE] 1
+  15 a child-held arm placed after the parent's write names the key that write published :: [LONE] 1
+  14 a correlated arm that moves nothing leaves the row at the key it was located by :: [LONE] 1
+  16 a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by :: [LONE] 1
+  13 a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located :: [LONE] 1
+  10 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [LONE] 1
+   1 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [UNIT] 5
+   5 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [LONE] 1
+   1 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [UNIT] 4
+   5 a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [LONE] 1
+  10 a partial compound shared edge publishes every transitioned member, not only the row's own key :: [LONE] 1
+   1 a partial compound shared edge publishes every transitioned member, not only the row's own key :: [UNIT] 5
+   6 a partial compound shared edge publishes every transitioned member, not only the row's own key :: [LONE] 1
+   9 a child-held arm placed after the parent's write names the key that write published :: [LONE] 1
+   1 a child-held arm placed after the parent's write names the key that write published :: [UNIT] 6
+   6 a child-held arm placed after the parent's write names the key that write published :: [LONE] 1
+   1 a child-held arm placed after the parent's write names the key that write published :: [UNIT] 4
+   6 a child-held arm placed after the parent's write names the key that write published :: [LONE] 1
+  10 a correlated arm that moves nothing leaves the row at the key it was located by :: [LONE] 1
+   1 a correlated arm that moves nothing leaves the row at the key it was located by :: [UNIT] 5
+   6 a correlated arm that moves nothing leaves the row at the key it was located by :: [LONE] 1
+  11 a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by :: [LONE] 1
+   1 a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by :: [UNIT] 4
+   6 a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by :: [LONE] 1
+  10 a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located :: [LONE] 1
+   1 a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located :: [UNIT] 4
+   5 a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located :: [LONE] 1

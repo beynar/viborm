@@ -1,0 +1,10 @@
+a nested createMany of literal rows is ONE unit with its parent :: [UNIT] 4
+a member a later member must SEE still takes its boundary :: [UNIT] 8
+a member a later member must SEE still takes its boundary :: [UNIT] 2
+a member a later member must SEE still takes its boundary :: [UNIT] 1
+it takes it while the parent's own write is still pending :: [UNIT] 9
+it takes it while the parent's own write is still pending :: [UNIT] 3
+it takes it where the parent row is itself the pending write :: [UNIT] 8
+it takes it where the parent row is itself the pending write :: [UNIT] 3
+an observing series that then fails: the interactive route rolls back, the batch route keeps the committed prefix (D-51) :: [UNIT] 8
+an observing series that then fails: the interactive route rolls back, the batch route keeps the committed prefix (D-51) :: [UNIT] 4

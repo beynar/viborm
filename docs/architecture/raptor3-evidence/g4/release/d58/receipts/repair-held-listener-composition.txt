@@ -1,0 +1,44 @@
+Repair round, 2026-09-20 — finding 1.
+
+Probe: `submit`'s `acknowledged()` patched to raise a throwing
+`committedSegment` listener, inside its own try, so the failure is HELD:
+
+      try {
+        await this.writeOutcome?.committedSegment?.();
+        throw new Error("PROBE-LISTENER");
+      } catch (failure) {
+        this.heldOutcomeFailure = { failure };
+      }
+
+Cell: `tests/raptor3/g3/author-execution-regressions.test.ts` → "reports a
+malformed result on the transport its plan uses, with the progress that
+transport has" — the malformed-int cell, the one that reaches the carry decode
+failure after a dispatch that SUCCEEDED.
+
+One scope, one unit — the file on both projects (raptor3 and
+coverage-raptor3: 3 cells x 2 = 6 results), stated as passed / total.
+Re-measured by the integrator after the re-check (2026-09-20), the
+repaired engine backed up by cp and restored by cp, byte-identical:
+
+  before the repair                    6 / 6 passed — the carry catch
+  (the catch unwrapped, probe on)      unwrapped to the pre-repair shape;
+                                       the held listener failure was dropped
+                                       silently and left set on the context
+  after the repair (probe on)          4 / 6 passed, 2 failed — the
+                                       malformed-int cell on both projects,
+                                       failing with the composition the
+                                       shipped order states:
+                                       AggregateError: "Query execution and
+                                       write-outcome publication both failed."
+  probe removed                        6 / 6 passed
+
+(The author's first record of this probe read "GREEN 3/3" and "RED 2/6" —
+one project before, failed / total after; superseded by the numbers above.)
+Engine restored from a backup copy afterwards (no `git checkout`); `git
+status` is unchanged.
+
+Reading: the carry settle is the first throw that leaves `submit` after a
+dispatch that succeeded. `settleSubmitted` captures the hold at its OWN entry,
+which is after `submit` has already returned, so that throw had to release and
+compose the hold itself — which is what the repair does, at the same shape the
+dispatch-failure arm above it already used.

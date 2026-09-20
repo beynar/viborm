@@ -349,10 +349,13 @@ describe("G3-02 author execution regressions", () => {
     try {
       assert.equal(batchValue, undefined, batchDiagnostic);
       assert.equal(batchDriver.corrupted, true, batchDiagnostic);
-      // Two batch entries, both genuinely plural: the write window (scratch
-      // prologue, parent insert, generated-key capture, child insert) and the
-      // terminal window (the read-back and the scratch release).
-      assert.equal(batchDriver.batchCalls, 2, batchDiagnostic);
+      // ONE batch entry, genuinely plural: the write window carries the
+      // scratch prologue, the parent insert, the generated-key capture, the
+      // child insert AND — since D-58 — the read-back of the key it produced
+      // and the scratch release, because that scratch dies with this unit.
+      // The corrupted value is therefore met inside the window that WROTE it,
+      // where the terminal window used to meet it in the batch after.
+      assert.equal(batchDriver.batchCalls, 1, batchDiagnostic);
       const writeWindow = batchDriver.batches.find((queries) =>
         queries.some(({ sql }) => PARENT_INSERT.test(sql))
       );
@@ -363,6 +366,10 @@ describe("G3-02 author execution regressions", () => {
         'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
         batchDiagnostic
       );
+      // The same progress this transport always had, one member earlier: both
+      // write members committed in the one segment, and the read-back that
+      // carries the key across the boundary (D-58) raises the result failure
+      // before the second member completes.
       assert.deepEqual(
         batchFailure.meta.recordSeriesProgress,
         {
@@ -370,7 +377,7 @@ describe("G3-02 author execution regressions", () => {
           phase: "result",
           committedSegments: 1,
           committedWriteMembers: 2,
-          completedMembers: 2,
+          completedMembers: 1,
         },
         batchDiagnostic
       );

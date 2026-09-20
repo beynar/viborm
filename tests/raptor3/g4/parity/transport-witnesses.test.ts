@@ -13,15 +13,17 @@
  * The three facts and what each cell measures:
  *
  *  - SESSION LIFETIME. The D-50 batch reference scratch is a TEMP table, so it
- *    belongs to a session. A unit that touches it in a LATER dispatched
+ *    belongs to a session. A unit that touched it in a LATER dispatched
  *    segment — to store a second member's generated key, to read one back, or
- *    merely to clean the rows up — assumes the session outlived the segment
- *    that made it. A driver that pins no session (`_canPinSession()` false:
- *    Neon HTTP, D1) breaks that assumption, and the engine states NOTHING
- *    about it today: the provider's own failure escapes, after a committed
- *    segment. That is the UNQUALIFIED state D-53 records, and the ruling
- *    requested in `g4/release/d53/note.md` §5 is what would replace the first
- *    cell's last assertion with a refusal.
+ *    merely to clean the rows up — assumed the session outlived the segment
+ *    that made it, and on a driver that pins none (`_canPinSession()` false:
+ *    Neon HTTP, D1) the provider's own failure escaped after a committed
+ *    segment. That was the UNQUALIFIED state D-53 recorded. **D-58** answers
+ *    it by EXECUTING rather than refusing: every dispatched unit makes its own
+ *    scratch, reads back at its boundary what it stored, and the next unit
+ *    binds the VALUE as a literal — so the three cells below measure the same
+ *    end state on both transports, and no sentence of this engine names a
+ *    session. The `g4/release/d53/note.md` §5 refusal is the arm NOT taken.
  *  - FAILURE ATTRIBUTION. The shared driver seam
  *    (`drivers/driver-transaction-base.ts`, `executeBatch`) names the failing
  *    statement of a batch it ran statement by statement — measured here on the
@@ -45,7 +47,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { NeonHTTPDriver } from "@drivers/neon-http";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryError, UniqueConstraintError } from "@errors";
+import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, it } from "vitest";
@@ -53,9 +55,6 @@ import {
   BatchOnlyDriver,
   SessionlessBatchOnlyDriver,
 } from "./batch-only-drivers";
-
-/** The two words a sentence naming the transport fact would have to carry. */
-const NAMES_THE_TRANSPORT_FACT = /session|scratch/i;
 
 const writer = s
   .model({
@@ -67,6 +66,9 @@ const writer = s
 const holder = s
   .model({
     id: s.string().id(),
+    // A unique that is NOT the key: a `connectOrCreate` on it is answered by a
+    // lookup outside the queue, which is what gives a member its boundary.
+    code: s.string().unique(),
     label: s.string().nullable(),
     notes: s.toMany(() => note),
   })
@@ -110,6 +112,44 @@ const seriesCreatingTwoWriters = [
   },
 ];
 
+/**
+ * A series under a parent whose OWN key the provider generates, each of whose
+ * members probes: the parent's key is produced in the first segment and bound
+ * by the second, the third and the fourth (D-58).
+ */
+const seriesUnderAGeneratedParent = [
+  {
+    id: "m1",
+    title: "a",
+    holder: {
+      connectOrCreate: {
+        where: { code: "c1" },
+        create: { id: "h1", code: "c1" },
+      },
+    },
+  },
+  {
+    id: "m2",
+    title: "b",
+    holder: {
+      connectOrCreate: {
+        where: { code: "c2" },
+        create: { id: "h2", code: "c2" },
+      },
+    },
+  },
+  {
+    id: "m3",
+    title: "c",
+    holder: {
+      connectOrCreate: {
+        where: { code: "c3" },
+        create: { id: "h3", code: "c3" },
+      },
+    },
+  },
+];
+
 /** The same series, whose probe FINDS the first member's row: nothing but the scratch cleanup follows. */
 const seriesSharingOneWriter = [
   { id: "n1", title: "first", writer: { create: { handle: "shared" } } },
@@ -144,83 +184,101 @@ describe("D-53: the transport witnesses", () => {
       (error: unknown) => error
     );
 
-  it("session lifetime: a second segment's scratch is gone on a transport that pins none", async () => {
+  it("session lifetime (D-58): a second segment STORES its own member's key, because the scratch is its own", async () => {
     const client = await world(new SessionlessBatchOnlyDriver());
-    await client.holder.create({ data: { id: "h1" } });
-    const error = await failure(
-      client.holder.update({
-        where: { id: "h1" },
-        data: { notes: { createMany: { data: seriesCreatingTwoWriters } } },
-      })
-    );
+    await client.holder.create({ data: { id: "h1", code: "k1" } });
+    await client.holder.update({
+      where: { id: "h1" },
+      data: { notes: { createMany: { data: seriesCreatingTwoWriters } } },
+    });
 
-    assert.ok(
-      error instanceof QueryError,
-      `provider failure: ${String(error)}`
-    );
-    // Commit certainty, read from the same failure: this transport declares no
-    // `supportsOrderedCommittedSegments`, so the segment that failed is
-    // reported as one that MAY have committed, beside the one that did.
-    const progress = (
-      error.meta as {
-        recordSeriesProgress?: Record<string, unknown>;
-      }
-    ).recordSeriesProgress;
-    assert.equal(progress?.committedSegments, 1);
-    assert.equal(progress?.mayHaveCommittedSegment, true);
-    // The first segment is durable: the succession D-51 admits, reported as
-    // progress, and the reason the refusal this transport owes is worth having.
+    // Both members wrote, each child bound to the key its own segment's
+    // provider generated: the second segment made the scratch it stores into
+    // instead of naming the one the first segment's session took with it.
+    assert.deepEqual(await client.writer.findMany({ orderBy: { id: "asc" } }), [
+      { id: 1, handle: "alpha" },
+      { id: 2, handle: "beta" },
+    ]);
     assert.deepEqual(
-      (await client.writer.findMany({ select: { handle: true } })).map(
-        (row) => row.handle
-      ),
-      ["alpha"]
-    );
-    assert.deepEqual(
-      (await client.note.findMany({ select: { id: true } })).map(
-        (row) => row.id
-      ),
-      ["n1"]
-    );
-    // UNQUALIFIED: no sentence of this engine names the transport fact. When
-    // D-53's ruling lands, this assertion is the one that must be re-expressed.
-    assert.ok(
-      !NAMES_THE_TRANSPORT_FACT.test(error.message),
-      `the engine states nothing about the session today: ${error.message}`
+      await client.note.findMany({
+        select: { id: true, writerId: true },
+        orderBy: { id: "asc" },
+      }),
+      [
+        { id: "n1", writerId: 1 },
+        { id: "n2", writerId: 2 },
+      ]
     );
   });
 
-  it("session lifetime: even the scratch CLEANUP is a carry — every write commits and the operation still fails", async () => {
+  it("session lifetime (D-58): the scratch CLEANUP rides the segment that made it, so the terminal segment carries none", async () => {
     const client = await world(new SessionlessBatchOnlyDriver());
-    await client.holder.create({ data: { id: "h1" } });
-    const error = await failure(
-      client.holder.update({
-        where: { id: "h1" },
-        data: { notes: { createMany: { data: seriesSharingOneWriter } } },
-      })
-    );
+    await client.holder.create({ data: { id: "h1", code: "k1" } });
+    await client.holder.update({
+      where: { id: "h1" },
+      data: { notes: { createMany: { data: seriesSharingOneWriter } } },
+    });
 
-    assert.ok(
-      error instanceof QueryError,
-      `provider failure: ${String(error)}`
-    );
+    assert.deepEqual(await client.writer.findMany({ orderBy: { id: "asc" } }), [
+      { id: 1, handle: "shared" },
+    ]);
     assert.deepEqual(
-      (await client.writer.findMany({ select: { handle: true } })).map(
-        (row) => row.handle
-      ),
-      ["shared"]
+      await client.note.findMany({
+        select: { id: true, writerId: true },
+        orderBy: { id: "asc" },
+      }),
+      [
+        { id: "n1", writerId: 1 },
+        { id: "n2", writerId: 1 },
+      ]
     );
+  });
+
+  it("session lifetime (D-58): a value produced in the first segment is a literal in the second and the third", async () => {
+    const dispatched = new SessionlessBatchOnlyDriver();
+    const client = await world(dispatched);
+    dispatched.reset();
+    const created = await client.writer.create({
+      data: {
+        handle: "root",
+        notes: { createMany: { data: seriesUnderAGeneratedParent } },
+      },
+    });
+
+    // Four dispatched units: the one that PRODUCED the parent's key, and one
+    // per member whose probe took the boundary N5 gives it.
+    assert.equal(dispatched.batchCalls, 4, `units: ${dispatched.batchCalls}`);
+    assert.deepEqual(created, { id: 1, handle: "root" });
     assert.deepEqual(
-      (await client.note.findMany({ select: { id: true } })).map(
-        (row) => row.id
-      ),
-      ["n1", "n2"]
+      await client.note.findMany({
+        select: { id: true, writerId: true, holderId: true },
+        orderBy: { id: "asc" },
+      }),
+      [
+        { id: "m1", writerId: 1, holderId: "h1" },
+        { id: "m2", writerId: 1, holderId: "h2" },
+        { id: "m3", writerId: 1, holderId: "h3" },
+      ]
     );
+    // The value crossed as a LITERAL: the scratch's whole life — created,
+    // stored into, read back and dropped — is over before the first member's
+    // own write, so no later segment names the table at all.
+    const statements = dispatched.statements.map((statement) => statement.sql);
+    const lastScratch = statements.reduce(
+      (last, sql, index) =>
+        sql.includes("__viborm_batch_refs") ? index : last,
+      -1
+    );
+    const firstMember = statements.findIndex((sql) =>
+      sql.includes('INSERT INTO "d53_notes"')
+    );
+    assert.ok(lastScratch >= 0 && firstMember >= 0, statements.join("\n"));
+    assert.ok(lastScratch < firstMember, statements.join("\n"));
   });
 
   it("session lifetime: the same series completes on a transport that keeps its session", async () => {
     const client = await world(new BatchOnlyDriver());
-    await client.holder.create({ data: { id: "h1" } });
+    await client.holder.create({ data: { id: "h1", code: "k1" } });
     await client.holder.update({
       where: { id: "h1" },
       data: { notes: { createMany: { data: seriesCreatingTwoWriters } } },

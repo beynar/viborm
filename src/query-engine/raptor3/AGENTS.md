@@ -751,8 +751,9 @@ data-modifying CTE (`batchRefs.storeReturning`, D-50, offered only while
 statement-local last insert id (`storeLastInsertId`); the dialect states the
 statements in order as `batchRefs.storeInsertedKey`, the engine queues them
 and chooses nothing — and every later
-statement reads the reference back with the key's own width (`bigint` keys
-cast as BIGINT). The refusal "G1 atomic output requires exact identity scratch
+statement OF THE SAME DISPATCHED UNIT reads the reference back with the key's
+own width (`bigint` keys cast as BIGINT); a later SEGMENT binds the value as a
+literal instead, because the scratch died with the unit that made it (D-58). The refusal "G1 atomic output requires exact identity scratch
 or segmented RETURNING" is left for a produced field that is not one increment
 key on a provider whose RETURNING cannot be segmented; do not widen the scratch
 to other produced columns without a ruling.
@@ -1052,8 +1053,10 @@ of that key may take a member out and is observed whatever it writes. At the lad
 re-probed after the rollback is a premise stated over a value this unit
 PRODUCED — an observation's requirement bound to the batch reference scratch,
 which the rolled-back transaction took with it (`AssertedPremise.readsBatchReference`,
-DERIVED at one owner, `OperationContext.readsBatchReference`, for the premises
-a unit states and for the continuation guards a later segment carries alike,
+DERIVED at one owner, `OperationContext.readsBatchReference`, for every
+assertion a unit carries — its own premises and the continuation guards alike,
+though since D-58 only a premise stated INSIDE the unit that made the scratch
+can bind it, because a guard rides a later segment and binds a literal,
 N5); every other premise is re-probed,
 and when every premise ahead of the unit's writes holds now and exactly one
 stands behind them, the ladder attributes that one, so the refusal keeps its
@@ -1083,10 +1086,10 @@ when it declares no interactive transaction (`usesBatch`'s standalone arm,
 `operation-context.ts:1261`), so Neon HTTP and D1 and nothing else; every other driver runs the same write
 inside one interactive transaction, where one session is the construction. A
 driver without a witness for a fact is UNQUALIFIED for every behaviour that
-depends on it: Neon HTTP and D1 are unqualified today for a scratch reference
-that crosses a segment — the engine states nothing about it, and the ruling
-`g4/release/d53/note.md` §5 requests is what would — while a ONE-segment
-nested write (D-50's first pin) is within what PGlite proves. Never move a
+depends on it, and SESSION LIFETIME is the one that no longer has a dependent:
+no scratch reference crosses a segment any more (D-58, below), so the table's
+"unqualified for a cross-segment scratch" verdict for Neon HTTP and D1 is
+qualified on the fixture and stays UNVERIFIED live. Never move a
 capability flag without a live witness; a credential-gated one names its
 environment variable and skips when it is unset, never fails and never asks.
 The table of driver × fact × witness lives in that note, §2, and only there;
@@ -1094,6 +1097,30 @@ this paragraph is the rule. Pins:
 `tests/raptor3/g4/parity/transport-witnesses.test.ts`,
 `tests/raptor3/g4/parity/transport-seam-pglite.test.ts` (live PGlite), and the
 credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
+
+**A value crosses a segment as a LITERAL, and every unit owns its own scratch
+(D-58).** The D-50 batch reference table is a session-scoped temporary, so it
+belongs to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
+one per unit, and `submit` — the one place that assembles a unit and knows
+where it ends — reads back every value that unit stored (one `SELECT` per
+value, through `referenceProjection`, the same owner that reads a produced
+value back anywhere else) and then drops the table, inside the same batch.
+`TransportAttempt.carried` holds the literals beside the scratch id, and
+`CommandAttempt.read` — the estate's ONE reader of a field's runtime value —
+answers the literal in place of the spent expression, so every later statement,
+premise and terminal read binds it exactly as a spelled key would. A membership
+continuation therefore STATES its query when its guard is built and not when it
+is declared (`Continuation.state`, `MembershipParent.where`): a guard rides a
+LATER segment, and a query built at declaration time would name the spent
+scratch. The operation's terminal statements are the one unit with no next, so
+`finishTerminals` closes the scratch there and reads nothing back — a
+one-segment nested write costs exactly what it cost before D-58, and a unit
+that crosses a boundary costs one SELECT more. There is NO transport branch:
+a session-keeping driver runs the identical statements, which is why the same
+payload passes on `BatchOnlyDriver` and `SessionlessBatchOnlyDriver`. Do not
+re-introduce a reader of `pinnedSession` in the engine, and do not let a
+statement name a scratch its own segment did not create. Pins:
+`tests/raptor3/g4/parity/transport-witnesses.test.ts` (the three D-58 cells).
 
 **The key a provider without RETURNING must already know (M1, D-57).** A driver
 whose adapter declares `supportsReturning: false` cannot read back the row its

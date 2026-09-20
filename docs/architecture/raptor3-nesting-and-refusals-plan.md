@@ -335,6 +335,29 @@ this section's verdict stands unchanged: Neon HTTP and D1 are unqualified for a
 cross-segment scratch, and a one-segment nested write (D-50's first pin) is
 within what PGlite proves — now measured on the sessionless transport itself.
 
+**D-58 as landed (commit 30, branch `d58` from `33f4478b6`).** Arnaud took the
+alternative: EXECUTE by carrying the VALUE. The verdict above is therefore
+SUPERSEDED for the engine — nothing carries a scratch reference across a
+segment any more. The D-50 table is a session-scoped temporary, so it belongs
+to the DISPATCHED UNIT: `ensureScratch` mints one per unit, `submit` reads back
+every value that unit stored (one SELECT through `referenceProjection`, inside
+the same batch, at its end) and drops the table there, and the next unit binds
+the literal — `TransportAttempt.carried` beside the scratch id,
+`CommandAttempt.read` the one reader, `Queries.fieldValue` binding it exactly
+as a spelled key. The one eager capture that outlived the value, a membership
+continuation's query, is now STATED when its guard is built. The operation's
+terminal statements are the one unit with no next, so they read nothing back
+and a one-segment nested write costs what it always cost; a unit that crosses a
+boundary costs one SELECT more, measured per cell on `BatchOnlyDriver` with the
+dispatched-unit count unchanged. There is NO transport branch and NO new
+sentence: `_canPinSession()` gains no engine reader and the census stays at 23
+public sentences at 30 sites (only the rethrow column moves, 55 → 56). D-53's cells 1–2 are re-expressed to the executed
+end state on `SessionlessBatchOnlyDriver` and a three-segment cell is added;
+the gated `neon-http-transport.test.ts` stays the PROVIDER's live witness and
+still skips. The drivers themselves — Neon HTTP and D1 — remain UNVERIFIED
+live: the shape is qualified on the Neon-shaped fixture. Unit note:
+`raptor3-evidence/g4/release/d58/note.md`.
+
 **The recursive read.** Eleven of the 55 guard `Queries.recursive`, the
 private recursive-read fit (`AGENTS.md:636-640`): built, tested, wired to
 no public verb. They are internal until a public argument reaches them.

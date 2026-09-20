@@ -56,7 +56,7 @@ import {
   record
 } from "./schema";
 import { type Membership, physicalField } from "./storage";
-import { TransportAttempt } from "./transport-attempt";
+import { type ScratchPublication, TransportAttempt } from "./transport-attempt";
 
 export type Member = object;
 
@@ -146,7 +146,15 @@ const NO_QUEUED_STATEMENTS: readonly BatchQuery[] = Object.freeze([]);
  */
 interface Continuation {
   readonly model: AnyModel;
-  readonly query: Query;
+  /**
+   * The query this continuation's guard states, built when the GUARD is — a
+   * LATER segment — and not when the continuation is declared. A parent whose
+   * generated key this unit produced crosses the boundary as a LITERAL (D-58),
+   * so a query built at declaration time would still name the spent scratch of
+   * the unit that produced it. Stated once and kept ({@link query}).
+   */
+  readonly state: () => Query;
+  query?: Query;
   readonly failure: () => Error;
   /**
    * Declared while THIS batch was being built: the segment that writes what it
@@ -157,6 +165,16 @@ interface Continuation {
 }
 /** What an operation that declared no generated-output continuation has. */
 const NO_CONTINUATIONS: readonly Continuation[] = Object.freeze([]);
+/**
+ * One value a dispatched unit stored in its own scratch and reads back at its
+ * boundary, with the projection that decodes it through the field's codec.
+ */
+type ScratchCarry = {
+  readonly query: Query;
+  readonly publication: ScratchPublication;
+};
+/** What a unit that stored no produced value carries across its boundary. */
+const NO_SCRATCH_CARRY: readonly ScratchCarry[] = Object.freeze([]);
 /**
  * The captured junction slots one attempt has already vacated, keyed by the
  * captured VALUES themselves: the edge's table, then its columns in the edge's
@@ -171,7 +189,13 @@ type SpentSlots = Map<unknown, SpentSlots | true>;
  */
 export interface MembershipParent {
   readonly model: AnyModel;
-  readonly where: Input;
+  /**
+   * The parent's identity and correlated value AS THEY STAND when the guard
+   * asks: a key this operation produced is an expression inside the unit that
+   * stored it and a literal in every unit after it (D-58), and the interpreter
+   * that holds the row answers whichever it now is.
+   */
+  readonly where: () => Input;
   readonly relation: string;
   readonly verb: string;
 }
@@ -1121,7 +1145,7 @@ export class OperationContext {
     if (value === null && missing) throw missing();
     return value;
   }
-  referenceProjection(model: AnyModel, values: Input): Query {
+  private referenceProjection(model: AnyModel, values: Input): Query {
     const adapter = this.driver.adapter;
     const select = Object.fromEntries(
       Object.keys(values).map((field) => [field, true])
@@ -1164,7 +1188,14 @@ export class OperationContext {
     // asserted inside the same batch, behind the writes and ahead of the read,
     // so a target that is not what the consumer needs aborts the batch before
     // anything commits.
-    if (projections.length > 0) this.attemptStore?.withholdPremises();
+    // Stated once, for every boundary this owner takes: a read follows each of
+    // them — the projections below, or the caller's own read outside the queue
+    // — so the waiting premises step aside whatever the caller passes. It used
+    // to be asked of the projection list, which made the rule depend on the
+    // caller's shape: the `choose` arm carried its own reference read-back
+    // until D-58 moved that to the boundary, and the rule must not change with
+    // it. Measured inert on the packaging pins either way.
+    this.attemptStore?.withholdPremises();
     try {
       if (!this.usesBatch || this.queued.length === 0) {
         // Nothing queued to ride with: an ABSENCE premise (no row outside the
@@ -1228,15 +1259,16 @@ export class OperationContext {
   /**
    * Does this statement ask about a value THIS unit produced?
    *
-   * It binds this attempt's batch reference, so it reads the scratch through
-   * it, and the rolled-back transaction takes that scratch with it: the
-   * attribution ladder cannot ask it again ({@link submit}). Both halves of the
-   * fact — the reference's identity and the statement that reads it — are here
-   * and only here, for the premises {@link statePremise} states AND for the
-   * continuation guards {@link submit} builds. A guard can bind it: a
-   * membership continuation re-pins a parent whose generated key this unit
-   * published as `cast(references.read(…))` ({@link insert}), so the guard is
-   * derived like every other premise rather than asserted to read nothing.
+   * It binds this UNIT's batch reference, so it reads the scratch through it,
+   * and the rolled-back transaction takes that scratch with it: the attribution
+   * ladder cannot ask it again ({@link submit}). Both halves of the fact — the
+   * reference's identity and the statement that reads it — are here and only
+   * here, for the premises {@link statePremise} states AND for the continuation
+   * guards {@link submit} builds. Since D-58 only a premise stated INSIDE the
+   * unit that made the scratch can bind it — a guard rides a LATER segment, and
+   * the value it re-pins crossed that boundary as a literal — so the guard is
+   * still DERIVED here rather than asserted to read nothing, which is what
+   * keeps the two halves of the fact in one place.
    */
   private readsBatchReference(query: Query): boolean {
     const reference = this.attemptStore?.scratchId;
@@ -1271,28 +1303,45 @@ export class OperationContext {
       : NO_CONTINUATIONS;
     if (declared)
       for (const continuation of declared) continuation.declaring = false;
-    const guards = continuations.map(({ query, model }) => {
-      const context = this.statementContext(model, this.operation);
+    // A guard's query is STATED here, where the guard is built: it re-pins a
+    // row an EARLIER segment wrote, and a value that segment produced reached
+    // this one as a literal (D-58), so a query stated at declaration time would
+    // name a scratch that no longer exists. The premise it raises is derived at
+    // the same point, while this unit's scratch is still the one in hand.
+    const guards = continuations.map((continuation) => {
+      const query = (continuation.query ??= continuation.state());
+      const context = this.statementContext(continuation.model, this.operation);
       return {
-        ...this.transport._prepare(
-          this.driver.adapter.assertions.exists(query.sql),
-          context
-        ),
-        context
+        statement: {
+          ...this.transport._prepare(
+            this.driver.adapter.assertions.exists(query.sql),
+            context
+          ),
+          context,
+        },
+        premise: {
+          query,
+          present: true,
+          failure: continuation.failure(),
+          readsBatchReference: this.readsBatchReference(query),
+        },
       };
     });
-    const statements = [...guards, ...attempt.pending.splice(0)];
+    // D-58: this unit's scratch ends with this unit. Every value it stored is
+    // read back inside the same batch, at its end, and the table is dropped
+    // with the unit that made it — so the next unit binds LITERALS and creates
+    // its own scratch for whatever it produces itself.
+    const carryIndex = guards.length + attempt.pending.length;
+    const carried = this.carryScratch();
+    this.closeScratch();
+    const statements = [
+      ...guards.map((guard) => guard.statement),
+      ...attempt.pending.splice(0),
+    ];
     const insertProducers = attempt.drainInsertProducers();
     const assertionFailures = attempt.drainAssertedPremises();
-    for (const [index, guard] of guards.entries()) {
-      const continuation = continuations[index]!;
-      assertionFailures.set(guard, {
-        query: continuation.query,
-        present: true,
-        failure: continuation.failure(),
-        readsBatchReference: this.readsBatchReference(continuation.query),
-      });
-    }
+    for (const { statement, premise } of guards)
+      assertionFailures.set(statement, premise);
     const members = attempt.drainMembers();
     const acknowledged = async () => {
       if (members.length === 0) return;
@@ -1309,8 +1358,9 @@ export class OperationContext {
         this.heldOutcomeFailure = { failure };
       }
     };
+    let responses: QueryResult<Input>[];
     try {
-      const responses = await this.dispatch(statements.length, false, () =>
+      responses = await this.dispatch(statements.length, false, () =>
         this.transport._executeBatch<Input>(
           statements,
           undefined,
@@ -1319,7 +1369,6 @@ export class OperationContext {
         )
       );
       if (!this.driver.supportsOrderedCommittedSegments) await acknowledged();
-      return responses.slice(guards.length);
     } catch (error) {
       // A listener that failed while this batch acknowledged is composed with
       // the batch's own failure, which stays primary, and the uncertain-outcome
@@ -1538,6 +1587,29 @@ export class OperationContext {
           )
         : attributedError;
     }
+    // The batch ANSWERED. A value this unit carries across its boundary is
+    // decoded here, outside the transport's own catch: the statements all ran,
+    // so a value the provider malformed is this operation's RESULT failure —
+    // the same answer the terminal read gives for the same row — and never a
+    // rejection of the unit that wrote it (D-58).
+    //
+    // It is the ONE throw that leaves a dispatch that SUCCEEDED, so it releases
+    // the hold itself, exactly as the dispatch-failure arm above does: a
+    // listener failure this batch HELD while it acknowledged would otherwise
+    // reach no one — {@link settleSubmitted} captures the hold at its own entry,
+    // which is after `submit` has already returned. The operation's own failure
+    // stays primary, with the listener's retained beside it.
+    try {
+      for (const [offset, carry] of carried.entries())
+        this.settleCarry(carry, responses[carryIndex + offset]!, member);
+    } catch (error) {
+      const held = this.heldOutcomeFailure;
+      this.heldOutcomeFailure = undefined;
+      throw held
+        ? this.answered(this.retainOutcomeFailure(error, held.failure))
+        : error;
+    }
+    return responses.slice(guards.length);
   }
   /**
    * The operation's own answer to a batch {@link submit} returned, composed
@@ -1754,11 +1826,10 @@ export class OperationContext {
     }
     const resultIndex = this.queued.length;
     for (const terminal of queries) this.queue(terminal.sql);
-    const scratchId = this.attemptStore?.scratchId;
-    if (scratchId)
-      this.queue(
-        getAdapterInternals(this.driver.adapter).batchRefs.cleanup(scratchId)
-      );
+    // The operation's last unit — and the ONE unit a prepared package is —
+    // ends here, so its scratch is dropped here and nothing is read back out
+    // of it: no statement follows that could bind the value (D-58).
+    this.closeScratch();
     if (this.ownership === "batch-preparation") {
       this.preparedParser = (results) =>
         result(this.decodeTerminalResults(queries, results, resultIndex));
@@ -2544,6 +2615,16 @@ export class OperationContext {
       ])
     );
   }
+  /**
+   * The scratch of the unit being assembled, made by the first statement that
+   * stores into it.
+   *
+   * It belongs to the DISPATCHED UNIT and not to the attempt (D-58): the table
+   * is a session-scoped temporary, and a transport that pins no session — Neon
+   * HTTP, D1 — ends its session with the batch, so a unit that named a table an
+   * EARLIER segment created named nothing at all. Every unit that needs one
+   * makes its own, and {@link closeScratch} drops it where the unit ends.
+   */
   private ensureScratch(): string {
     const attempt = this.attempt;
     if (attempt.scratchId) return attempt.scratchId;
@@ -2552,6 +2633,74 @@ export class OperationContext {
     for (const setup of references.setup(attempt.scratchId)) this.queue(setup);
     this.queue(references.clear(attempt.scratchId));
     return attempt.scratchId;
+  }
+  /**
+   * A value this unit PRODUCED, read back at the unit's boundary so the next
+   * one binds it as a literal (D-58).
+   *
+   * One SELECT per value stored, at the end of the batch that stored it and
+   * inside it — the scratch is alive exactly there — through the SAME owner
+   * that reads a produced value back anywhere else
+   * ({@link referenceProjection}), so the literal arrives through the field's
+   * own codec and binds exactly as a spelled key would. A unit with no next —
+   * the operation's terminal statements, and the one unit a prepared package IS
+   * — has closed its scratch already ({@link finishTerminals}) and reads
+   * nothing back: there is no later statement to bind it.
+   */
+  private carryScratch(): readonly ScratchCarry[] {
+    const attempt = this.attemptStore;
+    if (attempt?.scratchId === undefined) return NO_SCRATCH_CARRY;
+    const carried: ScratchCarry[] = [];
+    for (const publication of attempt.drainScratchPublications()) {
+      const query = this.referenceProjection(publication.model, {
+        [publication.field]: publication.expression,
+      });
+      this.queue(query.sql);
+      carried.push({ query, publication });
+    }
+    return carried;
+  }
+  /**
+   * The literal one read-back answered, held where the scratch id is held.
+   *
+   * Exactly one row, by construction: the read-back is
+   * {@link referenceProjection}'s projection-only `SELECT <expression>` — no
+   * FROM, no cardinality of its own — so every provider answers it with one
+   * row, and the assertion is the statement of that. A guard here would be a
+   * check whose unique coverage cannot be named, and it would fail in the one
+   * way this unit exists to prevent: an uncarried value leaves the NEXT unit
+   * binding a scratch its own segment never created.
+   */
+  private settleCarry(
+    carry: ScratchCarry,
+    response: QueryResult<Input>,
+    member?: Member
+  ): void {
+    let row: Input;
+    try {
+      row = this.queries.decodeQuery(carry.query, response.rows, true)[0]!;
+    } catch (error) {
+      throw this.failure(error, "result", member);
+    }
+    this.attempt.carryScratchValue(
+      carry.publication.expression,
+      row[carry.publication.field]
+    );
+  }
+  /**
+   * The scratch dies with the unit that made it: its rows are deleted inside
+   * that unit's own batch, and the id is spent, so the next unit that stores a
+   * produced value creates its own ({@link ensureScratch}).
+   */
+  private closeScratch(): void {
+    const attempt = this.attemptStore;
+    if (attempt?.scratchId === undefined) return;
+    this.queue(
+      getAdapterInternals(this.driver.adapter).batchRefs.cleanup(
+        attempt.scratchId
+      )
+    );
+    attempt.scratchId = undefined;
   }
   private insertIdField(
     model: AnyModel,
@@ -2649,12 +2798,13 @@ export class OperationContext {
       (this.continuationList ??= []).push({
         declaring: true,
         model: membership.model,
-        query: q.select(membership.model, {
-          where: membership.where,
-          select: Object.fromEntries(
-            this.schema.keys(membership.model).map((field) => [field, true])
-          ),
-        }),
+        state: () =>
+          q.select(membership.model, {
+            where: membership.where(),
+            select: Object.fromEntries(
+              this.schema.keys(membership.model).map((field) => [field, true])
+            ),
+          }),
         failure: () =>
           new NestedWriteError(
             `Cannot ${membership.verb} relation '${membership.relation}': parent record changed across a committed segment.`,
@@ -2719,10 +2869,11 @@ export class OperationContext {
         });
         (this.continuationList ??= []).push({
           model,
-          query: q.select(model, {}, undefined, {
-            projection,
-            identity: stored,
-          }),
+          state: () =>
+            q.select(model, {}, undefined, {
+              projection,
+              identity: stored,
+            }),
           failure: () =>
             new TransactionError(
               `Created record '${model["~"].names.ts!}' changed across a generated-output segment boundary.`,
@@ -2742,13 +2893,19 @@ export class OperationContext {
       const inserted = this.queue(producing!, context, member);
       if (producer) this.attempt.recordInsertProducer(inserted, producer);
       for (const store of storing) this.queue(store);
-      published[insertIdField] = adapter.expressions.cast(
+      const expression = adapter.expressions.cast(
         references.read(scratchId, key),
         physicalField(this.schema, model, insertIdField).scalar["~"].state
           .type === "bigint"
           ? "bigint"
           : "integer"
       );
+      this.attempt.publishScratchValue({
+        model,
+        field: insertIdField,
+        expression,
+      });
+      published[insertIdField] = expression;
     } else {
       const inserted = this.queue(statement, context, member);
       if (producer) this.attempt.recordInsertProducer(inserted, producer);
@@ -2826,10 +2983,12 @@ export class OperationContext {
             )
           )
         );
-        written[field] = published[field] = adapter.expressions.cast(
+        const expression = adapter.expressions.cast(
           references.read(scratchId, key),
           "integer"
         );
+        this.attempt.publishScratchValue({ model, field, expression });
+        written[field] = published[field] = expression;
       }
     }
     const assignments = Object.entries(written).map(([field, value]) =>

@@ -1,5 +1,7 @@
 import type { BatchQuery } from "@drivers/types";
 import type { UniqueConstraintError } from "@errors";
+import type { AnyModel } from "@schema";
+import { Sql } from "@sql";
 import type { Member } from "./operation-context";
 import type { Query } from "./query";
 
@@ -19,6 +21,19 @@ type AssertedPremise = {
 };
 
 /**
+ * One value this unit PRODUCED and stored in its own batch scratch: the
+ * expression every statement of that unit binds it by, and the model field
+ * whose codec reads it back at the unit's boundary (D-58).
+ */
+export type ScratchPublication = {
+  readonly model: AnyModel;
+  readonly field: string;
+  readonly expression: Sql;
+};
+
+const NO_PUBLICATIONS: readonly ScratchPublication[] = Object.freeze([]);
+
+/**
  * Disposable batch construction and rejection evidence; never committed progress.
  *
  * Only {@link pending} belongs to every attempt. The three evidence collections
@@ -32,11 +47,47 @@ type AssertedPremise = {
 export class TransportAttempt {
   readonly pending: BatchQuery[] = [];
   rejectedInsert?: { error: UniqueConstraintError; producer: object };
+  /**
+   * The scratch of the unit being assembled — the DISPATCHED UNIT's, not this
+   * attempt's (D-58). It is minted by the first statement that stores into it
+   * and cleared where the unit ends, so the next unit that needs one makes its
+   * own and no statement ever names a table its own segment did not create.
+   */
   scratchId?: string;
   nextField = 0;
+  private publications?: ScratchPublication[];
+  private carriedValues?: Map<Sql, unknown>;
   private producers?: Map<BatchQuery, object>;
   private premises?: Map<BatchQuery, AssertedPremise>;
   private members?: Set<Member>;
+  /** Record one produced value this unit stored in its scratch (D-58). */
+  publishScratchValue(publication: ScratchPublication): void {
+    (this.publications ??= []).push(publication);
+  }
+  /** The values this unit stored; the attempt keeps none of them. */
+  drainScratchPublications(): readonly ScratchPublication[] {
+    const published = this.publications ?? NO_PUBLICATIONS;
+    this.publications = undefined;
+    return published;
+  }
+  /** The literal one published expression was read back as at the boundary. */
+  carryScratchValue(expression: Sql, value: unknown): void {
+    (this.carriedValues ??= new Map()).set(expression, value);
+  }
+  /**
+   * One field's value as it stands NOW: the literal a segment boundary read
+   * back for the expression that published it, or the value itself.
+   *
+   * A published expression names the scratch of the unit that stored it, and
+   * that scratch dies with its unit — so once the boundary has read the value
+   * back, the expression is spent and the literal is the value (D-58). Asked by
+   * the estate's one reader of a field's runtime value, `CommandAttempt.read`.
+   */
+  carried(value: unknown): unknown {
+    if (!(value instanceof Sql)) return value;
+    const carried = this.carriedValues;
+    return carried?.has(value) ? carried.get(value) : value;
+  }
   /** Attribute one queued INSERT to the producer whose row it writes. */
   recordInsertProducer(insert: BatchQuery, producer: object): void {
     (this.producers ??= new Map()).set(insert, producer);

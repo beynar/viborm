@@ -231,10 +231,10 @@ export class CommandExecution {
     const parent = enclosing.fields;
     return {
       model: parent.model,
-      where: {
+      where: () => ({
         ...this.identity(parent),
         ...this.attempt.select(parent, referenced),
-      },
+      }),
       relation: origin.relation,
       verb: origin.operation,
     };
@@ -547,17 +547,14 @@ export class CommandExecution {
       }
       case "choose": {
         const supplied = command.lookup.source.kind === "producer";
+        // A lookup whose selector names a value this operation PRODUCED is
+        // answered outside the queue, so the unit that produces it is
+        // dispatched first — and the boundary itself carries the value across
+        // as a literal (D-58, `OperationContext.submit`), which is what lets
+        // the selector name it at all.
         if (ctx.usesBatch && supplied) {
           try {
-            const outputs = attempt.references();
-            const rows = await ctx.flush(
-              outputs.map(({ fields, values }) =>
-                ctx.referenceProjection(fields.model, values)
-              ),
-              member
-            );
-            for (const [index, { fields }] of outputs.entries())
-              attempt.materialize(fields, rows[index]![0]!);
+            await ctx.flush(undefined, member);
           } catch (error) {
             throw ctx.failure(error, "prefix", member);
           }

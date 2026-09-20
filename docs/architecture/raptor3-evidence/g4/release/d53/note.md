@@ -284,6 +284,31 @@ UNQUALIFIED for any behaviour that carries a batch reference scratch across a
 segment**, and a one-segment nested write (D-50's first pin) is within what
 PGlite proves — which cell 4 measures on the sessionless transport itself.
 
+### Addendum, 2026-09-21 — ruling D-58 took the alternative
+
+Arnaud ruled the second arm of §5: EXECUTE by carrying the VALUE, not a
+reference. The unit is `g4/release/d58/note.md`. Two rows of §2's table change
+their meaning and nothing else in this note is rewritten:
+
+- **`neon-http` / session lifetime** and **`d1` / session lifetime**:
+  "unqualified — for a scratch reference that crosses a segment" is retired as
+  a verdict about the ENGINE, because no scratch reference crosses a segment
+  any more. Every dispatched unit creates its own scratch, reads back what it
+  stored at its own boundary and drops it there; the next unit binds literals.
+  The row now reads **qualified on the Neon-shaped fixture, UNVERIFIED live**:
+  the executed end state is pinned on `SessionlessBatchOnlyDriver`
+  (`transport-witnesses.test.ts` cells 1–3), and the live witness is still the
+  credential-gated `tests/providers/hosted/neon-http-transport.test.ts`, which
+  is about the PROVIDER's temporaries and skips where the credential is unset.
+- Every other row, and the `supportsOrderedCommittedSegments` verdict for both
+  drivers, is unchanged. No capability flag moved.
+
+§5's refusal — the one that would have taken the census from 23 to 24 and
+turned 8 registered cells red — is **not** taken, and the `_canPinSession()`
+reading it needed gains no engine reader. §4's fourth falsification row
+therefore records a refusal that was measured and declined, not one that was
+deferred.
+
 ---
 
 ## 6. Runs

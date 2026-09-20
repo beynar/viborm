@@ -1,0 +1,30 @@
+a nested createMany of literal rows is ONE unit with its parent :: [UNIT] 4
+a member a later member must SEE still takes its boundary :: [UNIT] 8
+a member a later member must SEE still takes its boundary :: [UNIT] 2
+a member a later member must SEE still takes its boundary :: [UNIT] 1
+it takes it while the parent's own write is still pending :: [UNIT] 9
+it takes it while the parent's own write is still pending :: [UNIT] 3
+it takes it where the parent row is itself the pending write :: [UNIT] 8
+it takes it where the parent row is itself the pending write :: [UNIT] 3
+an observing series that then fails: the interactive route rolls back, the batch route keeps the committed prefix (D-51) :: [UNIT] 8
+an observing series that then fails: the interactive route rolls back, the batch route keeps the committed prefix (D-51) :: [UNIT] 4
+a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [UNIT] 5
+a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name :: [UNIT] 4
+a partial compound shared edge publishes every transitioned member, not only the row's own key :: [UNIT] 5
+a child-held arm placed after the parent's write names the key that write published :: [UNIT] 8
+a child-held arm placed after the parent's write names the key that write published :: [UNIT] 3
+a correlated arm that moves nothing leaves the row at the key it was located by :: [UNIT] 5
+a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by :: [UNIT] 4
+a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located :: [UNIT] 4
+a number key incremented under the batch answers the provider's row :: [UNIT] 3
+a number key incremented under the batch answers the provider's row :: [UNIT] 1
+the same key multiplied answers the same way :: [UNIT] 3
+the same key multiplied answers the same way :: [UNIT] 1
+a bigint key and a decimal key publish through the same observation :: [UNIT] 3
+a bigint key and a decimal key publish through the same observation :: [UNIT] 1
+a bigint key and a decimal key publish through the same observation :: [UNIT] 3
+a bigint key and a decimal key publish through the same observation :: [UNIT] 1
+the observation is taken BEHIND the write :: [UNIT] 3
+the observation is taken BEHIND the write :: [UNIT] 1
+an INT key still travels through the scratch :: [UNIT] 7
+stores the key after its INSERT and reads it back as a 64-bit integer for the nested create :: [UNIT] 7

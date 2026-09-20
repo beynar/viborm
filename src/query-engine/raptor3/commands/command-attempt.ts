@@ -1,4 +1,3 @@
-import { Sql } from "@sql";
 import type { Query } from "../shared/query";
 import type { Input } from "../shared/schema";
 import { TransportAttempt } from "../shared/transport-attempt";
@@ -45,7 +44,12 @@ export class CommandAttempt {
    */
   read(fields: Assignments, field: string): unknown {
     const bound = this.bindings.get(fields);
-    if (bound && Object.hasOwn(bound, field)) return bound[field];
+    // A value this operation PRODUCED is an expression inside the unit that
+    // stored it and the literal that unit read back in every unit after it
+    // (D-58, `TransportAttempt.carried`); one reader, so every statement,
+    // premise and guard names the same value.
+    if (bound && Object.hasOwn(bound, field))
+      return this.transport.carried(bound[field]);
     const value = fields.stated(field);
     return value
       ? this.resolveValue(value)
@@ -76,18 +80,6 @@ export class CommandAttempt {
     return Object.fromEntries(
       [...names].map((field) => [field, this.read(fields, field)])
     );
-  }
-  references(): { fields: Assignments; values: Input }[] {
-    const outputs: { fields: Assignments; values: Input }[] = [];
-    for (const fields of this.bindings.keys()) {
-      const values = Object.fromEntries(
-        [...fields.demands]
-          .map((field) => [field, this.read(fields, field)] as const)
-          .filter(([, value]) => value instanceof Sql)
-      );
-      if (Object.keys(values).length) outputs.push({ fields, values });
-    }
-    return outputs;
   }
   materialize(fields: Assignments, values: Input): void {
     this.bind(fields, { ...this.bindings.get(fields), ...values });
