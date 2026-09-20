@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ✓ |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 38ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  23:16:14
+   Duration  1.91s (transform 1.09s, setup 10ms, collect 1.62s, tests 38ms, environment 0ms, prepare 39ms)
+
+Vitest resources: 4.22s wall, 510.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

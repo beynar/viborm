@@ -1,0 +1,15 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ✓ |coverage-raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 47ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 19ms
+ ✓ |raptor3| tests/raptor3/g3/author-execution-regressions.test.ts (3 tests) 38ms
+ ✓ |raptor3| tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts (8 tests) 19ms
+ ✓ |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests) 30ms
+
+ Test Files  5 passed (5)
+      Tests  26 passed (26)
+   Start at  23:37:56
+   Duration  4.90s (transform 2.70s, setup 24ms, collect 4.25s, tests 151ms, environment 0ms, prepare 92ms)
+
+Vitest resources: 6.99s wall, 592.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

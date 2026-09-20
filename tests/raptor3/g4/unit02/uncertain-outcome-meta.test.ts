@@ -491,7 +491,8 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
 
   it("6. a throwing invalidation listener still leaves exactly one invalidation", async () => {
     // The followup review's S6 (`g4/regression-review-followup.md` finding 2),
-    // as an author cell. `retainWriteOutcomeFailure` (`extensions/query.ts`)
+    // as an author cell. `retainWriteOutcomeFailure` (`@errors`,
+    // `src/errors/query.ts` — FC-05 moved it out of `extensions/query.ts`)
     // keeps the query failure primary and retains the listener's beside it;
     // `OperationContext.stateWriteOutcome` states the same composition at every
     // seam call site, and it states it once. The composition itself was pinned

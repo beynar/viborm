@@ -1,0 +1,288 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ❯ |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests | 3 failed) 41ms
+   ✓ FC-05 — one write-outcome composition > 1. the operation's own failure stays primary when the listener fails beside it 20ms
+   × FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress 11ms
+     → {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "CacheConfigurationError",
+    "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+  }
+}
+   × FC-05 — one write-outcome composition > 3. a listener that fails beside an answer that SUCCEEDED is published alone 3ms
+     → {
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+   × FC-05 — one write-outcome composition > 4. the produced key is read back as one aliased scalar and binds the child row 6ms
+     → {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "QueryEngineError",
+    "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+  },
+  "readBacks": [
+    "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\""
+  ]
+}
++ actual - expected
+
++ QueryEngineError: Driver "sqlite3" returned a malformed string scalar for operation "createMany": the value is not a string.
++     at OperationContext.failure (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:638:17)
++     at OperationContext.settleCarry (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:2654:18)
++     at OperationContext.submit (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1594:14)
++     at processTicksAndRejections (node:internal/process/task_queues:104:5)
++     at OperationContext.flushQueued (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1223:23)
++     at OperationContext.flush (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1207:14)
++     at OperationContext.executeMember (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:550:30)
++     at CommandExecution.executeRecords (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:814:12)
++     at CommandExecution.records (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:781:35)
++     at OperationContext.batchAttempt (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:986:14) {
++   code: 'V9001',
++   meta: [Object: null prototype] {
++     driver: 'sqlite3',
++     operation: 'createMany',
++     recordSeriesProgress: {
++       atomicity: 'segment',
++       committedSegments: 1,
++       committedWriteMembers: 2,
++       completedMembers: 1,
++       phase: 'result'
++     },
++     scalarType: 'string'
++   },
++   originalCause: undefined,
++   timestamp: 2026-09-20T21:15:04.501Z
++ }
+- undefined
+
+ ❯ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests | 1 failed) 93ms
+   ✓ N5: the published key on the live route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 28ms
+   ✓ N5: the published key on the live route > a partial compound shared edge publishes every transitioned member, not only the row's own key 7ms
+   ✓ N5: the published key on the live route > a child-held arm placed after the parent's write names the key that write published 5ms
+   ✓ N5: the published key on the live route > a correlated arm that moves nothing leaves the row at the key it was located by 6ms
+   ✓ N5: the published key on the live route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 7ms
+   ✓ N5: the published key on the live route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+   ✓ N5: the published key on the batch-only route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 7ms
+   ✓ N5: the published key on the batch-only route > a partial compound shared edge publishes every transitioned member, not only the row's own key 5ms
+   × N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published 9ms
+     → Driver "sqlite3" returned a malformed string scalar for operation "update": the value is not a string.
+   ✓ N5: the published key on the batch-only route > a correlated arm that moves nothing leaves the row at the key it was located by 7ms
+   ✓ N5: the published key on the batch-only route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 3ms
+   ✓ N5: the published key on the batch-only route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 6ms
+ ❯ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests | 1 failed) 89ms
+   ✓ N5: the published key on the live route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 27ms
+   ✓ N5: the published key on the live route > a partial compound shared edge publishes every transitioned member, not only the row's own key 6ms
+   ✓ N5: the published key on the live route > a child-held arm placed after the parent's write names the key that write published 5ms
+   ✓ N5: the published key on the live route > a correlated arm that moves nothing leaves the row at the key it was located by 5ms
+   ✓ N5: the published key on the live route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 7ms
+   ✓ N5: the published key on the live route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 4ms
+   ✓ N5: the published key on the batch-only route > a before-child's transition publishes the key the record's own statement, its later children and the terminal read all name 8ms
+   ✓ N5: the published key on the batch-only route > a partial compound shared edge publishes every transitioned member, not only the row's own key 4ms
+   × N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published 9ms
+     → Driver "sqlite3" returned a malformed string scalar for operation "update": the value is not a string.
+   ✓ N5: the published key on the batch-only route > a correlated arm that moves nothing leaves the row at the key it was located by 4ms
+   ✓ N5: the published key on the batch-only route > a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by 6ms
+   ✓ N5: the published key on the batch-only route > a connect publishes a key the row does not hold yet, so the record's own statement still addresses the row it located 3ms
+ ✓ |raptor3| tests/raptor3/g4/parity/increment-key-width.test.ts (1 test) 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts > N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published
+QueryEngineError: Driver "sqlite3" returned a malformed string scalar for operation "update": the value is not a string.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |raptor3| tests/raptor3/g4/parity/published-key.test.ts > N5: the published key on the batch-only route > a child-held arm placed after the parent's write names the key that write published
+QueryEngineError: Driver "sqlite3" returned a malformed string scalar for operation "update": the value is not a string.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress
+AssertionError: {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "CacheConfigurationError",
+    "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+  }
+}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:277:14
+    275|         2
+    276|       );
+    277|       assert.ok(seen.failure instanceof AggregateError, diagnostic);
+       |              ^
+    278|       assert.equal(seen.failure.message, COMPOSED, diagnostic);
+    279|       assert.equal(seen.failure.errors.length, 2, diagnostic);
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:263:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 3. a listener that fails beside an answer that SUCCEEDED is published alone
+AssertionError: {
+  "failure": {
+    "cause": {
+      "kind": "QueryEngineError",
+      "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+    },
+    "errors": [
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+      },
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:337:14
+    335|       // exist.
+    336|       assert.ok(seen.failure !== undefined, diagnostic);
+    337|       assert.ok(
+       |              ^
+    338|         !(seen.failure instanceof AggregateError) ||
+    339|           seen.failure.message !== COMPOSED,
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:324:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 4. the produced key is read back as one aliased scalar and binds the child row
+AssertionError: {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "kind": "QueryEngineError",
+    "message": "Driver \"sqlite3\" returned a malformed string scalar for operation \"createMany\": the value is not a string."
+  },
+  "readBacks": [
+    "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\""
+  ]
+}
++ actual - expected
+
++ QueryEngineError: Driver "sqlite3" returned a malformed string scalar for operation "createMany": the value is not a string.
++     at OperationContext.failure (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:638:17)
++     at OperationContext.settleCarry (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:2654:18)
++     at OperationContext.submit (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1594:14)
++     at processTicksAndRejections (node:internal/process/task_queues:104:5)
++     at OperationContext.flushQueued (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1223:23)
++     at OperationContext.flush (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:1207:14)
++     at OperationContext.executeMember (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:550:30)
++     at CommandExecution.executeRecords (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:814:12)
++     at CommandExecution.records (/private/tmp/viborm-fc05/src/query-engine/raptor3/commands/execution.ts:781:35)
++     at OperationContext.batchAttempt (/private/tmp/viborm-fc05/src/query-engine/raptor3/shared/operation-context.ts:986:14) {
++   code: 'V9001',
++   meta: [Object: null prototype] {
++     driver: 'sqlite3',
++     operation: 'createMany',
++     recordSeriesProgress: {
++       atomicity: 'segment',
++       committedSegments: 1,
++       committedWriteMembers: 2,
++       completedMembers: 1,
++       phase: 'result'
++     },
++     scalarType: 'string'
++   },
++   originalCause: undefined,
++   timestamp: 2026-09-20T21:15:04.501Z
++ }
+- undefined
+
+
+simple
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:379:14
+    377|         2
+    378|       );
+    379|       assert.equal(seen.failure, undefined, diagnostic);
+       |              ^
+    380|       assert.deepEqual(seen.value, [{ id: 1, label: "held" }], diagnos…
+    381|       // ONE read-back per produced value, and it is a projection-only…
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:361:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  3 failed | 2 passed (5)
+      Tests  5 failed | 25 passed (30)
+   Start at  23:15:02
+   Duration  5.94s (transform 3.25s, setup 31ms, collect 5.07s, tests 234ms, environment 0ms, prepare 91ms)
+
+Vitest resources: 8.31s wall, 616.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

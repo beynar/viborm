@@ -22,6 +22,7 @@ import type {
 import {
   ClientInitializationError,
   isVibORMError,
+  retainWriteOutcomeFailure,
   TransactionError,
 } from "@errors";
 import {
@@ -47,10 +48,7 @@ import {
   type HasResultConsumingExtension,
   type MergeExtensionState,
 } from "@extensions/methods";
-import {
-  retainWriteOutcomeFailure,
-  TransactionWriteOutcomes,
-} from "@extensions/query";
+import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
 import {
   createCacheExecutionOptions,

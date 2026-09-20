@@ -1,0 +1,351 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc05
+
+ ❯ |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests | 1 failed) 21ms
+   ✓ standalone query interceptor runner > the no-handler path returns the child promise by identity 2ms
+   ✓ standalone query interceptor runner > composes A to B to C in nested application order 1ms
+   ✓ standalone query interceptor runner > exposes only frozen operation identity, mode, input, and capabilities 0ms
+   ✓ prepared query execution outcomes > keeps the no-context path as the exact child promise 1ms
+   ✓ prepared query execution outcomes > does not publish write outcomes for read operations 0ms
+   ✓ prepared query execution outcomes > publishes every exact committed segment without a synthetic final duplicate 0ms
+   ✓ prepared query execution outcomes > uses one query failure identity for admission and child rejection 2ms
+   ✓ query continuation authority > attributes synchronous handler throws without starting the child 0ms
+   ✓ query continuation authority > keeps a synchronous child throw authoritative 0ms
+   ✓ query continuation authority > does not permit a caught registration violation to short-circuit a read 0ms
+   ✓ query continuation authority > an eligible direct read can short-circuit and closes detached proceed 0ms
+   ✓ query continuation authority > mutations and every raw family reject no-proceed with extension identity 0ms
+   ✓ query continuation authority > a transaction read can short-circuit and reports transaction mode 0ms
+   ✓ query continuation authority > array mode refuses read short-circuiting 0ms
+   ✓ query continuation authority > a caught double proceed still fails and starts the child once 0ms
+   ✓ query continuation authority > uses the protocol failure thrown by an uncaught double proceed 0ms
+   ✓ query continuation authority > preserves a caught protocol failure and a later handler failure 0ms
+   ✓ query continuation authority > preserves child, protocol, and handler failures in deterministic order 0ms
+   ✓ query continuation authority > a detached mutation proceed cannot start the child after no-proceed refusal 0ms
+   ✓ query continuation authority > ignores fabricated success after proceed 0ms
+   ✓ query continuation authority > awaits handler post-work after the child fulfills 0ms
+   ✓ query continuation authority > keeps a swallowed child failure authoritative by identity 0ms
+   ✓ query continuation authority > child success plus post-work failure reports the named extension 0ms
+   ✓ query continuation authority > dual failure keeps the child primary and named extension failure second 0ms
+   ✓ query continuation authority > keeps the child primary when hostile query post-work hides Error identity 0ms
+   ✓ query continuation authority > nested dual failures retain the original child and suppression order 0ms
+   ✓ query write-outcome registration > captures listeners in registration order across nested handlers 0ms
+   ✓ query write-outcome registration > late registration throws synchronously, records the violation, and has no effect 0ms
+   ✓ query write-outcome registration > rejects a hostile non-function listener before capture even when caught 0ms
+   ✓ query write-outcome publication > stages each identity once and promotes only confirmed registrations 2ms
+   ✓ query write-outcome publication > discards every pending registration as one transaction unit 1ms
+   ✓ query write-outcome publication > attempts every listener and preserves boundary-owned failures 1ms
+   ✓ query write-outcome publication > keeps one boundary-owned listener failure authoritative by identity 0ms
+   × query write-outcome publication > retains one or many listener failures behind the execution failure 5ms
+     → expected Error: first listener failed to be Error: execution failed // Object.is equality
+   ✓ query write-outcome publication > publishes a pre-registered direct outcome without a query chain 0ms
+   ✓ hostile query thenables > does not confuse an undefined rejection with absent protocol failure 0ms
+   ✓ hostile query thenables > attributes a hostile handler thenable to its extension 0ms
+   ✓ hostile query thenables > keeps a hostile child thenable failure authoritative 0ms
+   ✓ coverage low value > refuses structurally similar foreign aggregates 0ms
+   ✓ coverage low value > refuses a runner-owned aggregate after its evidence is mutated 0ms
+   ✓ coverage low value > publishes an empty registration set 0ms
+   ✓ a repeated protocol break keeps the first failure > a second illegal proceed throws the first error by identity 0ms
+   ✓ a repeated protocol break keeps the first failure > a later listener registration answers the earlier proceed failure 0ms
+ ❯ |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests | 1 failed) 16ms
+   ✓ standalone query interceptor runner > the no-handler path returns the child promise by identity 1ms
+   ✓ standalone query interceptor runner > composes A to B to C in nested application order 0ms
+   ✓ standalone query interceptor runner > exposes only frozen operation identity, mode, input, and capabilities 0ms
+   ✓ prepared query execution outcomes > keeps the no-context path as the exact child promise 0ms
+   ✓ prepared query execution outcomes > does not publish write outcomes for read operations 0ms
+   ✓ prepared query execution outcomes > publishes every exact committed segment without a synthetic final duplicate 0ms
+   ✓ prepared query execution outcomes > uses one query failure identity for admission and child rejection 3ms
+   ✓ query continuation authority > attributes synchronous handler throws without starting the child 0ms
+   ✓ query continuation authority > keeps a synchronous child throw authoritative 0ms
+   ✓ query continuation authority > does not permit a caught registration violation to short-circuit a read 0ms
+   ✓ query continuation authority > an eligible direct read can short-circuit and closes detached proceed 0ms
+   ✓ query continuation authority > mutations and every raw family reject no-proceed with extension identity 0ms
+   ✓ query continuation authority > a transaction read can short-circuit and reports transaction mode 0ms
+   ✓ query continuation authority > array mode refuses read short-circuiting 0ms
+   ✓ query continuation authority > a caught double proceed still fails and starts the child once 0ms
+   ✓ query continuation authority > uses the protocol failure thrown by an uncaught double proceed 0ms
+   ✓ query continuation authority > preserves a caught protocol failure and a later handler failure 0ms
+   ✓ query continuation authority > preserves child, protocol, and handler failures in deterministic order 0ms
+   ✓ query continuation authority > a detached mutation proceed cannot start the child after no-proceed refusal 0ms
+   ✓ query continuation authority > ignores fabricated success after proceed 0ms
+   ✓ query continuation authority > awaits handler post-work after the child fulfills 0ms
+   ✓ query continuation authority > keeps a swallowed child failure authoritative by identity 0ms
+   ✓ query continuation authority > child success plus post-work failure reports the named extension 0ms
+   ✓ query continuation authority > dual failure keeps the child primary and named extension failure second 0ms
+   ✓ query continuation authority > keeps the child primary when hostile query post-work hides Error identity 0ms
+   ✓ query continuation authority > nested dual failures retain the original child and suppression order 0ms
+   ✓ query write-outcome registration > captures listeners in registration order across nested handlers 0ms
+   ✓ query write-outcome registration > late registration throws synchronously, records the violation, and has no effect 0ms
+   ✓ query write-outcome registration > rejects a hostile non-function listener before capture even when caught 0ms
+   ✓ query write-outcome publication > stages each identity once and promotes only confirmed registrations 0ms
+   ✓ query write-outcome publication > discards every pending registration as one transaction unit 0ms
+   ✓ query write-outcome publication > attempts every listener and preserves boundary-owned failures 0ms
+   ✓ query write-outcome publication > keeps one boundary-owned listener failure authoritative by identity 0ms
+   × query write-outcome publication > retains one or many listener failures behind the execution failure 5ms
+     → expected Error: first listener failed to be Error: execution failed // Object.is equality
+   ✓ query write-outcome publication > publishes a pre-registered direct outcome without a query chain 1ms
+   ✓ hostile query thenables > does not confuse an undefined rejection with absent protocol failure 0ms
+   ✓ hostile query thenables > attributes a hostile handler thenable to its extension 0ms
+   ✓ hostile query thenables > keeps a hostile child thenable failure authoritative 0ms
+   ✓ coverage low value > refuses structurally similar foreign aggregates 0ms
+   ✓ coverage low value > refuses a runner-owned aggregate after its evidence is mutated 0ms
+   ✓ coverage low value > publishes an empty registration set 0ms
+   ✓ a repeated protocol break keeps the first failure > a second illegal proceed throws the first error by identity 0ms
+   ✓ a repeated protocol break keeps the first failure > a later listener registration answers the earlier proceed failure 0ms
+ ❯ |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts (43 tests | 1 failed) 16ms
+   ✓ standalone query interceptor runner > the no-handler path returns the child promise by identity 1ms
+   ✓ standalone query interceptor runner > composes A to B to C in nested application order 0ms
+   ✓ standalone query interceptor runner > exposes only frozen operation identity, mode, input, and capabilities 0ms
+   ✓ prepared query execution outcomes > keeps the no-context path as the exact child promise 0ms
+   ✓ prepared query execution outcomes > does not publish write outcomes for read operations 0ms
+   ✓ prepared query execution outcomes > publishes every exact committed segment without a synthetic final duplicate 0ms
+   ✓ prepared query execution outcomes > uses one query failure identity for admission and child rejection 2ms
+   ✓ query continuation authority > attributes synchronous handler throws without starting the child 0ms
+   ✓ query continuation authority > keeps a synchronous child throw authoritative 0ms
+   ✓ query continuation authority > does not permit a caught registration violation to short-circuit a read 0ms
+   ✓ query continuation authority > an eligible direct read can short-circuit and closes detached proceed 0ms
+   ✓ query continuation authority > mutations and every raw family reject no-proceed with extension identity 0ms
+   ✓ query continuation authority > a transaction read can short-circuit and reports transaction mode 0ms
+   ✓ query continuation authority > array mode refuses read short-circuiting 0ms
+   ✓ query continuation authority > a caught double proceed still fails and starts the child once 0ms
+   ✓ query continuation authority > uses the protocol failure thrown by an uncaught double proceed 0ms
+   ✓ query continuation authority > preserves a caught protocol failure and a later handler failure 0ms
+   ✓ query continuation authority > preserves child, protocol, and handler failures in deterministic order 0ms
+   ✓ query continuation authority > a detached mutation proceed cannot start the child after no-proceed refusal 0ms
+   ✓ query continuation authority > ignores fabricated success after proceed 0ms
+   ✓ query continuation authority > awaits handler post-work after the child fulfills 0ms
+   ✓ query continuation authority > keeps a swallowed child failure authoritative by identity 0ms
+   ✓ query continuation authority > child success plus post-work failure reports the named extension 0ms
+   ✓ query continuation authority > dual failure keeps the child primary and named extension failure second 0ms
+   ✓ query continuation authority > keeps the child primary when hostile query post-work hides Error identity 0ms
+   ✓ query continuation authority > nested dual failures retain the original child and suppression order 0ms
+   ✓ query write-outcome registration > captures listeners in registration order across nested handlers 0ms
+   ✓ query write-outcome registration > late registration throws synchronously, records the violation, and has no effect 0ms
+   ✓ query write-outcome registration > rejects a hostile non-function listener before capture even when caught 0ms
+   ✓ query write-outcome publication > stages each identity once and promotes only confirmed registrations 0ms
+   ✓ query write-outcome publication > discards every pending registration as one transaction unit 0ms
+   ✓ query write-outcome publication > attempts every listener and preserves boundary-owned failures 0ms
+   ✓ query write-outcome publication > keeps one boundary-owned listener failure authoritative by identity 0ms
+   × query write-outcome publication > retains one or many listener failures behind the execution failure 5ms
+     → expected Error: first listener failed to be Error: execution failed // Object.is equality
+   ✓ query write-outcome publication > publishes a pre-registered direct outcome without a query chain 0ms
+   ✓ hostile query thenables > does not confuse an undefined rejection with absent protocol failure 0ms
+   ✓ hostile query thenables > attributes a hostile handler thenable to its extension 0ms
+   ✓ hostile query thenables > keeps a hostile child thenable failure authoritative 0ms
+   ✓ coverage low value > refuses structurally similar foreign aggregates 0ms
+   ✓ coverage low value > refuses a runner-owned aggregate after its evidence is mutated 0ms
+   ✓ coverage low value > publishes an empty registration set 0ms
+   ✓ a repeated protocol break keeps the first failure > a second illegal proceed throws the first error by identity 0ms
+   ✓ a repeated protocol break keeps the first failure > a later listener registration answers the earlier proceed failure 0ms
+ ❯ |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts (4 tests | 2 failed) 59ms
+   × FC-05 — one write-outcome composition > 1. the operation's own failure stays primary when the listener fails beside it 34ms
+     → the listener's failure must not be primary: {
+  "failure": {
+    "cause": {
+      "kind": "CacheConfigurationError",
+      "message": "Cache invalidation failed after mutation 'create' on model 'parent'."
+    },
+    "errors": [
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'create' on model 'parent'."
+      },
+      {
+        "kind": "QueryError",
+        "message": "Query execution failed"
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+   × FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress 10ms
+     → {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "cause": {
+      "kind": "CacheConfigurationError",
+      "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+    },
+    "errors": [
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      },
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+   ✓ FC-05 — one write-outcome composition > 3. a listener that fails beside an answer that SUCCEEDED is published alone 5ms
+   ✓ FC-05 — one write-outcome composition > 4. the produced key is read back as one aliased scalar and binds the child row 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |coverage-client| tests/contracts/public-client/query-interceptors.core.test.ts > query write-outcome publication > retains one or many listener failures behind the execution failure
+AssertionError: expected Error: first listener failed to be Error: execution failed // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  Error {[22m
+[32m-   "message": "execution failed",[39m
+[31m+   "message": "first listener failed",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/public-client/query-interceptors.core.test.ts:1149:23
+    1147|     );
+    1148| 
+    1149|     expect(one.cause).toBe(primary);
+       |                       ^
+    1150|     expect(one.errors).toEqual([primary, first]);
+    1151|     expect(many.cause).toBe(primary);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |layer-client| tests/contracts/public-client/query-interceptors.core.test.ts > query write-outcome publication > retains one or many listener failures behind the execution failure
+AssertionError: expected Error: first listener failed to be Error: execution failed // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  Error {[22m
+[32m-   "message": "execution failed",[39m
+[31m+   "message": "first listener failed",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/public-client/query-interceptors.core.test.ts:1149:23
+    1147|     );
+    1148| 
+    1149|     expect(one.cause).toBe(primary);
+       |                       ^
+    1150|     expect(one.errors).toEqual([primary, first]);
+    1151|     expect(many.cause).toBe(primary);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |coverage-extensions| tests/contracts/public-client/query-interceptors.core.test.ts > query write-outcome publication > retains one or many listener failures behind the execution failure
+AssertionError: expected Error: first listener failed to be Error: execution failed // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  Error {[22m
+[32m-   "message": "execution failed",[39m
+[31m+   "message": "first listener failed",[39m
+[2m  }[22m
+
+ ❯ tests/contracts/public-client/query-interceptors.core.test.ts:1149:23
+    1147|     );
+    1148| 
+    1149|     expect(one.cause).toBe(primary);
+       |                       ^
+    1150|     expect(one.errors).toEqual([primary, first]);
+    1151|     expect(many.cause).toBe(primary);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 1. the operation's own failure stays primary when the listener fails beside it
+AssertionError: the listener's failure must not be primary: {
+  "failure": {
+    "cause": {
+      "kind": "CacheConfigurationError",
+      "message": "Cache invalidation failed after mutation 'create' on model 'parent'."
+    },
+    "errors": [
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'create' on model 'parent'."
+      },
+      {
+        "kind": "QueryError",
+        "message": "Query execution failed"
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:236:14
+    234|       assert.equal(seen.failure.cause, seen.failure.errors[0], diagnos…
+    235|       assert.ok(seen.failure.errors[0] instanceof Error, diagnostic);
+    236|       assert.notEqual(
+       |              ^
+    237|         (seen.failure.errors[0] as Error).name,
+    238|         LISTENER_CLASS,
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:213:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/one-write-outcome-composition.test.ts > FC-05 — one write-outcome composition > 2. a HELD listener failure composes with the carried value's decode failure, and the primary keeps its progress
+AssertionError: {
+  "batches": [
+    [
+      "CREATE TEMP TABLE IF NOT EXISTS \"__viborm_batch_refs\" (\"batch_id\" TEXT NOT NULL, \"ref_key\" TEXT NOT NULL, \"ref_value\" TEXT, PRIMARY KEY (\"batch_id\", \"ref_key\"))",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?",
+      "INSERT INTO \"fc05_composition_parents\" (\"label\") VALUES (?)",
+      "INSERT INTO \"__viborm_batch_refs\" (\"batch_id\", \"ref_key\", \"ref_value\") VALUES (?, ?, CAST((last_insert_rowid()) AS TEXT)) ON CONFLICT (\"batch_id\", \"ref_key\") DO UPDATE SET \"ref_value\" = EXCLUDED.\"ref_value\"",
+      "INSERT INTO \"fc05_composition_children\" (\"id\", \"label\", \"parentId\") VALUES (?, ?, (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)))",
+      "SELECT (CAST((SELECT \"ref_value\" FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ? AND \"ref_key\" = ? LIMIT 1) AS INTEGER)) AS \"id\"",
+      "DELETE FROM \"__viborm_batch_refs\" WHERE \"batch_id\" = ?"
+    ]
+  ],
+  "failure": {
+    "cause": {
+      "kind": "CacheConfigurationError",
+      "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+    },
+    "errors": [
+      {
+        "kind": "CacheConfigurationError",
+        "message": "Cache invalidation failed after mutation 'createMany' on model 'parent'."
+      },
+      {
+        "kind": "QueryEngineError",
+        "message": "Driver \"sqlite3\" returned a malformed int scalar for operation \"createMany\": the value is not a canonical integer."
+      }
+    ],
+    "kind": "AggregateError",
+    "message": "Query execution and write-outcome publication both failed."
+  }
+}
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:284:14
+    282|       // The primary is the carry's own decode failure — the value thi…
+    283|       // produced, read back at its boundary and malformed by the prov…
+    284|       assert.ok(primary instanceof QueryEngineError, diagnostic);
+       |              ^
+    285|       assert.equal(primary.message, MALFORMED, diagnostic);
+    286|       // The operation's progress marking survives the composition: th…
+ ❯ withWorld tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:164:12
+ ❯ tests/raptor3/g4/parity/one-write-outcome-composition.test.ts:263:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  4 failed (4)
+      Tests  5 failed | 128 passed (133)
+   Start at  23:14:28
+   Duration  3.25s (transform 1.55s, setup 36ms, collect 2.31s, tests 112ms, environment 0ms, prepare 159ms)
+
+Vitest resources: 6.09s wall, 530.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

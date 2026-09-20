@@ -23,6 +23,7 @@ import {
   NestedWriteError,
   QueryEngineError,
   type RecordSeriesProgress,
+  retainWriteOutcomeFailure,
   TransactionError,
   UniqueConstraintError,
   VibORMErrorCode
@@ -1147,19 +1148,6 @@ export class OperationContext {
     if (value === null && missing) throw missing();
     return value;
   }
-  private referenceProjection(model: AnyModel, values: Input): Query {
-    const adapter = this.driver.adapter;
-    const select = Object.fromEntries(
-      Object.keys(values).map((field) => [field, true])
-    );
-    const projection = this.queries.prepareProjection(model, { select });
-    return {
-      shape: projection.shape,
-      sql: adapter.clauses.select(
-        sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
-      )
-    };
-  }
   async flush(
     query?: Query,
     member?: Member,
@@ -1381,7 +1369,7 @@ export class OperationContext {
       this.heldOutcomeFailure = undefined;
       if (acknowledgedOutcomeFailure)
         throw this.answered(
-          this.retainOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
+          retainWriteOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
         );
       // Atomic rejection is retryable only with exact effect attribution and a
       // direct provider cause. Cleanup aggregation retains an extra cause link.
@@ -1608,7 +1596,7 @@ export class OperationContext {
       const held = this.heldOutcomeFailure;
       this.heldOutcomeFailure = undefined;
       throw held
-        ? this.answered(this.retainOutcomeFailure(error, held.failure))
+        ? this.answered(retainWriteOutcomeFailure(error, held.failure))
         : error;
     }
     return responses.slice(guards.length);
@@ -1637,7 +1625,7 @@ export class OperationContext {
       value = await answer();
     } catch (failure) {
       throw held
-        ? this.answered(this.retainOutcomeFailure(failure, held.failure))
+        ? this.answered(retainWriteOutcomeFailure(failure, held.failure))
         : failure;
     }
     if (held) throw this.answered(held.failure);
@@ -2015,15 +2003,20 @@ export class OperationContext {
    * Say ONE durable write phase on the client's cache rail, keeping the
    * OPERATION's own failure primary when the client's listener throws.
    *
-   * The shipped engine composed the two exactly this way —
-   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859`) at every
-   * executor site that notified while holding a failure. It was restated here
-   * rather than imported because `@extensions/query` then imported
-   * `write-engine/routing` and with it every shipped operation class — the one
-   * import this engine may not have. C-01 deleted those classes and re-pointed
-   * that import at `@query-engine/routed-operations`, so the hazard is gone and
-   * the restatement is simply this engine's own composition. `primary` absent
-   * means the operation has not failed, which was the shipped
+   * The composition itself is not this engine's rule to state: it belongs to
+   * `retainWriteOutcomeFailure` (`@errors`), the ONE owner the client, the
+   * deferred operation and this context all reach — the primary stays primary
+   * and `cause`, and the listener failures are flattened out of the publication
+   * owner's aggregate and retained beside it, in registration order. It was
+   * restated here while it lived in `@extensions/query`, an import this engine
+   * does not take: no file under `raptor3/**` imports `@extensions/*` today,
+   * and importing the publication owner would add `src/extensions/query.ts`
+   * and `src/query-engine/routed-operations.ts` to this file's runtime closure
+   * (181 → 183). A directory cycle is not what that avoids — the shipped
+   * `query-engine/pending-operation.ts` already holds the engine→extensions
+   * runtime edge. FC-05 moved the pure rule to the boundary both layers
+   * already depend on and deleted the restatement.
+   * `primary` absent means the operation has not failed, which was the shipped
    * `throw outcomeFailure` arm.
    */
   private async stateWriteOutcome(
@@ -2035,7 +2028,7 @@ export class OperationContext {
       await say();
     } catch (outcomeFailure) {
       if (primary === undefined) throw outcomeFailure;
-      throw this.answered(this.retainOutcomeFailure(primary, outcomeFailure));
+      throw this.answered(retainWriteOutcomeFailure(primary, outcomeFailure));
     }
   }
   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
@@ -2043,28 +2036,6 @@ export class OperationContext {
     if (typeof failure === "object" && failure !== null)
       (this.answeredFailureSet ??= new WeakSet()).add(failure);
     return failure;
-  }
-  /**
-   * ONE composition of the two failures, wherever the operation's own failure
-   * becomes known: it stays primary and every listener failure is retained
-   * beside it. {@link stateWriteOutcome} composes when the primary is already
-   * in hand; {@link settleSubmitted} composes when the batch transport learned
-   * the listener's failure FIRST and held it.
-   */
-  private retainOutcomeFailure(
-    primary: unknown,
-    outcomeFailure: unknown
-  ): AggregateError {
-    return new AggregateError(
-      [
-        primary,
-        ...(outcomeFailure instanceof AggregateError
-          ? outcomeFailure.errors
-          : [outcomeFailure])
-      ],
-      "Query execution and write-outcome publication both failed.",
-      { cause: primary }
-    );
   }
   async createMany(
     model: AnyModel,
@@ -2643,7 +2614,7 @@ export class OperationContext {
    * One SELECT per value stored, at the end of the batch that stored it and
    * inside it — the scratch is alive exactly there — through the SAME owner
    * that reads a produced value back anywhere else
-   * ({@link referenceProjection}), so the literal arrives through the field's
+   * ({@link Queries.scalarQuery}), so the literal arrives through the field's
    * own codec and binds exactly as a spelled key would. A unit with no next —
    * the operation's terminal statements, and the one unit a prepared package IS
    * — has closed its scratch already ({@link finishTerminals}) and reads
@@ -2654,9 +2625,11 @@ export class OperationContext {
     if (attempt?.scratchId === undefined) return NO_SCRATCH_CARRY;
     const carried: ScratchCarry[] = [];
     for (const publication of attempt.drainScratchPublications()) {
-      const query = this.referenceProjection(publication.model, {
-        [publication.field]: publication.expression,
-      });
+      const query = this.queries.scalarQuery(
+        publication.model,
+        publication.field,
+        publication.expression
+      );
       this.queue(query.sql);
       carried.push({ query, publication });
     }
@@ -2666,7 +2639,7 @@ export class OperationContext {
    * The literal one read-back answered, held where the scratch id is held.
    *
    * Exactly one row, by construction: the read-back is
-   * {@link referenceProjection}'s projection-only `SELECT <expression>` — no
+   * {@link Queries.scalarQuery}'s projection-only `SELECT <expression>` — no
    * FROM, no cardinality of its own — so every provider answers it with one
    * row, and the assertion is the statement of that. A guard here would be a
    * check whose unique coverage cannot be named, and it would fail in the one

@@ -5,12 +5,14 @@
  */
 
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { InvalidTransactionInputError } from "@errors";
+import {
+  InvalidTransactionInputError,
+  retainWriteOutcomeFailure,
+} from "@errors";
 import { lookupResolvedExtensionHandlers } from "@extensions/chain";
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
-  retainWriteOutcomeFailure,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 import type { AnyModel } from "@schema/model";

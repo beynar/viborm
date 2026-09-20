@@ -1,5 +1,5 @@
 import type { Operations } from "@client/types";
-import { QueryError } from "@errors";
+import { QueryError, retainWriteOutcomeFailure } from "@errors";
 import type { GenericQueryKind } from "@extensions/query";
 import {
   decomposeQueryCoordinationFailure,
@@ -10,7 +10,6 @@ import {
   publishWriteOutcomes,
   type QueryInterceptionMode,
   type QueryInterceptor,
-  retainWriteOutcomeFailure,
   runQueryInterceptors,
   TransactionWriteOutcomes,
   type WriteOutcomeListener,

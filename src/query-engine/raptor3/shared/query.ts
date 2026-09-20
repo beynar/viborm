@@ -4193,20 +4193,36 @@ export class Queries {
     });
     return counted.reduce((total, arm) => a.expressions.add(total, arm));
   }
-  lowerProjectionValues(
-    projection: PreparedProjection,
-    values: Input,
-  ): readonly Sql[] {
-    return projection.fields.map((field) => {
-      const scalar = field as Extract<
-        PreparedProjectionField,
-        { kind: "scalar" }
-      >;
-      return this.adapter.identifiers.aliased(
-        this.fieldValue(projection.model, scalar.name, values[scalar.name]),
-        scalar.name,
-      );
-    });
+  /**
+   * One value this unit PRODUCED, published as the field it belongs to.
+   *
+   * `SELECT <expression> AS <field>` — no FROM, so one row by construction —
+   * composed from the owners that already hold the parts: the field's own
+   * physical value ({@link fieldValue}, the one destination-aware operand
+   * owner) and its own decode leaf ({@link scalarShape}), read back by
+   * {@link decodeQuery} like every other row. That is the composition
+   * {@link grouped} and {@link junction} already state for every scalar they
+   * publish.
+   *
+   * A user projection was never the question: D-58's segment boundary asks for
+   * exactly ONE field, so preparing one to borrow its shape and its lowering
+   * was a detour through arms — relation, variant, `_count`, `_distance`,
+   * sentinel — that a produced scalar cannot reach, and it ended in a cast back
+   * to the scalar arm the caller already knew it had.
+   */
+  scalarQuery(model: AnyModel, field: string, value: unknown): Query {
+    return {
+      shape: {
+        kind: "object",
+        fields: { [field]: this.scalarShape(model, field) },
+      },
+      sql: this.adapter.clauses.select(
+        this.adapter.identifiers.aliased(
+          this.fieldValue(model, field, value),
+          field,
+        ),
+      ),
+    };
   }
   private lowerRelationProjection(
     relation: PreparedRelationProjection,

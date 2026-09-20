@@ -495,6 +495,31 @@ premise (`published`) is a statement about the world rather than a report about
 the transport, so it carries no progress at all — which is the shipped
 `NotFoundError` meta, `{ model, operation }`, on every driver.
 
+**FC-05 addendum (2026-09-21): the composition has ONE owner, and the import
+reason in the parenthesis above is stale.** `retainOutcomeFailure` is deleted.
+The rule it restated is `retainWriteOutcomeFailure`, which now lives at
+`@errors` (`src/errors/query.ts`), and this engine imports it from there exactly
+as the client and `pending-operation.ts` do — so the primary's identity, its
+`cause`, the flattening of the publication owner's aggregate and the listener
+order are stated once for the whole estate. The parenthesis was written when
+that function lived in `@extensions/query` and that module imported
+`write-engine/routing`: C-01 deleted those classes and re-pointed the import at
+`@query-engine/routed-operations`, so the routing-table hazard is gone. The
+import is still one this engine does not take, for a MEASURED reason and not a
+cycle: no file under `src/query-engine/raptor3/**` imports `@extensions/*` at
+all today, and importing the publication owner would add
+`src/extensions/query.ts` and `src/query-engine/routed-operations.ts` to
+`shared/operation-context.ts`'s runtime closure (181 → 183). A directory cycle
+is NOT what the placement avoids — `src/query-engine/pending-operation.ts`
+already imports `executePreparedQuery` from `@extensions/query` at runtime, so
+the `src/query-engine` ↔ `src/extensions` cycle is pre-existing and carries the
+shipped path. That is why the pure rule moved to the boundary both layers
+already depend on rather than being imported from the publication owner. The
+composing sites are unchanged and stay four, because their timings differ:
+`submit`'s dispatch-failure catch, the carried value's decode catch,
+`settleSubmitted` and `stateWriteOutcome`. Pin:
+`tests/raptor3/g4/parity/one-write-outcome-composition.test.ts`.
+
 A `borrowed-transaction` operation owns a region only when its caller SAID so.
 `operationRegion` is that grant — the callback-transaction route supplies it
 because it opened no scope of its own — and with it the candidate opens exactly
@@ -1170,6 +1195,16 @@ payload passes on `BatchOnlyDriver` and `SessionlessBatchOnlyDriver`. Do not
 re-introduce a reader of `pinnedSession` in the engine, and do not let a
 statement name a scratch its own segment did not create. Pins:
 `tests/raptor3/g4/parity/transport-witnesses.test.ts` (the three D-58 cells).
+
+**FC-05 addendum (2026-09-21): the read-back's owner is `Queries.scalarQuery`.**
+`referenceProjection` is deleted. `submit` asks `Queries` for the
+scalar-expression query directly: the field's own physical value (`fieldValue`)
+aliased to the field, read back through the field's own leaf (`scalarShape`) —
+the composition `grouped` and `junction` already state for every scalar they
+publish. Preparing a whole user projection to borrow a one-field shape was the
+detour, and `Queries.lowerProjectionValues`, which existed only for it, is
+deleted with it. Statement count, scratch lifetime, the one-SELECT-per-value
+rule and the no-transport-branch rule above are all unchanged.
 
 **The key a provider without RETURNING must already know (M1, D-57).** A driver
 whose adapter declares `supportsReturning: false` cannot read back the row its

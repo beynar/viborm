@@ -855,21 +855,6 @@ export function decomposeWriteOutcomePublicationFailure(
   return publicationFailures.get(failure) ?? [failure];
 }
 
-/** Keep the execution failure primary while retaining every listener failure. */
-export function retainWriteOutcomeFailure(
-  primary: unknown,
-  outcomeFailure: unknown,
-  message = "Query execution and write-outcome publication both failed."
-): AggregateError {
-  const suppressed =
-    outcomeFailure instanceof AggregateError
-      ? [...outcomeFailure.errors]
-      : [outcomeFailure];
-  return new AggregateError([primary, ...suppressed], message, {
-    cause: primary,
-  });
-}
-
 import type { VibORMConfig } from "@client/client";
 import type {
   ClientOperationResult,

@@ -613,3 +613,39 @@ Machine load during the round: `20:48 up 20 days, load averages: 7.22 6.44
 
 **Blockers: none.** The invariant, and every pin of it, is what it was; the
 sentence now says why.
+
+---
+
+## 12. FC-05 addendum — the key-list claim, corrected (2026-09-21)
+
+Added by FC-05, which the closure handoff charged with correcting this note's
+strongest sentence before anyone acted on it. Nothing above is rewritten; §4's
+measurements, §5's falsifiers and §6's runs stand exactly as recorded.
+
+**The claim.** §3's *What disappears* says: *"One decoded document is now built
+by writing its members, not by materialising a key/value list and reading it
+back."* §2's lead-in says *"Materialising the list again for every row was the
+re-derivation."* Read together they say the per-row list is gone.
+
+**What is actually in the tree.** `shared/query.ts`'s object arm still opens
+with `for (const field of Object.keys(shape.fields))`. `Object.keys` allocates a
+fresh string array **per decoded document**. What P1 removed is the *pair*
+materialisation — `Object.entries` (one array plus one two-element array per
+field), the `.map` closure and the `Object.fromEntries` read-back — which is
+where the 1702 B → 847 B per row came from. The correct sentence is therefore:
+*one decoded document is now built by writing its members, instead of
+materialising a key/value PAIR list and reading it back; the member NAME list is
+still materialised once per document.*
+
+**Why FC-05 did not change it.** The handoff allows a further decoder change
+only if the prepared shape ALREADY owns the member list without a second
+decoder, a mutable shape mirror or an unmeasured framework. It does not: every
+`{ kind: "object" }` shape in the estate is built from a `fields` record alone
+(`prepareProjection`, `grouped`, `junction`, `relationShape`, the recursive
+carriers and now `Queries.scalarQuery`), so giving the shape a `names` array
+would add a second representation of the same fact at every one of those
+builders — exactly the mutable mirror the rule forbids — and the protocol's
+committed-tree comparator this note's own §9 requires is not available to a unit
+working in a dirty worktree. It stays a **measured-experiment candidate**, with
+its premise now stated accurately. The same is true of the two polymorphic
+enumeration sites named beside it in the handoff.

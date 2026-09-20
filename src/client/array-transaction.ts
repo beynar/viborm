@@ -9,6 +9,7 @@ import {
   InvalidTransactionInputError,
   isVibORMError,
   PendingOperationError,
+  retainWriteOutcomeFailure,
 } from "@errors";
 import {
   admitArrayQueries,
@@ -21,7 +22,6 @@ import {
 } from "@extensions/observation";
 import {
   decomposeQueryCoordinationFailure,
-  retainWriteOutcomeFailure,
   TransactionWriteOutcomes,
 } from "@extensions/query";
 import type { QueryEngine } from "@query-engine/query-engine";

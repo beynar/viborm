@@ -1,0 +1,428 @@
+diff --git a/src/client/array-transaction.ts b/src/client/array-transaction.ts
+index 0196791a2..c271217ff 100644
+--- a/src/client/array-transaction.ts
++++ b/src/client/array-transaction.ts
+@@ -9,6 +9,7 @@ import {
+   InvalidTransactionInputError,
+   isVibORMError,
+   PendingOperationError,
++  retainWriteOutcomeFailure,
+ } from "@errors";
+ import {
+   admitArrayQueries,
+@@ -21,7 +22,6 @@ import {
+ } from "@extensions/observation";
+ import {
+   decomposeQueryCoordinationFailure,
+-  retainWriteOutcomeFailure,
+   TransactionWriteOutcomes,
+ } from "@extensions/query";
+ import type { QueryEngine } from "@query-engine/query-engine";
+diff --git a/src/client/client.ts b/src/client/client.ts
+index 01a0dcfbb..7e7871fe8 100644
+--- a/src/client/client.ts
++++ b/src/client/client.ts
+@@ -22,6 +22,7 @@ import type {
+ import {
+   ClientInitializationError,
+   isVibORMError,
++  retainWriteOutcomeFailure,
+   TransactionError,
+ } from "@errors";
+ import {
+@@ -47,10 +48,7 @@ import {
+   type HasResultConsumingExtension,
+   type MergeExtensionState,
+ } from "@extensions/methods";
+-import {
+-  retainWriteOutcomeFailure,
+-  TransactionWriteOutcomes,
+-} from "@extensions/query";
++import { TransactionWriteOutcomes } from "@extensions/query";
+ import { applyRequestTransforms } from "@extensions/request";
+ import {
+   createCacheExecutionOptions,
+diff --git a/src/client/raw.ts b/src/client/raw.ts
+index 25636d604..913cda9f1 100644
+--- a/src/client/raw.ts
++++ b/src/client/raw.ts
+@@ -22,6 +22,7 @@ import { validateRawParameters } from "@drivers/provider-parameter-snapshot";
+ import {
+   InvalidTransactionInputError,
+   QueryError,
++  retainWriteOutcomeFailure,
+   VibORMErrorCode,
+ } from "@errors";
+ import {
+@@ -32,7 +33,6 @@ import { observeOperation } from "@extensions/observation";
+ import {
+   executePreparedQuery,
+   type RawQueryKind,
+-  retainWriteOutcomeFailure,
+   type WriteOutcomeNotifications,
+ } from "@extensions/query";
+ import {
+diff --git a/src/errors/query.ts b/src/errors/query.ts
+index 7e34cab75..6506aaac7 100644
+--- a/src/errors/query.ts
++++ b/src/errors/query.ts
+@@ -434,6 +434,35 @@ export function isNotFoundError(error: unknown): error is NotFoundError {
+   return error instanceof NotFoundError;
+ }
+ 
++/**
++ * Keep the execution failure primary while retaining every listener failure.
++ *
++ * ONE composition for the whole estate, stated at the boundary all three of its
++ * consumers already depend on: the client (`client.ts`, `raw.ts`,
++ * `array-transaction.ts`), the query engine's deferred operation
++ * (`pending-operation.ts`) and the candidate engine's operation context. It is
++ * pure — a primary, the listener failures flattened out of the publication
++ * owner's aggregate, and the primary again as `cause` — so it belongs beside the
++ * query failures it composes rather than inside the extension publication owner
++ * that raises one half of it. The engine cannot import that owner
++ * (`@extensions/query` imports `@query-engine/routed-operations`, so the edge
++ * would close a directory cycle), and a second restatement inside the engine
++ * was the duplication FC-05 deleted.
++ */
++export function retainWriteOutcomeFailure(
++  primary: unknown,
++  outcomeFailure: unknown,
++  message = "Query execution and write-outcome publication both failed."
++): AggregateError {
++  const suppressed =
++    outcomeFailure instanceof AggregateError
++      ? [...outcomeFailure.errors]
++      : [outcomeFailure];
++  return new AggregateError([primary, ...suppressed], message, {
++    cause: primary,
++  });
++}
++
+ /**
+  * Unsupported vector operations
+  *
+diff --git a/src/extensions/query.ts b/src/extensions/query.ts
+index dca9a1888..eedc33244 100644
+--- a/src/extensions/query.ts
++++ b/src/extensions/query.ts
+@@ -855,21 +855,6 @@ export function decomposeWriteOutcomePublicationFailure(
+   return publicationFailures.get(failure) ?? [failure];
+ }
+ 
+-/** Keep the execution failure primary while retaining every listener failure. */
+-export function retainWriteOutcomeFailure(
+-  primary: unknown,
+-  outcomeFailure: unknown,
+-  message = "Query execution and write-outcome publication both failed."
+-): AggregateError {
+-  const suppressed =
+-    outcomeFailure instanceof AggregateError
+-      ? [...outcomeFailure.errors]
+-      : [outcomeFailure];
+-  return new AggregateError([primary, ...suppressed], message, {
+-    cause: primary,
+-  });
+-}
+-
+ import type { VibORMConfig } from "@client/client";
+ import type {
+   ClientOperationResult,
+diff --git a/src/query-engine/pending-operation.ts b/src/query-engine/pending-operation.ts
+index 3317ab551..6403d9af7 100644
+--- a/src/query-engine/pending-operation.ts
++++ b/src/query-engine/pending-operation.ts
+@@ -5,12 +5,14 @@
+  */
+ 
+ import type { AnyDriver, QueryExecutionContext } from "@drivers";
+-import { InvalidTransactionInputError } from "@errors";
++import {
++  InvalidTransactionInputError,
++  retainWriteOutcomeFailure,
++} from "@errors";
+ import { lookupResolvedExtensionHandlers } from "@extensions/chain";
+ import { observeOperation } from "@extensions/observation";
+ import {
+   executePreparedQuery,
+-  retainWriteOutcomeFailure,
+   type WriteOutcomeRegistration,
+ } from "@extensions/query";
+ import type { AnyModel } from "@schema/model";
+diff --git a/src/query-engine/raptor3/AGENTS.md b/src/query-engine/raptor3/AGENTS.md
+index 0edae30a5..6a004efa7 100644
+--- a/src/query-engine/raptor3/AGENTS.md
++++ b/src/query-engine/raptor3/AGENTS.md
+@@ -495,6 +495,25 @@ premise (`published`) is a statement about the world rather than a report about
+ the transport, so it carries no progress at all — which is the shipped
+ `NotFoundError` meta, `{ model, operation }`, on every driver.
+ 
++**FC-05 addendum (2026-09-21): the composition has ONE owner, and the import
++reason in the parenthesis above is stale.** `retainOutcomeFailure` is deleted.
++The rule it restated is `retainWriteOutcomeFailure`, which now lives at
++`@errors` (`src/errors/query.ts`), and this engine imports it from there exactly
++as the client and `pending-operation.ts` do — so the primary's identity, its
++`cause`, the flattening of the publication owner's aggregate and the listener
++order are stated once for the whole estate. The parenthesis was written when
++that function lived in `@extensions/query` and that module imported
++`write-engine/routing`: C-01 deleted those classes and re-pointed the import at
++`@query-engine/routed-operations`, so the routing-table hazard is gone. The
++import is still one this engine may not take, for a different reason —
++`@extensions/query` imports `@query-engine/routed-operations` at runtime, so an
++engine→extensions edge would close a directory cycle — which is why the pure
++rule moved to the boundary both layers already depend on rather than being
++imported from the publication owner. The composing sites are unchanged and stay
++four, because their timings differ: `submit`'s dispatch-failure catch, the
++carried value's decode catch, `settleSubmitted` and `stateWriteOutcome`. Pin:
++`tests/raptor3/g4/parity/one-write-outcome-composition.test.ts`.
++
+ A `borrowed-transaction` operation owns a region only when its caller SAID so.
+ `operationRegion` is that grant — the callback-transaction route supplies it
+ because it opened no scope of its own — and with it the candidate opens exactly
+@@ -1171,6 +1190,16 @@ re-introduce a reader of `pinnedSession` in the engine, and do not let a
+ statement name a scratch its own segment did not create. Pins:
+ `tests/raptor3/g4/parity/transport-witnesses.test.ts` (the three D-58 cells).
+ 
++**FC-05 addendum (2026-09-21): the read-back's owner is `Queries.scalarQuery`.**
++`referenceProjection` is deleted. `submit` asks `Queries` for the
++scalar-expression query directly: the field's own physical value (`fieldValue`)
++aliased to the field, read back through the field's own leaf (`scalarShape`) —
++the composition `grouped` and `junction` already state for every scalar they
++publish. Preparing a whole user projection to borrow a one-field shape was the
++detour, and `Queries.lowerProjectionValues`, which existed only for it, is
++deleted with it. Statement count, scratch lifetime, the one-SELECT-per-value
++rule and the no-transport-branch rule above are all unchanged.
++
+ **The key a provider without RETURNING must already know (M1, D-57).** A driver
+ whose adapter declares `supportsReturning: false` cannot read back the row its
+ INSERT wrote, so the engine NAMES that row from what it already holds, and it
+diff --git a/src/query-engine/raptor3/shared/operation-context.ts b/src/query-engine/raptor3/shared/operation-context.ts
+index c1f3e45f6..6147d5809 100644
+--- a/src/query-engine/raptor3/shared/operation-context.ts
++++ b/src/query-engine/raptor3/shared/operation-context.ts
+@@ -23,6 +23,7 @@ import {
+   NestedWriteError,
+   QueryEngineError,
+   type RecordSeriesProgress,
++  retainWriteOutcomeFailure,
+   TransactionError,
+   UniqueConstraintError,
+   VibORMErrorCode
+@@ -1147,19 +1148,6 @@ export class OperationContext {
+     if (value === null && missing) throw missing();
+     return value;
+   }
+-  private referenceProjection(model: AnyModel, values: Input): Query {
+-    const adapter = this.driver.adapter;
+-    const select = Object.fromEntries(
+-      Object.keys(values).map((field) => [field, true])
+-    );
+-    const projection = this.queries.prepareProjection(model, { select });
+-    return {
+-      shape: projection.shape,
+-      sql: adapter.clauses.select(
+-        sql.join(this.queries.lowerProjectionValues(projection, values), ", ")
+-      )
+-    };
+-  }
+   async flush(
+     query?: Query,
+     member?: Member,
+@@ -1381,7 +1369,7 @@ export class OperationContext {
+       this.heldOutcomeFailure = undefined;
+       if (acknowledgedOutcomeFailure)
+         throw this.answered(
+-          this.retainOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
++          retainWriteOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
+         );
+       // Atomic rejection is retryable only with exact effect attribution and a
+       // direct provider cause. Cleanup aggregation retains an extra cause link.
+@@ -1608,7 +1596,7 @@ export class OperationContext {
+       const held = this.heldOutcomeFailure;
+       this.heldOutcomeFailure = undefined;
+       throw held
+-        ? this.answered(this.retainOutcomeFailure(error, held.failure))
++        ? this.answered(retainWriteOutcomeFailure(error, held.failure))
+         : error;
+     }
+     return responses.slice(guards.length);
+@@ -1637,7 +1625,7 @@ export class OperationContext {
+       value = await answer();
+     } catch (failure) {
+       throw held
+-        ? this.answered(this.retainOutcomeFailure(failure, held.failure))
++        ? this.answered(retainWriteOutcomeFailure(failure, held.failure))
+         : failure;
+     }
+     if (held) throw this.answered(held.failure);
+@@ -2015,15 +2003,16 @@ export class OperationContext {
+    * Say ONE durable write phase on the client's cache rail, keeping the
+    * OPERATION's own failure primary when the client's listener throws.
+    *
+-   * The shipped engine composed the two exactly this way —
+-   * `retainWriteOutcomeFailure` (`src/extensions/query.ts:859`) at every
+-   * executor site that notified while holding a failure. It was restated here
+-   * rather than imported because `@extensions/query` then imported
+-   * `write-engine/routing` and with it every shipped operation class — the one
+-   * import this engine may not have. C-01 deleted those classes and re-pointed
+-   * that import at `@query-engine/routed-operations`, so the hazard is gone and
+-   * the restatement is simply this engine's own composition. `primary` absent
+-   * means the operation has not failed, which was the shipped
++   * The composition itself is not this engine's rule to state: it belongs to
++   * `retainWriteOutcomeFailure` (`@errors`), the ONE owner the client, the
++   * deferred operation and this context all reach — the primary stays primary
++   * and `cause`, and the listener failures are flattened out of the publication
++   * owner's aggregate and retained beside it, in registration order. It was
++   * restated here while it lived in `@extensions/query`, an import this engine
++   * may not take: that module imports `@query-engine/routed-operations`, so the
++   * edge would close a directory cycle. FC-05 moved the pure rule to the
++   * boundary both layers already depend on and deleted the restatement.
++   * `primary` absent means the operation has not failed, which was the shipped
+    * `throw outcomeFailure` arm.
+    */
+   private async stateWriteOutcome(
+@@ -2035,7 +2024,7 @@ export class OperationContext {
+       await say();
+     } catch (outcomeFailure) {
+       if (primary === undefined) throw outcomeFailure;
+-      throw this.answered(this.retainOutcomeFailure(primary, outcomeFailure));
++      throw this.answered(retainWriteOutcomeFailure(primary, outcomeFailure));
+     }
+   }
+   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
+@@ -2044,28 +2033,6 @@ export class OperationContext {
+       (this.answeredFailureSet ??= new WeakSet()).add(failure);
+     return failure;
+   }
+-  /**
+-   * ONE composition of the two failures, wherever the operation's own failure
+-   * becomes known: it stays primary and every listener failure is retained
+-   * beside it. {@link stateWriteOutcome} composes when the primary is already
+-   * in hand; {@link settleSubmitted} composes when the batch transport learned
+-   * the listener's failure FIRST and held it.
+-   */
+-  private retainOutcomeFailure(
+-    primary: unknown,
+-    outcomeFailure: unknown
+-  ): AggregateError {
+-    return new AggregateError(
+-      [
+-        primary,
+-        ...(outcomeFailure instanceof AggregateError
+-          ? outcomeFailure.errors
+-          : [outcomeFailure])
+-      ],
+-      "Query execution and write-outcome publication both failed.",
+-      { cause: primary }
+-    );
+-  }
+   async createMany(
+     model: AnyModel,
+     rows: Input[],
+@@ -2643,7 +2610,7 @@ export class OperationContext {
+    * One SELECT per value stored, at the end of the batch that stored it and
+    * inside it — the scratch is alive exactly there — through the SAME owner
+    * that reads a produced value back anywhere else
+-   * ({@link referenceProjection}), so the literal arrives through the field's
++   * ({@link Queries.scalarQuery}), so the literal arrives through the field's
+    * own codec and binds exactly as a spelled key would. A unit with no next —
+    * the operation's terminal statements, and the one unit a prepared package IS
+    * — has closed its scratch already ({@link finishTerminals}) and reads
+@@ -2654,9 +2621,11 @@ export class OperationContext {
+     if (attempt?.scratchId === undefined) return NO_SCRATCH_CARRY;
+     const carried: ScratchCarry[] = [];
+     for (const publication of attempt.drainScratchPublications()) {
+-      const query = this.referenceProjection(publication.model, {
+-        [publication.field]: publication.expression,
+-      });
++      const query = this.queries.scalarQuery(
++        publication.model,
++        publication.field,
++        publication.expression
++      );
+       this.queue(query.sql);
+       carried.push({ query, publication });
+     }
+@@ -2666,7 +2635,7 @@ export class OperationContext {
+    * The literal one read-back answered, held where the scratch id is held.
+    *
+    * Exactly one row, by construction: the read-back is
+-   * {@link referenceProjection}'s projection-only `SELECT <expression>` — no
++   * {@link Queries.scalarQuery}'s projection-only `SELECT <expression>` — no
+    * FROM, no cardinality of its own — so every provider answers it with one
+    * row, and the assertion is the statement of that. A guard here would be a
+    * check whose unique coverage cannot be named, and it would fail in the one
+diff --git a/src/query-engine/raptor3/shared/query.ts b/src/query-engine/raptor3/shared/query.ts
+index 5725a5995..f38459081 100644
+--- a/src/query-engine/raptor3/shared/query.ts
++++ b/src/query-engine/raptor3/shared/query.ts
+@@ -4190,20 +4190,36 @@ export class Queries {
+     });
+     return counted.reduce((total, arm) => a.expressions.add(total, arm));
+   }
+-  lowerProjectionValues(
+-    projection: PreparedProjection,
+-    values: Input,
+-  ): readonly Sql[] {
+-    return projection.fields.map((field) => {
+-      const scalar = field as Extract<
+-        PreparedProjectionField,
+-        { kind: "scalar" }
+-      >;
+-      return this.adapter.identifiers.aliased(
+-        this.fieldValue(projection.model, scalar.name, values[scalar.name]),
+-        scalar.name,
+-      );
+-    });
++  /**
++   * One value this unit PRODUCED, published as the field it belongs to.
++   *
++   * `SELECT <expression> AS <field>` — no FROM, so one row by construction —
++   * composed from the owners that already hold the parts: the field's own
++   * physical value ({@link fieldValue}, the one destination-aware operand
++   * owner) and its own decode leaf ({@link scalarShape}), read back by
++   * {@link decodeQuery} like every other row. That is the composition
++   * {@link grouped} and {@link junction} already state for every scalar they
++   * publish.
++   *
++   * A user projection was never the question: D-58's segment boundary asks for
++   * exactly ONE field, so preparing one to borrow its shape and its lowering
++   * was a detour through arms — relation, variant, `_count`, `_distance`,
++   * sentinel — that a produced scalar cannot reach, and it ended in a cast back
++   * to the scalar arm the caller already knew it had.
++   */
++  scalarQuery(model: AnyModel, field: string, value: unknown): Query {
++    return {
++      shape: {
++        kind: "object",
++        fields: { [field]: this.scalarShape(model, field) },
++      },
++      sql: this.adapter.clauses.select(
++        this.adapter.identifiers.aliased(
++          this.fieldValue(model, field, value),
++          field,
++        ),
++      ),
++    };
+   }
+   private lowerRelationProjection(
+     relation: PreparedRelationProjection,
+diff --git a/tests/contracts/public-client/query-interceptors.core.test.ts b/tests/contracts/public-client/query-interceptors.core.test.ts
+index e079b99c6..35ce6052d 100644
+--- a/tests/contracts/public-client/query-interceptors.core.test.ts
++++ b/tests/contracts/public-client/query-interceptors.core.test.ts
+@@ -1,5 +1,5 @@
+ import type { Operations } from "@client/types";
+-import { QueryError } from "@errors";
++import { QueryError, retainWriteOutcomeFailure } from "@errors";
+ import type { GenericQueryKind } from "@extensions/query";
+ import {
+   decomposeQueryCoordinationFailure,
+@@ -10,7 +10,6 @@ import {
+   publishWriteOutcomes,
+   type QueryInterceptionMode,
+   type QueryInterceptor,
+-  retainWriteOutcomeFailure,
+   runQueryInterceptors,
+   TransactionWriteOutcomes,
+   type WriteOutcomeListener,
