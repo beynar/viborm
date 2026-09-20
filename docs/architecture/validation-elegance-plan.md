@@ -82,6 +82,8 @@ deletion.
 | "A geographic record is an ordinary record" | `v.object` / `v.array` with range guards | `snapshotGeoRecord`, `readExactGeoRecord`, `readGeoVariantRecord`, `prefixGeoFailure` and the bespoke ring walkers |
 | "JSON Schema follows the schema's type" | one table keyed by primitive `type` | one converter arm per primitive |
 | "The `v` namespace is the primitives" | re-exports | `v.ts` re-declaring every primitive's types |
+| "A field's base schema follows its state" | `baseOf[kind](state)`, one runtime row and one type row per kind, read through `scalar["~"].base` | `state.base` stored and rebuilt inside every `nullable()`, `array()` and `.schema()` of twelve classes |
+| "nullable / array / unique / map / default / custom schema on a field" | six functions over `ScalarState` in `schema/scalars/common.ts`; each class keeps a one-line `with(state)` seam and one-liners | the same seven bodies in twelve classes (1,870 lines) |
 
 ## 4. What disappears, and the invariant that makes it unnecessary
 
@@ -98,8 +100,9 @@ deletion.
 | second and third temporal spellings | ~400 | one kind, one precision parameter |
 | operand per-operator spellings | ~150 | one table |
 | JSON-Schema per-primitive arms | ~300 | one table keyed by `type` |
+| scalar-class modifier bodies and the per-class `base` rebuilds (decision D3) | ~1,100 | `base` is a view of state; a modifier is a state edit, so its body has no kind in it |
 | comments on the survivors, 33% → ~15% | ~1,300 | prose that restates the plan documents is not a second owner of anything |
-| **Total** | **≈ 5,700** of ≈ 14,000 | |
+| **Total** | **≈ 6,800** of ≈ 15,900 (the scalar classes join the perimeter) | |
 
 Not deleted, and why:
 
@@ -140,10 +143,19 @@ Not deleted, and why:
 - **D2** Geo polygons drop the ring-intersection and open-ring pre-checks. A
   malformed polygon becomes a database error instead of a VibORM validation
   error. Holes stay.
-- **D3** Optional and in the schema layer, not this one: the ten scalar
-  classes (1,870 lines) share seven modifier bodies; a base class with per-kind
-  subclasses keeping their own State generic saves about 900 more without
-  touching the public types. Separate workstream if wanted.
+- **D3** Decided (2026-09-20, "whichever is simplest"): no scalar base class.
+  `base` leaves `ScalarState` and becomes a derived view, `scalar["~"].base`,
+  computed by one `baseOf` table keyed on `state.type`; the enum's values move
+  into state (`values`), since today they are read back off `base.values`.
+  The modifier bodies become six module-level functions over `ScalarState`;
+  each class keeps `private with(state)` and one-liners, and spells its own
+  `schema<C extends StandardSchemaV1<string>>` literally, so no higher-kinded
+  emulation and no new function-typed class members (the recursive-model
+  comparison hazard). `DefaultValueInput<S>` reads `InferInput<BaseOf<S>>`.
+  Five runtime readers of `state.base` outside the classes move to the getter:
+  `schema/model/model.ts:258`, `schema/json/interpret.ts:417`,
+  `schema/validation/rules/model.ts:235`, `client/typescript-type-renderer.ts:113`,
+  and the WS2 families, which already key the interner on state bits.
 
 ## 7. Target shape
 
@@ -200,8 +212,9 @@ Non-overlapping by file. Forks from a branch carrying WS1 and WS2.
 | V2 | kinds: decimal (D1), temporal, geo (D2), identifiers comments | `kinds/**`, `schema/scalars/decimal/descriptor.ts`, the datetime and point families | D1, D2 |
 | V3 | families rows for string, enum, json, decimal; JSON-Schema table | `families.ts`, `json-schema/**` | V1 (uses the factory) |
 | V4 | comments pass on survivors | everything above | V1–V3 |
+| V5 | schema layer (D3): `baseOf` tables, six modifier functions, twelve classes on `with()`, `~.base` readers | `schema/scalars/**`, the five readers above | — (its `baseOf` rows are the same kind rows V3 puts in `families.ts`; whichever lands second reuses the first) |
 
-V1 and V2 run in parallel. Nothing waits for Raptor 3. Under the no-lock rule
+V1, V2 and V5 run in parallel. Nothing waits for Raptor 3. Under the no-lock rule
 the round is implementation plus static review; the test round follows with
 the runner lists each workstream leaves behind.
 
