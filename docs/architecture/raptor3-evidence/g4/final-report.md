@@ -334,7 +334,7 @@ checkpoint feeds is drafted in
    shipped engine); most retained corpora are proven to restore, not
    re-executed; the credential-free selectors are log-only; the stage-2c
    series is SQLite-only and did not re-run the adapter's falsifiers for the
-   new protocol identity.
+   new protocol identity. **Attested at the closure gate (2026-09-21, `g4/release/closure/attest/`): on the committed tree `a9e62d8dc`, through the protocol's own comparator, `parse` 0.669 / 0.669 CPU and `full` 0.875 / 0.862, `measurementProtocolValid: true`.**
 
 ### Added by the closure wave (FC-00 … FC-06, 2026-09-21)
 
@@ -403,4 +403,4 @@ Everything the wave CLOSED is recorded at its own item above or in the ledger's
     a structural-measurement run that names it is refused before it measures
     anything (`assertStructuralMeasurementPatch`, FC-06). The live
     instrumentation for that measure remains
-    `docs/architecture/raptor3-evidence/g4/qualified/structure/instrumentation.patch`.
+    `docs/architecture/raptor3-evidence/g4/qualified/structure/instrumentation.patch`. **Measured at the closure gate (2026-09-21, `833318c5a`): `pg-nested-write-races.test.ts` 95 / 95 on native PostgreSQL 16 — the registration is GREEN; the D-58 and closure repairs closed it.**

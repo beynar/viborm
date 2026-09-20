@@ -1,8 +1,12 @@
-# Release verdict — the local closure checkpoint (draft, FC-06)
+# Release verdict — the local closure checkpoint (final, 2026-09-21)
 
-Drafted 2026-09-21 on branch `fc06` from `a9e62d8dc`, for the integrator to
-finish. **The numbers marked _(fill)_ are the ones only the one frozen gate can
-produce**; everything else is measured and carries its receipt. Nothing here
+Drafted by FC-06 on branch `fc06` from `a9e62d8dc`; finished by the integrator
+after the one frozen local gate ran on `833318c5a` (FC-06 landed; the only later
+commit before this one, `b839d0345`, corrects one registered cell count in the
+manifest — the engine perimeter and `benchmarks/**` are byte-identical from
+`a9e62d8dc` through this commit, `git diff -- src benchmarks` empty). The gate's
+logs are the integrator's (`scratchpad/fc/gate-closure/`, summarised below);
+everything else is measured by its unit and carries its receipt. Nothing here
 claims a run this wave did not execute, and nothing red has been rewritten into
 a pass.
 
@@ -100,16 +104,18 @@ build and package checks.
 
 | lane | expected | result |
 | --- | --- | --- |
-| Fixed lane | 864 + the newly registered cells | _(fill)_ |
-| Typecheck (`node scripts/run-typecheck.mjs`) | **0** | _(fill)_ |
-| Census (`node scripts/raptor3-refusal-census.mjs`) | 23 unmatched candidate sentences at 30 sites, 75 inherited, 11 internal, 21 invariant, **193 sites** — the site total and the inherited count moved by FC-06's reading of the failure owner, the candidate count did not | _(fill)_ |
-| Harness self-tests (`pnpm test:coverage:policy`) | coverage-policy 11, bounded-process, test-run-lock, refusal-census **7** | _(fill)_ |
-| `scripts/raptor3-campaign-receipts.test.mjs` | **41** (39 + the two structural-patch cells) | _(fill)_ |
-| Native PostgreSQL | including `pg-nested-write-races.test.ts:115`, the `batchPrimaryKeyDataflowContract` registration kept red at the cutover and **unmeasured since** — this gate is where it is answered | _(fill)_ |
-| Native MySQL | including `mysql2-cascaded-identity.test.ts` (4 cells, FC-02A's non-RETURNING witness) | _(fill)_ |
-| Package / build | unchanged contract | _(fill)_ |
-| Bundles | the release tree read engine gzip 0.646, public PostgreSQL fixtures 0.735; re-measure only if the integrator's run needs them | _(fill)_ |
-| Performance | the committed-tree comparator for the repaired parse cell (`fixed-collection-rowref-1000/parse`) and its full-read consumer, with the protocol's controls — P1's after-cells came from its worker in calibration mode on a dirty tree and are NOT a standard-protocol release report | _(fill)_ |
+| Fixed lane | 864 + the newly registered cells | **938 / 938** (88 files; 864 + the 74 newly registered cells) |
+| Typecheck (`node scripts/run-typecheck.mjs`) | **0** | **0** diagnostics (whole estate, native, 5.9 s) |
+| Census (`node scripts/raptor3-refusal-census.mjs`) | 23 unmatched candidate sentences at 30 sites, 75 inherited, 11 internal, 21 invariant, **193 sites** — the site total and the inherited count moved by FC-06's reading of the failure owner, the candidate count did not | **as expected**: 23 candidate sentences at 30 sites, 75 inherited, 11 internal, 21 invariant, 193 sites; exit 0 |
+| Harness self-tests (`pnpm test:coverage:policy`) | coverage-policy 11, bounded-process, test-run-lock, refusal-census **7** | **11 + 16 + 6 + 7, all pass** (run alone; a first attempt beside the PostgreSQL lane was refused by the workspace-verification guard, as designed) |
+| `scripts/raptor3-campaign-receipts.test.mjs` | **41** (39 + the two structural-patch cells) | **exit 0** through `run-node-safe` (41 cells) |
+| Native PostgreSQL | including `pg-nested-write-races.test.ts:115`, the `batchPrimaryKeyDataflowContract` registration kept red at the cutover and **unmeasured since** — this gate is where it is answered | **all green, per file** (the whole project exceeds the runner's 300 s wall limit in one run): `pg.test.ts` 220 / 227 (7 skipped by design), `pg-nested-write-races.test.ts` **95 / 95 — the `batchPrimaryKeyDataflowContract` registration kept red at the cutover is GREEN**, `pg-read-surface` 76, `pg-polymorphism-ddl` 60, `pg-captured-set-concurrency` 10 (FCPG) |
+| Native MySQL | including `mysql2-cascaded-identity.test.ts` (4 cells, FC-02A's non-RETURNING witness) | **589 passed / 160 failed / 1 skipped (750)** — the 160 red cells are, cell for cell, the pre-existing set M1 recorded on the same container (`m1/receipts/mysql2-after-cells.txt`; 0 new, 0 gone); `mysql2-cascaded-identity.test.ts` **4 / 4** |
+| Package / build | unchanged contract | **`pnpm package:build` exit 0** |
+| Bundles | the release tree read engine gzip 0.646, public PostgreSQL fixtures 0.735; re-measure only if the integrator's run needs them | not re-measured (no production file changed since the release-tree reading; the FC-06 recount records bytes, not gzip) |
+| Performance | the committed-tree comparator for the repaired parse cell (`fixed-collection-rowref-1000/parse`) and its full-read consumer, with the protocol's controls — P1's after-cells came from its worker in calibration mode on a dirty tree and are NOT a standard-protocol release report | **attested on the committed tree `a9e62d8dc` through the protocol's own comparator** (`closure/attest/note.md`, `measurementProtocolValid: true`, 1 / 1 statements, identical digests): `fixed-collection-rowref-1000/parse` **0.669 / 0.669** CPU (0.688 / 0.696 wall), `…/full` **0.875 / 0.862** CPU (0.880 / 0.855 wall), two passes each — under plan §7's 1.05 with margin |
+
+**Also run by the gate**, in the plan's order: the credential-free `g4/parity` directory in thirds **144 + 104 + 245 = 493 / 493** (27 files; the three live-PGlite files run under the isolated stage, **7 / 7**); the six nested-write conformance files through the shared-family launcher **28 + 34 + 30 + 30 + 19 + 31 = 172 / 172**; `g2-baseline` **216 / 216**, `g2-contracts` **216 / 216**, `g1-compare` **36 / 36**, the transport smoke **1 / 1**, `g3-transaction-array` **4 / 4**. Nothing red at this tree that was green before it; the six cells the wave-1 merge turned red (`s2-changed-dependency`) were re-expressed by FC-01b to the executed answer.
 
 **What the units already measured** (do not re-run these to re-prove them; they
 are listed so the gate can tell a regression from a known state):
@@ -156,12 +162,12 @@ are listed so the gate can tell a regression from a known state):
    placement limit (instrumented to zero hits) and FC-02A's widened
    current-values parameter for a NON-key arithmetic input (unreachable today
    because arithmetic on a relation key field is refused at admission).
-6. **Performance evidence is one run short.** P1's repair is real and its
-   falsifier reddens twelve decode pins, but its ratios came from the
-   protocol's worker in calibration mode on a dirty tree; the committed-tree
-   comparator run is owed. D-60's restated preparation costs and D-62's
-   accepted `bulk-update-returning-100/full` movement stand as documented
-   costs, the latter unbisected.
+6. **Performance evidence — closed.** The committed-tree comparator run the
+   draft owed was made (`closure/attest/`): the repaired parse cell reads
+   0.669 / 0.669 CPU and its full-read consumer 0.875 / 0.862, protocol-valid.
+   D-60's restated preparation costs and D-62's accepted
+   `bulk-update-returning-100/full` movement stand as documented costs, the
+   latter unbisected.
 7. **A count of sentences is not a count of capabilities.** The census now says
    so in its own report, and the behavioural closure inventory
    (`g4/release/closure/fc00/inventory.md`, 102 rows) is the authority for what
