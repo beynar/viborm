@@ -151,9 +151,11 @@ jobs:
       # Release acceptance must prove the runner contract itself, not only the
       # numbers: scripts/coverage-policy.test.mjs (manifest completeness),
       # scripts/bounded-process.test.mjs (heap and RSS ceilings, verified
-      # teardown) and scripts/test-run-lock.test.mjs (workspace lock). Each one
-      # runs bounded through scripts/run-node-safe.mjs with a 512 MB heap and a
-      # 60 s wall.
+      # teardown), scripts/test-run-lock.test.mjs (workspace lock) and
+      # scripts/raptor3-refusal-census.test.mjs (the refusal census reads the
+      # sentences a site builds and throws through the engine's failure owner).
+      # Each one runs bounded through scripts/run-node-safe.mjs with a 512 MB
+      # heap and a 60 s wall.
       - name: Run runner and coverage policy gates
         run: pnpm test:coverage:policy
 

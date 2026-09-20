@@ -74,16 +74,27 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | pg, postgres, pglite, bun-sql | one interactive transaction | nothing is committed; the error names the failing statement | 65 535 | live on PGlite; the other three share the same transport code |
 | mysql2, planetscale | one interactive transaction (planetscale: single-shard) | nothing is committed; the error names the failing statement | 65 535 | shared transport code |
 | sqlite3, libsql, bun-sqlite | one interactive transaction | nothing is committed; the error names the failing statement | 999 | live on `better-sqlite3`; the other two share the same transport code |
-| neon-http | atomic batches, one per segment; a write that must observe its own earlier writes takes several, each committed as it completes, and a generated key crosses from one batch to the next as a literal | the whole batch is rejected; earlier batches of the same write stay committed and the error reports `committedSegments` — or `mayHaveCommittedSegment` when the batch's outcome could not be confirmed | 65 535 | on a Neon-shaped fixture (batch-only, no session between requests); the live Neon witness runs only where `NEON_TEST_DATABASE_URL` is set |
-| d1 | as neon-http | as neon-http; d1 declares an exact acknowledged prefix, unwitnessed here | 100 | on the same fixture; no live D1 witness in the repository |
+| neon-http | atomic batches, one per segment; a write that must observe its own earlier writes takes several, each committed as it completes, and a generated key crosses from one batch to the next as a literal | the whole batch is rejected; earlier batches of the same write stay committed and the error reports `committedSegments` — or `mayHaveCommittedSegment` when the batch's outcome could not be confirmed | 65 535 | on a Neon-shaped fixture (batch-only, no session between requests); the live Neon suite is credential-gated on `NEON_TEST_DATABASE_URL` and was not run for this release |
+| d1 | as neon-http | as neon-http; d1 declares an exact acknowledged prefix, unwitnessed here | 100 | on the same fixture, and on the Workers runtime's own local D1 (`tests/providers/workers/d1.test.ts`, project `provider-d1`); no hosted Cloudflare D1 run |
 
 :::info
 A transport with an interactive transaction never leaves a partial nested
-write behind. On neon-http and d1 a write that needs more than one batch can,
-and the error carries how many segments committed so the caller can decide
-what to do with them. A `create` or `update` and everything nested under it is one batch. A
-`createMany` of relation-bearing rows is dispatched one batch per row, and a
-member that must read a row an earlier member wrote starts a new batch.
+write behind. neon-http and d1 are the only routes where a write that needs
+more than one batch can, and there the error carries how many segments
+committed so the caller can decide what to do with them.
+
+**What travels in one batch follows the work's own dependencies, not the verb.**
+A `create` or `update` with everything nested under it, and a `createMany` of
+relation-bearing rows with the parent that owns them, are dispatched as ONE
+batch while no part of the write has to read what another part of it wrote. A
+part that must observe an earlier write — a later row's `connectOrCreate` that
+has to find the row an earlier row created, a nested `delete` addressed by a
+value an earlier nested `update` set — takes the boundary: the queued
+statements are dispatched first (on neon-http and d1 that dispatch is a
+committed segment, which is what `committedSegments` counts) and the observing
+work follows in the next one. A key the database generated in one segment
+crosses into the next as a literal, so none of this depends on the transport
+keeping a session between requests.
 :::
 
 ## GeoPoint tiers

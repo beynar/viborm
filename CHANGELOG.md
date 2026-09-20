@@ -12,9 +12,10 @@ Versioning.
   write, transaction form and result shape is the same, and the differences
   the cutover surfaced were repaired to the old engine's answers or ruled and
   documented one by one. What changed at the adapter and driver contracts is
-  listed below. Every refusal the engine raises is a documented sentence; 23 of them are
-  new in this release and the rest are sentences the previous engine already
-  raised. Each names a capability limit, a provider-integrity fact or a
+  listed below. Every refusal the engine raises is a documented sentence; 23 of
+  them are sentences the previous engine did not carry and the rest are its
+  own, inherited word for word. That is a count of SENTENCES, not of
+  operations you can no longer perform. Each names a capability limit, a provider-integrity fact or a
   transport boundary rather than a defect. A failed internal invariant is
   thrown as an `EngineInvariantError`, which carries no `V####` code and is
   never one of those refusals.
@@ -39,9 +40,10 @@ Versioning.
   end of that batch and carried into the next as a literal, so such a write
   no longer fails with a bare provider error once its first batch has
   committed. This is verified on a batch-only fixture that keeps no session
-  between requests; the live Neon witness runs only where
-  `NEON_TEST_DATABASE_URL` is set, and there is no live D1 witness in the
-  repository. A failure in a later batch leaves the earlier batches committed,
+  between requests; the live Neon suite is credential-gated on
+  `NEON_TEST_DATABASE_URL` and was not run for this release, and the D1 driver
+  is exercised on the Workers runtime's own local D1 and on no hosted
+  Cloudflare D1. A failure in a later batch leaves the earlier batches committed,
   and the error says so (`atomicity: "segment"`, `committedSegments`). Nothing
   changes on a transport with an interactive transaction, where the whole
   write is one transaction.

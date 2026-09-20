@@ -220,6 +220,7 @@ import {
   captureRaptor3Identity,
   assertRaptor3Identity,
   assertStructuralMeasurementRuntime,
+  assertStructuralMeasurementPatch,
   assertG0CampaignReceipt,
   assertExtensionCampaignReceipt,
 } from "./raptor3-manifest.mjs";
@@ -277,6 +278,9 @@ function structuralMeasurementContext(mode, instrumentedIdentity) {
     "Structural measurement base identity is missing"
   );
   assert(existsSync(resolvedPatch), "Structural measurement patch is missing");
+  // Present is not applied: a retired patch named here would be hashed into
+  // `verified.json` beside counters another instrumentation produced.
+  assertStructuralMeasurementPatch(resolvedPatch);
   const baseIdentity = JSON.parse(readFileSync(resolvedBaseIdentity, "utf8"));
   assertStructuralMeasurementRuntime(baseIdentity, instrumentedIdentity);
   assert.notDeepEqual(

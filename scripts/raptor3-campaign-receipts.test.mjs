@@ -22,6 +22,8 @@ import {
   assertGeneratedBatchReceipt,
   assertG3GeneratedBatchReceipt,
   assertStructuralMeasurementRuntime,
+  assertStructuralMeasurementPatch,
+  RAPTOR3_ROOT,
   G2_CAMPAIGN,
   G2_TRANSPORT_CAMPAIGN,
   G3P06_CAMPAIGN,
@@ -43,8 +45,6 @@ import {
   G3_SCOPE_COMPOSITION_PG_TESTS,
   G3_GENERATED_SMOKE_TESTS,
   G3_GENERATED_TRANSPORT_SMOKE_TESTS,
-  G3_GENERATED_CAMPAIGN_TESTS,
-  G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
   G3_EXECUTION_REVIEW_TESTS,
   G3_AUTHOR_EXECUTION_REGRESSION_TESTS,
   G3_SCOPE_FAILURE_TESTS,
@@ -66,9 +66,8 @@ import {
   CS01_EXTENSION_COMPOSITION_TESTS,
   CS03_MEMBER_SCOPE_TESTS,
   CS03_EXTENSION_CAMPAIGNS,
-  CS02_STRUCTURE_MEASUREMENT_TESTS,
-  CS03_EXTENSION_CAMPAIGN_TESTS,
   CS03_EXTENSION_SUPPORT_TESTS,
+  RAPTOR3_RUNNER_ONLY_TESTS,
   CS02_REPEATED_OCCURRENCE_TESTS,
   G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
   G29_MEMBER_DEPENDENCY_PG_TESTS,
@@ -99,6 +98,10 @@ import {
   archiveG3GeneratedCorpus,
   parseRaptor3Request,
 } from "./run-raptor3.mjs";
+
+/** The refusal a structural measurement gives a patch its tree does not carry. */
+const PATCH_NOT_APPLIED =
+  /Structural measurement patch is not applied to the measured tree/;
 
 const lanes = [
   {
@@ -319,6 +322,68 @@ test("structural measurement qualification pins the exact Node runtime", () => {
   );
 });
 
+test("structural measurement refuses an instrumentation patch the measured tree does not carry", () => {
+  const root = mkdtempSync(join(tmpdir(), "raptor3-instrumentation-"));
+  const git = (...args) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        root,
+        "-c",
+        "user.email=harness@example.invalid",
+        "-c",
+        "user.name=harness",
+        ...args,
+      ],
+      { encoding: "utf8" }
+    );
+  try {
+    const measured = join(root, "measured.ts");
+    git("init", "--quiet", "--initial-branch=main");
+    writeFileSync(measured, "export const counters = 1;\n");
+    git("add", "--all");
+    git("commit", "--quiet", "-m", "base");
+    // The instrumentation this tree carries: applied, so it reverse-applies.
+    writeFileSync(measured, "export const counters = 1;\nexport const read = 2;\n");
+    const applied = join(root, "instrumentation.patch");
+    writeFileSync(applied, git("diff"));
+    assert.doesNotThrow(() => assertStructuralMeasurementPatch(applied, root));
+    // A patch for a source this tree does not have: the hunk cannot be
+    // reversed, so the receipt may not name it.
+    const stale = join(root, "stale.patch");
+    writeFileSync(
+      stale,
+      git("diff").replace(
+        "export const counters = 1;",
+        "export const counters = 9;"
+      )
+    );
+    assert.throws(
+      () => assertStructuralMeasurementPatch(stale, root),
+      PATCH_NOT_APPLIED
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the retired CS-02 reference instrumentation cannot qualify a measurement", () => {
+  // The standing witness for the file itself: it is kept for its history and
+  // it is stale (20 of 29 hunks at `a9e62d8dc`), so a run that names it must
+  // fail instead of hashing it into a receipt.
+  assert.throws(
+    () =>
+      assertStructuralMeasurementPatch(
+        join(
+          RAPTOR3_ROOT,
+          "tests/raptor3/core-structure/measurement/reference-instrumentation.patch"
+        )
+      ),
+    PATCH_NOT_APPLIED
+  );
+});
+
 test("credential-free registration isolates native Raptor suites and retains local fixed suites", () => {
   const localFixed = [
     ...G27_CONTRACT_TESTS,
@@ -363,12 +428,13 @@ test("credential-free registration isolates native Raptor suites and retains loc
     ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
     ...G29_MEMBER_DEPENDENCY_PG_TESTS,
   ];
-  const explicitCampaigns = [
-    ...CS02_STRUCTURE_MEASUREMENT_TESTS,
-    ...CS03_EXTENSION_CAMPAIGN_TESTS,
-    ...G3_GENERATED_CAMPAIGN_TESTS,
-    ...G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
-  ];
+  // Runner-only is the manifest's fact, so it is asserted of the manifest's
+  // own list and not of a hand-kept copy of part of it: a file that needs the
+  // mode runner's environment belongs to NEITHER credential-free list. Stated
+  // this way the assertion covers every runner-only file, which is how a file
+  // stops being runner-only and credential-free at once (FC-06;
+  // `extension-campaign.selftest.test.ts` was both).
+  const explicitCampaigns = [...RAPTOR3_RUNNER_ONLY_TESTS];
 
   for (const file of localFixed) {
     assert.equal(EXTENDED_LOCAL_TESTS.includes(file), false, file);

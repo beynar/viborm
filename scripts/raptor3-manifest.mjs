@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -971,6 +972,42 @@ export function assertStructuralMeasurementRuntime(
   );
 }
 
+/**
+ * The instrumentation a structural-measurement receipt NAMES must be the one
+ * that produced the measurement. Naming it and hashing it says only which file
+ * was pointed at; a patch that no longer describes this source — the retired
+ * `reference-instrumentation.patch` is one, 20 of its 29 hunks stale at
+ * `a9e62d8dc` — would otherwise be recorded beside counters some OTHER
+ * instrumentation produced, and the receipt would read as a new baseline for
+ * an alternative nothing measured.
+ *
+ * What makes it checkable is that an applied patch reverse-applies: the
+ * instrumented tree contains exactly what the patch adds. `git apply` is
+ * exact, so a patch that only fits with fuzz is refused too — it does not
+ * describe the measured source, which is the whole claim of the receipt.
+ */
+export function assertStructuralMeasurementPatch(
+  patchFile,
+  root = RAPTOR3_ROOT
+) {
+  const checked = spawnSync(
+    "git",
+    ["-C", root, "apply", "--check", "--reverse", patchFile],
+    { encoding: "utf8" }
+  );
+  assert.equal(
+    checked.error,
+    undefined,
+    `Structural measurement patch could not be checked: ${checked.error?.message}`
+  );
+  assert.equal(
+    checked.status,
+    0,
+    "Structural measurement patch is not applied to the measured tree " +
+      `(${patchFile}): ${(checked.stderr || "").trim() || "git apply --check --reverse failed"}`
+  );
+}
+
 export function assertG0CampaignReceipt(receipt) {
   assert.deepEqual(
     receipt.campaign,
@@ -1451,15 +1488,17 @@ export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...G2_CAMPAIGN_TESTS,
   ...G2_TRANSPORT_TESTS,
   ...G2_GENERATED_TESTS,
-  "tests/raptor3/core-structure/measurement/extension-recipes.selftest.test.ts",
+  // Both CS-03 support files run bare: the runner has no mode that names
+  // either of them (its `cs03-extension-*-seeds` modes run the campaign
+  // itself, `CS03_EXTENSION_CAMPAIGN_TESTS`), and the campaign self-test
+  // reaches its cells through an ordinary SQLite world — measured under a
+  // bare project run, 42 / 42 (FC-06). Stating them here through the group
+  // that owns them is what keeps one file out of two halves at once.
+  ...CS03_EXTENSION_SUPPORT_TESTS,
 ]);
 export const RAPTOR3_RUNNER_ONLY_TESTS = Object.freeze([
   ...CS02_STRUCTURE_MEASUREMENT_TESTS,
   ...CS03_EXTENSION_CAMPAIGN_TESTS,
-  // Of the two CS03 support files only the campaign self-test needs the
-  // runner's environment; its sibling `extension-recipes.selftest.test.ts`
-  // runs bare and sits in the deterministic half above.
-  "tests/raptor3/core-structure/measurement/extension-campaign.selftest.test.ts",
   ...G3_GENERATED_CAMPAIGN_TESTS,
   ...G3_GENERATED_TRANSPORT_CAMPAIGN_TESTS,
   ...G4_GENERATED_CAMPAIGN_TESTS,

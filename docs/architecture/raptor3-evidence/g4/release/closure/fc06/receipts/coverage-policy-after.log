@@ -1,0 +1,20 @@
+✔ every TypeScript source has exactly one coverage owner (4.904792ms)
+✔ subsystem configs derive includes and thresholds from the manifest (0.239333ms)
+✔ waived sources remain owned and included (0.13075ms)
+✔ test fixtures use the workspace alias instead of root-absolute imports (121.464333ms)
+✔ migration coverage admits every credential-free local contract (2.110542ms)
+✔ migration core contracts open no database outside the named in-memory SQLite exception (9.712709ms)
+✔ client coverage admits the core and audited deterministic contracts (0.194709ms)
+✔ driver coverage isolates provider resources and admits only audited local providers (3.000375ms)
+✔ query coverage admits every core contract exactly once (3.333333ms)
+✔ write coverage admits the core and audited high-signal local contracts (2.545292ms)
+✔ cache coverage admits every deterministic cache contract exactly once (1.264834ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 152.208834
+Node resources: 0.42s wall, 60.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

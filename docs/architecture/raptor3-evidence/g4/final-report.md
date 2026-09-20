@@ -221,6 +221,16 @@ are recorded in the ledger.
 
 ## Risks and open items
 
+**Closure checkpoint addendum (FC-06, 2026-09-21).** The items below are kept
+exactly as they were written; each one that the closure wave settled carries a
+dated superseding line, and the items the wave opened or left open are added at
+the end (10–16). Nothing recorded as red has been rewritten into a pass. The
+closure units' own notes are under
+[`g4/release/closure/`](release/closure/), and the release verdict this
+checkpoint feeds is drafted in
+[`g4/release/closure/fc06/release-verdict-draft.md`](release/closure/fc06/release-verdict-draft.md).
+
+
 0. **D-16 — 115 behaviour differences of the new engine surfaced by the
    cutover's own verification, none caused by the cutover (first item for
    Arnaud).** The most serious first: an EMPTY operator bag in a bulk
@@ -251,6 +261,15 @@ are recorded in the ledger.
    and re-pin, or hold the cutover. Six qualification attempts did not see
    them because those suites were outside the registered modes — a gap in
    the qualification plan, recorded as such.
+   **Reconciled FC-00 (2026-09-21): no D-16 family is awaiting Arnaud.** He
+   ruled all twenty-one families "repaired now, before any push" on the
+   morning of 2026-09-17; the 115 cells landed across D-17..D-32 and are not
+   reopened. The later "families Arnaud has not ruled on" clauses were stale
+   status paragraphs. Two items still trace to that surface and both are
+   owned: family 5's sentence still reaching an admitted shape under root
+   `updateMany` was the closure review's first executed failure, repaired by
+   FC-01; the pg `batchPrimaryKeyDataflowContract` registration kept red at
+   the cutover is item 10 below.
 
 1. **Accepted performance difference (D-9).** Preparation 1.19–1.40× CPU
    on three cells and four relation-read cells 2–7 % above parity, with
@@ -288,6 +307,17 @@ are recorded in the ledger.
    ruling-attributable movement in the series. Decision: profile and repair
    before the push, or accept as a documented cost. **Ruled D-61
    (2026-09-20): profile and repair before the push, unit P1.**
+   **Closed by P1 (2026-09-20, evening):** one line — the decoder rebuilt the
+   projection's member list per row — repaired at `prepareProjection`'s frozen
+   shape; the cell reads 1.073 → 0.655 / 0.649 CPU and allocation per row
+   1,702 → 847 B on P1's own calibration cells. **Corrected by FC-05
+   (2026-09-21):** what P1 removed is the PAIR list and the per-row object
+   rebuild; `Object.keys(shape.fields)` still allocates one key array per
+   decoded document, and removing that one too is an unmeasured candidate, not
+   a rule. **Still owed (the integrator's):** P1's own note says its after-cells
+   were produced by driving the protocol's worker in calibration mode on a
+   dirty tree, so the committed-tree comparator run for that cell and its
+   full-read consumer has not happened.
 9. **`bulk-update-returning-100/full` 0.838 → 0.963** between identity 4 and
    the release tree, same bracket, same statement count, still under parity;
    the cause is in the eight commits between and was not bisected.
@@ -305,3 +335,72 @@ are recorded in the ledger.
    re-executed; the credential-free selectors are log-only; the stage-2c
    series is SQLite-only and did not re-run the adapter's falsifiers for the
    new protocol identity.
+
+### Added by the closure wave (FC-00 … FC-06, 2026-09-21)
+
+Everything the wave CLOSED is recorded at its own item above or in the ledger's
+`**FC-…` records; these are what is still open at this checkpoint.
+
+10. **The pg `batchPrimaryKeyDataflowContract` registration, kept red at the
+    cutover, is still unmeasured** (`tests/providers/docker/pg-nested-write-races.test.ts:115`).
+    D-58 and the closure repairs may have made it green; no unit measured it,
+    because the gated PostgreSQL container lane belongs to the integrator's one
+    frozen gate. Measure it there: if it passes, the "kept red" record is
+    retired with a dated line and no decision is needed; if it fails, it is a
+    defect with an owner, not a ruling.
+11. **D-65 — the captured set's membership premise on the batch route —
+    is PENDING** (ledger, 2026-09-21). FCPG measured ten cells on native
+    PostgreSQL 16: the interactive route HOLDS the premise to the effect
+    (`FOR UPDATE`), and the batch route leaves one window on both consumers in
+    which a row that stopped matching is still mutated and a member that joined
+    is missed, silently, with the row count right. Recorded with the
+    integrator's recommended default (B for consumer 1 — the ID-located
+    mutation carries its own selector, a public-contract change on the batch
+    route; A, documented, for consumer 2 — no single statement can see a member
+    that joined after the complement). Not implemented: a public-contract
+    change is Arnaud's. `requireCapturedSet`'s "STILL PRESENT and STILL A
+    MEMBER" comment is left as it stands, because correcting it would pick
+    reading A.
+12. **FC-02C's two measured residuals**, both compatibility questions owed a
+    bounded decision, both with receipts and neither pinned: a
+    `connectOrCreate`'s CREATE arm whose own payload spells the referenced
+    field NULL still writes it (the rule that refuses the identical plain
+    nested `create` never sees a choice's arm), and the CHILD-held direction
+    (`badge.update` with `holders: { connect }` from a parent holding NULL)
+    writes NULL too. The third residual — a nested `update` that nulls the
+    referenced column under a live member — keeps its provider
+    `ForeignKeyError` deliberately.
+13. **D-64's own pin executes in no vitest project.** The ruling that settles
+    the public build contract cites
+    `tests/raptor3/g4/review/cutover/d14-publication.review.test.ts`, which
+    FC-04 measured to be in no `*_TESTS` group and excluded from
+    `extended-local` by the `tests/raptor3/g4/review/` prefix rule, as is the
+    whole `g4/review/cutover/` and `g4/review/unit02/` tree. The contract is
+    stated in code, the CHANGELOG and the drivers/engine guides; what is
+    missing is a registered cell that fails if a future change restores a
+    write's `buildStatement()`. Either register that file in a mode or state
+    the contract in a registered suite.
+14. **Hosted qualification stays deferred, and local is not hosted.** The live
+    Neon suite is credential-gated on `NEON_TEST_DATABASE_URL` and was not run
+    for this release. D1 has local Workers-pool coverage
+    (`tests/providers/workers/d1.test.ts`, project `provider-d1`, run by
+    `pnpm test:all` and by CI) and no hosted Cloudflare D1 run; its
+    ordered-committed-segments declaration is therefore still unwitnessed on
+    the hosted transport. Test source is not a receipt, and a local emulation
+    is not the hosted provider.
+15. **Two named limits the closure wave kept without an executed witness.**
+    FC-01's surviving placement limit covers the pairs an expansion makes
+    against the tree around the series and was instrumented to zero hits (a
+    `false` reader leaves every control green); FC-02A's widened
+    current-values parameter has no public witness for a NON-key arithmetic
+    input, because arithmetic on a relation key field is refused at admission,
+    so every arithmetic input reachable today is a key. Both are argued, not
+    measured, and both are recorded at their units.
+16. **The retired CS-02 reference instrumentation is kept, and now fails
+    loudly.** `tests/raptor3/core-structure/measurement/reference-instrumentation.patch`
+    is the flat-history-reference alternative superseded at `b0ec55fa3`; 20 of
+    its 29 hunks no longer apply at `a9e62d8dc`. It is retained as history, and
+    a structural-measurement run that names it is refused before it measures
+    anything (`assertStructuralMeasurementPatch`, FC-06). The live
+    instrumentation for that measure remains
+    `docs/architecture/raptor3-evidence/g4/qualified/structure/instrumentation.patch`.

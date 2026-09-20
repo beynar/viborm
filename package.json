@@ -163,7 +163,7 @@
     "test:coverage:client": "node --max-old-space-size=768 scripts/run-coverage.mjs client",
     "test:coverage:cache": "node --max-old-space-size=768 scripts/run-coverage.mjs cache",
     "test:coverage:migrations": "node --max-old-space-size=768 scripts/run-coverage.mjs migrations",
-    "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs",
+    "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-refusal-census.test.mjs",
     "test:package": "pnpm package:build && node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=package",
     "test:providers": "node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg --project=provider-postgres --project=provider-mysql2 --project=provider-transaction-options --project=provider-neon-http --project=provider-planetscale",
     "test:layer:validation": "node scripts/run-layer-core.mjs validation",

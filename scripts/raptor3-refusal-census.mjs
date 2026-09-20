@@ -47,24 +47,35 @@
  * reported (four of which the map had to skip by hand, four more that
  * `unmatched.json` had already lost) cannot be produced here.
  *
+ * A sentence the site BUILDS is read at the site even when it leaves through
+ * another owner: the engine composes its failures at one place
+ * ({@link FAILURE_OWNER}), so `throw ctx.failure(failure, …)` is read as the
+ * sentence `failure` was built from — a local `const`, a local factory, a
+ * method of the throw's own class — and the owner's own substituted sentences
+ * are read once, at the owner. That is one declared owner, not a call graph:
+ * a value the site did not build stays unread, and the declaration is checked
+ * against the tree on every run.
+ *
  * Reachability is what this census can establish and no more. An invariant and
- * a verified private fit are foreclosures the tree proves. For a public refusal
- * it says only that nothing forecloses it; which admitted payload reaches that
- * one is the map's per-row ruling, and stays there.
+ * a verified private fit are foreclosures the tree proves. For a candidate
+ * refusal it says only that nothing forecloses it; which admitted payload
+ * reaches that one is the map's per-row ruling, and stays there. And a count
+ * of sentences is never a count of capabilities: what this engine supports is
+ * the behavioural closure inventory's fact
+ * (`g4/release/closure/fc00/inventory.md`), one row per admitted fact.
  *
  * Read-only, no network. `--at <rev>` censuses a revision instead of the
  * working tree, which is how a run is compared against its own base. The run
  * exits non-zero when the census could not be produced as described — the
  * corpus unreadable, or a declared private fit the tree contradicts.
  *
- *   node scripts/raptor3-refusal-census.mjs [--out <file>] [--at <rev>] [--shipped-rev <rev>]
+ *   node scripts/raptor3-refusal-census.mjs [--out <file>] [--at <rev>] [--shipped-rev <rev>] [--root <dir>]
  */
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import ts from "typescript";
 
-const root = resolve(import.meta.dirname, "..");
 const ENGINE = "src/query-engine/raptor3";
 const INVARIANT_OWNER = `${ENGINE}/shared/invariant.ts`;
 
@@ -105,7 +116,40 @@ const PRIVATE_FITS = [
   },
 ];
 
-const OPTIONS = ["--out", "--shipped-rev", "--at"];
+/**
+ * The failure owner a sentence reaches the outside world THROUGH.
+ * `OperationContext.failure` composes a failure — attribution, record-series
+ * progress, a provider-result substitution — and answers the value it is
+ * given, so `throw ctx.failure(failure, …)` states the sentence the SITE
+ * built and handed over. The census follows that one argument with the same
+ * resolution it already uses for a direct throw (a local `const`, a local
+ * factory, a method of the throw's own class, a named constant, either arm of
+ * a conditional); a value the site did NOT build — a catch binding, a
+ * parameter, a property of another object — still resolves to nothing,
+ * because that sentence is another owner's.
+ *
+ * `substitutes` is the other half of the same fact: the sentences the owner
+ * itself builds for a value it REPLACES. They are the owner's, so they are
+ * counted ONCE, at the owner's own construction, and not again at each of the
+ * sites that can state them.
+ *
+ * This is one declared owner, not a call graph: the census follows no other
+ * indirection and infers no reachability. The declaration is re-checked
+ * against the tree on every run — a census whose owner has moved is not the
+ * census this report describes, and it fails loudly instead of silently
+ * dropping the sentences that reach the world through it.
+ */
+const FAILURE_OWNER = {
+  file: `${ENGINE}/shared/operation-context.ts`,
+  class: "OperationContext",
+  method: "failure",
+  /** The parameter that carries the value the site built. */
+  carries: 0,
+  parameter: "error",
+  substitutes: true,
+};
+
+const OPTIONS = ["--out", "--shipped-rev", "--at", "--root"];
 const usage = `Usage: raptor3-refusal-census.mjs [${OPTIONS.map((option) => `${option} <value>`).join("] [")}]`;
 const readOption = (argv, name) => {
   const index = argv.indexOf(name);
@@ -123,6 +167,15 @@ for (let index = 0; index < argv.length; index++) {
   if (OPTIONS.includes(argv[index])) index++;
   else throw new Error(usage);
 }
+/**
+ * The repository this census reads — its sources, its git history and its
+ * shipped corpus. It is this repository unless a caller names another one,
+ * which is how the harness self-test censuses a fixture tree that spells the
+ * shapes instead of censusing the engine to check itself.
+ */
+const root = resolve(
+  readOption(argv, "--root") ?? resolve(import.meta.dirname, "..")
+);
 
 const git = (...args) =>
   execFileSync("git", ["-C", root, ...args], {
@@ -314,6 +367,16 @@ const constructionsOf = (expression, at, depth = 0) => {
   }
   if (!ts.isCallExpression(e)) return [];
   const callee = e.expression;
+  // The failure owner answers the value it is GIVEN ({@link FAILURE_OWNER}):
+  // the sentence a throw through it states is the one the site handed over.
+  // The zero-argument `failure()` of a premise or a continuation is a
+  // different member and supplies no carried value, so it is not read here.
+  if (
+    ts.isPropertyAccessExpression(callee) &&
+    callee.name.text === FAILURE_OWNER.method &&
+    e.arguments.length > FAILURE_OWNER.carries
+  )
+    return constructionsOf(e.arguments[FAILURE_OWNER.carries], at, depth + 1);
   if (ts.isIdentifier(callee)) {
     const bound = localBinding(at, callee.text);
     if (bound?.kind === "function")
@@ -409,6 +472,64 @@ const enclosingMethod = (at, name) => {
   return undefined;
 };
 
+/**
+ * The declared failure owner as THIS tree spells it: the method, or the reason
+ * the declaration no longer holds. The shape is what the census depends on —
+ * a method of the declared class carrying the site's value at the declared
+ * parameter — so each half is checked, not assumed.
+ */
+const locateFailureOwner = (sourceFile) => {
+  const declared = sourceFile.statements.find(
+    (statement) =>
+      ts.isClassDeclaration(statement) &&
+      statement.name?.text === FAILURE_OWNER.class
+  );
+  if (!declared)
+    return {
+      error: `\`${FAILURE_OWNER.file}\` declares no class \`${FAILURE_OWNER.class}\``,
+    };
+  const method = declared.members.find(
+    (member) =>
+      ts.isMethodDeclaration(member) &&
+      ts.isIdentifier(member.name) &&
+      member.name.text === FAILURE_OWNER.method
+  );
+  if (!method?.body)
+    return {
+      error: `\`${FAILURE_OWNER.class}\` declares no \`${FAILURE_OWNER.method}()\` method with a body`,
+    };
+  const carried = method.parameters[FAILURE_OWNER.carries];
+  if (
+    !(
+      carried &&
+      ts.isIdentifier(carried.name) &&
+      carried.name.text === FAILURE_OWNER.parameter
+    )
+  )
+    return {
+      error: `\`${FAILURE_OWNER.class}.${FAILURE_OWNER.method}()\` no longer carries \`${FAILURE_OWNER.parameter}\` at parameter ${FAILURE_OWNER.carries}`,
+    };
+  return { method };
+};
+
+/**
+ * The sentences the failure owner builds ITSELF, for a value it replaces —
+ * the owner's own contracts, read at the owner and not at its callers.
+ */
+const ownerSubstitutions = (method) => {
+  const found = [];
+  const walk = (node) => {
+    if (ts.isNewExpression(node)) found.push(node);
+    else if (!(ts.isFunctionLike(node) || ts.isClassLike(node)))
+      ts.forEachChild(node, walk);
+  };
+  ts.forEachChild(method.body, walk);
+  return found;
+};
+
+/** What the run found where {@link FAILURE_OWNER} is declared. */
+let failureOwner;
+
 const collectSites = (path, text) => {
   const sourceFile = ts.createSourceFile(
     path,
@@ -464,6 +585,20 @@ const collectSites = (path, text) => {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  if (path === FAILURE_OWNER.file) {
+    failureOwner = locateFailureOwner(sourceFile);
+    if (failureOwner.method && FAILURE_OWNER.substitutes)
+      for (const origin of ownerSubstitutions(failureOwner.method))
+        sites.push({
+          file: path,
+          line: lineOf(origin),
+          node: origin,
+          via: `${FAILURE_OWNER.method}()`,
+          class: origin.expression.getText(),
+          sentences: messageArgument(origin.arguments ?? [], origin),
+          invariant: false,
+        });
+  }
   return sites;
 };
 
@@ -543,11 +678,14 @@ const fits = PRIVATE_FITS.map((fit) => ({
 const sites = [];
 for (const path of listSources(ENGINE))
   sites.push(...collectSites(path, readSource(path)));
+const failureOwnerError =
+  failureOwner === undefined
+    ? `\`${FAILURE_OWNER.file}\` is not in the censused tree`
+    : (failureOwner.error ?? null);
 
 for (const site of sites) {
   if (site.invariant) {
     site.outcome = "INVARIANT";
-    site.reach = "foreclosed — the engine's invariant owner";
     continue;
   }
   const fit = fits.find(
@@ -559,17 +697,10 @@ for (const site of sites) {
     site.outcome = "INTERNAL";
     site.fit = fit;
     site.anchor = fitAnchor(site.node, site.file, fit);
-    site.reach = `foreclosed — ${fit.title} (${fit.decision}), ${site.anchor}`;
     continue;
   }
   site.outcome = "REFUSAL";
   site.public = site.sentences.filter((sentence) => !isRegistered(sentence));
-  site.reach =
-    site.sentences.length === 0
-      ? "no sentence — a rethrow, or a message built where this census cannot read it"
-      : site.public.length === 0
-        ? "public — the shipped engine registers this sentence"
-        : "public — nothing in the tree forecloses it";
 }
 
 const invariants = sites.filter((site) => site.outcome === "INVARIANT");
@@ -638,8 +769,23 @@ lines.push(
   "Three outcomes, told apart by construction. An **invariant** throws through" +
     " `shared/invariant.ts` and is not a refusal. An **internal** sentence lies" +
     " inside a declared private fit whose privacy this run re-checked. A" +
-    " **refusal** is everything else: *registered* when the shipped engine" +
-    " already carries the same sentence, *public* when it does not."
+    " **refusal** is everything else: *inherited* when the sentence is matched" +
+    " in the old engine's own corpus at the revision named above, a" +
+    " *candidate* sentence when it is not."
+);
+lines.push("");
+lines.push(
+  "**These are counts of SENTENCES, not of capabilities.** A candidate" +
+    " sentence is one this engine spells and the old one did not; it is not an" +
+    " unsupported operation family. The counts include the integrity failures" +
+    " (a member that is gone, a captured row another writer replaced) and the" +
+    " provider-result failures (a driver that answered a malformed value) that" +
+    " a correct engine must state, and they include sentences no admitted" +
+    " payload can reach. What this engine does and does not support is the" +
+    " behavioural closure inventory's fact, one row per admitted fact:" +
+    " `docs/architecture/raptor3-evidence/g4/release/closure/fc00/inventory.md`." +
+    " Which admitted payload reaches a given sentence stays the per-row ruling" +
+    " of `g4/release/plan/refusals-map.md`."
 );
 lines.push("");
 if (corpusError !== null)
@@ -647,6 +793,14 @@ if (corpusError !== null)
     `> **The shipped corpus could not be read** (\`${cell(corpusError)}\`). Every` +
       " refusal below is reported as public; the registered/public split is not" +
       " available in this run.",
+    ""
+  );
+if (failureOwnerError !== null)
+  lines.push(
+    `> **The declared failure owner is not where this census reads it** (${failureOwnerError}).` +
+      " A sentence a site builds and throws through it is read there and" +
+      " nowhere else, so this run exits non-zero instead of reporting those" +
+      " sites as sentence-less.",
     ""
   );
 for (const fit of fits)
@@ -671,19 +825,22 @@ lines.push(
   `| internal (private fits) | ${internals.length} | ${internalSentences.length} |`
 );
 lines.push(
-  `| refusal — registered | ${registeredSites.length} | ${registeredSentences.length} |`
+  `| refusal — inherited (matched in the old-engine corpus) | ${registeredSites.length} | ${registeredSentences.length} |`
 );
 lines.push(
-  `| refusal — public | ${publicSites.length} | ${publicSentences.length} |`
+  `| refusal — candidate (unmatched) | ${publicSites.length} | ${publicSentences.length} |`
 );
 lines.push(`| no sentence (rethrow) | ${wordless.length} | — |`);
 lines.push(`| **total sites** | **${sites.length}** | |`);
 lines.push("");
 const delta = publicSentences.length - MAP_SENTENCES;
 lines.push(
-  `**Public refusals: ${publicSentences.length} distinct sentences** at` +
-    ` ${publicSites.length} sites, against the **${MAP_SENTENCES}** the map` +
-    ` started from (${delta >= 0 ? "+" : ""}${delta}).`
+  "**Candidate sentences unmatched in the old-engine corpus:" +
+    ` ${publicSentences.length} distinct sentences** at ${publicSites.length}` +
+    ` sites, against the **${MAP_SENTENCES}** the map started from` +
+    ` (${delta >= 0 ? "+" : ""}${delta}). Earlier notes call this number` +
+    ` "${publicSentences.length} public refusals": it is the same count, of` +
+    " sentences, and it is not a count of unavailable operations."
 );
 lines.push("");
 
@@ -703,19 +860,24 @@ const section = (heading, prose, columns, rows) => {
 };
 
 section(
-  "## Public refusals",
-  "A sentence the candidate spells that the shipped engine does not. Nothing in" +
-    " the tree forecloses it; which admitted payload reaches each one is the" +
-    " map's per-row ruling (`g4/release/plan/refusals-map.md`), which this" +
-    " census does not re-derive.",
+  "## Candidate sentences unmatched in the old-engine corpus",
+  "A sentence this engine spells that is not matched in the old engine's" +
+    " corpus. Nothing in the tree forecloses it; which admitted payload" +
+    " reaches each one is the map's per-row ruling" +
+    " (`g4/release/plan/refusals-map.md`), which this census does not" +
+    " re-derive. Integrity and provider-result sentences are counted here like" +
+    " any other: a row in this table is a sentence, never an operation the" +
+    " engine cannot perform.",
   ["sites", "class", "sentence"],
   sentenceRows(publicSentences, (row) => `\`${cell(row.sites[0].class)}\``)
 );
 
 section(
-  "## Registered refusals",
-  `Sentences the shipped engine already carries at \`${shippedRev}\`: inherited` +
-    " contracts, reported apart because they were never the census's question.",
+  "## Inherited sentences",
+  `Sentences matched in the old engine's own corpus at \`${shippedRev}\` by the` +
+    " receipts' matching (the longest static fragment, or every fragment of" +
+    ` ${FRAGMENT_MIN} characters or more): inherited contracts, reported apart` +
+    " because they were never the census's question.",
   ["sites", "class", "sentence"],
   sentenceRows(registeredSentences, (row) => `\`${cell(row.sites[0].class)}\``)
 );
@@ -749,14 +911,17 @@ section(
 
 section(
   "## Sites without a sentence",
-  "Refusal sites whose sentence this census cannot read: a rethrow of a" +
-    " value another owner built (`ctx.failure`, `error`), a property access" +
+  "Refusal sites whose sentence this census cannot read: a rethrow of a value" +
+    " another owner built (a catch binding, a parameter), a property access" +
     " (`this.incompletePreparation`, a control-flow sentinel no caller sees)," +
-    " a value assigned after its declaration, or a message computed at the" +
-    " site (one built from mapped issues). A sentence built by a local" +
-    " factory, a function of the file, a method of the throw's own class, a" +
-    " local `const` bound to one of those, or a named constant IS read at the" +
-    " throw site. Listed so" +
+    " a property of another object (`refusal.error`), a value assigned after" +
+    " its declaration, or a message computed at the site (one built from" +
+    " mapped issues). A sentence built by a local factory, a function of the" +
+    " file, a method of the throw's own class, a local `const` bound to one of" +
+    " those, or a named constant IS read at the throw site — including when" +
+    " the site hands it to the failure owner" +
+    ` (\`${FAILURE_OWNER.method}(…)\`), whose own substituted sentences are` +
+    " read once at the owner itself. Listed so" +
     " no refusal site is silently dropped from the total; an invariant site" +
     " whose message is not a literal (the owner's own throw) is counted among" +
     " the invariant sites and has no row.",
@@ -772,14 +937,19 @@ if (outPath === undefined) process.stdout.write(report);
 else {
   writeFileSync(resolve(root, outPath), report);
   process.stdout.write(
-    `${outPath}: ${publicSentences.length} public refusal sentences ` +
-      `(${MAP_SENTENCES} at the map), ${internalSentences.length} internal, ` +
-      `${invariantSentences.length} invariant, ${registeredSentences.length} registered, ` +
+    `${outPath}: ${publicSentences.length} unmatched candidate sentences ` +
+      `(${MAP_SENTENCES} at the map), ${registeredSentences.length} inherited, ` +
+      `${internalSentences.length} internal, ${invariantSentences.length} invariant, ` +
       `${sites.length} sites\n`
   );
 }
-// A census that could not read the corpus, or whose declared private fit the
-// tree contradicts, is not the census this report claims to be. Each failure
-// is stated in the report and answered here, so a pipeline sees it too.
-if (corpusError !== null || fits.some((fit) => fit.contradictions.length))
+// A census that could not read the corpus, whose declared private fit the tree
+// contradicts, or whose declared failure owner has moved, is not the census
+// this report claims to be. Each failure is stated in the report and answered
+// here, so a pipeline sees it too.
+if (
+  corpusError !== null ||
+  failureOwnerError !== null ||
+  fits.some((fit) => fit.contradictions.length)
+)
   process.exitCode = 1;

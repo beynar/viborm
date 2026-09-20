@@ -484,10 +484,11 @@ batch and `dispatchSetMutations` for the lone statement D-7 leaves outside one,
 which are the same two situations the shipped executor notifies from
 (`runAtomicBatch` and `runBorrowedStatementAtomic`) — so no consumer reads a
 cache signal back out of published progress. The OPERATION's own failure stays
-primary whenever the client's listener throws, in ONE composition
-(`retainOutcomeFailure`, the shipped `retainWriteOutcomeFailure` restated — the
-candidate may not import `@extensions/query`: it pulls in the shipped write
-engine's routing table): `stateWriteOutcome` composes where the primary is
+primary whenever the client's listener throws, in ONE composition —
+`retainWriteOutcomeFailure` at `@errors` (`src/errors/query.ts`), which this
+engine imports exactly as the client and `pending-operation.ts` do (FC-05;
+the engine's own restatement of it is deleted, and the addendum below records
+why the rule lives at that boundary and not at the publication owner): `stateWriteOutcome` composes where the primary is
 already in hand, and the batch transport, which acknowledges before it decodes,
 HOLDS the listener's failure and composes it once the operation has answered
 (`settleSubmitted`), which is the shipped `runAtomicBatch` order. A missing-row
@@ -495,13 +496,12 @@ premise (`published`) is a statement about the world rather than a report about
 the transport, so it carries no progress at all — which is the shipped
 `NotFoundError` meta, `{ model, operation }`, on every driver.
 
-**FC-05 addendum (2026-09-21): the composition has ONE owner, and the import
-reason in the parenthesis above is stale.** `retainOutcomeFailure` is deleted.
-The rule it restated is `retainWriteOutcomeFailure`, which now lives at
-`@errors` (`src/errors/query.ts`), and this engine imports it from there exactly
-as the client and `pending-operation.ts` do — so the primary's identity, its
-`cause`, the flattening of the publication owner's aggregate and the listener
-order are stated once for the whole estate. The parenthesis was written when
+**FC-05 addendum (2026-09-21): why the composition lives at `@errors`.** The
+engine's restatement `retainOutcomeFailure` is deleted, so the primary's
+identity, its `cause`, the flattening of the publication owner's aggregate and
+the listener order are stated once for the whole estate. The paragraph above
+carried, until this unit, a stale reason for not importing the publication
+owner ("it pulls in the shipped write engine's routing table"). That was written when
 that function lived in `@extensions/query` and that module imported
 `write-engine/routing`: C-01 deleted those classes and re-pointed the import at
 `@query-engine/routed-operations`, so the routing-table hazard is gone. The
@@ -947,8 +947,13 @@ statement always builds cannot decode as `null` — members are read with
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
 freezes it, so `decodeValue` writes the document by walking the shape it already
-holds — `Object.keys`, OWN keys only, exactly as it READS the provider's — and
-never materialises that list again per row. The member write is a plain
+holds — `Object.keys(shape.fields)`, OWN keys only, exactly as it READS the
+provider's — and never rebuilds the members as PAIRS, nor the document around
+them, per row. Exactly one array is still allocated per decoded document, the
+shape's own key list (FC-05's correction of P1's claim); giving a shape its own
+frozen member list would remove that one too, and it is an unmeasured candidate,
+not a rule, because no `{ kind: "object" }` shape owns such a list today and
+adding one is a mirror at every shape builder. The member write is a plain
 assignment because the destination key is a schema identifier
 (`schema/identifier.ts`'s `isValidSchemaIdentifier` refuses every own property
 name of `Object.prototype`, `__proto__` among them, and `schema/hydration.ts`
@@ -1114,15 +1119,19 @@ can bind it, because a guard rides a later segment and binds a literal,
 N5); every other premise is re-probed,
 and when every premise ahead of the unit's writes holds now and exactly one
 stands behind them, the ladder attributes that one, so the refusal keeps its
-correlated identity on an index-free transport. Once members are expanded (`Commands.expanded`)
-nothing moves any more; a read placed by construction is already behind every
-template write it may depend on, so `expandSeries`'s pass only marks. The
+correlated identity on an index-free transport. What a placement may still
+move is decided per PAIR, by the ancestor's own execution position: `depend`
+moves a child while that ancestor has not been entered by
+`CommandExecution.run` (`CommandExecution.started`) — true of every freshly
+expanded series member, false of the retained record that is running the
+series (FC-01, addendum below). The
 array route keeps refusing a member that needs a dynamic read (D-46,
 `preparesBatch`). Pins: `tests/raptor3/g4/parity/ordered-observation.test.ts`.
 
-**Addendum (FC-01, 2026-09-21): the sentence above beginning "Once members are
-expanded" was FALSE of a series' own members, and the global flag it named is
-gone.** Template analysis places the TEMPLATE's occurrences; `captureSeries`
+**Addendum (FC-01, 2026-09-21): the execution-position rule above replaced an
+operation-global veto — "once members are expanded (`Commands.expanded`)
+nothing moves any more" — which was FALSE of a series' own members; the flag it
+named is gone.** Template analysis places the TEMPLATE's occurrences; `captureSeries`
 then builds each member afresh from the admitted payload, and a fresh member's
 internal reads were never placed by anyone — so the operation-global veto
 refused under `updateMany` the ordered observations `update` executes (the
@@ -1177,8 +1186,9 @@ credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
 belongs to the DISPATCHED UNIT and not to the operation: `ensureScratch` mints
 one per unit, and `submit` — the one place that assembles a unit and knows
 where it ends — reads back every value that unit stored (one `SELECT` per
-value, through `referenceProjection`, the same owner that reads a produced
-value back anywhere else) and then drops the table, inside the same batch.
+value, asked of `Queries.scalarQuery`, the composition every scalar this
+engine publishes is read back through) and then drops the table, inside the
+same batch.
 `TransportAttempt.carried` holds the literals beside the scratch id, and
 `CommandAttempt.read` — the estate's ONE reader of a field's runtime value —
 answers the literal in place of the spent expression, so every later statement,
@@ -1196,8 +1206,9 @@ re-introduce a reader of `pinnedSession` in the engine, and do not let a
 statement name a scratch its own segment did not create. Pins:
 `tests/raptor3/g4/parity/transport-witnesses.test.ts` (the three D-58 cells).
 
-**FC-05 addendum (2026-09-21): the read-back's owner is `Queries.scalarQuery`.**
-`referenceProjection` is deleted. `submit` asks `Queries` for the
+**FC-05 addendum (2026-09-21): how the read-back above reached that owner.**
+`referenceProjection`, which the paragraph named until this unit, is deleted.
+`submit` asks `Queries` for the
 scalar-expression query directly: the field's own physical value (`fieldValue`)
 aliased to the field, read back through the field's own leaf (`scalarShape`) —
 the composition `grouped` and `junction` already state for every scalar they
@@ -1298,7 +1309,12 @@ parent's own statement runs — `Commands.assignMembership` holds it
 run the observation the operation holds of the row is re-addressed from it
 (`CommandExecution.run`), so the record's own statement, its later children and
 the terminal read all name the row where the cascade left it, every member of a
-compound key published, not only the ones the payload spelled; a supplier
+compound key published, not only the ones the payload spelled. Those three ask
+for the row's CURRENT values, one fact read at one owner (`CommandAttempt.read`,
+FC-02A); what the operation SAW when it captured the row is a different fact,
+kept in `CommandAttempt.rows` for the consumers that need it (a choice's
+conditional skip, a `link`'s captured junction pair), and the two are never
+substituted for one another. A supplier
 earlier in the same body names a different row, and then the row's own
 statement is what moves it. PLACEMENT, not verb, decides which key a correlated
 lookup names (`RelationBody.correlationParent`): a child-held arm is placed
