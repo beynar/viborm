@@ -41,6 +41,7 @@ type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 export class CommandExecution {
   readonly context;
   private currentAttempt: CommandAttempt;
+  private readonly entered = new Set<CommandOccurrence>();
   constructor(readonly commands: Commands) {
     this.context = commands.context;
     this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
@@ -404,6 +405,18 @@ export class CommandExecution {
     if (this.context.usesBatch && selection.retained)
       this.context.requirePresent(selection.captured(), selection.retained());
   }
+  /**
+   * This occurrence's execution has begun: {@link run} entered it and its
+   * children are the schedule it is dispatching. The dependency pass asks
+   * before it moves a child to its execution point (`Commands.depend`): a
+   * series expands fresh members while the operation runs, and what separates
+   * them from the retained tree around them is exactly this — the fresh
+   * member's own occurrences have never been entered, the enclosing record
+   * that is running them has.
+   */
+  started(occurrence: CommandOccurrence): boolean {
+    return this.entered.has(occurrence);
+  }
   async run(
     occurrence: CommandOccurrence,
     member: Member = occurrence.command
@@ -411,6 +424,7 @@ export class CommandExecution {
     const ctx = this.context;
     const attempt = this.attempt;
     const command = occurrence.command;
+    this.entered.add(occurrence);
     switch (command.kind) {
       case "record": {
         command.fields.activate();

@@ -289,8 +289,6 @@ export function isSeriesOccurrence(
 /** Construction owns branch order; every storage consumer names exact produced fields. */
 export class Commands {
   private nextMutation = 0;
-  /** Members have been expanded: execution has begun and no read moves any more (N1). */
-  private expanded = false;
   readonly execution: CommandExecution;
   constructor(readonly context: OperationContext) {
     this.execution = new CommandExecution(this);
@@ -948,8 +946,25 @@ export class Commands {
    * first effect. The one shape no order satisfies is a read the ancestor's
    * own write CONSUMES (a parent-held target's key), which keeps the inherited
    * refusal — the sentence names exactly that: an earlier write the read cannot
-   * follow. Once members are expanded nothing moves any more; a read placed by
-   * construction is already behind every template write it may depend on.
+   * follow. The other limit is the ancestor's own EXECUTION POSITION: a
+   * placement IS a position in `ancestor.children`, so it may change only
+   * while that ancestor has not begun dispatching them
+   * ({@link CommandExecution.started}). A series expands its members from the
+   * admitted payload WHILE the operation runs (`expandSeries`), and each
+   * member is a FRESH subtree whose ancestor has not started: its observations
+   * are placed like any other (FC-01 — the operation-global "once members are
+   * expanded nothing moves" veto refused under `updateMany` what `update`
+   * executes). The limit covers the pairs an expansion makes against the
+   * tree AROUND the series: the per-member analysis walks past the series to
+   * the enclosing record's own write and to the siblings ahead of it, and the
+   * second pass pairs a member's writes with the reads FOLLOWING the series —
+   * in either the consumer may sit in a phase the enclosing record has
+   * already run. In the shipped shapes that pair was already judged
+   * against the template's identical write at `analyze` time, so the reader
+   * moved before anything ran and this limit is not reached; it holds the
+   * line if a member ever carries a write the template does not, because
+   * re-placing a child of a record that is dispatching its children would
+   * reorder a schedule that is already being consumed.
    */
   private depend(
     write: DependencyWrite,
@@ -1026,7 +1041,7 @@ export class Commands {
         (ancestor.command.fields.consumes(read.lookup.fields) ||
           (consumer.command.kind === "choose" &&
             ancestor.command.fields.consumes(consumer.command.fields)));
-      if (consumed || this.expanded) {
+      if (consumed || this.execution.started(ancestor)) {
         owner.refusal ??= refusal();
         return;
       }
@@ -1430,7 +1445,6 @@ export class Commands {
       this.seriesMembers(occurrence).length === 0,
       "a selected series occurrence is expanded once"
     );
-    this.expanded = true;
     occurrence.children = members.map((member) => {
       const child = this.occurrence(member);
       child.role = "member";

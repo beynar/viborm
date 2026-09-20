@@ -1082,6 +1082,26 @@ template write it may depend on, so `expandSeries`'s pass only marks. The
 array route keeps refusing a member that needs a dynamic read (D-46,
 `preparesBatch`). Pins: `tests/raptor3/g4/parity/ordered-observation.test.ts`.
 
+**Addendum (FC-01, 2026-09-21): the sentence above beginning "Once members are
+expanded" was FALSE of a series' own members, and the global flag it named is
+gone.** Template analysis places the TEMPLATE's occurrences; `captureSeries`
+then builds each member afresh from the admitted payload, and a fresh member's
+internal reads were never placed by anyone — so the operation-global veto
+refused under `updateMany` the ordered observations `update` executes (the
+closure review's executed failure). The rule is the ancestor's own EXECUTION
+POSITION: a placement is a position in `ancestor.children`, so `depend` may
+still move a child while that ancestor has not been entered by
+`CommandExecution.run` (`CommandExecution.started`) — true of every
+freshly expanded member, false of the retained record that is running the
+series — and the surrounding tree keeps the refusal exactly where it was
+already running. Nothing else changes: cross-member placement is still none of
+the pass's business (`isSeriesMember` stops the SIBLING scan at the series in
+both pairing walks — they still continue above it — so the member that
+OBSERVES still claims the earlier member's boundary), a series occurrence
+is still expanded once, and the consumed-parent shape still keeps the
+inherited sentence. Pins:
+`tests/raptor3/g4/parity/fresh-member-placement.test.ts`.
+
 **A transport fact has its own witness per driver (D-53).** PGlite establishes
 PostgreSQL SQL behaviour and no driver's TRANSPORT. Three facts are the
 transport's, each read from the driver's OWN declaration: SESSION LIFETIME —

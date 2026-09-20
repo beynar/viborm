@@ -516,13 +516,15 @@ export class OperationContext {
    * OBSERVES — a probe, a choose, a lookup, a capture answered outside this
    * queue ({@link answer}) — because a read outside the queue cannot see a
    * write the queue still holds, and the dependency pass cannot place it for
-   * them: it runs over the TEMPLATE, and a series' members carry no template
-   * write of each other ("once members are expanded nothing moves any more",
-   * `Commands.depend`). So order is not visibility here, and the member that
-   * observes claims the boundary the earlier member earned. Measured without
-   * it: a second `INSERT INTO "n5mb_authors"` for the row the first member had
-   * already created, `UniqueConstraintError` where the interactive twin
-   * answers `ok`.
+   * them: a series' members carry no write of EACH OTHER —
+   * `Commands.isSeriesMember` stops the SIBLING scan at the series in both
+   * pairing walks (they still continue above it), so no member's read is ever
+   * placed against another member's write (FC-01 places a member's OWN reads
+   * at their execution point; it does not pair them across members). So order
+   * is not visibility here, and the member that observes claims the boundary
+   * the earlier member earned. Measured without it: a second
+   * `INSERT INTO "n5mb_authors"` for the row the first member had already
+   * created, `UniqueConstraintError` where the interactive twin answers `ok`.
    *
    * A series whose members only WRITE observes nothing, claims nothing, and
    * stays one unit with its parent — which is the rollback above. Two

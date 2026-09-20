@@ -1,0 +1,13 @@
+# Repair round (2026-09-21) — the only affected test file, re-run on the FINAL
+# tree (after every comment re-wrap; the repairs are comment/doc text only).
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ✓ |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests) 239ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  22:39:02
+   Duration  4.00s (transform 2.02s, setup 33ms, collect 3.24s, tests 239ms, environment 0ms, prepare 137ms)
+
+Vitest resources: 7.08s wall, 506.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

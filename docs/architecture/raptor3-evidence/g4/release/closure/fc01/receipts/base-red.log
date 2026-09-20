@@ -1,0 +1,100 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-fc01
+
+ ❯ |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts (16 tests | 14 failed) 204ms
+   × FC-01: fresh member placement on the live route > the review case: a member's later lookup observes the member's own earlier write under root updateMany 30ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > a nested selected series places its members' observations: the same payload under a nested updateMany 8ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > two sequential series each place their own members: the second expansion does not inherit the first's 11ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > a member's parent-held choice moves behind the member's own write: its subtree observes the membership that write moved 20ms
+     → Nested operation 'update' on relation 'container' depends on an earlier 'update' membership write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > a member's dependent capture moves behind the choice's MISSING arm: the deleteMany removes the tag the connectOrCreate created 24ms
+     → Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > the opposite arm of the same choice: the FOUND arm connects the existing tag, and the same capture still removes it 24ms
+     → Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the live route > a deeper expansion inside a running member: the inner series' own members are placed while the outer member executes 15ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   ✓ FC-01: fresh member placement on the live route > a read the member's own write consumes keeps the inherited refusal, and nothing commits 14ms
+   × FC-01: fresh member placement on the batch-only route > the review case: a member's later lookup observes the member's own earlier write under root updateMany 10ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > a nested selected series places its members' observations: the same payload under a nested updateMany 7ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > two sequential series each place their own members: the second expansion does not inherit the first's 5ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > a member's parent-held choice moves behind the member's own write: its subtree observes the membership that write moved 5ms
+     → Nested operation 'update' on relation 'container' depends on an earlier 'update' membership write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > a member's dependent capture moves behind the choice's MISSING arm: the deleteMany removes the tag the connectOrCreate created 10ms
+     → Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > the opposite arm of the same choice: the FOUND arm connects the existing tag, and the same capture still removes it 8ms
+     → Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+   × FC-01: fresh member placement on the batch-only route > a deeper expansion inside a running member: the inner series' own members are placed while the outer member executes 7ms
+     → Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+   ✓ FC-01: fresh member placement on the batch-only route > a read the member's own write consumes keeps the inherited refusal, and nothing commits 4ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > the review case: a member's later lookup observes the member's own earlier write under root updateMany
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > a nested selected series places its members' observations: the same payload under a nested updateMany
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > two sequential series each place their own members: the second expansion does not inherit the first's
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > a member's parent-held choice moves behind the member's own write: its subtree observes the membership that write moved
+NestedWriteError: Nested operation 'update' on relation 'container' depends on an earlier 'update' membership write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > a member's dependent capture moves behind the choice's MISSING arm: the deleteMany removes the tag the connectOrCreate created
+NestedWriteError: Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > the opposite arm of the same choice: the FOUND arm connects the existing tag, and the same capture still removes it
+NestedWriteError: Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the live route > a deeper expansion inside a running member: the inner series' own members are placed while the outer member executes
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > the review case: a member's later lookup observes the member's own earlier write under root updateMany
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > a nested selected series places its members' observations: the same payload under a nested updateMany
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > two sequential series each place their own members: the second expansion does not inherit the first's
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > a member's parent-held choice moves behind the member's own write: its subtree observes the membership that write moved
+NestedWriteError: Nested operation 'update' on relation 'container' depends on an earlier 'update' membership write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > a member's dependent capture moves behind the choice's MISSING arm: the deleteMany removes the tag the connectOrCreate created
+NestedWriteError: Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > the opposite arm of the same choice: the FOUND arm connects the existing tag, and the same capture still removes it
+NestedWriteError: Nested operation 'deleteMany' on relation 'tags' depends on an earlier 'connectOrCreate' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/14]⎯
+
+ FAIL  |extended-local| tests/raptor3/g4/parity/fresh-member-placement.test.ts > FC-01: fresh member placement on the batch-only route > a deeper expansion inside a running member: the inner series' own members are placed while the outer member executes
+NestedWriteError: Nested operation 'delete' on relation 'edited' depends on an earlier 'update' target write in the same nested write. Split these operations into separate queries.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/14]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  14 failed | 2 passed (16)
+   Start at  22:08:25
+   Duration  1.74s (transform 836ms, setup 9ms, collect 1.26s, tests 204ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.77s wall, 564.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
