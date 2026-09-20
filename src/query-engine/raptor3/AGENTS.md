@@ -1063,6 +1063,38 @@ template write it may depend on, so `expandSeries`'s pass only marks. The
 array route keeps refusing a member that needs a dynamic read (D-46,
 `preparesBatch`). Pins: `tests/raptor3/g4/parity/ordered-observation.test.ts`.
 
+**A transport fact has its own witness per driver (D-53).** PGlite establishes
+PostgreSQL SQL behaviour and no driver's TRANSPORT. Three facts are the
+transport's, each read from the driver's OWN declaration: SESSION LIFETIME —
+does a scratch reference survive from one dispatched unit to the next
+(`pinnedSession` / `_canPinSession`, `drivers/driver.ts:201`), which D-50's
+batch reference table needs, a TEMP table belonging to a session; FAILURE
+ATTRIBUTION — does the transport name the statement of a batch that failed
+(`statementIndex`, produced by the shared per-statement loop at
+`drivers/driver-transaction-base.ts:659`, and re-derived by CARDINALITY alone
+in `findUniqueExecutionContextIndex` when a native batch rejects the whole
+request); COMMIT CERTAINTY — is a failed batch guaranteed to leave no writes,
+and does the transport identify the durable commit before results are decoded
+(`supportsOrderedCommittedSegments`). The question reaches only the drivers a
+nested write SEGMENTS on — the standalone physical batch route a driver takes
+when it declares no interactive transaction (`usesBatch`'s standalone arm,
+`operation-context.ts:389`; its other arm, the array route's
+`batch-preparation`, never dispatches a segment because `submit` refuses it,
+`operation-context.ts:1261`), so Neon HTTP and D1 and nothing else; every other driver runs the same write
+inside one interactive transaction, where one session is the construction. A
+driver without a witness for a fact is UNQUALIFIED for every behaviour that
+depends on it: Neon HTTP and D1 are unqualified today for a scratch reference
+that crosses a segment — the engine states nothing about it, and the ruling
+`g4/release/d53/note.md` §5 requests is what would — while a ONE-segment
+nested write (D-50's first pin) is within what PGlite proves. Never move a
+capability flag without a live witness; a credential-gated one names its
+environment variable and skips when it is unset, never fails and never asks.
+The table of driver × fact × witness lives in that note, §2, and only there;
+this paragraph is the rule. Pins:
+`tests/raptor3/g4/parity/transport-witnesses.test.ts`,
+`tests/raptor3/g4/parity/transport-seam-pglite.test.ts` (live PGlite), and the
+credential-gated `tests/providers/hosted/neon-http-transport.test.ts`.
+
 **The gate's mechanisms (N5).** The retired engine's contract suites are the
 gate; every cell that pinned a retired physical detail or a retired refusal is
 re-expressed to the shipped answer with its ruling named (D-15 the scalar

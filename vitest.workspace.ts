@@ -223,7 +223,7 @@ export default defineWorkspace([
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
   ]),
-  providerProject("neon-http", ["tests/providers/hosted/neon-http.test.ts"]),
+  providerProject("neon-http", ["tests/providers/hosted/neon-http*.test.ts"]),
   providerProject("planetscale", [
     "tests/providers/hosted/planetscale.test.ts",
   ]),

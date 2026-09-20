@@ -294,6 +294,47 @@ pins no session and discards temporaries between batches — under D-53. Until
 that witness runs, Neon HTTP is unqualified for cross-segment scratch; a
 one-segment nested write (D-50's first pin) is within what PGlite proves.
 
+**D-53 as landed (commit 28, branch `d53` from `32aa01d8a`).** The witnesses
+are built and the qualification table for all eleven drivers is stated once, in
+`raptor3-evidence/g4/release/d53/note.md` §2; the private guide states the rule
+beside the N1–N5 paragraphs and points at it. Session lifetime bites exactly
+the two drivers a nested write SEGMENTS on — the standalone physical batch
+route a driver takes when it declares no interactive transaction (`usesBatch`'s
+standalone arm; the array route's `batch-preparation` arm never dispatches,
+`submit` refuses it), so Neon HTTP and D1 — and on no other: every remaining
+driver runs the same write inside one interactive transaction. The
+transport-boundary witness this section asked for exists as
+`SessionlessBatchOnlyDriver` (batch-only, atomic, pins no session, discards its
+temporaries between batches) beside the session-keeping `BatchOnlyDriver`, with
+six credential-free cells, two live-PGlite cells for the seam's
+`statementIndex`, and three cells gated on `NEON_TEST_DATABASE_URL`, unset in
+the authoring environment and therefore skipped and UNVERIFIED. No capability
+flag moved.
+
+Two corrections to this paragraph, both measured. First, **the engine does not
+state the consequence** and there is no "existing sentence, at its existing
+site": `pinnedSession` / `_canPinSession` has no reader anywhere under
+`src/query-engine/`, and the sentence this paragraph remembers is the retired
+engine's `insertId-scratch` refusal, which the candidate deleted on purpose
+(`raptor3/AGENTS.md`: "Do not re-introduce that refusal in the route"). What a
+cross-segment scratch does today is the bare provider failure after a committed
+segment — and, in the shape where only the scratch CLEANUP falls outside the
+session, every write commits and the operation still reports failure. Second,
+**stating it is not free**: the smallest statement (in `OperationContext.submit`,
+the one owner that sees both the attempt's scratch and the driver's session)
+needs a NEW PUBLIC sentence — the shipped corpus at `0cc61e61f` carries none for
+this fact, so the census would go 23 → 24 — and, keyed on `_canPinSession()`,
+it turns eight registered cells red — six of them on a fixture whose single
+connection genuinely keeps the scratch, because that hook's absence conflates "no session"
+with "a session this hook does not reserve" (`driver.ts:194-200` says so). Both
+are a ruling for Arnaud in the note's §5, with the alternative that needs no
+new sentence — each dispatch carrying its own scratch setup, leaving only a
+value stored in one segment and read in a later one, which the engine already
+derives at `readsBatchReference` — stated beside it. Until one of them lands,
+this section's verdict stands unchanged: Neon HTTP and D1 are unqualified for a
+cross-segment scratch, and a one-segment nested write (D-50's first pin) is
+within what PGlite proves — now measured on the sessionless transport itself.
+
 **The recursive read.** Eleven of the 55 guard `Queries.recursive`, the
 private recursive-read fit (`AGENTS.md:636-640`): built, tested, wired to
 no public verb. They are internal until a public argument reaches them.

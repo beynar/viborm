@@ -1364,6 +1364,7 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts": 14,
   "tests/raptor3/g4/parity/published-key.test.ts": 12,
   "tests/raptor3/g4/parity/captured-identity-domains.test.ts": 9,
+  "tests/raptor3/g4/parity/transport-witnesses.test.ts": 6,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */
@@ -1371,10 +1372,15 @@ export const D50_PROVIDER_TESTS = Object.freeze([
   "tests/raptor3/g4/parity/postgres-identity-scratch.test.ts",
   "tests/raptor3/g4/parity/postgres-declared-type-scratch.test.ts",
 ]);
+/** D-53: the PostgreSQL half of the transport witnesses (live PGlite). */
+export const D53_PROVIDER_TESTS = Object.freeze([
+  "tests/raptor3/g4/parity/transport-seam-pglite.test.ts",
+]);
 export const RAPTOR3_PROVIDER_TESTS = Object.freeze([
   ...G1_PROVIDER_TESTS,
   ...G1_PROVIDER_BASELINE_TESTS,
   ...D50_PROVIDER_TESTS,
+  ...D53_PROVIDER_TESTS,
 ]);
 
 /**

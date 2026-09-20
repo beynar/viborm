@@ -7,7 +7,8 @@
  * the plan-time read and the batch — and a variant that maps an aborted batch
  * to the assertion class without saying WHICH statement failed (D1 and Neon
  * reject the whole request), so the ladder must attribute the premise by
- * re-probing it (N3).
+ * re-probing it (N3), and a variant that pins NO session and discards its
+ * temporaries between batches (D-53).
  */
 
 import type { BatchQuery, QueryResult } from "@drivers";
@@ -68,6 +69,34 @@ export class NoIndexBatchOnlyDriver extends BatchOnlyDriver {
           { cause: error }
         );
       throw error;
+    }
+  }
+}
+
+/**
+ * The Neon-shaped transport: a batch-only driver that pins NO session and
+ * discards its temporaries between batches (D-53).
+ *
+ * Neon HTTP dispatches each batch as its own non-interactive transaction and
+ * reserves nothing — `Driver._canPinSession()` is false, because the driver
+ * declares no `pinnedSession` hook — so the TEMP table the D-50 batch
+ * reference scratch lives in belongs to one dispatched unit and is gone by the
+ * next. D1 is the same shape. Its sibling {@link BatchOnlyDriver} keeps one
+ * better-sqlite3 connection, which IS a session, and therefore keeps the
+ * scratch across dispatches; the only difference between the two fixtures is
+ * the transport fact D-53 names, which is why the pins run the same payload on
+ * both.
+ */
+export class SessionlessBatchOnlyDriver extends BatchOnlyDriver {
+  protected override async executeBatch<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    try {
+      return await super.executeBatch<T>(client, queries);
+    } finally {
+      // The session ends with the batch, whatever the batch answered.
+      client.exec('DROP TABLE IF EXISTS temp."__viborm_batch_refs"');
     }
   }
 }

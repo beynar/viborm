@@ -21,6 +21,7 @@ import {
 } from "./credential-free-test-manifest.mjs";
 import {
   D50_PROVIDER_TESTS,
+  D53_PROVIDER_TESTS,
   G1_PROVIDER_BASELINE_TESTS,
   G1_PROVIDER_TESTS,
 } from "./raptor3-manifest.mjs";
@@ -167,10 +168,12 @@ const stages = [
       VIBORM_RAPTOR3_EVIDENCE_DIRECTORY: "",
     },
   },
-  ...[...G1_PROVIDER_TESTS, ...D50_PROVIDER_TESTS].map((file) => ({
-    ...livePgliteProviderStage(file, "raptor3-provider"),
-    wallLimitMs: 120_000,
-  })),
+  ...[...G1_PROVIDER_TESTS, ...D50_PROVIDER_TESTS, ...D53_PROVIDER_TESTS].map(
+    (file) => ({
+      ...livePgliteProviderStage(file, "raptor3-provider"),
+      wallLimitMs: 120_000,
+    })
+  ),
   // The extended estate is split by what it boots. The files that open a live
   // PGlite database run ALONE under the allowlisted 2560 MiB ceiling, because
   // that allowance is conditioned on isolation and packing three of them into
