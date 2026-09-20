@@ -1359,6 +1359,24 @@ concrete reference is the holder's parent's own value and is spent by the
 member's statement. Pins:
 `tests/raptor3/g4/parity/reference-representability.test.ts`,
 `tests/contracts/engine/write/parent-held-lookup.test.ts`.
+**FC-02B addendum (2026-09-21), correcting the temporal sentence in the
+paragraph above.** The TEXT-stored residual is repaired and is no longer a
+measured limit; the sentence "still NOT addressable from a capture … not a
+repair" is superseded. A capture of a TEXT-stored `dateTime` never produces a
+`Date` for the engine to re-spell: the row decoder already separates an
+INTERNAL read from a PUBLIC one — `shared/decimal.ts`'s `decodeDecimalScalar`
+keeps the codec's physical form internally and materializes the `Decimal`
+publicly — and `Queries.decodeScalar`'s `datetime` arm now takes that same
+seam, because a TEXT column's PHYSICAL value IS the spelling
+(`encodePhysicalDateTime(iso, "text")` is the identity). So the captured
+identity binds the stored bytes, two valid spellings of one instant stay two
+distinct addresses and are never conflated, and the public result is still the
+`Date`. `admittedTemporal` keeps its one job — spelling a PAYLOAD's `Date` —
+and the numeric storage forms (INTEGER epoch milliseconds, REAL Julian day),
+`date`, `bigint`, `decimal` and `time` are unchanged and are measured as
+controls. Pins: `captured-identity-domains`, the FC-02B cells (the three
+spellings, the two-spellings-one-instant cell, the compound and omitted keys,
+the nested-create reference value, the three batch-only to-many cells).
 
 A capture that depends on nothing keeps its place ahead of the effects, and
 the reason is MEASURED, not stylistic: a capture flushes, and on the batch

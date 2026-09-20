@@ -609,16 +609,19 @@ export function wholeValue(
  *
  * That spelling addresses the row wherever the column's stored form is
  * INSTANT-valued — SQLite INTEGER/REAL, the PostgreSQL and MySQL timestamp
- * types — and wherever the payload's own spelling was that one. It does not
- * address a TEXT-stored `dateTime` written by any other spelling: the same
- * boundary admits a valid ISO STRING unchanged (`ok(value)`, `iso.ts:94`) and
- * the SQLite adapter keeps that string byte for byte
+ * types — and wherever the payload's own spelling was that one. A TEXT-stored
+ * `dateTime` admits MORE than one spelling of one instant: the same boundary
+ * admits a valid ISO STRING unchanged (`ok(value)`, `iso.ts:94`) and the
+ * SQLite adapter keeps that string byte for byte
  * (`sqlite-adapter.ts:288-296`), so a key written `2020-03-01T10:00:00Z` or
- * with a `+02:00` offset is stored as those bytes while a capture of it
- * re-binds `…:00.000Z` and matches no row. Measured and pinned as a residual
- * (`g4/parity/captured-identity-domains.test.ts`, `g4/release/n5/note.md` §6):
- * this states no domain of its own, and making a capture address those bytes
- * is a question for the one owner of the spelling, not a second one here.
+ * with a `+02:00` offset is stored as those bytes and `…:00.000Z` names no
+ * row of its own. Nothing here re-spells it: a capture of such a column never
+ * decodes to a `Date` at all, because the row decoder keeps the PROVIDER's
+ * spelling for an INTERNAL read and materializes the `Date` only for a public
+ * one ({@link Queries.decodeScalar}, the split the decimal arm beside it
+ * already takes). A string reaches this function only to pass through, so the
+ * captured identity binds the stored bytes and the spelling still has exactly
+ * one owner (FC-02B, which repaired `g4/release/n5/note.md` §6's residual).
  * Every other value passes through untouched. The other captured domains bind
  * as they are — measured: `bigint`, `decimal` and `time` are already
  * provider-bindable, and `blob`, `json`, `point` and `vector` can be neither a
@@ -4712,7 +4715,17 @@ export class Queries {
             leaf.type,
             "the value is not a valid provider timestamp in the public DateTime domain",
           );
-        return parsed;
+        // A TEXT-stored instant's PHYSICAL value is the spelling itself
+        // (`encodePhysicalDateTime(iso, "text")` is the identity), and this
+        // column admits more than one spelling of one instant, so an INTERNAL
+        // read keeps the bytes the row holds and a public one materializes the
+        // `Date` — the same split the decimal arm above takes through
+        // `decodeDecimalScalar`. That is what makes a captured identity
+        // address its own row: `Queries.scalarValue` binds this string back
+        // unchanged, while a `Date` would be re-spelled by the admission
+        // boundary and match a row only where the payload's spelling was that
+        // one (FC-02B, which repaired N5 §6's residual).
+        return internal ? value : parsed;
       }
       case "date": {
         if (value instanceof Date) {
