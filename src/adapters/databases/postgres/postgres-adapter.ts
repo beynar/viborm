@@ -580,11 +580,12 @@ export class PostgresAdapter implements DatabaseAdapter {
     batchIdColumn: sql.raw`"batch_id"`,
     keyColumn: sql.raw`"ref_key"`,
     valueColumn: sql.raw`"ref_value"`,
-    // The scratch outlives one native batch: a record series commits member by
-    // member on a batch-only transport and its later segments still read the
-    // references the first one stored, on the same pinned session (D-50). The
-    // rows are cleared per batch id and deleted at the end; the table lingers
-    // on the session like the SQLite and MySQL scratch tables do.
+    // The table is not ON COMMIT DROP, so it survives the native batch that
+    // created it (D-50); the scratch itself belongs to the dispatched batch —
+    // each batch stores its own reference rows, reads back what it stored at
+    // its own end and deletes them there (D-58), so a later batch never names
+    // a reference an earlier one stored. The table lingers on the session like
+    // the SQLite and MySQL scratch tables do.
     createTable: sql.raw`CREATE TEMP TABLE IF NOT EXISTS "__viborm_batch_refs" ("batch_id" TEXT NOT NULL, "ref_key" TEXT NOT NULL, "ref_value" TEXT, PRIMARY KEY ("batch_id", "ref_key"))`,
     castValue: (valueSql) => sql`CAST((${valueSql}) AS TEXT)`,
     // The exact identity of an INSERT, carried by the statement that runs it:

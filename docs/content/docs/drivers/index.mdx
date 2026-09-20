@@ -62,6 +62,30 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 per driver.
 :::
 
+## Nested writes and failures per driver
+
+A nested write (`create` with nested `create`/`connect`/`connectOrCreate`,
+`update` with nested writes, `createMany` of relation-bearing rows, `upsert`)
+is one operation to the client. What the transport underneath guarantees
+differs by driver, and these are the facts the engine relies on and verifies:
+
+| Driver | A nested write runs as | A statement fails mid-way | Bind parameters per statement | Verified |
+|--------|------------------------|---------------------------|-------------------------------|----------|
+| pg, postgres, pglite, bun-sql | one interactive transaction | nothing is committed; the error names the failing statement | 65 535 | live on PGlite; the other three share the same transport code |
+| mysql2, planetscale | one interactive transaction (planetscale: single-shard) | nothing is committed; the error names the failing statement | 65 535 | shared transport code |
+| sqlite3, libsql, bun-sqlite | one interactive transaction | nothing is committed; the error names the failing statement | 999 | live on `better-sqlite3`; the other two share the same transport code |
+| neon-http | atomic batches, one per segment; a write that must observe its own earlier writes takes several, each committed as it completes, and a generated key crosses from one batch to the next as a literal | the whole batch is rejected; earlier batches of the same write stay committed and the error reports `committedSegments` — or `mayHaveCommittedSegment` when the batch's outcome could not be confirmed | 65 535 | on a Neon-shaped fixture (batch-only, no session between requests); the live Neon witness runs only where `NEON_TEST_DATABASE_URL` is set |
+| d1 | as neon-http | as neon-http; d1 declares an exact acknowledged prefix, unwitnessed here | 100 | on the same fixture; no live D1 witness in the repository |
+
+:::info
+A transport with an interactive transaction never leaves a partial nested
+write behind. On neon-http and d1 a write that needs more than one batch can,
+and the error carries how many segments committed so the caller can decide
+what to do with them. A `create` or `update` and everything nested under it is one batch. A
+`createMany` of relation-bearing rows is dispatched one batch per row, and a
+member that must read a row an earlier member wrote starts a new batch.
+:::
+
 ## GeoPoint tiers
 
 | Driver | Tier |
