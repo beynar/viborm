@@ -428,7 +428,7 @@ describe("lane X — nested set mutations", () => {
     );
   });
 
-  it("writes a suppressed member's membership but not its nested record children", async () => {
+  it("a suppressed member that declares a nested record write strands whole, join included", async () => {
     world = await createWorld();
     const { client } = world;
     await client.board.createMany({
@@ -469,11 +469,54 @@ describe("lane X — nested set mutations", () => {
     // was never created.
     assert.equal(existing.label, "existing");
     assert.deepEqual(existing.notes, []);
-    // The membership the member declared IS written, against that existing row.
+    // Every effect this member declared belongs to the row that was never
+    // created, membership included: the shipped router reads relationBearing
+    // BEFORE the join route (write-engine/junction-create-many-routing.ts:76-84)
+    // and a skipped root returned before the member's remaining steps ran
+    // (write-engine/OperationExecutor.ts:894). N5.
+    assert.deepEqual(
+      existing.boards.map((linked) => linked.id),
+      [1]
+    );
+    assert.equal((await client.note.findMany({})).length, 0);
+  });
+
+  it("a suppressed member with no other effect writes its membership against the located row", async () => {
+    world = await createWorld();
+    const { client } = world;
+    await client.board.createMany({
+      data: [
+        { id: 1, name: "left" },
+        { id: 2, name: "right" },
+      ],
+    });
+    await client.card.create({
+      data: { id: 60, label: "existing", boards: { connect: { id: 1 } } },
+    });
+
+    await client.board.update({
+      where: { id: 2 },
+      data: {
+        cards: {
+          createMany: {
+            data: [{ id: 60, label: "duplicate" }],
+            skipDuplicates: true,
+          },
+        },
+      },
+    });
+
+    const existing = await client.card.findUnique({
+      where: { id: 60 },
+      include: { boards: { orderBy: { id: "asc" } } },
+    });
+    assert.ok(existing);
+    // A skipped INSERT is not a skipped membership: the row the payload spells
+    // is located and the membership this member declared is written against it.
+    assert.equal(existing.label, "existing");
     assert.deepEqual(
       existing.boards.map((linked) => linked.id),
       [1, 2]
     );
-    assert.equal((await client.note.findMany({})).length, 0);
   });
 });

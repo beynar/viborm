@@ -135,6 +135,11 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
     },
   },
   {
+    // N1 (D-51): pinned the retired engine's lax "target record was not found".
+    // `parent` is parent-held, so the root's OWN insert CONSUMES this lookup
+    // while being the only producer of its target — the one shape no order
+    // satisfies — and it keeps the inherited dependency sentence
+    // (`AGENTS.md`, "A dependent read is an ordered observation (N1, D-51)").
     name: "before-parent self connect is unaffected by the future insert",
     act: (client) =>
       client.node.create({
@@ -145,10 +150,17 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "target record was not found",
+    expectedError:
+      "Nested operation 'connect' on relation 'parent' depends on an earlier 'create' target write in the same nested write. Split these operations into separate queries.",
     expected: { nodes: [] },
   },
   {
+    // N1 (D-51) / D-52: pinned the retired engine's lax "target record was not
+    // found". The enclosing `children` edge assigns the nested row
+    // `parentId = 10` and its own `parent: { connect: { id: 1 } }` assigns
+    // `parentId = 1`: two final assignments for one column, a membership fact
+    // no placement can satisfy, so the refusal is kept and answers at
+    // assignment composition, ahead of any dependency question.
     name: "nested create keeps its before-parent decision ahead of its insert",
     act: (client) =>
       client.node.create({
@@ -165,7 +177,8 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
         },
       }),
     expectReject: true,
-    expectedError: "target record was not found",
+    expectedError:
+      "query-engine-v2 create has conflicting final assignments for column 'parentId' on relation 'parent'.",
     expected: { nodes: [] },
   },
   {

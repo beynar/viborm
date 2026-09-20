@@ -7,6 +7,7 @@ import {
   CS01_EXTENSION_COMPOSITION_TESTS,
   CS01_STRUCTURAL_REFERENCE_TESTS,
   CS02_REPEATED_OCCURRENCE_TESTS,
+  CS02_STRUCTURE_MEASUREMENT_TESTS,
   CS03_EXTENSION_CAMPAIGN_TESTS,
   CS03_EXTENSION_SUPPORT_TESTS,
   CS03_MEMBER_SCOPE_TESTS,
@@ -159,6 +160,13 @@ const extendedLocalExclusions = new Set([
   ...CS03_EXTENSION_CAMPAIGN_TESTS,
   ...CS03_EXTENSION_SUPPORT_TESTS,
   ...CS02_REPEATED_OCCURRENCE_TESTS,
+  // Runner-only by the list that owns that fact
+  // (`raptor3-manifest.mjs` `RAPTOR3_RUNNER_ONLY_TESTS`): the CS-02 structural
+  // matrix is reachable only under the reference instrumentation its mode
+  // applies, exactly as its CS-03 campaign sibling is. The walk must not adopt
+  // it, and — like every other runner-only list — it stays out of
+  // `RAPTOR3_FIXED_LOCAL_TESTS`, which patches nothing either.
+  ...CS02_STRUCTURE_MEASUREMENT_TESTS,
   ...G29_MEMBER_DEPENDENCY_MYSQL_TESTS,
   ...G29_MEMBER_DEPENDENCY_PG_TESTS,
   ...G2_DIAGNOSTIC_TESTS,

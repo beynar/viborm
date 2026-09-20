@@ -519,18 +519,21 @@ describe("CS-02 structural measurement recipes", () => {
       assert(foundTie?.kind === "series-choice-found");
       assert(found?.kind === "series-choice-found");
       assert(missing?.kind === "series-choice-missing");
-      assert.deepEqual(foundTie.oracle.memberPath, [0]);
-      assert.equal(foundTie.oracle.relation, "earlyTicket");
-      assert.deepEqual(found.oracle.memberPath, [0]);
-      assert.equal(found.oracle.relation, "lateTicket");
-      assert.deepEqual(missing.oracle.memberPath, [7]);
-      assert.equal(missing.oracle.relation, "earlyTicket");
+      // D-51: the connects are ordered observations, so the branch the late
+      // choice activates is read off the ticket each holder ends bound to,
+      // not off the member a retired refusal blamed.
+      assert.equal(foundTie.oracle.earlyTicket, "member-0");
+      assert.equal(foundTie.oracle.lateTicket, "member-0");
+      assert.equal(found.oracle.earlyTicket, "member-7");
+      assert.equal(found.oracle.lateTicket, "member-0");
+      assert.equal(missing.oracle.earlyTicket, "member-7");
+      assert.equal(missing.oracle.lateTicket, null);
       for (const recipe of [found, missing]) {
         assert.equal(
           recipe.schedule.filter((step) => step.startsWith("admit:")).length,
           8
         );
-        assert(recipe.schedule.at(-1)?.startsWith("fail:member/"));
+        assert(recipe.schedule.at(-1)?.startsWith("observe:"));
         const reusedSelections = new Map<string, number>();
         for (const occurrence of recipe.semanticInventory.occurrences) {
           if (!occurrence.selectionId) continue;

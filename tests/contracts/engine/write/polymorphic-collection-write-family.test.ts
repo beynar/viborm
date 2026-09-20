@@ -1,3 +1,4 @@
+import { TransactionError } from "@errors";
 import { s } from "@schema";
 import {
   type PGliteSchemaFamily,
@@ -177,6 +178,18 @@ async function noteIds(family: Family): Promise<string[]> {
   );
   return rows.map((row) => row.id);
 }
+
+/**
+ * G3P-04 admits root-conflict suppression only where the operation owns the
+ * member rollback region, and an atomic batch owns none, so a BORROWED
+ * `createMany skipDuplicates` is refused there before any member effect
+ * (`shared/operation-context.ts` `suppressionRefusal()`; AGENTS.md "G3P-04
+ * admits root-conflict suppression only when the operation owns the member
+ * rollback region"). The two skipDuplicates rows below therefore answer
+ * differently per substrate, and each leg pins its own end state.
+ */
+const BORROWED_SUPPRESSION_REFUSAL =
+  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
 
 /** The two shelves and the three targets every scenario starts from. */
 async function seed(family: Family): Promise<void> {
@@ -861,29 +874,43 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // transfer moves the target from left to right; both skipped createMany
       // rows then name that same key. They retain their child INSERTs, but neither
       // may repeat the transfer captured before any writes ran.
-      await family.client.shelf.update({
-        where: { tenantId_code: { tenantId: "t1", code: "right" } },
-        data: {
-          items: {
-            connect: [
-              {
-                type: "book",
-                where: { region_isbn: { region: "eu", isbn: "111" } },
-              },
-            ],
-            createMany: [
-              {
-                type: "book",
-                skipDuplicates: true,
-                data: [
-                  { region: "eu", isbn: "111", title: "Book one" },
-                  { region: "eu", isbn: "111", title: "Book one" },
-                ],
-              },
-            ],
+      const coalesce = () =>
+        family.client.shelf.update({
+          where: { tenantId_code: { tenantId: "t1", code: "right" } },
+          data: {
+            items: {
+              connect: [
+                {
+                  type: "book",
+                  where: { region_isbn: { region: "eu", isbn: "111" } },
+                },
+              ],
+              createMany: [
+                {
+                  type: "book",
+                  skipDuplicates: true,
+                  data: [
+                    { region: "eu", isbn: "111", title: "Book one" },
+                    { region: "eu", isbn: "111", title: "Book one" },
+                  ],
+                },
+              ],
+            },
           },
-        },
-      });
+        });
+
+      // G3P-04: the atomic batch owns no member rollback region, so the whole
+      // second update is refused before its `connect` transfer runs - the first
+      // update's membership on `left` is what stays.
+      if (mode === "atomicBatch") {
+        const failure = await coalesce().catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(TransactionError);
+        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        expect(await bookMembers(family)).toEqual(["t1/left/eu/111"]);
+        expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
+        return;
+      }
+      await coalesce();
 
       expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
       expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
@@ -898,29 +925,44 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // `(eu, 999)` key is absent. B separates A1 from A2 into distinct direct
       // collection leaves. A2 then creates that same key, so its membership must
       // be the direct exact-key no-op insert, not a suppressed transfer.
-      await family.client.shelf.update({
-        where: { tenantId_code: { tenantId: "t1", code: "right" } },
-        data: {
-          items: {
-            createMany: [
-              {
-                type: "book",
-                skipDuplicates: true,
-                data: [{ region: "eu", isbn: "999", title: "Book one" }],
-              },
-              {
-                type: "video",
-                data: [{ id: 2, title: "Video two" }],
-              },
-              {
-                type: "book",
-                skipDuplicates: true,
-                data: [{ region: "eu", isbn: "999", title: "Book three" }],
-              },
-            ],
+      const join = () =>
+        family.client.shelf.update({
+          where: { tenantId_code: { tenantId: "t1", code: "right" } },
+          data: {
+            items: {
+              createMany: [
+                {
+                  type: "book",
+                  skipDuplicates: true,
+                  data: [{ region: "eu", isbn: "999", title: "Book one" }],
+                },
+                {
+                  type: "video",
+                  data: [{ id: 2, title: "Video two" }],
+                },
+                {
+                  type: "book",
+                  skipDuplicates: true,
+                  data: [{ region: "eu", isbn: "999", title: "Book three" }],
+                },
+              ],
+            },
           },
-        },
-      });
+        });
+
+      // G3P-04: the refusal belongs to the command analysis pass, so it fires
+      // for the whole update - the sibling `video` group that carries no
+      // skipDuplicates does not write either.
+      if (mode === "atomicBatch") {
+        const failure = await join().catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(TransactionError);
+        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        expect(await bookMembers(family)).toEqual([]);
+        expect(await videoMembers(family)).toEqual([]);
+        expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
+        return;
+      }
+      await join();
 
       expect(await bookMembers(family)).toEqual(["t1/right/eu/999"]);
       expect(await videoMembers(family)).toEqual(["t1/right/2"]);
@@ -2245,7 +2287,18 @@ describe("polymorphic collection `set` refuses before the clear on a splittable 
     );
   });
 
-  test("a generated target after the clear refuses with prior state intact", async () => {
+  // D-50 / D-52: this cell pinned the retired refusal "Polymorphic collection
+  // 'items' set requires one atomic unit; this driver would commit the clear
+  // separately from the refill." — a sentence Raptor 3 does not register. The
+  // batch route now carries the generated identity itself (D-50's CTE identity
+  // scratch), so an admitted payload executes (D-52) instead of being refused
+  // for the refill's generated key. The clear runs before the refill because
+  // `set` precedes `create` in the relation body's canonical verb order, and the
+  // END STATE is what this pins: the prior membership gone, the produced target
+  // created and linked. (The describe's name predates the ruling; the
+  // indivisibility of the unit is pinned by "explicit target identity keeps the
+  // batch indivisible" beside it.)
+  test("a generated target after the clear executes, replacing the membership", async () => {
     const family = getFamily();
     await family.reset();
     await seed(family);
@@ -2253,22 +2306,34 @@ describe("polymorphic collection `set` refuses before the clear on a splittable 
       where: { tenantId_code: { tenantId: "t1", code: "left" } },
       data: { items: { connect: [{ type: "video", where: { id: 1 } }] } },
     });
-
-    await expect(
-      family.client.shelf.update({
-        where: { tenantId_code: { tenantId: "t1", code: "left" } },
-        data: {
-          items: {
-            set: [],
-            create: [{ type: "video", data: { title: "must not survive" } }],
-          },
-        },
-      })
-    ).rejects.toThrow(
-      "Polymorphic collection 'items' set requires one atomic unit; this driver would commit the clear separately from the refill."
-    );
     expect(await videoMembers(family)).toEqual(["t1/left/1"]);
-    expect(await family.client.video.findMany({})).toHaveLength(1);
+
+    await family.client.shelf.update({
+      where: { tenantId_code: { tenantId: "t1", code: "left" } },
+      data: {
+        items: {
+          set: [],
+          create: [
+            { type: "video", data: { title: "refill after the clear" } },
+          ],
+        },
+      },
+    });
+
+    // The refill's own generated id, and no other membership: the clear took the
+    // seeded video 1 out and only the produced row is a member.
+    const videos = await family.client.video.findMany({
+      orderBy: { id: "asc" },
+    });
+    expect(videos.map((video) => video.title)).toEqual([
+      "Video one",
+      "refill after the clear",
+    ]);
+    const refill = videos[1];
+    expect(refill).toBeDefined();
+    expect(await videoMembers(family)).toEqual([`t1/left/${refill?.id}`]);
+    expect(await bookMembers(family)).toEqual([]);
+    expect(await noteMembers(family)).toEqual([]);
   });
 
   test("the same generated target set succeeds in one transaction", async () => {

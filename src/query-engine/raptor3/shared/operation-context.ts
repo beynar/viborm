@@ -135,9 +135,46 @@ type MemberAttribution = {
 /** What an operation that has queued nothing has queued. */
 const NO_QUEUED_STATEMENTS: readonly BatchQuery[] = Object.freeze([]);
 
+/**
+ * One premise a generated-output continuation re-states in EVERY later segment.
+ *
+ * A committed segment cannot be taken back, so what the next one trusts is
+ * re-read in it: the created record's own identity, and the PARENT row whose
+ * referenced value the membership correlates on — a membership is a VALUE, so
+ * once another row holds that reference the correlation answers with it. Each
+ * carries its own sentence, stated where the premise is declared.
+ */
+interface Continuation {
+  readonly model: AnyModel;
+  readonly query: Query;
+  readonly failure: () => Error;
+  /**
+   * Declared while THIS batch was being built: the segment that writes what it
+   * re-pins has not committed yet, so there is nothing for it to say until the
+   * next one ({@link OperationContext.submit} clears it as it dispatches).
+   */
+  declaring?: boolean;
+}
 /** What an operation that declared no generated-output continuation has. */
-const NO_CONTINUATIONS: readonly { query: Query; model: AnyModel }[] =
-  Object.freeze([]);
+const NO_CONTINUATIONS: readonly Continuation[] = Object.freeze([]);
+/**
+ * The captured junction slots one attempt has already vacated, keyed by the
+ * captured VALUES themselves: the edge's table, then its columns in the edge's
+ * own order ({@link OperationContext.spendSlot}).
+ */
+type SpentSlots = Map<unknown, SpentSlots | true>;
+
+/**
+ * The row a created record is a MEMBER of, as its interpreter holds it: the
+ * parent's identity AND the value the membership correlates on, which is what
+ * separates "this parent" from "whatever row now answers the reference".
+ */
+export interface MembershipParent {
+  readonly model: AnyModel;
+  readonly where: Input;
+  readonly relation: string;
+  readonly verb: string;
+}
 
 /** One operation owns its SQL scopes, transport binding, and batch scratch lifetime. */
 /**
@@ -191,7 +228,9 @@ export class OperationContext {
   }
   private committedMemberSet?: Set<Member>;
   private memberAttributionMap?: WeakMap<Member, MemberAttribution>;
-  private continuationList?: { query: Query; model: AnyModel }[];
+  private continuationList?: Continuation[];
+  /** The captured junction slots this attempt has already vacated ({@link link}). */
+  private vacatedMemberships?: SpentSlots;
   /** Generated-output continuations declared so far; none until one is. */
   private get continuationCount(): number {
     return this.continuationList?.length ?? 0;
@@ -434,19 +473,61 @@ export class OperationContext {
       throw this.failure(error, "planning", parent);
     }
   }
+  /**
+   * A member's boundary is the MEMBER's, and a dispatch commits the whole queue.
+   *
+   * On a batch-only transport a dispatch is a COMMITTED SEGMENT, so a boundary
+   * taken while an enclosing write is still waiting makes that write durable
+   * too — a record this series owns no member of, whose own children are not
+   * done. Measured: a nested `createMany` of two literal rows committed
+   * [INSERT parent, INSERT child#1] at the first member, and the second row's
+   * duplicate key then left both behind, where the interactive route rolls the
+   * operation back. D-51 admits a succession of segments as PACKAGING only
+   * while the two routes keep ONE result, so a member takes its boundary here
+   * only where nothing but its own members' writes is waiting.
+   *
+   * Where an enclosing write IS waiting the boundary is DEFERRED, never
+   * dropped: the pendency decides WHEN the series segments, never whether a
+   * later member gets to see an earlier one. That is decided where a member
+   * OBSERVES — a probe, a choose, a lookup, a capture answered outside this
+   * queue ({@link answer}) — because a read outside the queue cannot see a
+   * write the queue still holds, and the dependency pass cannot place it for
+   * them: it runs over the TEMPLATE, and a series' members carry no template
+   * write of each other ("once members are expanded nothing moves any more",
+   * `Commands.depend`). So order is not visibility here, and the member that
+   * observes claims the boundary the earlier member earned. Measured without
+   * it: a second `INSERT INTO "n5mb_authors"` for the row the first member had
+   * already created, `UniqueConstraintError` where the interactive twin
+   * answers `ok`.
+   *
+   * A series whose members only WRITE observes nothing, claims nothing, and
+   * stays one unit with its parent — which is the rollback above. Two
+   * alternatives were falsified: taking no member boundary at all collapses the
+   * per-member packaging `post-prep/g29-member-dependency` and
+   * `g29-dependency-choices` pin (10 cells), and claiming the boundary at every
+   * read rather than a member's splits the unit an ordered observation is
+   * stated inside (`g4/parity/ordered-observation.test.ts` "nothing of the unit
+   * commits", `lax-to-one.test.ts`, 8 cells).
+   */
+  private executingMember?: Member;
   async executeMember<T>(
     execute: () => Promise<T>,
     member?: Member
   ): Promise<T> {
+    const enclosingWrite = this.attemptStore?.holdsWrite === true;
+    const observing = this.executingMember;
+    if (member) this.executingMember = member;
     try {
       const output = await execute();
       if (this.ownership !== "batch-preparation") {
-        await this.flush(undefined, member);
+        if (!enclosingWrite) await this.flush(undefined, member);
         this.completedMembers++;
       }
       return output;
     } catch (error) {
       throw this.failure(error, "member", member);
+    } finally {
+      this.executingMember = observing;
     }
   }
   async executeSkippableMember(
@@ -709,10 +790,18 @@ export class OperationContext {
       this.restart();
       return await this.regionAttempt(region, body);
     } catch (error) {
+      // A record series is a COMMITTED SEGMENT of this operation's own writes,
+      // and nothing else asked here: a generated-output continuation is
+      // declared behind the segment that published the identity it re-pins
+      // ({@link insert}), so that segment is already counted, while a premise —
+      // the parent a membership correlates on — is declared ahead of every
+      // segment and is not a member of any series. Asking about continuations
+      // instead published a series' progress for an ordinary UPDATE that had
+      // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
+      // UPDATE must retain only acknowledged progress").
       if (
         error instanceof InvalidScalarResult ||
-        (this.usesBatch &&
-          (this.continuationCount || this.committedSegments > 0))
+        (this.usesBatch && this.committedSegments > 0)
       )
         throw this.failure(
           error,
@@ -779,6 +868,7 @@ export class OperationContext {
   private restart(attempt = new TransportAttempt()): void {
     this.attemptStore = attempt;
     this.continuationList = undefined;
+    this.vacatedMemberships = undefined;
     this.memberAdmissionStarted = false;
     this.envelope = "open";
   }
@@ -909,12 +999,26 @@ export class OperationContext {
    * One statement's raw provider answer. The dispatcher both readers share, so
    * the terminal boundary ({@link publishedTerminal}) sees the rows the
    * provider handed back and an internal read sees the same rows decoded.
+   *
+   * It is also the ONE place this operation reads from OUTSIDE its own queue,
+   * so it is where a member claims the boundary {@link executeMember} deferred:
+   * a statement answered here cannot see a write the queue still holds. Only a
+   * member claims it, and only for a write some OTHER record of the series left
+   * waiting ({@link TransportAttempt.holdsOtherMemberWrite}). A read taken
+   * outside every member is the record's OWN observation, and where it stands
+   * relative to this unit's writes is the dependency pass's answer, not this
+   * one's — an ordered observation is stated INSIDE the queued unit on purpose
+   * (N1), and a boundary taken under it would commit the very writes its
+   * premise exists to abort.
    */
   private async answer(
     query: Query,
     terminal: boolean,
     model?: AnyModel
   ): Promise<QueryResult<Input>> {
+    const observer = this.executingMember;
+    if (observer && this.attemptStore?.holdsOtherMemberWrite(observer))
+      await this.flush();
     const context = model
       ? this.statementContext(model, this.operation)
       : this.attribution;
@@ -1113,18 +1217,44 @@ export class OperationContext {
   }
   async requireAbsent(query: Query, failure: Error): Promise<void> {
     if (this.usesBatch) {
-      this.attempt.assertPremise(
-        this.queue(this.driver.adapter.assertions.notExists(query.sql)),
-        { query, present: false, failure }
-      );
+      this.statePremise(query, false, failure);
       return;
     }
     if ((await this.read(query, true)).length) throw failure;
   }
   requirePresent(query: Query, failure: Error): void {
+    this.statePremise(query, true, failure);
+  }
+  /**
+   * Does this statement ask about a value THIS unit produced?
+   *
+   * It binds this attempt's batch reference, so it reads the scratch through
+   * it, and the rolled-back transaction takes that scratch with it: the
+   * attribution ladder cannot ask it again ({@link submit}). Both halves of the
+   * fact — the reference's identity and the statement that reads it — are here
+   * and only here, for the premises {@link statePremise} states AND for the
+   * continuation guards {@link submit} builds. A guard can bind it: a
+   * membership continuation re-pins a parent whose generated key this unit
+   * published as `cast(references.read(…))` ({@link insert}), so the guard is
+   * derived like every other premise rather than asserted to read nothing.
+   */
+  private readsBatchReference(query: Query): boolean {
+    const reference = this.attemptStore?.scratchId;
+    return reference !== undefined && query.sql.values.includes(reference);
+  }
+  /** Queue one premise's assertion and record what it requires of the batch. */
+  private statePremise(query: Query, present: boolean, failure: Error): void {
+    const assertions = this.driver.adapter.assertions;
     this.attempt.assertPremise(
-      this.queue(this.driver.adapter.assertions.exists(query.sql)),
-      { query, present: true, failure }
+      this.queue(
+        present ? assertions.exists(query.sql) : assertions.notExists(query.sql)
+      ),
+      {
+        query,
+        present,
+        failure,
+        readsBatchReference: this.readsBatchReference(query),
+      }
     );
   }
   private async submit(publishingGeneratedOutput = false, member?: Member) {
@@ -1135,7 +1265,12 @@ export class OperationContext {
     this.atomicAssertionRejection = undefined;
     attempt.rejectedInsert = undefined;
     const precedingSegments = this.committedSegments;
-    const continuations = this.continuationList ?? NO_CONTINUATIONS;
+    const declared = this.continuationList;
+    const continuations = declared
+      ? declared.filter((continuation) => !continuation.declaring)
+      : NO_CONTINUATIONS;
+    if (declared)
+      for (const continuation of declared) continuation.declaring = false;
     const guards = continuations.map(({ query, model }) => {
       const context = this.statementContext(model, this.operation);
       return {
@@ -1149,15 +1284,15 @@ export class OperationContext {
     const statements = [...guards, ...attempt.pending.splice(0)];
     const insertProducers = attempt.drainInsertProducers();
     const assertionFailures = attempt.drainAssertedPremises();
-    for (const [index, guard] of guards.entries())
+    for (const [index, guard] of guards.entries()) {
+      const continuation = continuations[index]!;
       assertionFailures.set(guard, {
-        query: continuations[index]!.query,
+        query: continuation.query,
         present: true,
-        failure: new TransactionError(
-          `Created record '${continuations[index]!.model["~"].names.ts!}' changed across a generated-output segment boundary.`,
-          { meta: { model: this.modelName, operation: this.operation } }
-        )
+        failure: continuation.failure(),
+        readsBatchReference: this.readsBatchReference(continuation.query),
       });
+    }
     const members = attempt.drainMembers();
     const acknowledged = async () => {
       if (members.length === 0) return;
@@ -1260,9 +1395,20 @@ export class OperationContext {
             this.driver.dialect
           );
           const soleGuard = assertionFailures.size === 1 && !mayCollide;
+          // A premise about a value this unit PRODUCED is not re-probable at
+          // all (the guide, "At the ladder, a premise stated BEHIND the unit's
+          // own writes … is not re-probable after the rollback"): it reads the
+          // batch reference scratch, which the rolled-back transaction took
+          // with it, so the statement would raise an undefined-table error
+          // where the ladder owes an attribution. The inference below is that
+          // premise's whole answer, and the ladder does not ask it. Every other
+          // premise is asked, because the position it holds is not the fact —
+          // a unit that states two premises behind its first write keeps the
+          // correlated identity of the one the re-probe contradicts (N1,
+          // `g4/parity/ordered-observation.test.ts`).
           for (const [index, statement] of statements.entries()) {
             const assertion = assertionFailures.get(statement);
-            if (!assertion) continue;
+            if (!assertion || assertion.readsBatchReference) continue;
             const present = (await this.read(assertion.query, true)).length > 0;
             if (present !== assertion.present || soleGuard) {
               failure = assertion.failure;
@@ -1379,7 +1525,12 @@ export class OperationContext {
           }
         );
       }
-      throw publishingGeneratedOutput || this.continuationCount > 0
+      // The same fact at the dispatch that fails: this submission belongs to a
+      // record series when it PUBLISHED generated output, or when it carried a
+      // continuation guard — a guard rides only a segment AFTER the one that
+      // wrote what it re-pins, so its presence is the committed prefix itself.
+      // A continuation still being declared carries no guard and says nothing.
+      throw publishingGeneratedOutput || continuations.length > 0
         ? this.failure(
             attributedError,
             this.committedSegments > precedingSegments ? "result" : "member",
@@ -2419,7 +2570,8 @@ export class OperationContext {
     demanded: ReadonlySet<string>,
     member: Member,
     operation = "create",
-    producer?: object
+    producer?: object,
+    membership?: MembershipParent
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
@@ -2483,6 +2635,32 @@ export class OperationContext {
         ...producedValues
       };
     }
+    // The row this one is a MEMBER of, re-pinned in every segment AFTER the one
+    // that writes it. A membership correlates BY VALUE, so once another row
+    // holds the parent's referenced value the correlation answers with IT — and
+    // a segment that has committed cannot be taken back, so what the next one
+    // trusts is re-read in it. Inside the segment that writes the membership
+    // there is nothing to re-pin: the write is still this unit's own and its
+    // rollback takes it back, which is what {@link Continuation.declaring}
+    // says. The sentence and the query are the pair
+    // `CommandExecution.captureSeries` states for the same fact on a captured
+    // series — one owner, restated here for the row a continuation follows.
+    if (membership)
+      (this.continuationList ??= []).push({
+        declaring: true,
+        model: membership.model,
+        query: q.select(membership.model, {
+          where: membership.where,
+          select: Object.fromEntries(
+            this.schema.keys(membership.model).map((field) => [field, true])
+          ),
+        }),
+        failure: () =>
+          new NestedWriteError(
+            `Cannot ${membership.verb} relation '${membership.relation}': parent record changed across a committed segment.`,
+            membership.relation
+          ),
+      });
     const published: Input = { ...values };
     if (produced.length) {
       const references = getAdapterInternals(adapter).batchRefs;
@@ -2544,7 +2722,12 @@ export class OperationContext {
           query: q.select(model, {}, undefined, {
             projection,
             identity: stored,
-          })
+          }),
+          failure: () =>
+            new TransactionError(
+              `Created record '${model["~"].names.ts!}' changed across a generated-output segment boundary.`,
+              { meta: { model: this.modelName, operation: this.operation } }
+            ),
         });
         return { ...values, ...stored };
       }
@@ -2754,6 +2937,29 @@ export class OperationContext {
       member
     );
   }
+  /**
+   * Has this captured slot already been spent — and, if it had not, spend it.
+   *
+   * One walk down {@link SpentSlots}, so the ask and the record are one act:
+   * no caller can spend a slot without asking, and none can ask without
+   * spending. The leaf's presence IS the answer.
+   */
+  private spendSlot(table: string, values: readonly unknown[]): boolean {
+    let level = (this.vacatedMemberships ??= new Map());
+    const path: unknown[] = [table, ...values];
+    let spent = true;
+    for (const [index, key] of path.entries()) {
+      const leaf = index === path.length - 1;
+      let next = level.get(key);
+      if (next === undefined) {
+        spent = false;
+        next = leaf ? true : new Map();
+        level.set(key, next);
+      }
+      if (!leaf) level = next as SpentSlots;
+    }
+    return spent;
+  }
   async link(
     edge: Extract<Membership, { kind: "junction" }>,
     values: Input,
@@ -2770,22 +2976,47 @@ export class OperationContext {
       if (columns.every((field) => Object.is(captured[field], values[field]))) {
         return;
       }
-      const remove = adapter.mutations.delete(
-        adapter.identifiers.table(edge.table),
-        q.junctionWhere(edge, captured)
-      );
-      const context = this.statementContext(edge.source, "update");
-      if (this.usesBatch) this.queue(remove, context, member);
-      else {
-        const response = await this.dispatch(1, false, () =>
-          this.transport._execute(remove, context)
+      // ONE captured pair is ONE slot transition. Entries that resolve to the
+      // same target carry the SAME captured owner — the plan read the slot once
+      // — so a second vacate would delete a row THIS operation already removed,
+      // and the direct arm's postcondition would read its own effect as a
+      // concurrent change. The transition is spent here, once per captured
+      // pair, and the membership INSERT that follows is idempotent either way
+      // (the conflict clause, or the anti-join select where the dialect has no
+      // targeted upsert). The postcondition keeps the race it exists for: the
+      // FIRST vacate of a pair another owner took.
+      //
+      // The spent pairs are a TREE keyed by the captured VALUES themselves —
+      // the edge's table, then its columns in the edge's own order — because a
+      // junction column carries whatever domain the referenced key carries. A
+      // `Map` compares with SameValueZero, so a `bigint` key is compared as the
+      // bigint it is; spelling the pair instead could not: `JSON.stringify`
+      // THROWS on a `bigint` (`TypeError: Do not know how to serialize a
+      // BigInt`, escaping this engine's error surface) and COLLIDES on a value
+      // whose class carries no `toJSON`, where two distinct `decimal` pairs
+      // both spell `{}` and the second would skip a vacate it never spent.
+      // A value-keyed level compares two decoded objects by identity, which
+      // errs the safe way: a pair the plan did not capture twice is vacated,
+      // and the postcondition still guards that vacate.
+      const slot = columns.map((field) => captured[field]);
+      if (!this.spendSlot(edge.table, slot)) {
+        const remove = adapter.mutations.delete(
+          adapter.identifiers.table(edge.table),
+          q.junctionWhere(edge, captured)
         );
-        if (response.rowCount !== 1) {
-          const failure = new TransactionError(
-            `Concurrent membership change on the singular polymorphic member of relation '${edge.name}': the captured owner's membership was already removed; retry to converge.`
+        const context = this.statementContext(edge.source, "update");
+        if (this.usesBatch) this.queue(remove, context, member);
+        else {
+          const response = await this.dispatch(1, false, () =>
+            this.transport._execute(remove, context)
           );
-          failure.meta.raceable = true;
-          throw failure;
+          if (response.rowCount !== 1) {
+            const failure = new TransactionError(
+              `Concurrent membership change on the singular polymorphic member of relation '${edge.name}': the captured owner's membership was already removed; retry to converge.`
+            );
+            failure.meta.raceable = true;
+            throw failure;
+          }
         }
       }
     }

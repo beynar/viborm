@@ -1,0 +1,7 @@
+typecheck exit=0 
+campaign-receipts exit=0 
+transport-smoke exit=1  Tests 2 failed (2);
+lane-x exit=0  Tests 10 passed (10);
+measurement-selftest exit=0  Tests 7 passed (7);
+cs02-mode-patched exit=0 Vitest resources: 4.83s wall, 704.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.;Raptor 3 cs02-structure-measure measurement verified. Evidence: /private/tmp/viborm-n5-tooling-tmp/viborm-raptor3-g0-lF0ekI;
+DONE

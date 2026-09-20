@@ -29,6 +29,10 @@ export class Assignments {
   readonly demands = new Set<string>();
   private readonly writes = new Map<string, FieldValue>();
   private readonly requested = new Set<string>();
+  private readonly held = new Map<
+    string,
+    { readonly value: FieldValue; readonly holder: Assignments }
+  >();
   private refusal?: Error;
   constructor(
     readonly model: AnyModel,
@@ -83,6 +87,21 @@ export class Assignments {
     for (const producer of this.forwarded) producer.field(field);
     return { kind: "field", producer: this, field };
   }
+  /**
+   * A value this row is already KNOWN to hold, stated by the fact that
+   * selected it rather than requested by a payload.
+   *
+   * The one teller is a correlated relation arm (`RelationBody`): its target
+   * is the row the parent's own membership value names, so the edge's
+   * referenced fields hold that value before anything is read. It is not a
+   * request — nothing is `requested`, so it conflicts with nothing and no
+   * write submits it — and the observation still wins, because
+   * `CommandAttempt.read` answers a bound row first: the located bytes remain
+   * the contract a `connect` writes.
+   */
+  restate(field: string, value: FieldValue): void {
+    this.writes.set(field, value);
+  }
   forward(producer: Assignments): void {
     this.forwarded.push(producer);
     for (const field of this.demands) producer.field(field);
@@ -95,6 +114,45 @@ export class Assignments {
   }
   writesField(field: string): boolean {
     return this.writes.has(field);
+  }
+  /**
+   * A value an effect of this operation has ALREADY left this row holding.
+   *
+   * A CORRELATED arm's target is the row this one's membership already names,
+   * so when that arm's own write moves the key it references the provider
+   * moves this row with it (`ON UPDATE CASCADE`) — before this row's own
+   * statement runs. That value is neither the payload, which states what this
+   * row's statement will LEAVE, nor a request, which that statement submits:
+   * it is the row BETWEEN the two, and every consumer placed after the arm —
+   * the row's own statement, its later children, the terminal read — names the
+   * row by it (N5). A correlated CHOICE holds it and requests it both: its
+   * found arm is the row this one points at, its missing arm a row only this
+   * row's own write can point it at.
+   */
+  hold(field: string, value: FieldValue, holder: Assignments): void {
+    this.held.set(field, { value, holder });
+  }
+  /**
+   * What an effect of this operation already moved on this row — nothing, or
+   * the values the observation it holds of the row is re-addressed from.
+   *
+   * A hold is stated at PLAN time, from the HOLDER's payload: that write is
+   * what the provider would carry this row along with. Which arm RAN is an
+   * execution fact, so the caller answers `ran` — a held pair whose holder did
+   * not run moved nothing, and the row is still where the observation located
+   * it. {@link Assignments.movesField} asks the plan-time question instead
+   * (MIGHT this move), because an ordering must hold for both arms.
+   */
+  moved(
+    ran: (holder: Assignments) => boolean
+  ): Record<string, FieldValue> | undefined {
+    const moved: Record<string, FieldValue> = {};
+    for (const [field, { value, holder }] of this.held)
+      if (ran(holder)) moved[field] = value;
+    return Object.keys(moved).length === 0 ? undefined : moved;
+  }
+  movesField(field: string): boolean {
+    return this.held.has(field);
   }
   /** Whether a stated value of this write is read from `producer` (N1: the cycle test). */
   consumes(producer: Assignments): boolean {

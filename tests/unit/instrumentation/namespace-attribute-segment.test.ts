@@ -4,6 +4,7 @@ import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_SYSTEM,
   ATTR_VIBORM_WRITE_ATOMICITY,
+  SPAN_EXECUTE,
   SPAN_OPERATION,
   SPAN_RECORD_SERIES_SEGMENT,
 } from "@instrumentation/spans";
@@ -66,7 +67,7 @@ afterAll(async () => {
   await recorder.dispose();
 });
 
-test("progressive segment spans carry no database namespace", async () => {
+test("progressive segment spans are gone, and every unit this write emits names the namespace", async () => {
   const family = getFamily();
   const driver = new BatchOnlySegmentDriver({
     client: family.database,
@@ -96,14 +97,25 @@ test("progressive segment spans carry no database namespace", async () => {
   const operation = spans.find((span) => span.name === SPAN_OPERATION);
   expect(operation?.attributes[ATTR_DB_NAMESPACE]).toBe(family.namespace);
 
-  const segments = spans.filter(
-    (span) => span.name === SPAN_RECORD_SERIES_SEGMENT
-  );
-  expect(segments.length).toBeGreaterThan(0);
-  for (const span of segments) {
-    expect(span.attributes[ATTR_VIBORM_WRITE_ATOMICITY]).toBe("segment");
-    expect(Object.hasOwn(span.attributes, ATTR_DB_SYSTEM)).toBe(false);
-    expect(Object.hasOwn(span.attributes, ATTR_DB_NAMESPACE)).toBe(false);
+  // D-15 retired the V1 write-engine, which owned the ONLY emitter of
+  // SPAN_RECORD_SERIES_SEGMENT: the shipped engine keeps the committed-segment
+  // fact as `recordSeriesProgress` error metadata, never as a span, so the unit
+  // that carried `viborm.write.*` and no `db.*` no longer exists. What a
+  // progressive write emits is the operation unit and its statement units, and
+  // `getBaseAttributes` (drivers/driver-instrumentation.ts) gives EVERY one of
+  // them the namespace.
+  expect(
+    spans.filter((span) => span.name === SPAN_RECORD_SERIES_SEGMENT)
+  ).toEqual([]);
+  const statements = spans.filter((span) => span.name === SPAN_EXECUTE);
+  expect(statements.length).toBeGreaterThan(1);
+  expect(spans.length).toBe(statements.length + 1);
+  for (const span of spans) {
+    expect(span.attributes[ATTR_DB_NAMESPACE]).toBe(family.namespace);
+    expect(span.attributes[ATTR_DB_SYSTEM]).toBe("postgresql");
+    expect(Object.hasOwn(span.attributes, ATTR_VIBORM_WRITE_ATOMICITY)).toBe(
+      false
+    );
   }
 
   // The transport is supplied by the shared family, which owns its lifecycle:

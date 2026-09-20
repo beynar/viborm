@@ -531,13 +531,40 @@ export class RelationBody {
             );
           }
           let foundMembership: BoundMembership | undefined;
+          // The parent's FINAL membership value, pair by pair: what its own
+          // payload NAMES for that column, and otherwise the row it located.
+          // "The parent's FK value is its FINAL value" is the delegated fold's
+          // pinned semantics (M1,
+          // `tests/contracts/engine/write/parent-held-delegated-fk-rebind-correlation.test.ts`):
+          // a rebind in the parent's own SET moves the member, so a correlated
+          // arm locates — and writes — the row the parent ENDS on, never the
+          // one it is moving away from. The same value is what that row HOLDS
+          // for the edge's referenced field, which is why a correlated arm's
+          // own membership contribution RESTATES the parent's assignment
+          // instead of adding a second final one.
+          let correlation: Record<string, FieldValue> | undefined;
           if (correlated && !continuation) {
+            const values =
+              edge.kind === "reference"
+                ? edge.pairs.map((pair) => ({
+                    ...pair,
+                    value:
+                      parent.fields.known(pair.source) ??
+                      parent.located!.fields.field(pair.source),
+                  }))
+                : [];
+            correlation = Object.fromEntries(
+              values.map(({ target, value }) => [target, value])
+            );
             const membership = {
               edge,
-              parent:
-                verb === "update" && edge.kind !== "junction"
-                  ? parent.fields
-                  : parent.located!.fields,
+              parent: this.correlationParent(
+                edge,
+                verb,
+                Object.fromEntries(
+                  values.map(({ source, value }) => [source, value])
+                )
+              ),
             };
             this.membershipSource(edge, membership.parent);
             if (verb === "upsert" && conditional.where !== undefined)
@@ -572,6 +599,20 @@ export class RelationBody {
           lookup.membershipOnly =
             verb === "connect" &&
             !(edge.kind === "reference" && edge.owner === "source");
+          // A connect whose located value the PARENT's own SET spends carries
+          // that row's presence into the write: the premise is proved inside
+          // the atomic unit that carries the write it protects (D-29), so a
+          // target that vanishes between the plan-time read and the batch
+          // aborts the unit with the arm's own identity sentence instead of
+          // reaching the provider as a foreign-key violation on a column the
+          // engine chose. Every other connect already states it — a
+          // child-held one through the target's own record command, a
+          // junction through its captured pair, `connectOrCreate` through the
+          // replacement race above — and this selector NAMES a row, so its
+          // loss is the non-raceable identity sentence (D-34), which is what
+          // `required` already spells.
+          if (verb === "connect" && !lookup.membershipOnly)
+            lookup.retained = lookup.required;
           if (this.direct && verb === "connect") this.requireLookup(lookup);
           if (
             correlated &&
@@ -590,6 +631,16 @@ export class RelationBody {
                   edge.name
                 ),
             };
+          const chosen = new Assignments(
+            edge.target,
+            "select",
+            {},
+            {},
+            undefined,
+            missing ? [missing.fields] : []
+          );
+          for (const [field, value] of Object.entries(correlation ?? {}))
+            chosen.restate(field, value);
           const target: Choose = {
             kind: "choose",
             model: edge.target,
@@ -598,14 +649,7 @@ export class RelationBody {
             missing: missing
               ? this.commands.occurrence(missing, "after")
               : undefined,
-            fields: new Assignments(
-              edge.target,
-              "select",
-              {},
-              {},
-              undefined,
-              missing ? [missing.fields] : []
-            ),
+            fields: chosen,
             found:
               verb === "upsert" || verb === "update"
                 ? this.commands.occurrence(
@@ -926,13 +970,21 @@ export class RelationBody {
             identity: source.located?.facts,
           }
         : undefined;
-      if (!premise || (target.kind === "choose" && target.missing))
-        this.commands.assignMembership(
-          edge,
-          source.fields,
-          target.fields,
-          contribution
-        );
+      this.commands.assignMembership(
+        edge,
+        source.fields,
+        target.fields,
+        contribution,
+        {
+          carried:
+            premise && target.kind === "choose"
+              ? target.found?.command.fields
+              : undefined,
+          requested:
+            !premise ||
+            (target.kind === "choose" && target.missing !== undefined),
+        }
+      );
       if (contribution)
         this.commands.publishMembership(
           occurrence,
@@ -1065,6 +1117,44 @@ export class RelationBody {
         origin
       );
     return occurrence;
+  }
+  /**
+   * The parent value a CORRELATED arm locates its target by, at the position
+   * the arm's own lookup stands (N1: an observation is valid where it is
+   * taken).
+   *
+   * A CHILD-HELD arm is placed AFTER the parent's write ({@link association}),
+   * so the key valid there is the one that write left the row holding — under
+   * a key transition the provider has already moved the child's foreign key
+   * onto it (`ON UPDATE CASCADE`), and the pre-transition key names no member
+   * at all. The parent's own `Assignments` are that answer at every point,
+   * which is why a nested `update` placed BEFORE the write reads them too:
+   * there they state what the payload names for the column, else the row the
+   * parent located. An `upsert` on a PARENT-HELD edge cannot read them — its
+   * create arm contributes the CHOSEN row's key into those same assignments
+   * (`association` → `Commands.assignMembership`), so correlating on them
+   * would make the arm's lookup wait on the value that lookup is what
+   * produces, a read that depends on its own write, which no order satisfies
+   * (N1). It reads the same two answers as its own view, taken before that
+   * contribution exists, and forwards its demands so the located row still
+   * projects what the view will read. A JUNCTION's membership is the captured
+   * PAIR, which no SET of the parent's own columns moves.
+   */
+  private correlationParent(
+    edge: Membership,
+    verb: RelationVerb,
+    final: Record<string, FieldValue>
+  ): Assignments {
+    const parent = this.parent;
+    const located = parent.located!.fields;
+    if (edge.kind === "junction") return located;
+    if (edge.owner !== "source" || verb === "update") return parent.fields;
+    const view = new Assignments(parent.model, "select", {}, {}, located, [
+      located,
+    ]);
+    for (const [field, value] of Object.entries(final))
+      view.restate(field, value);
+    return view;
   }
   private membershipSource(
     edge: Membership,

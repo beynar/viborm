@@ -354,6 +354,18 @@ supplies it; the execution is D-50's scratch at the declared type at
 then. Nothing was refused at the schema. Note, five group notes, receipts and
 the census under `g4/release/n4/`.
 
+**Rulings after N4 (Arnaud, 2026-09-21).** D-55: #16 is KEPT as a documented
+transport limit (a composite primary key of several database-generated columns
+on a PostgreSQL batch-only transport; the multi-column scratch is not built).
+D-56: #13 is KEPT as a documented MySQL rule (a decimal primary key moves by
+`set` or `increment`; `multiply` / `divide` on a provider without RETURNING
+stays refused). D-57: #26 and #33 are EXECUTED by one mechanism — the
+database-generated key a MySQL provider cannot return is OBSERVED before the
+insert (`SELECT UUID()` and its kin, an N1-style observation) and inserted as
+a literal — as one unit ("M1") after the D-53 transport witnesses and before
+the perf lane, pinned on the MySQL Docker lane; both sentences leave the
+census. The public refusals then read 21.
+
 ## 5. N5 — the rest of the gate
 
 - **A (26):** the retired root alias `t0` → `q0` (protocol §7.2) in
@@ -376,6 +388,33 @@ the census under `g4/release/n4/`.
   manifest ownership (one list owns "runner-only"); the retired
   instrumentation attribute.
 
+
+**5 as landed (commit 27, branch `n5`).** The 99 red gate cells after N1
+closed in three waves, each cell derived before it was measured. Wave 1
+(tests only, by triage family): 54 re-expressed with the ruling named — the
+retired CTE fold's statement counts to the scalar RETURNING fold that shipped
+(D-15), the `t0` alias to `q0` (§7.2), the borrowed `skipDuplicates` member on
+the atomic-batch leg to G3P-04, the array route's unbatchable write to D-46,
+the retired polymorphic `set` sentence to D-50 / D-52, the own-write veto's
+sentences to the executed end state (D-51), the retired internals' names —
+and 45 class-C cells left red with their mechanism and owner
+named. Wave 2a (four owners, disjoint files) and 2b (the shared-primary-key
+transition, one owner across `commands/`) and 2c (the facts that span
+`execution.ts`, `operation-context.ts`, `query.ts`) repaired fourteen
+mechanisms at one owner each, every one with a pin red at the base, and no
+contract file edited for a class-C cell: the member boundary and the packaging
+rule (`holdsWrite`), the singular slot vacated once, the ladder's skip as the
+fact (`readsBatchReference`), the located adoption of a suppressed member, the
+exclusive-member cardinality refusal (V1's registered sentences restated), the
+held key of a correlated arm and the placement rule for its lookup, the
+supplied referenced field (`writesField`), the located value read where it is
+spent (`locatedValue` / `folded`) and the located-NULL refusal, the created
+member's parent re-pinned in every later segment, the temporal identity
+through the admission boundary, and the transport corpus's script re-derived
+from the rule. The census holds at 23 public (72 registered, the two re-added
+sentences among them); Arnaud's D-55 to D-57 decide the four capabilities.
+Note, briefs, the groups' reports, receipts and the census under
+`g4/release/n5/`.
 ## 6. Sequencing and the gate
 
 The maps behind this plan: `g4/release/plan/dependency-map.md`,

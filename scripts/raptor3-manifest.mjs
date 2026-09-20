@@ -1356,6 +1356,14 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/batch-captured-bulk.test.ts": 7,
   "tests/raptor3/g4/parity/combinator-named-scalar.test.ts": 4,
   "tests/raptor3/g4/parity/series-member-premise.test.ts": 4,
+  "tests/raptor3/g4/parity/singular-slot-transition.test.ts": 10,
+  "tests/raptor3/g4/parity/member-boundary-packaging.test.ts": 5,
+  "tests/raptor3/g4/parity/blind-premise-attribution.test.ts": 1,
+  "tests/raptor3/g4/parity/correlated-membership.test.ts": 5,
+  "tests/raptor3/g4/parity/suppressed-membership-target.test.ts": 7,
+  "tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts": 14,
+  "tests/raptor3/g4/parity/published-key.test.ts": 12,
+  "tests/raptor3/g4/parity/captured-identity-domains.test.ts": 9,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */

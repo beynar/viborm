@@ -1,6 +1,16 @@
+import { TransactionError } from "@errors";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
 import { describe, expect, test } from "vitest";
+
+// G3P-04 admits root-conflict suppression only where the operation owns the
+// member rollback region, and an atomic batch owns none, so a BORROWED
+// `createMany skipDuplicates` is refused there before any member effect
+// (`shared/operation-context.ts` `suppressionRefusal()`; AGENTS.md "G3P-04
+// admits root-conflict suppression only when the operation owns the member
+// rollback region").
+const BORROWED_SUPPRESSION_REFUSAL =
+  "Raptor 3 borrowed createMany skipDuplicates requires an operation-owned member rollback region.";
 
 const compoundJunctionSchema = (() => {
   const author = s
@@ -445,42 +455,57 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
         await client.book.create({ data: row });
       }
 
-      await client.author.update({
-        where: authorKey("t1", "owner"),
-        data: {
-          books: {
-            createMany: {
-              data: [
-                {
-                  region: "missing",
-                  code: "alternate",
-                  isbn: "isbn-taken",
-                  title: "must be suppressed",
-                },
-                {
-                  region: "fresh",
-                  code: "created",
-                  isbn: "isbn-fresh",
-                  title: "created",
-                },
-                {
-                  region: "seed",
-                  code: "exact",
-                  isbn: "isbn-exact",
-                  title: "must not overwrite",
-                },
-                {
-                  region: "seed",
-                  code: "authoritative",
-                  isbn: "isbn-taken",
-                  title: "must not overwrite either row",
-                },
-              ],
-              skipDuplicates: true,
+      const link = () =>
+        client.author.update({
+          where: authorKey("t1", "owner"),
+          data: {
+            books: {
+              createMany: {
+                data: [
+                  {
+                    region: "missing",
+                    code: "alternate",
+                    isbn: "isbn-taken",
+                    title: "must be suppressed",
+                  },
+                  {
+                    region: "fresh",
+                    code: "created",
+                    isbn: "isbn-fresh",
+                    title: "created",
+                  },
+                  {
+                    region: "seed",
+                    code: "exact",
+                    isbn: "isbn-exact",
+                    title: "must not overwrite",
+                  },
+                  {
+                    region: "seed",
+                    code: "authoritative",
+                    isbn: "isbn-taken",
+                    title: "must not overwrite either row",
+                  },
+                ],
+                skipDuplicates: true,
+              },
             },
           },
-        },
-      });
+        });
+
+      // G3P-04: on the atomic batch the borrowed member is refused ahead of every
+      // effect, so no book is created and no membership is written at all.
+      if (mode === "atomicBatch") {
+        const failure = await link().catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(TransactionError);
+        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+        expect(await booksOf("t1", "owner")).toEqual([]);
+        await expect(
+          client.book.findUnique({ where: bookKey("fresh", "created") })
+        ).resolves.toBeNull();
+        return;
+      }
+      await link();
 
       expect(await booksOf("t1", "owner")).toEqual([
         "fresh/created",
@@ -610,23 +635,35 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
         data: { tenantId: "tenant", localId: "existing", label: "existing" },
       });
 
-      await client.catalog.update({
-        where: { id: "catalog" },
-        data: {
-          entries: {
-            createMany: {
-              data: [
-                {
-                  tenantId: "tenant",
-                  localId: "different",
-                  label: "must be suppressed",
-                },
-              ],
-              skipDuplicates: true,
+      const link = () =>
+        client.catalog.update({
+          where: { id: "catalog" },
+          data: {
+            entries: {
+              createMany: {
+                data: [
+                  {
+                    tenantId: "tenant",
+                    localId: "different",
+                    label: "must be suppressed",
+                  },
+                ],
+                skipDuplicates: true,
+              },
             },
           },
-        },
-      });
+        });
+
+      // G3P-04: the atomic batch owns no member rollback region, so the borrowed
+      // member is refused before any effect; the end state below is the same one
+      // the transaction reaches by suppressing the row.
+      if (mode === "atomicBatch") {
+        const failure = await link().catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(TransactionError);
+        expect((failure as Error).message).toBe(BORROWED_SUPPRESSION_REFUSAL);
+      } else {
+        await link();
+      }
 
       await expect(
         client.catalog.findUnique({

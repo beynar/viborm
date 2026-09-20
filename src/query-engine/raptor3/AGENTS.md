@@ -497,7 +497,7 @@ transaction is active`. Both grants are declared on `ExecutionBinding` and read
 by `OperationContext.region()`, which is the one owner of this question.
 
 `Queries.returningSafeProjection` is the one owner of "may this projection ride
-a `RETURNING`?" — `fields.every(kind === "scalar")` — stated in the module that
+a `RETURNING`?" — `fields.every(kind === "scalar" || kind === "sentinel")` — stated in the module that
 owns the field kinds. The physical owner (`OperationContext`) and the root folds
 and bulk selection in `commands/commands.ts` all consult it; a physical owner
 does not classify a projection the projection owner already understands.
@@ -1048,16 +1048,122 @@ parent's own referenced key (a key transition, a self-held key); a CREATE
 whose written literal for the member-side key — followed through its
 producer to a known or located identity, `literalOf` — is null or another
 parent's key makes no member of this parent and is disjoint, while an UPDATE
-of that key may take a member out and is observed whatever it writes. At the ladder, a premise stated BEHIND the
-unit's own writes (an observation's requirement the unit's own delete or
-disconnect falsified) is not re-probable after the rollback; when every
-premise ahead of the writes holds now and exactly one stands behind them, the
-ladder attributes that one, so the refusal keeps its correlated identity on
-an index-free transport. Once members are expanded (`Commands.expanded`)
+of that key may take a member out and is observed whatever it writes. At the ladder, the one premise that cannot be
+re-probed after the rollback is a premise stated over a value this unit
+PRODUCED — an observation's requirement bound to the batch reference scratch,
+which the rolled-back transaction took with it (`AssertedPremise.readsBatchReference`,
+DERIVED at one owner, `OperationContext.readsBatchReference`, for the premises
+a unit states and for the continuation guards a later segment carries alike,
+N5); every other premise is re-probed,
+and when every premise ahead of the unit's writes holds now and exactly one
+stands behind them, the ladder attributes that one, so the refusal keeps its
+correlated identity on an index-free transport. Once members are expanded (`Commands.expanded`)
 nothing moves any more; a read placed by construction is already behind every
 template write it may depend on, so `expandSeries`'s pass only marks. The
 array route keeps refusing a member that needs a dynamic read (D-46,
 `preparesBatch`). Pins: `tests/raptor3/g4/parity/ordered-observation.test.ts`.
+
+**The gate's mechanisms (N5).** The retired engine's contract suites are the
+gate; every cell that pinned a retired physical detail or a retired refusal is
+re-expressed to the shipped answer with its ruling named (D-15 the scalar
+RETURNING fold only, §7.2 the `q0` alias, G3P-04, D-46, D-51), and every
+mechanism defect is repaired at one owner. A member's boundary is the MEMBER's
+and a dispatch commits the whole queue: on a batch-only transport the
+packaging boundary `executeMember` would take at a member's end is DEFERRED
+while an enclosing write waits (`TransportAttempt.holdsWrite` states the one
+distinction the queue makes — a premise commits nothing, everything else is a
+write), so a nested `createMany` of literal rows rides its parent's segment
+and a duplicate key rolls the operation back as the interactive route does;
+and the boundary a later member's OBSERVATION needs is taken by the observing
+member (`OperationContext.answer`, the one read outside the queue, when
+`holdsOtherMemberWrite` says another record of the series left a write
+waiting) — never dropped. D-51 admits that succession of segments as
+packaging for the ANSWER: an observing series that fails after its
+observation leaves the committed prefix on the batch route where the
+interactive route rolls back, the pin states both. One captured pair is one slot transition: two entries that
+resolve to the same target carry the same captured owner, `link` spends the
+vacate once per pair on both routes, and the direct arm's row-count
+postcondition keeps the race it exists for — the first vacate of a pair another
+owner took. A target whose membership is stored once — a junction row unique on
+the target side, or a reference the target row holds — belongs to exactly one
+of the rows an `updateMany` captured, so `connect`, `set` or `connectOrCreate`
+naming it across more than one captured row is not executable by any owner:
+`captureSeries` states V1's two registered sentences where the captured COUNT
+is first known (`exclusiveMemberMove`), which is not ahead of every write: a
+capture flushes, and on the batch route a flush commits what is queued before
+it, so an enclosing parent's own segment is already durable when the refusal
+fires — the two routes answer alike and differ only in what stands committed
+behind it (D-51's succession). A `connect` whose located value the parent's own SET
+spends carries the row's presence into the write (`lookup.retained`), so a
+target that vanishes between the plan-time read and the batch aborts the unit
+with the arm's identity sentence (D-29, D-34). A correlated arm locates its
+target by the parent's FINAL membership value and its own membership
+contribution RESTATES the parent's assignment (`Assignments.restate`) instead of
+being judged a second final one; an uncorrelated producer keeps the conflict
+refusal. A membership asks whether the producer's create SUPPLIES the
+referenced field (`writesField`), never whether its value is a construction-time
+literal: a sibling `connect` supplies it from the row it locates, and the
+consumer reads it at its own execution point. A CORRELATED arm's value is one
+its parent HOLDS, not one its own write requests: the arm's target is the row
+the parent's membership already names, so when the arm's write moves the key it
+references the provider moves the parent with it (ON UPDATE CASCADE) before the
+parent's own statement runs — `Commands.assignMembership` holds it
+(`Assignments.hold`) instead of requesting it, and once every `before` child has
+run the observation the operation holds of the row is re-addressed from it
+(`CommandExecution.run`), so the record's own statement, its later children and
+the terminal read all name the row where the cascade left it, every member of a
+compound key published, not only the ones the payload spelled; a supplier
+earlier in the same body names a different row, and then the row's own
+statement is what moves it. PLACEMENT, not verb, decides which key a correlated
+lookup names (`RelationBody.correlationParent`): a child-held arm is placed
+after the parent's write and names the key that write published; one placed
+before it names the parent as it is. A membership read through a field an arm
+already moved is an ordered observation of that arm's write (N1), which is what
+puts it behind the barrier on the batch route. Pins under
+`tests/raptor3/g4/parity/` (`member-boundary-packaging`,
+`singular-slot-transition`, `exclusive-member-cardinality`,
+`suppressed-membership-target`, `correlated-membership`, `published-key`).
+The value a parent-held `connect` writes into its own SET is read WHERE it is
+spent: a scalar sub-select over the arm's own prepared selector inside the
+mutation (`Queries.locatedValue`, hidden behind a derived table only where
+the dialect cannot read the table it mutates), bound by `CommandExecution.folded`;
+the probe keeps answering existence, the branch and the batch premise, so a
+probe row that changed under the plan cannot move the written key. A located
+target whose referenced field reads NULL refuses by name before any write of
+the unit (`folded`: writing the lookup's NULL would disconnect the holder the
+payload asked to connect). That arm is the only folded one: every other binds
+what the probe read, unchanged — a junction writes its captured pair, and a
+`connectOrCreate` FOUND arm spends the bytes its own probe returned, which the
+scripted transport replies spell (`tests/raptor3/transport/world.ts`). A
+created member re-pins its PARENT in every segment after the one that wrote
+it — the parent's identity and the value it holds for the edge, the pair
+`captureSeries` states, with that owner's sentence — declared at the INSERT
+(`Continuation.declaring` keeps it out of its own segment), because a
+membership names its parent by value and a committed segment cannot be taken
+back. A decoded identity re-bound as an input crosses the same admission
+boundary the payload crossed: a `dateTime` or `date` key captured from a row
+is a `Date`, and `Queries.scalarValue`'s temporal arms spell it as the INSERT
+would spell a `Date` (`admittedTemporal`, `toISOString`), which addresses the
+row wherever the column's stored form is instant-valued and wherever the
+payload's own spelling was that one. A TEXT-stored `dateTime` a payload wrote
+with a different spelling — no milliseconds, a UTC offset — is kept byte for
+byte and is still NOT addressable from a capture: a measured residual, pinned
+in `captured-identity-domains` and listed in the unit's note §6, not a repair.
+`bigint`, `decimal` and `time` already bind, and no other domain can be a key. The engine's one operation identity per client call is
+kept by a nested statement (`statementContext` derives the model, never the
+verb), so a probe's malformed-scalar decode names the operation's own verb.
+A member takes a segment of its own only where a LATER member must observe an
+earlier one's row, and the OBSERVING member is what takes it: a read answered
+outside the queued unit (`OperationContext.answer`) dispatches first when some
+other record of the series left a write waiting, because the dependency pass
+places reads against the template and a series' members carry no template
+write of each other. An enclosing write DEFERS the boundary a member would
+otherwise take at its own end; it never drops it, and a read taken outside
+every member claims nothing (an ordered observation is stated inside the unit
+on purpose). The generated transport corpus's script models that packaging
+from the rule, not from the spelling of the nesting. Pins:
+`captured-identity-domains`, the N1 pin's index-free cells, the E1 and E4
+contract files.
 
 A capture that depends on nothing keeps its place ahead of the effects, and
 the reason is MEASURED, not stylistic: a capture flushes, and on the batch
@@ -1243,15 +1349,21 @@ membership is a TRANSFER, so the member captures the current owner at its own
 body position from the key it SPELLS (a `JunctionCapture` with no located
 address — the shipped `JunctionTransferAddress.values`), and a later member
 naming the same target observes the membership the earlier one moved and is the
-exact-pair no-op. A member whose key the provider would generate names no
-existing row and writes nothing. The MEMBERSHIP, and only it: the member's
+exact-pair no-op. A member whose key the provider would generate names the
+existing row through the ONE declared unique its payload spells whole — the
+shipped `adopt` disposition, E6.8's connectOrCreate adopt
+(`junction-create-many-routing.ts:117-131`); two spelled uniques name two rows
+and so name none, and a spelled key that names no row writes nothing, because
+the row is LOCATED (`locateSuppressed`), never assumed (N5). The MEMBERSHIP, and only it: the member's
 nested RECORD writes belong to the row that was never created, so
 `adoptSuppressed` replays the membership kinds alone (`link`, `remove`,
 `junction` — a `membership` child is always placed `before`, so naming it there
-would be a guard with no coverage of its own) — which is what the shipped engine did, since
+would be a guard with no coverage of its own) — and a member that declares ANY
+other effect of its own strands whole, join included, since
 `joinWhenTargetExists` is a leaf route no relation-bearing row takes
 (`junction-create-many-routing.ts:76-84`) and a skipped root in the series it
-does take stranded the rest of the member (`OperationExecutor.ts:894`). A
+does take returned before the member's remaining steps ran
+(`OperationExecutor.ts:894`, "if (execution.skippedRoot) return true"). A
 `skipDuplicates` member is idempotent against an existing row.
 
 An affected-row count is this operation's answer, not the provider's opinion:

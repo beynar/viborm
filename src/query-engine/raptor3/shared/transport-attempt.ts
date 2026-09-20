@@ -3,8 +3,20 @@ import type { UniqueConstraintError } from "@errors";
 import type { Member } from "./operation-context";
 import type { Query } from "./query";
 
-/** One assertion this attempt raises if its statement disagrees with the world. */
-type AssertedPremise = { query: Query; present: boolean; failure: Error };
+/**
+ * One assertion this attempt raises if its statement disagrees with the world.
+ *
+ * `readsBatchReference` states whether it asks about a value this unit
+ * PRODUCED, read back from the batch reference scratch: the one premise a
+ * rollback leaves unaskable, because the transaction took the scratch with it.
+ * The attribution ladder reads it to know which premise it cannot re-probe.
+ */
+type AssertedPremise = {
+  query: Query;
+  present: boolean;
+  failure: Error;
+  readsBatchReference: boolean;
+};
 
 /**
  * Disposable batch construction and rejection evidence; never committed progress.
@@ -40,6 +52,32 @@ export class TransportAttempt {
   /** Whether any assertion has been recorded, without creating the map. */
   get hasAssertedPremises(): boolean {
     return this.premises !== undefined && this.premises.size > 0;
+  }
+  /**
+   * Is a WRITE waiting, or only premises?
+   *
+   * Two kinds of statement wait here before a dispatch: the premises a unit
+   * proves, which commit nothing on their own, and the writes they protect.
+   * A caller asking whether dispatching NOW would make someone else's write
+   * durable asks this, and nothing finer.
+   */
+  get holdsWrite(): boolean {
+    return this.pending.some((statement) => !this.premises?.has(statement));
+  }
+  /**
+   * Is a write of a record OTHER than this one's waiting?
+   *
+   * Every record's write is declared with the record it belongs to
+   * ({@link recordMember}); a premise and the batch scratch's own statements
+   * are declared with none. So a member asking this asks the one question its
+   * boundary answers: has some other record of this series left an effect in
+   * the queue that a read taken OUTSIDE the queue cannot see
+   * ({@link OperationContext.executeMember})?
+   */
+  holdsOtherMemberWrite(member: Member): boolean {
+    if (!this.members) return false;
+    for (const queued of this.members) if (queued !== member) return true;
+    return false;
   }
   /** The producers recorded so far; this attempt keeps none of them. */
   drainInsertProducers(): Map<BatchQuery, object> {

@@ -468,19 +468,52 @@ export class Commands {
       return command.origin;
     return undefined;
   }
+  /**
+   * Where a membership's value is BOUND into the row that carries it, as the
+   * two things that row can do with it.
+   *
+   * It REQUESTS the value when its own statement must point it at the target:
+   * a fresh or rebound row, and a correlated choice's missing arm, which
+   * creates a row only that statement can point this one at.
+   *
+   * It HOLDS the value when it rides on `carried`, the arm's own write: a
+   * CORRELATED arm's target is the row this row's membership names, so a
+   * write of the referenced key moves this row with it (`ON UPDATE CASCADE`)
+   * before this row's own statement runs ({@link Assignments.hold}). A
+   * SUPPLIER earlier in the same body — `connect` and its kin run before
+   * `update` and `upsert` — names a different row, and then it is this row's
+   * own statement that moves it and the key it was located by that addresses
+   * it.
+   */
   assignMembership(
     edge: Reference,
     destination: Assignments,
     producer: Assignments,
-    contribution?: MembershipContribution
+    contribution?: MembershipContribution,
+    binding: {
+      readonly carried?: Assignments;
+      readonly requested?: boolean;
+    } = {}
   ): void {
     for (const pair of edge.pairs) {
       const field = edge.owner === "source" ? pair.source : pair.target;
       const referenced = edge.owner === "source" ? pair.target : pair.source;
+      // What the consumer needs is that the producer's create SUPPLIES this
+      // referenced field, not that its value is a construction-time literal.
+      // A sibling `connect` on the producer supplies it from the row it
+      // locates, and `known` is undefined there BY CONTRACT — the located
+      // bytes are what the column holds, never the selector's literal, which
+      // a case-insensitive collation can differ from — so a knowability test
+      // spelled as `known` refuses a shape whose value is fixed before the
+      // consumer's INSERT: the consumer reads it from the producer at its own
+      // execution point, behind the lookup and behind the producer's write.
+      // An explicit NULL supplies nothing, and a field the payload never
+      // writes is the shape the sentence names.
       const known = producer.known(referenced);
       if (
         producer.operation === "create" &&
-        (!known || (known.kind === "literal" && known.value === null))
+        (!producer.writesField(referenced) ||
+          (known?.kind === "literal" && known.value === null))
       ) {
         const scalar = physicalField(
           this.context.schema,
@@ -494,14 +527,21 @@ export class Commands {
             )
           );
       }
-      destination.contribute(
-        field,
-        producer.field(referenced),
-        `query-engine-v2 ${destination.operation} has conflicting final assignments for column '${this.context.queries.columnName(destination.model, field)}' on relation '${edge.name}'.`,
-        contribution
-      );
+      const value = producer.field(referenced);
+      if (
+        binding.carried?.writesField(referenced) &&
+        !destination.writesField(field)
+      )
+        destination.hold(field, value, binding.carried);
+      if (binding.requested !== false)
+        destination.contribute(
+          field,
+          value,
+          `query-engine-v2 ${destination.operation} has conflicting final assignments for column '${this.context.queries.columnName(destination.model, field)}' on relation '${edge.name}'.`,
+          contribution
+        );
     }
-    if (edge.discriminator)
+    if (edge.discriminator && binding.requested !== false)
       destination.contribute(
         edge.discriminator.field,
         { kind: "literal", value: edge.discriminator.value },
@@ -712,7 +752,33 @@ export class Commands {
     const observed =
       edge.owner === "source" ? owner.command.located?.facts : lookup.facts;
     const publication = write.membership;
-    if (!publication || publication.carrier.model !== carrier) return;
+    if (!publication) return;
+    const relation = lookup.origin.slot ?? lookup.origin.relation;
+    const operation = lookup.origin.operation;
+    const dependency = (earlier: string) =>
+      new NestedWriteError(
+        `Nested operation '${operation}' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
+        relation,
+        { meta: { operation, conflictsWith: earlier, relation } }
+      );
+    // The same read, and the other side of it: a membership read THROUGH a
+    // field an earlier arm already MOVED on this parent — the arm's target
+    // update carried this row's own foreign key with it, so the key the read
+    // was planned with names no member at all ({@link Assignments.hold}). The
+    // record-write case above says this for a parent that WRITES the field
+    // itself; a correlated arm's parent does not write it, the provider does.
+    if (
+      publication.carrier === membership.parent &&
+      membershipFields(edge).some((field) =>
+        publication.carrier.movesField(field)
+      )
+    ) {
+      this.depend(write, read, () =>
+        dependency(publication.contribution.origin.operation)
+      );
+      return;
+    }
+    if (publication.carrier.model !== carrier) return;
     const contribution = publication.contribution;
     const ownerDiffers = write.occurrence.command !== lookup;
     if (!ownerDiffers) return;
@@ -736,19 +802,7 @@ export class Commands {
         }
       }
     if (disjoint) return;
-    const relation = lookup.origin.slot ?? lookup.origin.relation;
-    const operation = lookup.origin.operation;
-    const earlier = contribution.origin.operation;
-    this.depend(
-      write,
-      read,
-      () =>
-        new NestedWriteError(
-          `Nested operation '${operation}' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
-          relation,
-          { meta: { operation, conflictsWith: earlier, relation } }
-        )
-    );
+    this.depend(write, read, () => dependency(contribution.origin.operation));
   }
   private readTarget(write: DependencyWrite, read: DependencyRead): void {
     const { lookup } = read;

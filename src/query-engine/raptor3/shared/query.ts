@@ -40,6 +40,10 @@ import {
   isGregorianCalendarDate,
 } from "@validation/primitives/datetime-values";
 import {
+  validateIsoDate,
+  validateIsoTimestamp,
+} from "@validation/primitives/iso";
+import {
   canonicalDecimal,
   decimalMembers,
   decimalSumOperand,
@@ -590,6 +594,45 @@ export function wholeValue(
 }
 
 /** Query scopes and output shapes share no record-identity requirement. */
+/**
+ * A temporal operand's WIRE form: what the ADMISSION boundary makes of it.
+ *
+ * A payload's instant crossed `validation/primitives/iso.ts` before it reached
+ * this engine — `Date` in, ISO spelling out — and a value the engine DECODED
+ * is the `Date` of that same instant, which is bound BACK whenever an
+ * identity, a membership or a premise is built from a row the engine read: a
+ * `dateTime` or `date` key captured on a transport without RETURNING answers
+ * `UPDATE … WHERE ("id" = ? OR "id" = ?)`, and no driver binds a `Date`
+ * ("SQLite3 can only bind numbers, strings, bigints, buffers, and null"). So a
+ * captured instant crosses the same boundary the payload did, which spells a
+ * `Date` as `Date.prototype.toISOString` produces it (`iso.ts:75`).
+ *
+ * That spelling addresses the row wherever the column's stored form is
+ * INSTANT-valued — SQLite INTEGER/REAL, the PostgreSQL and MySQL timestamp
+ * types — and wherever the payload's own spelling was that one. It does not
+ * address a TEXT-stored `dateTime` written by any other spelling: the same
+ * boundary admits a valid ISO STRING unchanged (`ok(value)`, `iso.ts:94`) and
+ * the SQLite adapter keeps that string byte for byte
+ * (`sqlite-adapter.ts:288-296`), so a key written `2020-03-01T10:00:00Z` or
+ * with a `+02:00` offset is stored as those bytes while a capture of it
+ * re-binds `…:00.000Z` and matches no row. Measured and pinned as a residual
+ * (`g4/parity/captured-identity-domains.test.ts`, `g4/release/n5/note.md` §6):
+ * this states no domain of its own, and making a capture address those bytes
+ * is a question for the one owner of the spelling, not a second one here.
+ * Every other value passes through untouched. The other captured domains bind
+ * as they are — measured: `bigint`, `decimal` and `time` are already
+ * provider-bindable, and `blob`, `json`, `point` and `vector` can be neither a
+ * key nor a unique, so no identity carries one.
+ */
+function admittedTemporal(
+  value: unknown,
+  admit: (value: unknown) => { value: string } | { issues: unknown }
+): unknown {
+  if (!(value instanceof Date)) return value;
+  const admitted = admit(value);
+  return "value" in admitted ? admitted.value : value;
+}
+
 export class Queries {
   private nextAlias = 0;
   private readonly views: QueryViews;
@@ -781,10 +824,14 @@ export class Queries {
         return a.capabilities.supportsVector
           ? a.vector.literal(value as number[])
           : a.literals.value(value);
-      case "datetime":
-        return typeof value === "string"
-          ? a.literals.dateTime(value, this.nativeType(scalar))
-          : a.literals.value(value);
+      case "datetime": {
+        const wire = admittedTemporal(value, validateIsoTimestamp);
+        return typeof wire === "string"
+          ? a.literals.dateTime(wire, this.nativeType(scalar))
+          : a.literals.value(wire);
+      }
+      case "date":
+        return a.literals.value(admittedTemporal(value, validateIsoDate));
       default:
         return a.literals.value(value);
     }
@@ -1244,6 +1291,41 @@ export class Queries {
     alias?: string,
   ): Sql | undefined {
     return this.lowerSelector(this.prepareSelector(model, where), alias);
+  }
+  /**
+   * The value a LOCATED row holds for one field, read where it is SPENT:
+   * `(SELECT <column> FROM <target> WHERE <this arm's selector> LIMIT 1)`,
+   * inside the statement that writes it.
+   *
+   * A parent-held `connect` folds its target's referenced value into the
+   * parent's own SET. Its planning probe answers EXISTENCE and the branch; the
+   * bytes that land in the column are the target's own, read at the write — so
+   * no second, re-derived provenance stands between the row the selector named
+   * and the key written, and a collation that makes the selector's literal
+   * differ from the stored value cannot change the answer (E1 U1, and the
+   * create root's `toOneFkAssign` before it).
+   *
+   * `mutating` is the model the enclosing statement writes: where the provider
+   * refuses to read the table its own statement mutates (MySQL ERROR 1093) the
+   * read hides behind a derived table, the same one condition
+   * {@link hideMutationTarget} already owns — the SELF relation's shape.
+   */
+  locatedValue(
+    model: AnyModel,
+    field: string,
+    selector: PreparedSelector,
+    mutating?: AnyModel
+  ): Sql {
+    const alias = this.alias();
+    const located = assembleAdapterSelect(this.adapter, {
+      columns: this.column(model, field, alias),
+      from: this.table(model, alias),
+      where: this.lowerSelector(selector, alias),
+      limit: this.value(1),
+    });
+    return this.adapter.subqueries.scalar(
+      this.hideMutationTarget(located, model, mutating?.["~"].names.sql)
+    );
   }
   lowerMutationLimit(
     model: AnyModel,

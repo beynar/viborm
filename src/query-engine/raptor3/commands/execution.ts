@@ -3,11 +3,17 @@ import {
   NestedWriteError,
   NotFoundError,
   UniqueConstraintError,
+  UnsupportedOperationError,
 } from "@errors";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import { assertInvariant } from "../shared/invariant";
-import type { Member, ObservationPremise } from "../shared/operation-context";
+import type {
+  Member,
+  MembershipParent,
+  ObservationPremise,
+} from "../shared/operation-context";
 import type { Query } from "../shared/query";
-import type { Arguments, Input } from "../shared/schema";
+import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, storedFields } from "../shared/storage";
 import type { TransportAttempt } from "../shared/transport-attempt";
 import type { Assignments } from "./assignments";
@@ -19,6 +25,7 @@ import {
 } from "./commands";
 import type {
   Choose,
+  Command,
   CommandOccurrence,
   Commands,
   RecordCommand,
@@ -143,6 +150,111 @@ export class CommandExecution {
         failure
       );
     }
+  }
+  /**
+   * What a parent-held `connect`'s LOCATED row supplies to the row that SPENDS
+   * it — the ONE arm whose located value the parent's own SET writes.
+   *
+   * The probe answers EXISTENCE and the branch this arm takes. The value the
+   * consumer's own statement writes is read inside that statement, over this
+   * arm's own selector ({@link Queries.locatedValue}), so a probe row that
+   * changed under us cannot move the written key and what lands in the column
+   * is the target's own bytes. Reading the referenced column is also how the
+   * arm SEES a located target holding NULL there: writing that NULL would
+   * DISCONNECT the holder the payload asked to connect, so the arm refuses by
+   * name — here, ahead of every write of the unit, the sibling scalars of the
+   * same SET included.
+   *
+   * The gate asks TWO things because `membershipOnly` answers only one of
+   * them: it says this arm's value is not a pure membership, and it is FALSE
+   * for every verb but `connect` — so the verb is asked here as well. Every
+   * other arm binds what the probe read, unchanged: a junction writes its
+   * captured pair, and a `connectOrCreate` FOUND arm spends the bytes its own
+   * probe returned — the retired engine folded the `connect` lookup and no
+   * other, which is what the scripted transport replies still spell
+   * (`tests/raptor3/transport/world.ts`, `coc-found`).
+   */
+  private folded(
+    command: Choose,
+    enclosing: Command | undefined,
+    captured: Input
+  ): Input {
+    const origin = command.lookup.origin;
+    if (
+      !origin ||
+      origin.operation !== "connect" ||
+      command.lookup.membershipOnly !== false
+    )
+      return captured;
+    const values: Input = { ...captured };
+    for (const field of command.fields.demands) {
+      if (captured[field] === null)
+        throw new NestedWriteError(
+          `Cannot ${origin.operation} relation '${origin.relation}': the located target's referenced field '${field}' is null.`,
+          origin.relation
+        );
+      values[field] = this.context.queries.locatedValue(
+        command.model,
+        field,
+        command.lookup.selector,
+        enclosing?.kind === "record" ? enclosing.model : undefined
+      );
+    }
+    return values;
+  }
+  /**
+   * The PARENT row this created record is a member of, where it has one.
+   *
+   * A membership names its parent BY VALUE: this row's own column holds what
+   * the parent's referenced field held when the plan read it. Where the INSERT
+   * commits in a segment of its own, everything that follows trusts a parent
+   * nothing re-read — and once another row holds that reference, the
+   * correlation answers with IT. So the continuation re-pins the parent the
+   * way {@link CommandExecution.captureSeries} pins a captured series': the
+   * parent's IDENTITY and the value it holds for the edge, in one premise.
+   *
+   * The contributions that read the ENCLOSING record's own fields are that
+   * membership — `Commands.create` assigns them from the incoming edge — and
+   * the placement's origin names the relation and the verb that spelled it.
+   */
+  private membershipParent(
+    command: RecordCommand,
+    enclosing: Command | undefined
+  ): MembershipParent | undefined {
+    const origin = command.origin;
+    if (!origin || enclosing?.kind !== "record") return undefined;
+    const referenced: string[] = [];
+    for (const value of command.fields.contributions().values())
+      if (value.kind === "field" && value.producer === enclosing.fields)
+        referenced.push(value.field);
+    if (referenced.length === 0) return undefined;
+    const parent = enclosing.fields;
+    return {
+      model: parent.model,
+      where: {
+        ...this.identity(parent),
+        ...this.attempt.select(parent, referenced),
+      },
+      relation: origin.relation,
+      verb: origin.operation,
+    };
+  }
+  /**
+   * Whether the arm that HOLDS a moved value is the arm that RAN.
+   *
+   * {@link Assignments.hold} is stated at plan time from a choice's FOUND
+   * payload, because that write is the one the provider would carry this row
+   * along with. A choice that took its MISSING arm created a row only this
+   * row's own statement can point it at — nothing cascaded, and re-addressing
+   * the observation by the key the new row holds would name no row at all
+   * (a live `UPDATE ... RETURNING` that produces nothing, a batch route that
+   * commits a fresh target and moves no holder). The attempt already records
+   * which arm ran.
+   */
+  private carried(holder: Assignments): boolean {
+    for (const choice of this.attempt.missingChoices.values())
+      if (choice.found?.command.fields === holder) return false;
+    return true;
   }
   private matchesSelectedConstraint(
     choice: Choose,
@@ -327,6 +439,20 @@ export class CommandExecution {
         await this.requireTransitions(command);
         for (const child of occurrence.children)
           if (child.placement === "before") await this.run(child, member);
+        // Every `before` child has run, and one of them may already have moved
+        // this row: a correlated arm's target is the row this one points at, so
+        // the provider rewrote this row's foreign key when the arm rewrote the
+        // key it references ({@link Assignments.hold}). The observation this
+        // operation holds of the row is re-addressed from the value the arm
+        // published, so the record's own statement, its later children and the
+        // terminal read all name the row where the cascade left it — the
+        // located key names nothing at all. One of them may equally have run
+        // its OTHER arm, and then nothing cascaded ({@link carried}).
+        const moved =
+          command.located &&
+          command.fields.moved((holder) => this.carried(holder));
+        if (moved)
+          attempt.materialize(command.located!.fields, attempt.resolve(moved));
         attempt.bind(
           command.fields,
           command.located
@@ -345,7 +471,8 @@ export class CommandExecution {
                 command.fields.demands,
                 member,
                 command.operation,
-                command.fields
+                command.fields,
+                this.membershipParent(command, occurrence.parent?.command)
               )
         );
         // Every capture still runs before every effect, and the reason is
@@ -513,7 +640,11 @@ export class CommandExecution {
               ...captured,
               ...attempt.select(found.command.fields, command.fields.demands),
             });
-          } else attempt.bind(command.fields, captured);
+          } else
+            attempt.bind(
+              command.fields,
+              this.folded(command, occurrence.parent?.command, captured)
+            );
         } else if (missing) {
           attempt.missingChoices.set(missing.command.fields, command);
           await this.run(missing, member);
@@ -674,37 +805,84 @@ export class CommandExecution {
   /**
    * A skipped INSERT is not a skipped MEMBERSHIP.
    *
-   * `skipDuplicates` suppressed this member's target row because that row
-   * already EXISTS, so the membership this member declared is written against
-   * the existing row rather than rolled back with the insert — the shipped
-   * `joinWhenTargetExists` route
+   * `skipDuplicates` suppressed this member's target ROW, so the membership it
+   * declared is written against the row the member NAMES rather than rolled
+   * back with the insert — the shipped `joinWhenTargetExists` route
    * (`write-engine/junction-create-many-routing.ts:95-113`,
-   * `JunctionStatements.ts:134-155`). Only a member that spells its whole row
-   * key names that existing row; one whose key the provider would have
-   * generated names nothing, and writes nothing.
+   * `JunctionStatements.ts:134-155`). "Own key spelled" is not that question:
+   * a spelled key that names NO row (the insert was refused by a different
+   * unique) must write no membership, and a row key the provider generates
+   * names the existing row through the one declared unique the payload spells
+   * — the shipped `adopt` disposition, which E6.8 calls the `connectOrCreate`
+   * adopt (`junction-create-many-routing.ts:117-131`). So the row is LOCATED
+   * by what the payload spells, generated keys included, and a member that
+   * locates nothing writes nothing.
    *
-   * The MEMBERSHIP, and only it: a nested record write this member declared
-   * belongs to the row that was never created, and the shipped engine never
-   * performed one against a pre-existing row — `joinWhenTargetExists` is the
-   * leaf route a relation-bearing row never takes
-   * (`junction-create-many-routing.ts:76-84`), and in the series it does take a
-   * skipped root stranded the rest of the member
-   * (`OperationExecutor.ts:894`, "a skipped root must strand nothing").
+   * The MEMBERSHIP, and only it: every other effect this member declared
+   * belongs to the row that was never created, so a member that declares one
+   * strands whole, join included — the shipped router reads `relationBearing`
+   * BEFORE the join route (`junction-create-many-routing.ts:76-84`), and in
+   * the series it takes instead a skipped root returned before the member's
+   * remaining steps ran (`OperationExecutor.ts:894`,
+   * `if (execution.skippedRoot) return true`). The separate invariant "a
+   * skipped root must strand nothing" (`:2389`) is about an effect placed
+   * BEFORE that root, and refuses the member outright.
    */
   private async adoptSuppressed(
     record: CommandOccurrence<RecordCommand>
   ): Promise<void> {
     const command = record.command;
-    for (const field of this.context.schema.keys(command.model))
-      if (command.fields.known(field)?.kind !== "literal") return;
     for (const child of record.children)
       if (
-        child.placement !== "before" &&
-        (child.command.kind === "link" ||
-          child.command.kind === "remove" ||
-          child.command.kind === "junction")
+        child.command.kind !== "link" &&
+        child.command.kind !== "remove" &&
+        child.command.kind !== "junction"
       )
-        await this.run(child, command);
+        return;
+    const row = await this.locateSuppressed(command);
+    if (!row) return;
+    this.attempt.bind(command.fields, row);
+    for (const child of record.children)
+      if (child.placement !== "before") await this.run(child, command);
+  }
+  /**
+   * The existing row a suppressed member NAMES, read at this member's own
+   * position: its complete row key when the payload spells it, else the one
+   * declared unique it spells whole. Two spelled uniques name two rows and so
+   * name none — the shipped disposition's `spelled.length !== 1` suppression
+   * (`junction-create-many-routing.ts:121-124`).
+   */
+  private async locateSuppressed(
+    command: RecordCommand
+  ): Promise<Input | undefined> {
+    const ctx = this.context;
+    // A NULL is not a spelling: it equals no row, so a key holding one names
+    // none (the shipped disposition's own `value !== undefined && value !==
+    // null`, `junction-create-many-routing.ts:118-120`).
+    const spelled = (fields: readonly string[]): Input | undefined => {
+      const values: Input = {};
+      for (const field of fields) {
+        const known = command.fields.known(field);
+        if (known?.kind !== "literal" || known.value === null) return undefined;
+        values[field] = known.value;
+      }
+      return values;
+    };
+    let address = spelled(ctx.schema.keys(command.model));
+    if (!address) {
+      const named = getModelKeyCatalog(command.model)
+        .addressableKeys.filter((key) => key.kind !== "primary")
+        .map((key) => spelled(key.fields))
+        .filter((values) => values !== undefined);
+      if (named.length !== 1) return undefined;
+      address = named[0]!;
+    }
+    const located = this.commands.lookup(command.model, {
+      kind: "query",
+      selector: ctx.queries.identitySelector(command.model, address),
+    });
+    await this.runSelection(located, command);
+    return this.attempt.rows.get(located);
   }
   async series(
     occurrence: CommandOccurrence<SeriesOccurrence>,
@@ -861,6 +1039,14 @@ export class CommandExecution {
       false,
       selection.model
     );
+    if (series.mutation.kind === "update") {
+      const exclusive = this.exclusiveMemberMove(
+        selection.model,
+        series.mutation.raw,
+        rows.length
+      );
+      if (exclusive) throw ctx.failure(exclusive, "planning", member);
+    }
     if (membership && parentRequirement && ctx.usesBatch) {
       // The complement's own premise, in front of the complement.
       //
@@ -938,6 +1124,71 @@ export class CommandExecution {
     };
     attempt.series.set(occurrence, prepared);
     return prepared;
+  }
+  /**
+   * One named EXCLUSIVE target membership, applied to many captured rows.
+   *
+   * A target whose membership is stored once — a junction row unique on the
+   * target side, or a reference the TARGET row holds — belongs to exactly one
+   * of the rows this series captured, so `connect` / `set` / `connectOrCreate`
+   * across more than one of them is not executable by any owner: applied in
+   * sequence the last row takes the target from the others, which is the
+   * damage measured before this refusal returned ({count: 2}, both rows
+   * written, the membership on whichever ran last). These are the retired
+   * engine's two registered sentences
+   * (`query-engine/relation-key-legality.ts:145`/`:149` at `e8114ed9d^`), kept
+   * because D-52 keeps a refusal that names an execution fact — here
+   * cardinality — that no owner can execute around.
+   *
+   * It is stated where the observed COUNT is first known, which is this site:
+   * the one place that holds both the captured rows and the mutation they all
+   * apply. That is NOT ahead of every write of the unit. A capture flushes,
+   * and on the batch route a flush commits everything queued before it, so an
+   * enclosing parent's own segment is already durable when this refusal fires
+   * — the two routes answer with the same sentence and differ only in what
+   * stands committed behind it (D-51's succession of segments, pinned by
+   * `tests/raptor3/g4/parity/exclusive-member-cardinality.test.ts`). It reads
+   * the payload the caller wrote, which the
+   * plan-time analysis (`SelectedSeries.analysis`) already admitted — the
+   * per-member admission is NOT re-run here, because a member's admission runs
+   * this payload's client-side defaults and every member owns its own
+   * (`tests/raptor3/core-structure/member-scope.contract.test.ts`
+   * `cs03-peer-scope-root` pins the sequence).
+   */
+  private exclusiveMemberMove(
+    model: AnyModel,
+    data: Input,
+    count: number
+  ): Error | undefined {
+    if (count < 2) return undefined;
+    for (const name of model["~"].relationNames) {
+      const payload = data[name];
+      if (payload === undefined) continue;
+      const arm =
+        model["~"].state.relations[name]!["~"].state.target.kind === "variants";
+      for (const verb of ["connect", "connectOrCreate", "set"] as const) {
+        const targets = record(payload)[verb];
+        if (targets === undefined) continue;
+        for (const target of entries(targets)) {
+          const edge = this.context.schema.membership(
+            model,
+            name,
+            arm ? (target.type as string) : undefined
+          );
+          const stored =
+            edge.kind === "junction"
+              ? edge.uniqueSide === "target" &&
+                "that target's member-junction slot can belong to only one of them"
+              : edge.owner === "target" &&
+                "that membership is stored on the target row, which can belong to only one of them";
+          if (!stored) continue;
+          return new UnsupportedOperationError(
+            `updateMany matched ${count} rows, so it cannot apply '${verb}' to relation '${name}': ${stored} — the last row updated would take it from the others. Narrow the filter (or add 'limit: 1') so exactly one row matches, or write this relation in a separate call.`
+          );
+        }
+      }
+    }
+    return undefined;
   }
   private async executeSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>

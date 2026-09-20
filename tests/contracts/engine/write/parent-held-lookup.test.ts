@@ -1,7 +1,7 @@
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-import { NestedWriteError } from "@errors";
+import { NestedWriteError, NotFoundError } from "@errors";
 
 import {
   makeLookupClient,
@@ -192,7 +192,22 @@ describe("E1 U1 — the lookup fold's provenance", () => {
 
       // The probe row now crosses the complete typed result boundary before the
       // relation compiler consumes it. Corrupting a required int to null must stop
-      // there; the later relation-specific null diagnostic is unreachable by design.
+      // there; the arm's own located-NULL refusal — which a NULLABLE referenced
+      // column does reach (`parent-held-lookup-behavior.ts`, "a located target
+      // whose referenced NULLABLE unique is NULL refuses") — is unreachable here
+      // by design.
+      //
+      // ATTRIBUTION (N5). The retired engine compiled this probe as its own
+      // `findMany` query-engine operation and the message named it. Raptor 3 has
+      // ONE operation identity per client call: `statementContext` derives the
+      // MODEL a nested statement addresses and keeps the operation it belongs
+      // to, so the probe's malformed row is the `update`'s. Every other cell
+      // that pins this sentence names the operation's own verb
+      // (`g4/unit02/lone-statement-transport.test.ts` "createMany",
+      // `post-prep/g29-result-progress.test.ts`), and the sibling probe cell
+      // `inverse-to-one-update-depth.test.ts` `UNRESOLVED_LOCATED_PK` was
+      // re-expressed to the same answer. The fact pinned here — typed,
+      // attributed, and BEFORE any write — is unchanged.
       const client = makeLookupClient(
         new CorruptConnectProbeDriver(options, {
           table: "e1_authors",
@@ -206,7 +221,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
           data: { author: { connect: { email: "target@x" } } },
         })
       ).rejects.toThrow(
-        'Driver "pglite" returned a malformed int scalar for operation "findMany": a required scalar is null.'
+        'Driver "pglite" returned a malformed int scalar for operation "update": a required scalar is null.'
       );
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
@@ -443,12 +458,21 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
         }, options)
       );
 
-      // MEASURED OUTCOME (i): a typed abort carrying the UPSERT family's premise
-      // wording, from the delegated sub-op's own batch presence guard — not a
-      // not-found on a nested update, and not a write landing on some other row.
-      // Nothing is written: the atomic unit rolls back whole.
-      await expect(
-        client.book.update({
+      // MEASURED OUTCOME (i): a typed abort from the delegated sub-op's own batch
+      // presence guard, naming the model and the operation whose target vanished —
+      // and not a write landing on some other row. Nothing is written: the atomic
+      // unit rolls back whole.
+      //
+      // N5 class D: the retired engine spent a separate UPSERT-family sentence here
+      // ("Nested upsert premise changed for relation 'author'."), distinguishing
+      // "the premise the arm chose its branch on changed" from "the arm's target is
+      // missing". That template does not exist in `src/`. Raptor 3 makes no such
+      // distinction: existence is the execution fact, and it is answered by the
+      // registered `NotFoundError` (`src/errors/query.ts`) carrying the model and
+      // the operation in its meta. The typed, attributed, pre-write abort — the
+      // thing this cell measures — is unchanged.
+      const stale = await client.book
+        .update({
           where: { id: 1 },
           data: {
             author: {
@@ -462,7 +486,12 @@ describe("E1 U4 — the delegated upsert arm's staleness window", () => {
             },
           },
         })
-      ).rejects.toThrow("Nested upsert premise changed for relation 'author'.");
+        .catch((reason: unknown) => reason);
+      expect(stale).toBeInstanceOf(NotFoundError);
+      if (!(stale instanceof NotFoundError)) throw stale;
+      expect(stale.message).toBe("No author record found for update");
+      expect(stale.meta.model).toBe("author");
+      expect(stale.meta.operation).toBe("update");
       await expect(stateClient.award.findMany({})).resolves.toEqual([]);
       await expect(
         stateClient.author.findMany({ orderBy: { id: "asc" } })

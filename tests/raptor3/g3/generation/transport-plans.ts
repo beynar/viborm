@@ -522,6 +522,28 @@ function recurrenceSegment(
   });
 }
 
+/**
+ * The ORDINARY and REPEATED recurrence shapes' packaging: one dispatched unit.
+ *
+ * N5 derives it from the boundary rule rather than from the spelling of the
+ * nesting. A member takes a segment of its own only where a LATER member must
+ * OBSERVE an earlier one's row — a `connectOrCreate` probe, an ordered
+ * observation, a produced identity — because a dispatch commits the whole
+ * queue and D-51 admits a succession of segments only while the two routes
+ * keep ONE result. The recurrence world's nodes spell every key and read
+ * nothing (`recurrence-ordinary-world.ts`), so no member of either shape
+ * observes another: `children: { create: [...] }` and
+ * `children: { createMany: { data: [...] } }` package identically, at every
+ * depth and fanout, and the terminal re-read rides the same batch behind the
+ * writes.
+ *
+ * Per representative recipe, that is: `8019` (depth 2, fanout 2, ordinary) 7
+ * INSERTs; `8023` (depth 2, fanout 2, repeated) the same 7; `8031` (depth 2,
+ * fanout 0, repeated) 3; `8027` (depth 0, fanout 3, repeated) and `8611`
+ * (depth 0, ordinary) the folded root `create` below. A faulted recipe carries
+ * its fault on that one segment, because there is no earlier segment for it to
+ * commit behind.
+ */
 function ordinaryRecurrenceReplies(
   recipe: Extract<G3GeneratedRecipe, { contract: "C11" }>,
   name: string,
@@ -554,50 +576,6 @@ function ordinaryRecurrenceReplies(
       folded ? "execute" : "batch"
     ),
   ];
-}
-
-function repeatedRecurrenceReplies(
-  recipe: Extract<G3GeneratedRecipe, { contract: "C11" }>,
-  name: string,
-  firstParameter: string,
-  expected: unknown,
-  fault: boolean
-): Reply[] {
-  if (recipe.depth === 0)
-    return ordinaryRecurrenceReplies(
-      recipe,
-      name,
-      firstParameter,
-      expected,
-      fault
-    );
-  const replies = [
-    recurrenceSegment(
-      `${name}:recurrence-0`,
-      expectedStatements("INSERT", recipe.depth + 1, firstParameter),
-      undefined,
-      fault
-    ),
-  ];
-  if (fault) return replies;
-  for (let index = 0; index < recipe.depth * recipe.fanout; index++)
-    replies.push(
-      recurrenceSegment(
-        `${name}:recurrence-${replies.length}`,
-        expectedStatements("INSERT", 1),
-        undefined,
-        false
-      )
-    );
-  replies.push(
-    recurrenceSegment(
-      `${name}:recurrence-${replies.length}`,
-      expectedStatements("SELECT", 1),
-      expected,
-      false
-    )
-  );
-  return replies;
 }
 
 function variantRecurrenceReplies(
@@ -719,21 +697,13 @@ function recurrenceTransportPlan(
                   publicOperation.expected,
                   fault
                 )
-              : recipe.shape === "repeated"
-                ? repeatedRecurrenceReplies(
-                    recipe,
-                    name,
-                    firstParameter,
-                    publicOperation.expected,
-                    fault
-                  )
-                : ordinaryRecurrenceReplies(
-                    recipe,
-                    name,
-                    firstParameter,
-                    publicOperation.expected,
-                    fault
-                  );
+              : ordinaryRecurrenceReplies(
+                  recipe,
+                  name,
+                  firstParameter,
+                  publicOperation.expected,
+                  fault
+                );
         return {
           name,
           script: { name, firstParameter, replies },

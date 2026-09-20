@@ -295,6 +295,7 @@ function overlapSchema() {
 }
 
 function overlapCommands(
+  schema: ReturnType<typeof overlapSchema>,
   recipe: Extract<StructuralRecipe, { kind: "width-overlap" }>,
   driver: MeasurementSQLiteDriver
 ): {
@@ -308,7 +309,6 @@ function overlapCommands(
     readonly target: CommandOccurrence;
   }[];
 } {
-  const schema = overlapSchema();
   const engineSchema = new EngineSchema(schema);
   const raw: Arguments = {
     data: { a: "root-a", b: "root-b", label: "root" },
@@ -451,31 +451,58 @@ async function measureOverlap(
   const recorder = new Recorder(recipe.size, replay);
   const bindings = new SemanticInventoryBindings();
   const captured = await recorder.control(() =>
-    captureStructuralMeasurement(recipe.caseId, bindings, async () => {
-      const database = new Database(":memory:");
-      const driver = new MeasurementSQLiteDriver(database, recorder);
-      const built = overlapCommands(recipe, driver);
-      bindOverlapTree(bindings, recipe, built);
-      const occurrence = built.commands.analyze(built.root);
-      let failure: unknown;
-      try {
-        await built.context.run(() =>
-          built.commands.execution.complete(occurrence, built.admitted)
-        );
-      } catch (caught) {
-        failure = caught;
-      }
-      await driver.disconnect();
-      database.close();
-      assert(failure instanceof NestedWriteError);
-      assert.equal(failure.meta.operation, "updateMany");
-      assert.equal(failure.meta.conflictsWith, "upsert");
-      assert.equal(failure.meta.relation, "kids");
-      return {
-        outcome: failure.constructor.name,
-        dependency: "membership",
-      };
-    })
+    captureStructuralMeasurement(
+      recipe.caseId,
+      bindings,
+      async () => {
+        const database = new Database(":memory:");
+        const driver = new MeasurementSQLiteDriver(database, recorder);
+        const schema = overlapSchema();
+        const client = await migrate(schema, driver);
+        try {
+          database.exec(
+            recipe.writers
+              .map(
+                ({ selector }) =>
+                  `INSERT INTO cs02_measure_kids (id,slug,label,pa,pb) VALUES('${selector.slug}','${selector.slug}','seed',NULL,NULL);`
+              )
+              .join("\n")
+          );
+          const built = overlapCommands(schema, recipe, driver);
+          bindOverlapTree(bindings, recipe, built);
+          const occurrence = built.commands.analyze(built.root);
+          await built.context.run(() =>
+            built.commands.execution.complete(occurrence, built.admitted)
+          );
+          // D-51: each reader's membership lookup is an ordered observation
+          // taken at its own execution point, behind the writer that
+          // publishes the key it reads, so every reader finds its target a
+          // member and relabels it where the retired engine refused the tree.
+          const kid = database.prepare(
+            "SELECT id,label,pa,pb FROM cs02_measure_kids WHERE slug = ?"
+          );
+          assert.deepEqual(
+            recipe.readers.map(({ selector }) => kid.get(selector.slug)),
+            recipe.readers.map(({ selector }, index) => ({
+              id: selector.slug,
+              label: `reader-${index}`,
+              pa: "root-a",
+              pb: "root-b",
+            }))
+          );
+          assert.deepEqual(
+            database.prepare("SELECT a,b,label FROM cs02_measure_pairs").all(),
+            [{ a: "root-a", b: "root-b", label: "root" }]
+          );
+          return { outcome: "accepted", dependency: "membership" };
+        } finally {
+          await client.$disconnect();
+          database.close();
+        }
+      },
+      (event, identities) =>
+        bindCapturedMember(event, identities, recipe.caseId)
+    )
   );
   assert.deepEqual(captured.semanticInventory, recipe.semanticInventory);
   return {
@@ -786,15 +813,15 @@ function bindSeriesTree(
   );
 }
 
-function bindCapturedSeriesMember(
+/** An expanded member is `<its capture's path>/member/<ordinal>`. */
+function bindCapturedMember(
   event: CapturedMemberBinding,
   bindings: SemanticInventoryBindings,
   caseId: string
-): void {
+): { readonly occurrence: CommandOccurrence; readonly path: string } {
   const parentPath = bindings
     .occurrenceId(event.parentOccurrence)
     .slice("occurrence:".length + caseId.length + 1);
-  assert.equal(parentPath, "root/series");
   const path = `${parentPath}/member/${event.captureOrdinal}`;
   assert(isCommandOccurrence(event.occurrence));
   const occurrence = event.occurrence;
@@ -804,6 +831,16 @@ function bindCapturedSeriesMember(
     value: event.selection,
     path,
   });
+  return { occurrence, path };
+}
+
+function bindCapturedSeriesMember(
+  event: CapturedMemberBinding,
+  bindings: SemanticInventoryBindings,
+  caseId: string
+): void {
+  const { occurrence, path } = bindCapturedMember(event, bindings, caseId);
+  assert.equal(path, `root/series/member/${event.captureOrdinal}`);
   const member = occurrence.command;
   assert.equal(member.kind, "record");
   const ticket = requireOccurrence(
@@ -851,15 +888,6 @@ function seriesCommands(
   const root = commands.update(located, admitted.data, raw.data);
   for (const field of engineSchema.keys(schema.shelf)) root.fields.field(field);
   return { admitted, commands, context, root };
-}
-
-function hasWrite(
-  statements: readonly { readonly sql: string }[],
-  table: string
-): boolean {
-  return statements.some(
-    ({ sql }) => /^(?:INSERT|UPDATE|DELETE)\b/.test(sql) && sql.includes(table)
-  );
 }
 
 async function measureSeriesChoice(
@@ -939,19 +967,9 @@ async function measureSeriesChoice(
           );
           bindSeriesTree(bindings, recipe, built.root, earlyGuard, lateGuard);
           const occurrence = built.commands.analyze(built.root);
-          let failure: unknown;
-          try {
-            await built.context.run(() =>
-              built.commands.execution.complete(occurrence, built.admitted)
-            );
-          } catch (caught) {
-            failure = caught;
-          }
-          assert(failure instanceof NestedWriteError);
-          assert.equal(failure.code, VibORMErrorCode.NESTED_WRITE_FAILED);
-          assert.equal(failure.meta.relation, recipe.oracle.relation);
-          assert.equal(failure.meta.operation, "connect");
-          assert.equal(failure.meta.conflictsWith, "create");
+          await built.context.run(() =>
+            built.commands.execution.complete(occurrence, built.admitted)
+          );
           assert.deepEqual(admissions, [
             { scope: "template", value: "other" },
             ...recipe.members.map(
@@ -963,39 +981,63 @@ async function measureSeriesChoice(
               })
             ),
           ]);
-          if (recipe.profile === "sqlite-atomic-batch")
-            assert.deepEqual(failure.meta.recordSeriesProgress, {
-              ...recipe.oracle.batch,
-              memberPath: recipe.oracle.memberPath,
-              totalMembers: recipe.size,
-            });
-          else assert.equal(failure.meta.recordSeriesProgress, undefined);
-          assert.equal(
-            hasWrite(driver.statements, "cs02_measure_tickets"),
-            false
-          );
+          // D-51: each connect names a ticket this series writes, so it is an
+          // ordered observation behind those writes rather than the retired
+          // own-write dependency refusal — the whole guarded series commits,
+          // on the interactive transport and on the batch one alike.
           assert.deepEqual(
             database
               .prepare("SELECT id,label FROM cs02_measure_shelves ORDER BY id")
               .all(),
-            [
-              {
-                id: "s1",
-                label:
-                  recipe.profile === "sqlite-atomic-batch"
-                    ? "prefix"
-                    : "initial",
-              },
-            ]
+            [{ id: "s1", label: "prefix" }]
+          );
+          const ticket = database.prepare(
+            "SELECT id,note,binId FROM cs02_measure_tickets WHERE id = ?"
+          );
+          // Members are admitted in the captured selection's own order
+          // (`ORDER BY id ASC`), so `member-N` is the N-th bin BY ID.
+          const binsByAdmission = recipe.members
+            .map((_, index) => `bin-${index}`)
+            .sort();
+          assert.deepEqual(
+            recipe.members.map((member) => ticket.get(member)),
+            recipe.members.map((member, index) => ({
+              id: member,
+              note: "member",
+              binId: binsByAdmission[index],
+            }))
           );
           assert.deepEqual(
-            database.prepare("SELECT * FROM cs02_measure_tickets").all(),
-            []
+            database
+              .prepare("SELECT COUNT(*) AS written FROM cs02_measure_tickets")
+              .get(),
+            { written: recipe.oracle.ticketWrites }
+          );
+          assert.deepEqual(
+            database
+              .prepare(
+                "SELECT id,shelfId,ticketId FROM cs02_measure_early_holders ORDER BY id"
+              )
+              .all(),
+            [{ id: "early", shelfId: "s1", ticketId: recipe.oracle.earlyTicket }]
+          );
+          assert.deepEqual(
+            database
+              .prepare(
+                "SELECT id,shelfId,ticketId FROM cs02_measure_late_holders ORDER BY id"
+              )
+              .all(),
+            recipe.lateChoiceState === "found"
+              ? [{ id: "late", shelfId: "s1", ticketId: recipe.oracle.lateTicket }]
+              : [
+                  { id: "late", shelfId: "s1", ticketId: null },
+                  { id: "missing", shelfId: "s1", ticketId: null },
+                ]
           );
           return {
-            outcome: failure.constructor.name,
-            relation: failure.meta.relation,
-            memberPath: recipe.oracle.memberPath,
+            outcome: "accepted",
+            earlyTicket: recipe.oracle.earlyTicket,
+            lateTicket: recipe.oracle.lateTicket,
             admittedMembers: recipe.size,
           };
         } finally {

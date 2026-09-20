@@ -619,6 +619,16 @@ export function runBeforeRootSubtreeBehavior(
         // so there is no value for the holder's foreign key to reference. A foreign
         // key equal to NULL names no row, which is a contradiction rather than a
         // shape the engine has not learned.
+        //
+        // N5 class D: the retired engine spelled this refusal from the ENCLOSING
+        // update's side ("… update cannot resolve referenced field 'code' for the
+        // before-root target of relation 'badge' …"), a template the cutover
+        // retired from every migrated file and that no longer exists in `src/`.
+        // The shipped, kept owner is the PRODUCER's side — the target's own create
+        // cannot resolve the parent id it must publish — and it names the same
+        // relation, the same referenced field and the same reason
+        // (`commands/commands.ts` `assignMembership`). The refusal, not its
+        // sentence, is what this cell keeps.
         await expect(
           client.holder.update({
             where: { id: 1 },
@@ -629,7 +639,7 @@ export function runBeforeRootSubtreeBehavior(
             },
           })
         ).rejects.toThrow(
-          "query-engine-v2 update cannot resolve referenced field 'code' for the before-root target of relation 'badge': it is neither that record's primary key nor a knowable value in its own create data."
+          "query-engine-v2 create cannot resolve the parent id for relation 'badge': referenced field 'code' is neither this record's primary key nor a knowable value in its own create data."
         );
         await expect(
           client.badge.findMany({ where: { id: 9 } })

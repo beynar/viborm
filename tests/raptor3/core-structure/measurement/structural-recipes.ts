@@ -39,8 +39,16 @@ interface OverlapRecipe extends RecipeBase {
   keyFields: ["pa", "pb"];
   writers: Array<{ writerId: string; selector: { slug: string } }>;
   readers: Array<{ readerId: string; selector: { slug: string } }>;
+  /**
+   * D-51: a dependent membership read is an ordered observation, so the width
+   * of the overlap is measured EXECUTING. The pass still computes every pair
+   * (`positivePairs`) and still spends it on `dependency: "membership"` — but
+   * on placement, which is why the schedule's writers publish before its
+   * readers observe, and why the terminal outcome is the accepted tree rather
+   * than the retired own-write dependency refusal.
+   */
   oracle: {
-    outcome: "NestedWriteError";
+    outcome: "accepted";
     dependency: "membership";
     positivePairs: Array<{ readId: string; writeId: string }>;
   };
@@ -52,20 +60,22 @@ interface SeriesChoiceRecipe extends RecipeBase {
   route: "private-guarded-bound-selection";
   members: string[];
   lateChoiceState: "found" | "missing";
+  /**
+   * D-51: both connects name a ticket this operation's own series creates, so
+   * each is an ordered observation taken at its consumer's execution point,
+   * behind those writes. The retired own-write dependency refusal ("connect"
+   * conflicting with "create") is gone, the guarded series executes on both
+   * transports, and the case's terminal fact is which ticket each holder ends
+   * bound to — `null` where the late choice took its missing arm and never
+   * reached the connect.
+   */
   oracle: {
-    outcome: "NestedWriteError";
-    relation: "lateTicket" | "earlyTicket";
-    memberPath: [number];
+    outcome: "accepted";
+    earlyTicket: string;
+    lateTicket: string | null;
     admittedMembers: number;
     preparation: "all-before-execute";
-    ticketWrites: 0;
-    batch: {
-      atomicity: "segment";
-      phase: "planning";
-      committedSegments: 1;
-      committedWriteMembers: 1;
-      completedMembers: 0;
-    };
+    ticketWrites: number;
   };
 }
 
@@ -201,6 +211,11 @@ function overlapRecipe(size: StructuralSize): OverlapRecipe {
   );
   const readerCapturePaths = readerPaths.map((path) => `${path}/capture`);
   const readerTemplatePaths = readerPaths.map((path) => `${path}/template`);
+  // One member per reader: the reader's selector is a declared-unique slug, so
+  // its capture expands the selected series over exactly the one row. The
+  // member is the occurrence that carries the reader's write, and it exists
+  // only because D-51 lets the observation execute.
+  const readerMemberPaths = readerPaths.map((path) => `${path}/member/0`);
   const writers = writerPaths.map((path, index) => ({
     writerId: id("write", caseId, path),
     selector: { slug: `kid-${index}` },
@@ -214,6 +229,8 @@ function overlapRecipe(size: StructuralSize): OverlapRecipe {
     const selectionId = id("selection", caseId, path);
     readerSelections.set(path, selectionId);
     readerSelections.set(`${path}/template`, selectionId);
+    const memberPath = `${path}/member/0`;
+    readerSelections.set(memberPath, id("selection", caseId, memberPath));
   }
   return {
     formatVersion: 1,
@@ -239,15 +256,21 @@ function overlapRecipe(size: StructuralSize): OverlapRecipe {
         ...readerPaths,
         ...readerCapturePaths,
         ...readerTemplatePaths,
+        ...readerMemberPaths,
       ],
       {
         selectionByPath: readerSelections,
         readPaths: readerPaths,
-        writePaths: ["root", ...writerPaths, ...readerTemplatePaths],
+        writePaths: [
+          "root",
+          ...writerPaths,
+          ...readerTemplatePaths,
+          ...readerMemberPaths,
+        ],
       }
     ),
     oracle: {
-      outcome: "NestedWriteError",
+      outcome: "accepted",
       dependency: "membership",
       positivePairs: writers.map((writer, index) => {
         const reader = readers[index];
@@ -318,7 +341,6 @@ function seriesChoiceRecipe(
   ]);
   for (const memberPath of memberPaths)
     selections.set(memberPath, id("selection", caseId, memberPath));
-  const conflictMember = lateChoiceState === "found" ? 0 : size - 1;
   return {
     formatVersion: 1,
     caseId,
@@ -334,7 +356,11 @@ function seriesChoiceRecipe(
       "observe:root/guard/late",
       ...memberPaths.map((path) => `admit:${path}`),
       `activate:choice/late/${lateChoiceState}`,
-      `fail:member/${conflictMember}`,
+      ...ticketPaths.map((path) => `write:${path}`),
+      "observe:root/choice/early/found/earlyTicket/connect",
+      ...(lateChoiceState === "found"
+        ? ["observe:root/choice/late/found/lateTicket/connect"]
+        : []),
     ],
     semanticInventory: inventory(caseId, paths, {
       selectionByPath: selections,
@@ -378,20 +404,12 @@ function seriesChoiceRecipe(
       ],
     }),
     oracle: {
-      outcome: "NestedWriteError",
-      relation:
-        lateChoiceState === "found" && size > 1 ? "lateTicket" : "earlyTicket",
-      memberPath: [conflictMember],
+      outcome: "accepted",
+      earlyTicket: `member-${size - 1}`,
+      lateTicket: lateChoiceState === "found" ? "member-0" : null,
       admittedMembers: size,
       preparation: "all-before-execute",
-      ticketWrites: 0,
-      batch: {
-        atomicity: "segment",
-        phase: "planning",
-        committedSegments: 1,
-        committedWriteMembers: 1,
-        completedMembers: 0,
-      },
+      ticketWrites: size,
     },
   };
 }

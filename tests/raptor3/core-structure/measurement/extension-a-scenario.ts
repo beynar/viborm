@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { s } from "@schema";
 import { v } from "@validation";
 import { isRecord } from "@validation/value-guards";
@@ -515,11 +516,28 @@ export function extensionAScenario(
           const cuts: string[] = [];
           const sql = completion.sql;
           const statement = sql.trim().split(whitespace, 1)[0]?.toUpperCase();
-          const isSelect = statement === "SELECT";
+          // A batch PREMISE is not an observation (N1, D-51: a dependent read
+          // is an ordered observation). A nested lookup whose answer depends on
+          // an earlier write of this operation is taken at its consumer's
+          // execution point, and on the batch route its found requirement rides
+          // that same batch as a premise over the SAME selector
+          // (`Selection.outsideMembership`). The correlated upsert's locate is
+          // one: it names the parent by the key the parent's own SET published
+          // (`RelationBody.correlationParent` — placement, not verb), and that
+          // key is one this operation writes. The premise therefore repeats the
+          // locate's WHERE verbatim, so a recognizer reading only the WHERE
+          // matches the premise FIRST and reads the engine's assert row — which
+          // is always exactly one row — instead of the located rows. A premise
+          // projects `ASSERTION_MARKER` and nothing else; an observation
+          // projects the row it observed. Same rule, same spelling as
+          // `tests/raptor3/core-structure/structural-reference.test.ts`'s
+          // `reads`.
+          const isObservation =
+            statement === "SELECT" && !sql.includes(ASSERTION_MARKER);
           const rootTable = isSingle ? "cs03_a_nodes" : "cs03_a_parents";
           const nestedTable = isSingle ? "cs03_a_nodes" : "cs03_a_children";
           if (
-            isSelect &&
+            isObservation &&
             !rootCaptureObserved &&
             sql.includes(rootTable) &&
             sql.includes("ORDER BY") &&
@@ -529,7 +547,7 @@ export function extensionAScenario(
             cuts.push(`capture:roots/${recipe.rootCount}`);
           }
           if (
-            isSelect &&
+            isObservation &&
             selectedNestedSeries &&
             nestedCapture < recipe.rootCount &&
             sql.includes(nestedTable) &&
@@ -539,7 +557,7 @@ export function extensionAScenario(
             nestedCapture += 1;
           }
           if (
-            isSelect &&
+            isObservation &&
             recipe.nestedShape.startsWith("upsert-") &&
             choiceObservation < recipe.rootCount &&
             sql.includes(nestedTable) &&
@@ -622,7 +640,7 @@ export function extensionAScenario(
           }
 
           if (
-            isSelect &&
+            isObservation &&
             sql.includes(rootTable) &&
             sql.includes('"label" AS "label"') &&
             !sql.includes('"rootToken" AS "rootToken"')

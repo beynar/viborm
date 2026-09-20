@@ -58,12 +58,23 @@ import { describe, expect, test } from "vitest";
  * SECOND conjunct from the shared membership owner, asked for on every ordinary child-held
  * progressive entrance whose reference key differs from the row key.
  *
- * FALSIFIED by dropping that premise: the guard loses `"t0"."code" = $2`, and the
- * existing-member and supplier-continuation race tests RESOLVE. The measured state of this
- * create-series arm under that mutation is the honest before-picture —
- * `hubs [[h-other, H1], [h-row-key, H1-moved]]`, `spokes [[sp1, H1]]`,
+ * FALSIFIED by dropping that premise: the guard loses `"q0"."code" = $1` (§7.2 — the
+ * shipped root alias is `q0`, `Queries.rootAlias`; the retired engine's fixed `t0` is
+ * gone), and the existing-member and supplier-continuation race tests RESOLVE. The
+ * measured state of this create-series arm under that mutation is the honest
+ * before-picture — `hubs [[h-other, H1], [h-row-key, H1-moved]]`, `spokes [[sp1, H1]]`,
  * `notes [[n1, sp1]]`: the spoke and its grandchild written, under a hub the caller never
  * named, with no error at all. Junction and polymorphic guards remain byte-identical.
+ *
+ * WHERE THE RACE LIVES NOW. D-29 proves a premise inside the atomic unit that carries
+ * the write it protects, so the shipped engine emits ONE committed segment for these
+ * payloads: the premise opens it and the member's writes follow it, where the retired
+ * engine put the member in a batch after the enclosing update's own. The window a
+ * staleness premise exists for is therefore between the operation's PLANNING reads —
+ * the locate, its own statement ahead of any batch — and that unit, which is where the
+ * two race cases below inject. Injected after the unit instead, there is nothing left
+ * to race: the member is committed and `ON UPDATE CASCADE` carries it with the hub the
+ * caller named.
  */
 const rowKeySchema = (() => {
   const hub = s
@@ -110,8 +121,14 @@ const rowKeySchema = (() => {
 class ProgressivePGliteDriver extends BatchOnlyPGliteDriver {
   override readonly supportsOrderedCommittedSegments = true;
   batches: string[][] = [];
-  /** A concurrent writer, run once, right after the first segment commits. */
-  moveCodeAfterFirstBatch: (() => Promise<void>) | undefined;
+  /**
+   * A concurrent writer, run once, in the window the shipped packaging leaves:
+   * after the operation's PLANNING reads — the locate runs as its own statement,
+   * before any batch — and before the atomic unit that carries the member's
+   * writes. D-29 proves a premise inside that unit and never in an earlier
+   * planning batch, so this is the window every staleness premise exists for.
+   */
+  moveCodeBeforeFirstBatch: (() => Promise<void>) | undefined;
 
   protected override async executeBatch<T>(
     client: PGlite | Transaction,
@@ -119,14 +136,14 @@ class ProgressivePGliteDriver extends BatchOnlyPGliteDriver {
     _context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
+    const move = this.moveCodeBeforeFirstBatch;
+    if (move) {
+      this.moveCodeBeforeFirstBatch = undefined;
+      await move();
+    }
     this.batches.push(queries.map((query) => query.sql));
     const results = await super.executeBatch<T>(client, queries);
     await committed?.();
-    const move = this.moveCodeAfterFirstBatch;
-    if (move) {
-      this.moveCodeAfterFirstBatch = undefined;
-      await move();
-    }
     return results;
   }
 }
@@ -178,7 +195,20 @@ const RELATION_BEARING_ROW = {
 
 const SPOKE_INSERT = /^INSERT INTO (?:"[^"]+"\.)?"h1_spokes"/;
 const HUB_GUARD = /__viborm_assert__/;
-const PARENT_MOVED = /parent record changed across a committed segment/;
+/**
+ * The refusal a moved parent now raises, and WHOSE it is.
+ *
+ * D-29 proves the premise inside the atomic unit that carries the writes it
+ * protects, and this shape's unit opens with the ROOT's own located-row re-pin
+ * (`code` AND `id`, below) — so when the located hub moves out from under the
+ * operation that re-pin is what fails, and the refusal is the root update's own
+ * `NotFoundError`, raised before any member statement runs. The member-level
+ * `Cannot <verb> relation '<edge>': parent record changed across a committed
+ * segment.` (`commands/execution.ts`, `captureSeries`) is the same premise one
+ * level down; it cannot be the sentence here because the root's premise is
+ * queued first and no second guard restates it (one guard per invariant).
+ */
+const PARENT_VANISHED = /No hub record found for update/;
 
 async function seed(client: any): Promise<void> {
   await client.note.deleteMany({});
@@ -243,34 +273,36 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
       notes: [["n1", "sp1"]],
     });
 
-    // The BOUNDARY claim: the member's writes are in a LATER batch than the enclosing
-    // update's own, so the parent is on the far side of a commit — which is the whole
-    // reason a guard exists here.
-    const enclosing = driver.batches.findIndex((batch) =>
-      batch.some((statement) => statement.includes('"t0"."code" = $1'))
-    );
+    // The BOUNDARY claim, re-expressed. D-29: "a premise is proved inside the atomic
+    // unit that carries the write it protects, never in an earlier planning batch"
+    // (`raptor3/AGENTS.md`), so the shipped engine emits ONE committed segment here —
+    // the premise opens it and the member's writes follow in the same unit — where the
+    // retired engine put the member in a batch AFTER the enclosing update's own. The
+    // premise still runs ahead of every member write; it is the first statement of that
+    // one segment rather than the opening of a later one.
     const member = driver.batches.findIndex((batch) =>
       batch.some((statement) => SPOKE_INSERT.test(statement))
     );
-    expect(enclosing).toBeGreaterThanOrEqual(0);
-    expect(member).toBeGreaterThan(enclosing);
+    expect(member).toBeGreaterThanOrEqual(0);
+    const segment = driver.batches[member] ?? [];
+    expect(segment.findIndex((statement) => HUB_GUARD.test(statement))).toBe(0);
 
-    // The GUARD claim, and the one §H1 is about: the member's batch opens by re-pinning
-    // the hub through its ROW KEY. `code` is what the caller named and what the child's
+    // The GUARD claim, and the one §H1 is about: the segment opens by re-pinning the
+    // hub through its ROW KEY. `code` is what the caller named and what the child's
     // foreign key references, and it is NOT what addresses the row.
-    const guard = (driver.batches[member] ?? []).find((statement) =>
-      HUB_GUARD.test(statement)
-    );
+    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`, shared/query.ts),
+    // not the retired engine's fixed `t0`.
+    const guard = segment[0];
     expect(guard).toBeDefined();
     expect(guard).toContain('"h1_hubs"');
-    expect(guard).toContain('"t0"."id" = $1');
+    expect(guard).toContain('"q0"."id" = $2');
 
     // RESIDUAL I — the second conjunct, and it is a second FACT rather than a second
     // reading of the first. `id` says the hub is still there; `code` says the value this
     // member is about to write into `hubCode` still names THAT hub. Both are needed here
     // because this ordinary child-held placement has different row and reference keys;
     // the witness for what happens WITHOUT the second one is the next test.
-    expect(guard).toContain('"t0"."code" = $2');
+    expect(guard).toContain('"q0"."code" = $1');
   }, 60_000);
 
   test("a concurrent move of the referenced value fails the member closed", async () => {
@@ -279,14 +311,19 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     if (!driver) throw new Error("driver was not provisioned");
     driver.batches = [];
 
-    // THE CROSS-SEGMENT CASE THE LIFTED SHAPE ADMITS. Between the enclosing update's
-    // committed segment and the member's, another writer moves the hub's `code` and a
-    // DIFFERENT hub takes the old value. The row key guard alone passes — hub
-    // `h-row-key` is still there — while `hubCode: 'H1'`, captured one segment earlier,
-    // now names `h-other`. MEASURED before the premise was added: the spoke and its note
-    // were written and the spoke sat under `h-other`, a hub the caller never named, with
-    // no error at all.
-    driver.moveCodeAfterFirstBatch = async () => {
+    // THE CROSS-SEGMENT CASE THE LIFTED SHAPE ADMITS, at the window the shipped
+    // packaging leaves it in (D-29, above): between the parent's PLANNING read — the
+    // locate, its own statement before any batch — and the atomic unit that carries the
+    // member's writes, another writer moves the hub's `code` and a DIFFERENT hub takes
+    // the old value. The row key guard alone passes — hub `h-row-key` is still there —
+    // while `hubCode: 'H1'`, captured by that read, now names `h-other`. MEASURED before
+    // the premise was added: the spoke and its note were written and the spoke sat under
+    // `h-other`, a hub the caller never named, with no error at all. MEASURED with the
+    // injection AFTER that unit instead — the retired packaging's window, where the
+    // member's batch came later — the member is already committed and `ON UPDATE
+    // CASCADE` carries it with the hub the caller DID name (`spokes [[sp1, H1-moved]]`),
+    // which is why the window that discriminates is this one.
+    driver.moveCodeBeforeFirstBatch = async () => {
       await concurrent.hub.update({
         where: { id: "h-row-key" },
         data: { code: "H1-moved" },
@@ -301,7 +338,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
         where: { code: "H1" },
         data: { spokes: { createMany: { data: [RELATION_BEARING_ROW] } } },
       })
-    ).rejects.toThrow(PARENT_MOVED);
+    ).rejects.toThrow(PARENT_VANISHED);
 
     // The member wrote NOTHING — neither the spoke nor its grandchild note — and the
     // out-of-band rows are exactly the ones the injection made. Committed progress
@@ -335,8 +372,10 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
 
     // Both parents remain live. Cascades move the original member with h-row-key,
     // then reuse H1 for h-other and its member. A liveness-only guard therefore
-    // passes while a capture by the stale referenced value selects sp2.
-    driver.moveCodeAfterFirstBatch = async () => {
+    // passes while a capture by the stale referenced value selects sp2. The injection
+    // takes the same window as the test above: after the planning reads, before the
+    // atomic unit that carries the member's writes (D-29).
+    driver.moveCodeBeforeFirstBatch = async () => {
       await concurrent.hub.update({
         where: { id: "h-row-key" },
         data: { code: "H3" },
@@ -362,7 +401,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
           },
         },
       })
-    ).rejects.toThrow(PARENT_MOVED);
+    ).rejects.toThrow(PARENT_VANISHED);
 
     expect(await world(c)).toEqual({
       hubs: [
@@ -399,22 +438,37 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
     ).resolves.toMatchObject({ id: "h-moved", code: "H1" });
 
     // Every selected row-key member is part of the target projection. The compiler
-    // therefore places this series before its root key transition and re-pins the
-    // captured key. A final-key-only implementation would look for `h-moved` before
-    // that row exists and abort.
+    // therefore re-pins the captured key and does it BEFORE the root key transition.
+    // A final-key-only implementation would look for `h-moved` before that row exists
+    // and abort.
     expect(await world(c)).toEqual({
       hubs: [["h-moved", "H1"]],
       spokes: [["sp1", "H1"]],
       notes: [["n1", "sp1"]],
     });
-    const rootMove = driver.batches.findIndex((batch) =>
-      batch.some((statement) => statement.includes('UPDATE "public"."h1_hubs"'))
+    // D-29 / D-51: the premise, the transition and the member's writes are ONE
+    // committed segment, so "before the root" is read off the STATEMENT order inside
+    // that segment and not off a batch order — the retired engine's two batches are
+    // one here. The premise that opens the segment names the CAPTURED key (`code` and
+    // `id`), ahead of the `SET "id"` that moves it.
+    const segment =
+      driver.batches.find((batch) =>
+        batch.some((statement) => SPOKE_INSERT.test(statement))
+      ) ?? [];
+    const captured = segment.findIndex((statement) =>
+      HUB_GUARD.test(statement)
     );
-    const member = driver.batches.findIndex((batch) =>
-      batch.some((statement) => SPOKE_INSERT.test(statement))
+    const rootMove = segment.findIndex((statement) =>
+      statement.includes('UPDATE "public"."h1_hubs"')
     );
-    expect(rootMove).toBeGreaterThanOrEqual(0);
-    expect(member).toBeLessThan(rootMove);
+    const member = segment.findIndex((statement) =>
+      SPOKE_INSERT.test(statement)
+    );
+    expect(captured).toBe(0);
+    expect(rootMove).toBeGreaterThan(captured);
+    expect(member).toBeGreaterThan(rootMove);
+    expect(segment[captured]).toContain('"q0"."code" = $1');
+    expect(segment[captured]).toContain('"q0"."id" = $2');
   }, 60_000);
 
   test("a capability-false batch driver runs the guarded placement after normalized success", async () => {
@@ -491,7 +545,7 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
  *
  * - resolving the guard over the SOURCES' fields instead of `ModelKeyCatalog.rowKey`
  *   (a one-line mutation of `resolveFinalReferenceRowKey`) turns the child-held
- *   `updateMany` red on `"t0"."id" = $1` — it then guards by `code`. The junction pair
+ *   `updateMany` red on `"q0"."id" = $1` (§7.2) — it then guards by `code`. The junction pair
  *   stays green under that mutation and is honest about why: a junction side references
  *   the parent's single primary key, so its reference value IS the row key and no payload
  *   can tell the two apart there;
@@ -589,18 +643,22 @@ describe("H1 — each placement guards its exact progressive premise", () => {
     return client;
   };
 
-  /** The member batch's parent re-pin: complete row key, plus ordinary membership when
-   * its reference key differs. */
-  const parentGuard = (): string => {
-    const guards = (driver?.batches ?? [])
+  /** Every hub premise these batches carried, in statement order. */
+  const hubGuards = (): string[] =>
+    (driver?.batches ?? [])
       .flat()
       .filter(
         (statement) =>
           HUB_GUARD.test(statement) && statement.includes('"h1j_hubs"')
       );
-    // The first is the enclosing update's own locate re-pin (`code` AND `id`); the
-    // boundary guard is the one a LATER batch opens with.
-    const boundary = guards.at(-1);
+
+  /** The placement's own parent re-pin: complete row key, plus ordinary membership
+   * when its reference key differs. D-29 proves a premise inside the atomic unit that
+   * carries the write it protects, so it is a LATER STATEMENT of that unit rather than
+   * the opening of a later batch; the first premise is always the enclosing update's
+   * own locate re-pin (`code` AND `id`, and the locate's `ORDER BY`/`LIMIT` with it). */
+  const parentGuard = (): string => {
+    const boundary = hubGuards().at(-1);
     if (!boundary) throw new Error("no hub guard was emitted");
     return boundary;
   };
@@ -626,8 +684,18 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect(await c.stamp.findMany({})).toEqual([{ id: "st1", name: "s1" }]);
-    expect(parentGuard()).toContain('"t0"."id" = $1');
-    expect(parentGuard()).not.toContain('"code"');
+    // D-29 / D-51: nothing commits between the enclosing update's own premise and this
+    // placement — the whole operation is ONE segment — so the junction `createMany`
+    // adds no second parent premise, and the only hub premise is the locate's re-pin,
+    // recognisable by the locate's own `ORDER BY`/`LIMIT` and carrying both facts the
+    // locate had: `code`, what the caller named, and `id`, the row key. The row-key-ONLY
+    // junction premise is pinned by the `updateMany` below, whose captured-set read is
+    // what puts a second premise in the unit at all.
+    // §7.2: the statement's root alias is `q0` (`Queries.rootAlias`), never `t0`.
+    expect(hubGuards()).toHaveLength(1);
+    expect(parentGuard()).toContain('"q0"."id" = $2');
+    expect(parentGuard()).toContain('"q0"."code" = $1');
+    expect(parentGuard()).toContain("ORDER BY");
   }, 60_000);
 
   test("a junction relation-bearing updateMany", async () => {
@@ -646,7 +714,10 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect((await c.stamp.findMany({}))[0]?.name).toBe("s1b");
-    expect(parentGuard()).toContain('"t0"."id" = $1');
+    // §7.2: the root alias is `q0`, not the retired `t0`. The claim is unchanged — a
+    // junction side references the parent's single primary key, so this placement's own
+    // premise is row-key-only.
+    expect(parentGuard()).toContain('"q0"."id" = $1');
     expect(parentGuard()).not.toContain('"code"');
   }, 60_000);
 
@@ -669,7 +740,10 @@ describe("H1 — each placement guards its exact progressive premise", () => {
       },
     });
     expect((await c.spoke.findMany({}))[0]?.label).toBe("two");
-    expect(parentGuard()).toContain('"t0"."id" = $1');
-    expect(parentGuard()).toContain('"t0"."code" = $2');
+    // §7.2: the root alias is `q0`, not the retired `t0`. The claim is unchanged — an
+    // ordinary child-held placement whose reference key differs from the row key
+    // carries BOTH facts.
+    expect(parentGuard()).toContain('"q0"."id" = $1');
+    expect(parentGuard()).toContain('"q0"."code" = $2');
   }, 60_000);
 });
