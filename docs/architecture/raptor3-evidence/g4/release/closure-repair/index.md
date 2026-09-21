@@ -1,19 +1,72 @@
 # Final local release index — consumption-boundary repairs
 
-Assembled 2026-09-21T20:18:18.413Z by `scripts/closure-final-index.mjs` from `docs/architecture/raptor3-evidence/g4/release/closure-repair/gate`.
+Assembled 2026-09-21T20:52:57.506Z by `scripts/closure-final-index.mjs` from `docs/architecture/raptor3-evidence/g4/release/closure-repair/gate`.
 Raw logs are copied verbatim under `logs/`; nothing here is recomputed or
 reconstructed.
 
 ## 1. Source identity
 
-- commit: `392dfd30c0c7226b8fba0ebd4f8d1366d8bbecbd`
-- head: 392dfd30c0c7226b8fba0ebd4f8d1366d8bbecbd 2026-09-21T22:00:21+02:00 fix(raptor3): one confirmation carries every matched condition, and the schedule that waits for it latches on the lock
+- commit: `88fe2814b830e932f28e7678ce1126acfb4691ac`
+- head: 88fe2814b830e932f28e7678ce1126acfb4691ac 2026-09-21T22:20:23+02:00 fix(raptor3): the consumption-boundary repairs — a found row is confirmed under lock, a captured member is held through its effect, the answer settles before the listener, MySQL defaults round-trip
 - calibration source identity: `e45da2f73f919c98777343f98dd50ca49c79cb6982b4d00fafc34f8dbf03ce0d` (sha256 over the calibration owner's named file set)
 - scope: src/, benchmarks/, scripts/, package.json, pnpm-lock.yaml, tsconfig.json, tsdown.config.ts, biome.jsonc — the existing calibration owner
 - working tree at assembly: 
 
 ```
 M CONTEXT.md
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/exit-codes.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/identity.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/mysql2-cells.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/parity-files.txt
+ M docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/summary.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/index.json
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/index.md
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/build.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/campaign-receipts.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/census.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-fk.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-m2m.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-membership.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-root-dependency.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-to-one.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/conf-transitive.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/coverage-policy.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/exit-codes.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/fixed.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/g1-compare.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/g2-baseline.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/g2-contracts.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/identity.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2-cells.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__decimal-list-defaults-mysql-docker.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__decimal-wide-arithmetic-docker.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql-defaults-docker.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql-strict-mode-docker.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-cascaded-identity.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-concurrency-policy.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-found-consumption.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-generated-key.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-read-surface.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-reference-representability.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-relations-ddl.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-scalars.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-schema-attestation.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2-writes-raw.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/mysql2__mysql2.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/parity-1.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/parity-2.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/parity-3.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/parity-files.txt
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg-captured-set-concurrency.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg-nested-write-races.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg-polymorphism-ddl.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg-read-surface.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg-reference-representability.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pg__pg.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/pglite-provider.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/transaction-array.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/transport-smoke.log
+ D docs/architecture/raptor3-evidence/g4/release/closure-repair/logs/typecheck.log
  M docs/architecture/raptor3-implementation-plan.md
  M features-docs/recursive-query.md
  M memory.md
@@ -565,13 +618,8 @@ M CONTEXT.md
 ?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g2-transport.receipt/g2-transport-corpus.json
 ?? docs/architecture/raptor3-evidence/g3/unit04/fixed/g25-contracts.receipt/g25-polish-corpus.json
 ?? docs/architecture/raptor3-evidence/g3/unit04/structural-measurement/work-copy-path.txt
-?? docs/architecture/raptor3-evidence/g4/release/closure-repair/gate-74f25f57f-superseded/
-?? docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/
-?? docs/architecture/raptor3-evidence/g4/release/closure-repair/perf/
-?? docs/architecture/raptor3-evidence/g4/release/closure-repair/receipts/
-?? docs/architecture/raptor3-evidence/g4/release/closure-repair/recount/
-?? docs/architecture/raptor3-evidence/g4/release/closure-review-bc18b4e23/
-?? docs/architecture/raptor3-local-closure-repair-prompt.md
+?? docs/architecture/raptor3-evidence/g4/release/closure-repair/gate/meta/
+?? docs/architecture/raptor3-local-closure-repair-2-prompt.md
 ?? exa-results/raptor3-code-reduction-2026-09-01.md
 ?? exa-results/raptor3-orm-pattern-audit-2026-09-07.md
 ?? transport-lost-progress-scripted-returning-ack-corpus.json
@@ -591,7 +639,7 @@ imported fixtures. A squash that reports the same ids carries the same bytes.
 
 | scope | git object id |
 | --- | --- |
-| commit tree | `c0bb94d3e4b022410ebd5841ee3c7b6545975dc5` |
+| commit tree | `9d5fb869af3a8bd048ba06480c6bf08ea09f94ba` |
 | `src/` | `dd9a9dcbf4196edcbc34f7c4037cbb4fe3c8e60d` |
 | `tests/` | `25444b6c0c54441dd4f21c8c0dec5adc36770e8a` |
 | `scripts/` | `046469da3925ab0325bf9090a6c8c30276bf73b8` |
@@ -654,38 +702,34 @@ Retained review evidence this checkpoint answers:
 | `conf-to-one` | 0 | Test Files  1 passed (1) | Tests  19 passed (19) | Vitest resources: 4.24s wall, 1580.9 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified. | `5e3bbde967d1665f…` |
 | `conf-transitive` | 0 | Test Files  1 passed (1) | Tests  31 passed (31) | Vitest resources: 4.57s wall, 1673.5 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified. | `afde889b010b2177…` |
 | `coverage-policy` | 0 | — | — | Node resources: 6.71s wall, 311.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `6097362d95d8ca4b…` |
-| `exit-codes` | unrecorded | — | — | — | `80f5cc57d59bf79a…` |
 | `fixed` | 0 | Test Files  89 passed (89) | Tests  955 passed (955) | [test:all] Raptor 3 fixed contracts, harness falsifiers and candidate comparison: 14.54s wall, 61.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB, ordinary project). Teardown verified. | `0dc13a96975ebcda…` |
 | `g1-compare` | 0 | Test Files  4 passed (4) | Tests  36 passed (36) | Vitest resources: 3.54s wall, 644.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `bb2e50d4bfaaac67…` |
 | `g2-baseline` | 0 | Test Files  16 passed (16) | Tests  216 passed (216) | Vitest resources: 4.60s wall, 703.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `2553a258567e439d…` |
 | `g2-contracts` | 0 | Test Files  16 passed (16) | Tests  216 passed (216) | Vitest resources: 5.88s wall, 730.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `7415dd0d48e3f17b…` |
-| `identity` | unrecorded | — | — | — | `95ebed4e3f74b855…` |
-| `mysql2-cells` | unrecorded | — | — | — | `e3b0c44298fc1c14…` |
-| `mysql2__decimal-list-defaults-mysql-docker` | unrecorded | Test Files  1 passed (1) | Tests  1 passed (1) | Vitest resources: 3.31s wall, 489.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `3634093e3d287581…` |
-| `mysql2__decimal-wide-arithmetic-docker` | unrecorded | Test Files  1 passed (1) | Tests  35 passed (35) | Vitest resources: 3.68s wall, 535.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `f25e8bcd47e9cb81…` |
-| `mysql2__mysql-defaults-docker` | unrecorded | Test Files  1 passed (1) | Tests  3 passed (3) | Vitest resources: 3.34s wall, 493.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `8de8b22881daebba…` |
-| `mysql2__mysql-strict-mode-docker` | unrecorded | Test Files  1 passed (1) | Tests  9 passed (9) | Vitest resources: 3.54s wall, 514.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `de31b1885b4e71db…` |
-| `mysql2__mysql2-cascaded-identity` | unrecorded | Test Files  1 passed (1) | Tests  4 passed (4) | Vitest resources: 3.24s wall, 487.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `be24a94f708faf7c…` |
-| `mysql2__mysql2-concurrency-policy` | unrecorded | Test Files  1 passed (1) | Tests  11 passed (11) | Vitest resources: 4.66s wall, 620.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `c5f21a5662ba7090…` |
-| `mysql2__mysql2-found-consumption` | unrecorded | Test Files  1 passed (1) | Tests  12 passed (12) | Vitest resources: 6.71s wall, 608.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `2ed971412fef2f52…` |
-| `mysql2__mysql2-generated-key` | unrecorded | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.09s wall, 478.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `a99454e78e071bfd…` |
-| `mysql2__mysql2-read-surface` | unrecorded | Test Files  1 passed (1) | Tests  122 passed (122) | Vitest resources: 15.49s wall, 650.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `724dda9606fa6039…` |
-| `mysql2__mysql2-reference-representability` | unrecorded | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.34s wall, 467.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `4828bde9de93d8ed…` |
-| `mysql2__mysql2-relations-ddl` | unrecorded | Test Files  1 passed (1) | Tests  106 passed (106) | Vitest resources: 27.66s wall, 636.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `157f4a7e5ef74467…` |
-| `mysql2__mysql2-scalars` | unrecorded | Test Files  1 passed (1) | Tests  293 passed (293) | Vitest resources: 27.69s wall, 685.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `f6e79c3f68265bdc…` |
-| `mysql2__mysql2-schema-attestation` | unrecorded | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.65s wall, 550.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `17b582facbd59581…` |
-| `mysql2__mysql2-writes-raw` | unrecorded | Test Files  1 passed (1) | Tests  93 passed (93) | Vitest resources: 17.49s wall, 651.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `3b6c46b4275561cf…` |
-| `mysql2__mysql2` | unrecorded | Test Files  1 passed (1) | Tests  84 passed \| 1 skipped (85) | Vitest resources: 14.76s wall, 652.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `57057688c1d902fe…` |
+| `mysql2__decimal-list-defaults-mysql-docker` | 0 | Test Files  1 passed (1) | Tests  1 passed (1) | Vitest resources: 3.31s wall, 489.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `3634093e3d287581…` |
+| `mysql2__decimal-wide-arithmetic-docker` | 0 | Test Files  1 passed (1) | Tests  35 passed (35) | Vitest resources: 3.68s wall, 535.3 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `f25e8bcd47e9cb81…` |
+| `mysql2__mysql-defaults-docker` | 0 | Test Files  1 passed (1) | Tests  3 passed (3) | Vitest resources: 3.34s wall, 493.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `8de8b22881daebba…` |
+| `mysql2__mysql-strict-mode-docker` | 0 | Test Files  1 passed (1) | Tests  9 passed (9) | Vitest resources: 3.54s wall, 514.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `de31b1885b4e71db…` |
+| `mysql2__mysql2-cascaded-identity` | 0 | Test Files  1 passed (1) | Tests  4 passed (4) | Vitest resources: 3.24s wall, 487.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `be24a94f708faf7c…` |
+| `mysql2__mysql2-concurrency-policy` | 0 | Test Files  1 passed (1) | Tests  11 passed (11) | Vitest resources: 4.66s wall, 620.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `c5f21a5662ba7090…` |
+| `mysql2__mysql2-found-consumption` | 0 | Test Files  1 passed (1) | Tests  12 passed (12) | Vitest resources: 6.71s wall, 608.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `2ed971412fef2f52…` |
+| `mysql2__mysql2-generated-key` | 0 | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.09s wall, 478.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `a99454e78e071bfd…` |
+| `mysql2__mysql2-read-surface` | 0 | Test Files  1 passed (1) | Tests  122 passed (122) | Vitest resources: 15.49s wall, 650.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `724dda9606fa6039…` |
+| `mysql2__mysql2-reference-representability` | 0 | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.34s wall, 467.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `4828bde9de93d8ed…` |
+| `mysql2__mysql2-relations-ddl` | 0 | Test Files  1 passed (1) | Tests  106 passed (106) | Vitest resources: 27.66s wall, 636.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `157f4a7e5ef74467…` |
+| `mysql2__mysql2-scalars` | 0 | Test Files  1 passed (1) | Tests  293 passed (293) | Vitest resources: 27.69s wall, 685.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `f6e79c3f68265bdc…` |
+| `mysql2__mysql2-schema-attestation` | 0 | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.65s wall, 550.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `17b582facbd59581…` |
+| `mysql2__mysql2-writes-raw` | 0 | Test Files  1 passed (1) | Tests  93 passed (93) | Vitest resources: 17.49s wall, 651.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `3b6c46b4275561cf…` |
+| `mysql2__mysql2` | 0 | Test Files  1 passed (1) | Tests  84 passed \| 1 skipped (85) | Vitest resources: 14.76s wall, 652.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `57057688c1d902fe…` |
 | `parity-1` | 0 | Test Files  19 passed (19) | Tests  172 passed (172) | Vitest resources: 7.86s wall, 747.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `5898127f13412de4…` |
 | `parity-2` | 0 | Test Files  15 passed (15) | Tests  140 passed (140) | Vitest resources: 7.75s wall, 732.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `26c8503062896afb…` |
 | `parity-3` | 0 | Test Files  21 passed (21) | Tests  215 passed (215) | Vitest resources: 8.30s wall, 742.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `75130630283a0e8d…` |
-| `parity-files` | unrecorded | — | — | — | `0f5c9e29a651f287…` |
-| `pg__pg-captured-set-concurrency` | unrecorded | Test Files  1 passed (1) | Tests  28 passed (28) | Vitest resources: 24.19s wall, 519.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `90bcf4a3f0af0d06…` |
-| `pg__pg-nested-write-races` | unrecorded | Test Files  1 passed (1) | Tests  95 passed (95) | Vitest resources: 103.29s wall, 505.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `53e454df26db9656…` |
-| `pg__pg-polymorphism-ddl` | unrecorded | Test Files  1 passed (1) | Tests  60 passed (60) | Vitest resources: 76.34s wall, 514.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `e15332aff09abd4e…` |
-| `pg__pg-read-surface` | unrecorded | Test Files  1 passed (1) | Tests  76 passed (76) | Vitest resources: 79.86s wall, 506.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `162d055250660fd1…` |
-| `pg__pg-reference-representability` | unrecorded | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.88s wall, 479.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `5b14531d264dfc58…` |
-| `pg__pg` | unrecorded | Test Files  1 passed (1) | Tests  220 passed \| 7 skipped (227) | Vitest resources: 253.77s wall, 508.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `fd20da121b6a2c0b…` |
+| `pg__pg-captured-set-concurrency` | 0 | Test Files  1 passed (1) | Tests  28 passed (28) | Vitest resources: 24.19s wall, 519.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `90bcf4a3f0af0d06…` |
+| `pg__pg-nested-write-races` | 0 | Test Files  1 passed (1) | Tests  95 passed (95) | Vitest resources: 103.29s wall, 505.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `53e454df26db9656…` |
+| `pg__pg-polymorphism-ddl` | 0 | Test Files  1 passed (1) | Tests  60 passed (60) | Vitest resources: 76.34s wall, 514.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `e15332aff09abd4e…` |
+| `pg__pg-read-surface` | 0 | Test Files  1 passed (1) | Tests  76 passed (76) | Vitest resources: 79.86s wall, 506.5 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `162d055250660fd1…` |
+| `pg__pg-reference-representability` | 0 | Test Files  1 passed (1) | Tests  5 passed (5) | Vitest resources: 3.88s wall, 479.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `5b14531d264dfc58…` |
+| `pg__pg` | 0 | Test Files  1 passed (1) | Tests  220 passed \| 7 skipped (227) | Vitest resources: 253.77s wall, 508.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `fd20da121b6a2c0b…` |
 | `pglite-provider` | 0 | Test Files  3 passed (3) | Tests  7 passed (7) | Vitest resources: 4.75s wall, 1657.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified. | `bb7fa5c4fc7072f7…` |
 | `transaction-array` | 0 | Test Files  1 passed (1) | Tests  4 passed (4) | Vitest resources: 3.14s wall, 470.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `2bd28f350f8fbd0d…` |
 | `transport-smoke` | 0 | Test Files  1 passed (1) | Tests  1 passed (1) | Vitest resources: 3.35s wall, 479.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified. | `b14f75bf5c07c3ce…` |

@@ -129,3 +129,45 @@ tests/providers/docker/pg.test.ts exit=0       Tests  220 passed | 7 skipped (22
 finished 2026-09-21T20:13:58Z
 22:13  up 21 days, 21:54, 3 users, load averages: 24.73 21.73 13.94
 GATE DONE
+=== mysql2__mysql2-cascaded-identity
+exit=0
+=== mysql2__mysql2-concurrency-policy
+exit=0
+=== mysql2__mysql2-found-consumption
+exit=0
+=== mysql2__mysql2-generated-key
+exit=0
+=== mysql2__mysql2-read-surface
+exit=0
+=== mysql2__mysql2-reference-representability
+exit=0
+=== mysql2__mysql2-relations-ddl
+exit=0
+=== mysql2__mysql2-scalars
+exit=0
+=== mysql2__mysql2-schema-attestation
+exit=0
+=== mysql2__mysql2-writes-raw
+exit=0
+=== mysql2__mysql2
+exit=0
+=== mysql2__decimal-wide-arithmetic-docker
+exit=0
+=== mysql2__mysql-strict-mode-docker
+exit=0
+=== mysql2__decimal-list-defaults-mysql-docker
+exit=0
+=== mysql2__mysql-defaults-docker
+exit=0
+=== pg__pg-captured-set-concurrency
+exit=0
+=== pg__pg-nested-write-races
+exit=0
+=== pg__pg-polymorphism-ddl
+exit=0
+=== pg__pg-read-surface
+exit=0
+=== pg__pg-reference-representability
+exit=0
+=== pg__pg
+exit=0
