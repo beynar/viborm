@@ -1,0 +1,76 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P1: a capture between the parent's write and the refusing connect
+P1 RESOLVED {"id":"b2","slug":"gold","code":"GOLD","note":"acknowledged"}
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P1: a capture between the parent's write and the refusing connect
+P1 badges [{"id":"b1","slug":"codeless","code":null,"note":null},{"id":"b2","slug":"gold","code":"GOLD","note":"acknowledged"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P1: a capture between the parent's write and the refusing connect
+P1 holders [{"id":"h1","name":"one","badgeCode":"GOLD"},{"id":"h2","name":"renamed","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P1: a capture between the parent's write and the refusing connect
+P1 stamps [{"id":"s1","label":"s1","badgeId":"b1"}]
+P1 sql ["batches=1","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"r1p_","UPDATE \"r1p_badges\" SET \"note\" = ? WHERE \"id\" = ?","UPDATE \"r1p_holders\" SET \"name\" = ? WHERE (\"r1p_holders\".\"ba","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT CASE WHEN EXISTS (SELECT \"q0\".\"id\" AS \"id\" FROM \"r1p_","UPDATE \"r1p_badges\" SET \"note\" = ? WHERE \"id\" = ?","UPDATE \"r1p_holders\" SET \"name\" = ? WHERE (\"r1p_holders\".\"ba","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\""]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P2: the same, with an unrepresentable connect behind the capture
+P2 REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null. META {"relation":"holders"}
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P2: the same, with an unrepresentable connect behind the capture
+P2 badges [{"id":"b1","slug":"codeless","code":null,"note":null},{"id":"b2","slug":"gold","code":"GOLD","note":null}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P2: the same, with an unrepresentable connect behind the capture
+P2 holders [{"id":"h1","name":"one","badgeCode":"GOLD"},{"id":"h2","name":"two","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P2: the same, with an unrepresentable connect behind the capture
+P2 stamps [{"id":"s1","label":"s1","badgeId":"b1"}]
+P2 sql ["batches=0","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"badge"]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P3: P2 on the sessionless transport
+P3 REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null. META {"relation":"holders"}
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P3: P2 on the sessionless transport
+P3 badges [{"id":"b1","slug":"codeless","code":null,"note":null},{"id":"b2","slug":"gold","code":"GOLD","note":null}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P3: P2 on the sessionless transport
+P3 holders [{"id":"h1","name":"one","badgeCode":"GOLD"},{"id":"h2","name":"two","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P3: P2 on the sessionless transport
+P3 stamps [{"id":"s1","label":"s1","badgeId":"b1"}]
+P3 sql ["batches=0","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"badge"]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P4: a representable sibling capture flushes, then the connect refuses
+P4 REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null. META {"relation":"holders"}
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P4: a representable sibling capture flushes, then the connect refuses
+P4 badges [{"id":"b1","slug":"codeless","code":null,"note":null},{"id":"b2","slug":"gold","code":"GOLD","note":null}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P4: a representable sibling capture flushes, then the connect refuses
+P4 holders [{"id":"h1","name":"one","badgeCode":"GOLD"},{"id":"h2","name":"two","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P4: a representable sibling capture flushes, then the connect refuses
+P4 stamps [{"id":"s1","label":"s1","badgeId":"b1"}]
+P4 sql ["batches=0","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"badge"]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P5: P4 on the sessionless transport
+P5 REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null. META {"relation":"holders"}
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P5: P4 on the sessionless transport
+P5 badges [{"id":"b1","slug":"codeless","code":null,"note":null},{"id":"b2","slug":"gold","code":"GOLD","note":null}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P5: P4 on the sessionless transport
+P5 holders [{"id":"h1","name":"one","badgeCode":"GOLD"},{"id":"h2","name":"two","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-progress-probe.test.ts > R1 progress probe > P5: P4 on the sessionless transport
+P5 stamps [{"id":"s1","label":"s1","badgeId":"b1"}]
+P5 sql ["batches=0","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"slug\" AS \"slug\", \"q0\".\"code\"","SELECT \"q0\".\"id\" AS \"id\", \"q0\".\"name\" AS \"name\", \"q0\".\"badge"]
+
+ ✓ |extended-local| tests/raptor3/g4/parity/r1-progress-probe.test.ts (5 tests) 37ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  10:23:17
+   Duration  1.50s (transform 816ms, setup 8ms, collect 1.20s, tests 37ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.27s wall, 532.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

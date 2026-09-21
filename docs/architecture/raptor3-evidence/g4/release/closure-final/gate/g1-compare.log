@@ -1,0 +1,16 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |raptor3| tests/raptor3/candidate-handoff.test.ts (6 tests) 24ms
+ ✓ |raptor3| tests/raptor3/candidate-pagination.test.ts (4 tests) 5ms
+ ✓ |raptor3| tests/raptor3/candidate.test.ts (24 tests) 192ms
+ ✓ |raptor3| tests/raptor3/candidate-ordering.test.ts (2 tests) 19ms
+
+ Test Files  4 passed (4)
+      Tests  36 passed (36)
+   Start at  13:56:59
+   Duration  1.88s (transform 843ms, setup 11ms, collect 1.48s, tests 240ms, environment 0ms, prepare 27ms)
+
+JSON report written to /private/tmp/viborm-gate-tmp/viborm-raptor3-g0-3hmrZ8/vitest.json
+Vitest resources: 3.60s wall, 589.1 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+Raptor 3 g1-compare contract gate verified. Evidence: /private/tmp/viborm-gate-tmp/viborm-raptor3-g0-3hmrZ8

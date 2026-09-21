@@ -1,0 +1,32 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2ab
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts (3 tests | 3 failed) 243ms
+   × MySQL2 schema attestation > pushes an enum-and-default schema and converges on a second push 110ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 schema attestation > the declared defaults are the DATABASE's, not admission's 60ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+   × MySQL2 schema attestation > an actual change is planned, applied and then converges 73ms
+     → Push completed its statements but the final live fingerprint does not match the desired schema
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts > MySQL2 schema attestation > pushes an enum-and-default schema and converges on a second push
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts > MySQL2 schema attestation > the declared defaults are the DATABASE's, not admission's
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-schema-attestation.test.ts > MySQL2 schema attestation > an actual change is planned, applied and then converges
+MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  10:22:55
+   Duration  1.57s (transform 815ms, setup 9ms, collect 1.20s, tests 243ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.29s wall, 492.4 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -1,0 +1,149 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2ab
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests | 1 failed | 102 skipped) 448ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors ascending orderBy 173ms
+   × MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy 100ms
+     → expected [ 'Alpha', 'Beta', 'Gamma', …(2) ] to deeply equal [ 'Epsilon', 'Delta', 'Gamma', …(2) ]
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy under a take 91ms
+   ✓ MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors orderBy with skip and no take 84ms
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy asc with nulls last places null rows at the end
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy desc with nulls first places null rows at the start
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > orderBy asc with nulls first places null rows at the start
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter matches string array elements
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter matches int array elements
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > has filter with no match returns empty
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > create returns the auto-increment row
+   ↓ MySQL2 Driver > MySQL2 ordering/array/create behavior > concurrent creates each return their own row
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany without select returns { count }, with select returns rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with a narrow select returns only selected fields
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > a relation in a bulk write's select is refused, not silently emptied
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > include is refused with a message that names the alternative
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select assigns auto-increment ids
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves generation when another row supplies an increment id
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select restores input order across increment row shapes
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select preserves bigint generation and order
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > application defaults remain values while increment defaults stay database-owned
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only createMany rows use database generation
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > default-only create uses database generation
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany preserves conflict winner input order across row shapes
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > singleton createMany duplicate recovery returns count zero
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates keeps case, accent, and trailing-space unique values distinct
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > explicit zero increment ids reject uniformly before mutation
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > createMany with select skips only duplicate rows and returns inserted rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates still surfaces unrelated foreign-key failures
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > skipDuplicates does not suppress required, length, or conversion errors
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany without select returns { count }, with select returns rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic operations
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic decrement and multiply
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select applies atomic divide (exact quotient)
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > atomic divide pins integer-division semantics on inexact quotients
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > updateMany with select returns empty array when nothing matches
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany without select returns { count }, with select returns the deleted rows
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select returns [] when nothing matches and deletes nothing
+   ↓ MySQL2 Driver > MySQL2 bulk-write implicit returning > deleteMany with select over every row returns them all
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > push creates an index over the manyToOne FK column
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > re-pushing the schema is not an index change
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > re-pushing the schema is not a foreign-key change
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > a declared .index() on the FK column is not duplicated
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > a wider declared index over the FK columns replaces it in one push
+   ↓ MySQL2 Driver > MySQL2 foreign-key index > a compound unique over the FK columns replaces it in one push
+   ↓ MySQL2 Driver > MySQL2 declared index on a mapped field > push creates the index over the mapped column names
+   ↓ MySQL2 Driver > MySQL2 declared index on a mapped field > re-pushing the schema is not an index change
+   ↓ MySQL2 Driver > MySQL2 declared index on a mapped field > the declared index leaves the FK index nothing to add
+   ↓ MySQL2 Driver > MySQL2 partial index refusal > push refuses the declaration by name
+   ↓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > simple forward ref: push creates every table + FK round-trips
+   ↓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > multi-model forward chain: push + create through the chain
+   ↓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > self reference: push + parent/child round-trip
+   ↓ MySQL2 Driver > MySQL2 forward-ref FK push ordering > idempotency: re-pushing a forward-ref schema does not recreate tables
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect inserts junction rows without touching unrelated foreign keys
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect is idempotent
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect of a missing record fails
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > create connects and creates through the junction on parent create
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate connects existing and creates missing
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > disconnect removes the association and keeps the row
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > set replaces the association set
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete removes the child row and all its associations
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > delete of a record not connected to the parent fails
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > deleteMany deletes only connected rows matching the filter
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > writes from the side without junction config resolve the same junction
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > implicit default junction works end to end
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > rows participating in a many-to-many can be deleted directly
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested update modifies a connected record only
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested updateMany touches only connected rows matching the filter
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert updates a connected record
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert creates and connects a missing record
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > nested upsert of an existing but unconnected record fails
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connect lands after a deleteMany that cannot see it
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > duplicate connectOrCreate targets collapse to one association
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > boolean disconnect on a many-to-many relation is rejected
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > named duplicate pairs keep isolated junction tables
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > self-referential many-to-many round trip
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > create through the junction with a DB-generated target primary key
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > junction create with a generated target PK under an update root
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > connectOrCreate with a generated target PK connects existing and creates missing
+   ↓ MySQL2 Driver > MySQL2 many-to-many write behavior > upsert through the junction creates a target whose PK the database generates
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with some relation filter affects only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with every relation filter affects only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > updateMany with none relation filter affects only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with some relation filter deletes only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with every relation filter deletes only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > deleteMany with none relation filter deletes only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and none filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some and every filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object every and none filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object some, every, and none filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > updateMany applies same-object is and isNot filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and some filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object every and some filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none and every filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object none, every, and some filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > deleteMany applies reversed same-object isNot and is filters
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > combined relation operators > rolls back a combined-filter mutation when a later operation fails
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-many self-relation filter affects only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > updateMany with to-one self-relation filter affects only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > deleteMany with self-relation filter deletes only matching rows
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-many self-relation filter
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > upsert's update arm carries a to-one self-relation filter
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > an excluding self-relation filter takes the create arm instead
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > update by a self-relation-filtered unique where locates or declines
+   ↓ MySQL2 Driver > MySQL2 relation-filter mutation behavior > self-relation filters > delete by a self-relation-filtered unique where removes one row
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts > MySQL2 Driver > MySQL2 ordering/array/create behavior > to-many include honors descending orderBy
+AssertionError: expected [ 'Alpha', 'Beta', 'Gamma', …(2) ] to deeply equal [ 'Epsilon', 'Delta', 'Gamma', …(2) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[32m-   "Epsilon",[39m
+[32m-   "Delta",[39m
+[32m-   "Gamma",[39m
+[32m-   "Beta",[39m
+[2m    "Alpha",[22m
+[31m+   "Beta",[39m
+[31m+   "Gamma",[39m
+[31m+   "Delta",[39m
+[31m+   "Epsilon",[39m
+[2m  ][22m
+
+ ❯ tests/contracts/drivers/behaviors/ordering-array-create-behavior.ts:128:57
+    126|       });
+    127| 
+    128|       expect(result?.books.map((entry) => entry.title)).toEqual([
+       |                                                         ^
+    129|         "Epsilon",
+    130|         "Delta",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed | 102 skipped (106)
+   Start at  11:51:44
+   Duration  1.86s (transform 841ms, setup 9ms, collect 1.26s, tests 448ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.50s wall, 550.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

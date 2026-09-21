@@ -158,21 +158,29 @@ export function runCreateManyReturnFoldBehavior(options: {
         expect(statements[0]).toContain("RETURNING");
         expect(isInsert(statements[0] ?? "")).toBe(true);
       } else {
-        // The documented non-returning path, unchanged: one INSERT per input row,
-        // each interleaved with the refetch that reads it back by its created
-        // identity. Nothing here folds — the refetch needs one INSERT to address.
-        expect(statements).toHaveLength(8);
+        // The non-returning path, stated as what it owns rather than as the
+        // number it used to emit (final-closure handoff §4, R2b: an old exact
+        // statement count is not a semantic contract by itself, and only an
+        // obsolete physical pin may be replaced).
+        //
+        // A driver with no RETURNING still needs one INSERT PER INPUT ROW —
+        // each row's created identity is addressable only as its own
+        // statement. The shape below is derived from `rows`, the value
+        // `createMany` RETURNED, so what it states is "one INSERT per returned
+        // row, each ahead of the read-back, and nothing else on the wire" —
+        // the per-row regression in the statement stream. A LOST row is caught
+        // by the exact id list asserted above, which is pinned to a literal.
+        // The read-back is NOT per row: the created
+        // identities are read back by ONE series select, ordered by input
+        // ordinal, whose own missing-row guard is what refuses a row it
+        // cannot find (the read-back of a series wider than the driver's bind
+        // budget is windowed, which four rows are not). The rows asserted
+        // above are the same statement's rows, in the input order.
         expect(statements.map(isInsert)).toEqual([
-          true,
-          false,
-          true,
-          false,
-          true,
-          false,
-          true,
+          ...rows.map(() => true),
           false,
         ]);
-        expect(statements.filter(isSelect)).toHaveLength(4);
+        expect(statements.filter(isSelect)).toHaveLength(1);
       }
 
       // The persisted effect is the same whichever path ran.

@@ -1,0 +1,249 @@
+{
+  "name": "scalars",
+  "pushed": "applied",
+  "catalog": [
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "varchar",
+      "COLUMN_TYPE": "varchar(191)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "title",
+      "DATA_TYPE": "text",
+      "COLUMN_TYPE": "text",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "count",
+      "DATA_TYPE": "int",
+      "COLUMN_TYPE": "int",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "flag",
+      "DATA_TYPE": "tinyint",
+      "COLUMN_TYPE": "tinyint(1)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "at",
+      "DATA_TYPE": "datetime",
+      "COLUMN_TYPE": "datetime(3)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "amount",
+      "DATA_TYPE": "decimal",
+      "COLUMN_TYPE": "decimal(10,2)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "payload",
+      "DATA_TYPE": "json",
+      "COLUMN_TYPE": "json",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_rows",
+      "COLUMN_NAME": "tags",
+      "DATA_TYPE": "json",
+      "COLUMN_TYPE": "json",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    }
+  ],
+  "differences": [
+    "/tables/0/columns/0/type: desired=\"DECIMAL(10,2)\" live=\"decimal(10,2)\"",
+    "/tables/0/columns/1/type: desired=\"DATETIME(3)\" live=\"datetime(3)\"",
+    "/tables/0/columns/3/type: desired=\"TINYINT(1)\" live=\"tinyint(1)\"",
+    "/tables/0/columns/4/type: desired=\"VARCHAR(191)\" live=\"varchar(191)\"",
+    "/tables/0/primaryKey/name: desired=\"r2a_rows_pkey\" live=\"PRIMARY\""
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_rows",
+        "columns": [
+          {
+            "name": "amount",
+            "type": "DECIMAL(10,2)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": {
+              "precision": 10,
+              "scale": 2
+            }
+          },
+          {
+            "name": "at",
+            "type": "DATETIME(3)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "count",
+            "type": "INT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "flag",
+            "type": "TINYINT(1)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "id",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "payload",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "tags",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_rows_pkey"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  },
+  "live": {
+    "tables": [
+      {
+        "name": "r2a_rows",
+        "columns": [
+          {
+            "name": "amount",
+            "type": "decimal(10,2)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": {
+              "precision": 10,
+              "scale": 2
+            }
+          },
+          {
+            "name": "at",
+            "type": "datetime(3)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "count",
+            "type": "INT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "flag",
+            "type": "tinyint(1)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "id",
+            "type": "varchar(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "payload",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "tags",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "title",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "PRIMARY"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  }
+}

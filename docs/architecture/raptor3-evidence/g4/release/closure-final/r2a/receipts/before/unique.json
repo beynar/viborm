@@ -1,0 +1,141 @@
+{
+  "name": "unique",
+  "pushed": "applied",
+  "catalog": [
+    {
+      "TABLE_NAME": "r2a_users",
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "varchar",
+      "COLUMN_TYPE": "varchar(191)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_users",
+      "COLUMN_NAME": "email",
+      "DATA_TYPE": "varchar",
+      "COLUMN_TYPE": "varchar(191)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_users",
+      "COLUMN_NAME": "name",
+      "DATA_TYPE": "text",
+      "COLUMN_TYPE": "text",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    }
+  ],
+  "differences": [
+    "/tables/0/columns/0/type: desired=\"VARCHAR(191)\" live=\"varchar(191)\"",
+    "/tables/0/columns/1/type: desired=\"VARCHAR(191)\" live=\"varchar(191)\"",
+    "/tables/0/primaryKey/name: desired=\"r2a_users_pkey\" live=\"PRIMARY\""
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_users",
+        "columns": [
+          {
+            "name": "email",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "id",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_users_pkey"
+        },
+        "indexes": [
+          {
+            "name": "r2a_users_email_key",
+            "columns": [
+              "email"
+            ],
+            "unique": true,
+            "type": "btree",
+            "where": null
+          }
+        ],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  },
+  "live": {
+    "tables": [
+      {
+        "name": "r2a_users",
+        "columns": [
+          {
+            "name": "email",
+            "type": "varchar(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "id",
+            "type": "varchar(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "name",
+            "type": "TEXT",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "PRIMARY"
+        },
+        "indexes": [
+          {
+            "name": "r2a_users_email_key",
+            "columns": [
+              "email"
+            ],
+            "unique": true,
+            "type": "btree",
+            "where": null
+          }
+        ],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  }
+}

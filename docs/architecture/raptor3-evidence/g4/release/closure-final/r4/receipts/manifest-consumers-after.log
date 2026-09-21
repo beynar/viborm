@@ -1,0 +1,16 @@
+# R4 — the manifest's own consumers, after the one registration
+cwd: /private/tmp/viborm-r4  HEAD: cdd787ac8bbdb735535552dd5851a4758eb8789c  date: 2026-09-21T08:19:55Z
+
+## scripts/raptor3-cli.test.mjs  (node scripts/run-node-safe.mjs 1024 540000 …)  exit=0
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+
+## scripts/raptor3-campaign-receipts.test.mjs  (node scripts/run-node-safe.mjs 512 120000 …)  exit=0
+ℹ tests 41
+ℹ pass 41
+ℹ fail 0
+
+NOTE: an earlier 120 s wall on the CLI self-test was a LAUNCHER TIMEOUT, not a
+failing cell; it was rerun at 540 s and passed 10/10.

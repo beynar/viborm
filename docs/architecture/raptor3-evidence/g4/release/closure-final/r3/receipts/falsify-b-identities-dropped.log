@@ -1,0 +1,42 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+(node:53900) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts (16 tests | 2 failed) 1492ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > default native route: nothing is captured, and the statement removes exactly the rows it still matches 169ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > interactive route: FOR UPDATE makes the capture see B's committed change, and the row that stopped matching is not deleted 146ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route, lock held: the captured row that stopped matching survives the write, and the shortfall is the cardinality sentence 130ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row that stops matching between the last premise and the first write is not deleted, and the effects that committed are reported 79ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a root UPDATE in the same window leaves the row that stopped matching untouched, and never reaches its non-RETURNING read-back 79ms
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts 74ms
+     → deleteMany selected-row cardinality changed during its locked mutation.
+   × pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated 71ms
+     → deleteMany selected-row cardinality changed during its locked mutation.
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a COMPOUND captured identity is carried completely, and only the row that still matches is deleted 79ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a captured row removed before the premises aborts the unit with the registered sentence and writes nothing 69ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > control: a truly irrelevant concurrent change in the same window changes nothing 68ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added before the unit's premises aborts the complement raceably and the retry converges 101ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member added after that boundary stays outside the captured worklist 80ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: the initial filter selected the worklist and is not re-asked at each member's own write 87ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > batch route: a member whose required membership was reassigned is not deleted for the parent that no longer holds it 90ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > default native route: an earlier member's own write does not invalidate the worklist a sibling was selected into 75ms
+   ✓ pg Driver captured-set consumption-time contract > consumer 2: a nested captured deleteMany under a membership > control: a truly irrelevant concurrent change in the same window changes nothing 82ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a row that joins the selection between the last premise and the first write is not deleted, and nothing aborts
+TransactionError: deleteMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |provider-pg| tests/providers/docker/pg-captured-set-concurrency.test.ts > pg Driver captured-set consumption-time contract > consumer 1: a root selected bulk mutation over a captured set > batch route: a LIMITED capture claims no complement, and a newly eligible row outside its slice is not mutated
+TransactionError: deleteMany selected-row cardinality changed during its locked mutation.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 passed (16)
+   Start at  11:26:26
+   Duration  2.98s (transform 914ms, setup 8ms, collect 1.33s, tests 1.49s, environment 0ms, prepare 34ms)
+
+Vitest resources: 4.87s wall, 534.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

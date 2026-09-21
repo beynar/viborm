@@ -1,0 +1,53 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S1: the child-held `set` verb under a parent whose reference reads null
+S1-set-from-null-parent REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S1: the child-held `set` verb under a parent whose reference reads null
+S1-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S2: the child-held connectOrCreate, both arms
+S2-coc-found REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S2: the child-held connectOrCreate, both arms
+S2-coc-missing REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S2: the child-held connectOrCreate, both arms
+S2-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S3: the child-held upsert arms under a null-referenced parent
+S3-upsert-found REFUSED NestedWriteError Cannot upsert relation 'holders': target record was not found for this parent.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S3: the child-held upsert arms under a null-referenced parent
+S3-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S4: the parent-held createMany/nested create control
+S4-child-held-createMany REFUSED NestedWriteError Cannot connect relation 'holders': the located target's referenced field 'code' is null.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S4: the parent-held createMany/nested create control
+S4-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S5: a nested update arm that nulls the referenced column under a live member (FC-02C R3, deliberately untouched)
+S5-update-arm-nulls-reference REFUSED ForeignKeyError Foreign key constraint violation
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S5: a nested update arm that nulls the referenced column under a live member (FC-02C R3, deliberately untouched)
+S5-holders [{"id":"h1","name":"one","badgeCode":"GOLD"}]
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S6: the parent-held `set` on the to-one holder side is not a verb this schema has; the disconnect control
+S6-disconnect RESOLVED {"id":"h1","name":"one","badgeCode":null}
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S6: the parent-held `set` on the to-one holder side is not a verb this schema has; the disconnect control
+S6-child-held-disconnect REFUSED NestedWriteError Cannot disconnect relation 'holders': target record was not found for this parent.
+
+stdout | tests/raptor3/g4/parity/r1-residual-probe.test.ts > R1 residuals (measured, not pinned) > S6: the parent-held `set` on the to-one holder side is not a verb this schema has; the disconnect control
+S6-holders [{"id":"h1","name":"one","badgeCode":null}]
+
+ ✓ |extended-local| tests/raptor3/g4/parity/r1-residual-probe.test.ts (6 tests) 38ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:17:35
+   Duration  1.52s (transform 851ms, setup 9ms, collect 1.28s, tests 38ms, environment 0ms, prepare 27ms)
+
+Vitest resources: 3.40s wall, 519.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -156,6 +156,52 @@ and keeps a unique index that an FK targets as an index — `information_schema`
 drops that pair (`unique_constraint_name` is null; `conindid` also names the
 referenced unique index).
 
+**MySQL addendum (R2a, 2026-09-21).** MySQL hands back its own vocabulary, so
+its introspection — not `normalizeType` / `normalizeDefault` — is where the two
+snapshots are made comparable. An ENUM's values ARE its type and MySQL has no
+standalone enum object, so `mysqlEnumType` (`drivers/type-mapping.ts`) is the
+ONE spelling: `getEnumColumnType` writes it, `drivers/mysql/introspect.ts`
+re-spells the catalog's `enum('a','b')` through it, and that same text is the
+enum's identity in `snapshot.enums` on both sides — a name derived only on the
+live side never equalled the desired one. A default is reported in two
+vocabularies and neither is the estate's: a LITERAL default comes back as the
+bare value with its quotes gone, an EXPRESSION default as MySQL's deparse,
+escaped TWICE — once by MySQL printing the string literal, once by the catalog
+printing that expression, so a declared `it's` arrives as the characters
+`_utf8mb4\'it\\\'s\'` — and `cleanDefault` undoes both layers into the DDL
+spelling. It undoes `\'` and `\\` and nothing else, and that leaves TWO
+distinct mechanisms, not one. FIRST: a body carrying an escape this inverse
+does not own — `\n` for a newline, measured — is not translated at all, so the
+column keeps the CATALOG's own text, a printed backslash sequence, which can
+never equal what the desired side spells. That one is witnessed
+provider-free, by `tests/unit/migrations/mysql-provider-free-catalog.core.test.ts`'s
+"undoes both layers of MySQL's deparse, and keeps what it cannot", whose
+`multiline` column asserts the catalog text comes back unchanged. SECOND: a
+backslash in the DECLARED value never reaches the catalog as an escape at all —
+`escapeValue` leaves `\` alone and MySQL's DDL reads it as an escape
+introducer, so `DEFAULT ('a\b')` stores a BACKSPACE (measured) — and the
+inverse then succeeds on that body while reconstructing a value that is not
+the declared one. That one is witnessed live, by
+`tests/providers/docker/mysql2-schema-attestation.test.ts`'s "a default MySQL's
+DDL does not read back is refused, not accepted". Both end the same way, and
+that end is the fail-closed direction: the column is re-planned and the push
+then FAILS at the final attestation with `MIGRATION_DRIFT`. It is explicit —
+such a default cannot be pushed to MySQL at all, rather than being accepted as
+a value nobody proved equal — and the round-tripping side is pinned beside the
+second, by the same file's "an apostrophe survives MySQL's deparse of an
+expression default". MySQL refuses a literal
+`DEFAULT` on TEXT, BLOB, JSON and GEOMETRY (errno 1101), so `finalizeTable` —
+the one owner of how a MySQL column is spelled, beside the keyed-TEXT →
+`VARCHAR(191)` rewrite — carries such a default as MySQL's expression default
+`DEFAULT ('value')`. The emitter writes what the snapshot says and suppresses
+nothing: a declared default silently dropped is a column the schema did not
+declare, and the final push attestation refuses it. A MySQL push runs its
+sequential program even when the plan is EMPTY, because the
+interrupted-decimal-conversion recovery belongs to the LOCKED COMMAND: a
+conversion interrupted after its MODIFY leaves the column already carrying the
+target domain, so the differ sees no change and the remnant CHECK — which no
+snapshot vocabulary describes — would otherwise survive every later push.
+
 ### Closed parsing
 
 Hostile estate and control bytes become trusted V1 values only through the

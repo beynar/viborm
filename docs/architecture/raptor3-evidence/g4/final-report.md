@@ -404,3 +404,28 @@ Everything the wave CLOSED is recorded at its own item above or in the ledger's
     anything (`assertStructuralMeasurementPatch`, FC-06). The live
     instrumentation for that measure remains
     `docs/architecture/raptor3-evidence/g4/qualified/structure/instrumentation.patch`. **Measured at the closure gate (2026-09-21, `833318c5a`): `pg-nested-write-races.test.ts` 95 / 95 on native PostgreSQL 16 — the registration is GREEN; the D-58 and closure repairs closed it.**
+
+### Added by the final local closure (R1 … R4, 2026-09-21)
+
+17. **The three residual NULL-reference shapes are refused, not written.** R1
+    states the one requirement at the record that stores the tuple; the
+    narrower found-choice loop is deleted; native PostgreSQL and MySQL
+    witnesses prove operation-owned rollback, borrowed ownership and truthful
+    segmented progress. Items 12's two residuals are closed.
+18. **D-65 is adopted and implemented (R3), no longer pending.** Root captured
+    mutations carry identity set and prepared selector in the effect; nested
+    captured series are a bounded worklist. Item 11 is closed; the batch-route
+    window it described is now the documented bound, not a silent mutation.
+19. **Native MySQL is part of local qualification (D-66, D-67; R2).** The
+    schema-attestation owner, the exposed behaviour and the deadlock policy are
+    repaired at their owners; the lane is green at the frozen gate (735 / 1
+    skipped / 0 red). "The same failures existed before" no longer describes it.
+20. **D-64's witness runs in the normal gate (R4).** Item 13 is closed.
+21. **The final release record** lives under `g4/release/closure-final/`
+    (`index.md`, the gate's raw logs and identities, the recount, the bundle
+    and performance receipts, the release verdict). Hosted Neon/D1 stays
+    deferred (items 14, L-5, L-6). Three files someone modified in the working
+    tree during the program — the first closure handoff, the implementation
+    plan and `features-docs/recursive-query.md` — are not this checkpoint's and
+    were left uncommitted.
+

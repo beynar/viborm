@@ -1,0 +1,162 @@
+/** R1 progress probe — NOT a pin. What stands committed behind the refusal on
+ * the segmented transports, and what the failure reports about it. */
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, it } from "vitest";
+import { BatchOnlyDriver, SessionlessBatchOnlyDriver } from "./batch-only-drivers";
+
+const badge = s
+  .model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    code: s.string().nullable().unique(),
+    note: s.string().nullable(),
+    holders: s.toMany(() => holder),
+    stamps: s.toMany(() => stamp),
+  })
+  .map("r1p_badges");
+const stamp = s
+  .model({
+    id: s.string().id(),
+    label: s.string(),
+    badgeId: s.string().nullable(),
+    badge: s
+      .toOne(() => badge)
+      .fields("badgeId")
+      .references("id"),
+  })
+  .map("r1p_stamps");
+const holder = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    badgeCode: s.string().nullable(),
+    badge: s
+      .toOne(() => badge)
+      .fields("badgeCode")
+      .references("code"),
+  })
+  .map("r1p_holders");
+const schema = { badge, holder, stamp };
+
+describe("R1 progress probe", () => {
+  let driver: BatchOnlyDriver;
+  afterEach(async () => {
+    await driver?.disconnect();
+  });
+  async function world(made: BatchOnlyDriver) {
+    driver = made;
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.badge.create({
+      data: { id: "b1", slug: "codeless", code: null, note: null },
+    });
+    await client.badge.create({
+      data: { id: "b2", slug: "gold", code: "GOLD", note: null },
+    });
+    await client.holder.create({
+      data: { id: "h1", name: "one", badgeCode: "GOLD" },
+    });
+    await client.holder.create({
+      data: { id: "h2", name: "two", badgeCode: "GOLD" },
+    });
+    await client.stamp.create({
+      data: { id: "s1", label: "s1", badgeId: "b1" },
+    });
+    return client;
+  }
+  async function probe(label: string, made: BatchOnlyDriver, body: (c: Awaited<ReturnType<typeof world>>) => Promise<unknown>) {
+    const client = await world(made);
+    made.reset();
+    const sqlSeen: string[] = [];
+    try {
+      console.log(label, "RESOLVED", JSON.stringify(await body(client)));
+    } catch (error) {
+      const failure = error as Error & { meta?: Record<string, unknown> };
+      console.log(
+        label,
+        "REFUSED",
+        failure.constructor.name,
+        failure.message,
+        "META",
+        JSON.stringify(failure.meta ?? null)
+      );
+    }
+    sqlSeen.push(`batches=${made.batchCalls}`, ...made.statements.map((entry) => entry.sql.slice(0, 60)));
+    console.log(label, "badges", JSON.stringify(await client.badge.findMany({ orderBy: { id: "asc" } })));
+    console.log(label, "holders", JSON.stringify(await client.holder.findMany({ orderBy: { id: "asc" } })));
+    console.log(label, "stamps", JSON.stringify(await client.stamp.findMany({ orderBy: { id: "asc" } })));
+    console.log(label, "sql", JSON.stringify(sqlSeen));
+  }
+
+  it("P1: a capture between the parent's write and the refusing connect", async () => {
+    await probe("P1", new BatchOnlyDriver(), (client) =>
+      client.badge.update({
+        where: { id: "b2" },
+        data: {
+          note: "acknowledged",
+          holders: {
+            updateMany: { where: { name: "two" }, data: { name: "renamed" } },
+          },
+        },
+      })
+    );
+  });
+
+  it("P2: the same, with an unrepresentable connect behind the capture", async () => {
+    await probe("P2", new BatchOnlyDriver(), (client) =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          note: "acknowledged",
+          holders: {
+            updateMany: { where: { name: "two" }, data: { name: "renamed" } },
+            connect: { id: "h1" },
+          },
+        },
+      })
+    );
+  });
+
+  it("P3: P2 on the sessionless transport", async () => {
+    await probe("P3", new SessionlessBatchOnlyDriver(), (client) =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          note: "acknowledged",
+          holders: {
+            updateMany: { where: { name: "two" }, data: { name: "renamed" } },
+            connect: { id: "h1" },
+          },
+        },
+      })
+    );
+  });
+
+  it("P4: a representable sibling capture flushes, then the connect refuses", async () => {
+    await probe("P4", new BatchOnlyDriver(), (client) =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          note: "acknowledged",
+          stamps: { updateMany: { where: { label: "s1" }, data: { label: "renamed" } } },
+          holders: { connect: { id: "h1" } },
+        },
+      })
+    );
+  });
+
+  it("P5: P4 on the sessionless transport", async () => {
+    await probe("P5", new SessionlessBatchOnlyDriver(), (client) =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          note: "acknowledged",
+          stamps: { updateMany: { where: { label: "s1" }, data: { label: "renamed" } } },
+          holders: { connect: { id: "h1" } },
+        },
+      })
+    );
+  });
+});

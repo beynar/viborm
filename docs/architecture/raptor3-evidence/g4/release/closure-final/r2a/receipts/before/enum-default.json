@@ -1,0 +1,117 @@
+{
+  "name": "enum-default",
+  "pushed": "MigrationError: Push completed its statements but the final live fingerprint does not match the desired schema",
+  "catalog": [
+    {
+      "TABLE_NAME": "r2a_defaulted",
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "varchar",
+      "COLUMN_TYPE": "varchar(191)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_defaulted",
+      "COLUMN_NAME": "role",
+      "DATA_TYPE": "enum",
+      "COLUMN_TYPE": "enum('admin','member','guest')",
+      "COLUMN_DEFAULT": "member",
+      "EXTRA": ""
+    }
+  ],
+  "differences": [
+    "/tables/0/columns/0/type: desired=\"VARCHAR(191)\" live=\"varchar(191)\"",
+    "/tables/0/columns/1/type: desired=\"ENUM('admin', 'member', 'guest')\" live=\"enum('admin','member','guest')\"",
+    "/tables/0/columns/1/default: desired=\"'member'\" live=\"member\"",
+    "/tables/0/primaryKey/name: desired=\"r2a_defaulted_pkey\" live=\"PRIMARY\"",
+    "/enums/0/name: desired=\"ENUM('admin', 'member', 'guest')\" live=\"r2a_defaulted$role$enum\""
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_defaulted",
+        "columns": [
+          {
+            "name": "id",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "role",
+            "type": "ENUM('admin', 'member', 'guest')",
+            "nullable": false,
+            "default": "'member'",
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_defaulted_pkey"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": [
+      {
+        "name": "ENUM('admin', 'member', 'guest')",
+        "values": [
+          "admin",
+          "member",
+          "guest"
+        ]
+      }
+    ]
+  },
+  "live": {
+    "tables": [
+      {
+        "name": "r2a_defaulted",
+        "columns": [
+          {
+            "name": "id",
+            "type": "varchar(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "role",
+            "type": "enum('admin','member','guest')",
+            "nullable": false,
+            "default": "member",
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "PRIMARY"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": [
+      {
+        "name": "r2a_defaulted$role$enum",
+        "values": [
+          "admin",
+          "member",
+          "guest"
+        ]
+      }
+    ]
+  }
+}

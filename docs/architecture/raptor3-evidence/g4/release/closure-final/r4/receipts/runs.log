@@ -1,0 +1,69 @@
+# R4 — runs
+cwd: /private/tmp/viborm-r4  HEAD: cdd787ac8bbdb735535552dd5851a4758eb8789c  TMPDIR=/private/tmp/viborm-r4-tmp
+date: 2026-09-21T08:24:33Z
+
+## the new pin (node scripts/run-vitest-safe.mjs run …/read-only-build-contract.test.ts)  exit=0
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g4/parity/read-only-build-contract.test.ts (3 tests) 10ms
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+Vitest resources: 4.09s wall, 523.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+## one neighbour family, unchanged (cacheable-read-vocabulary + published-key)  exit=0
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 85ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 10ms
+ ✓ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 77ms
+ ✓ |raptor3| tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts (3 tests) 10ms
+ Test Files  4 passed (4)
+      Tests  30 passed (30)
+Vitest resources: 4.92s wall, 602.8 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+
+# ---------------------------------------------------------------- repair round
+date: 2026-09-21T08:44Z   (findings on scripts/closure-final-index.mjs,
+scripts/closure-final-recount.mjs, CHANGELOG.md and the note/ledger wording)
+
+No src/ and no tests/ file changed in this round, so no vitest re-run
+discriminates: the new pin, the neighbour family, the manifest's consumers and
+test:coverage:policy all stand on the runs above. The two repaired scripts were
+re-run instead, and the typecheck once.
+
+## scripts/closure-final-index.mjs, re-run on the integrator's gate directory  exit=0
+  closure-final-index: 40 stages (2 summary stage(s) with no log), 663 registered test files
+  -> docs/architecture/raptor3-evidence/g4/release/closure-final/dry-run
+  (before the repair: "41 stages", summary.log counted as a stage of its own and
+   the two multi-word native stages dropped)
+  20 of the 40 stages `unrecorded`; 20 recorded; and, newly visible:
+    | native mysql2 (docker) | 1 |
+    | native pg (docker)     | 1 |
+  The dry run was deleted again after the receipt was re-captured.
+
+## misattribution probe (synthetic gate in TMPDIR)  exit=0
+  gate: alpha.log, pg.log; summary.log = "=== alpha" (no exit),
+        "=== native pg (docker)" / "exit=0"
+  before: | `alpha` | 0 |        <- a zero substituted for a stage with none
+  after:  | `alpha` | unrecorded |
+          | `pg`    | unrecorded |
+          summary stages with no log: | `native pg (docker)` | 0 |
+
+## scripts/closure-final-recount.mjs, deletion probe  exit=0
+  node scripts/closure-final-recount.mjs --out <tmp> \
+    --measurement .../receipts/source-size-r4.json \
+    --unit deletion-probe=bf7ac30b4~1..bf7ac30b4
+  (that commit deletes src/query-engine/raptor3/program/{index,program}.ts)
+  before: | `uncharged-production`                | 3 | 26 | 652 |
+  after:  | `removed-or-unclassified-production`  | 3 | 26 | 652 |
+
+## scripts/closure-final-recount.mjs, the kept dry run re-captured  exit=0
+  closure-final-recount: engine 16040 token LOC, charged 23833; 2 unit range(s)
+  Totals and ratios unchanged (0.3485 engine token, 0.3418 engine physical).
+  Only the bucket name moved: the one src/ path both sample ranges touch that
+  the reader does not classify (src/query-engine/raptor3/AGENTS.md) is now
+  `removed-or-unclassified-production`.
+
+## Biome, the two repaired scripts (NEW files, formatted)  exit=0
+  npx biome check scripts/closure-final-index.mjs scripts/closure-final-recount.mjs \
+    tests/raptor3/g4/parity/read-only-build-contract.test.ts
+  Checked 3 files in 37ms. No fixes applied.
+
+## node scripts/run-typecheck.mjs, whole estate  exit=0
+  0 diagnostics, 5.62s wall, 5,078.1 MiB peak.

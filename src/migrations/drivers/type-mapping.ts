@@ -83,6 +83,24 @@ export const MYSQL_TYPE_DEFAULTS = {
   enum: "TEXT", // Default for unspecified enums; usually use inline ENUM()
 } as const;
 
+/**
+ * THE MySQL inline enum type — one spelling, both snapshot producers.
+ *
+ * MySQL has no standalone enum object: the values ARE the column type, so this
+ * text is also the enum's identity in a snapshot. The desired side spells it
+ * (`MySQLMigrationDriver.getEnumColumnType`) and the live side re-spells the
+ * catalog's `COLUMN_TYPE` through the very same function
+ * (`mysql/introspect.ts`), because `information_schema` prints its own
+ * canonical rendering — `enum('a','b')`, no space after the comma, and an
+ * identity of its own invention — and two spellings of ONE type read as a
+ * changed column on every push and as the mismatch the final push attestation
+ * refuses.
+ */
+export function mysqlEnumType(values: readonly string[]): string {
+  const escaped = values.map((value) => `'${value.replace(/'/g, "''")}'`);
+  return `ENUM(${escaped.join(", ")})`;
+}
+
 // =============================================================================
 // TYPE MAPPING FUNCTIONS
 // =============================================================================

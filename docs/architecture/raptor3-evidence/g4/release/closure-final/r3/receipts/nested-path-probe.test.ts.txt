@@ -1,0 +1,68 @@
+/** R3 probe (not registered): which path a nested junction updateMany takes. */
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, it } from "vitest";
+import { BatchOnlyDriver } from "./batch-only-drivers";
+
+const team = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    members: s
+      .toMany(() => member)
+      .through("r3p_team_members")
+      .source("team_ref")
+      .target("member_ref"),
+  })
+  .map("r3p_teams");
+const member = s
+  .model({
+    id: s.string().id(),
+    label: s.string(),
+    active: s.boolean(),
+    teams: s.toMany(() => team),
+  })
+  .map("r3p_members");
+const schema = { team, member };
+
+describe("R3 nested path probe", () => {
+  it("prints the statements of a nested junction updateMany", async () => {
+    const driver = new BatchOnlyDriver();
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.member.createMany({
+      data: [
+        { id: "m1", label: "one", active: true },
+        { id: "m2", label: "two", active: true },
+        { id: "m3", label: "three", active: true },
+      ],
+    });
+    await client.team.create({ data: { id: "t1", name: "Team" } });
+    await client.team.update({
+      where: { id: "t1" },
+      data: { members: { connect: [{ id: "m1" }, { id: "m2" }] } },
+    });
+    driver.reset();
+    await client.team.update({
+      where: { id: "t1" },
+      data: {
+        members: {
+          updateMany: { where: { active: true }, data: { active: false } },
+        },
+      },
+    });
+    for (const statement of driver.statements)
+      console.log("NESTED >>", statement.sql.slice(0, 160));
+    console.log(
+      "AFTER",
+      JSON.stringify(
+        (await client.member.findMany({ orderBy: { id: "asc" } })).map((r) => [
+          r.id,
+          r.active,
+        ])
+      )
+    );
+    await driver.disconnect();
+  });
+});

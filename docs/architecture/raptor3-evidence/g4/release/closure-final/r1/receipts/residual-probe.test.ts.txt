@@ -1,0 +1,162 @@
+/** R1 residual probe — NOT a registered pin; run once to record the placements
+ * this unit's requirement does not reach, on the REPAIRED tree. */
+import { createClient } from "@client/client";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { afterEach, describe, it } from "vitest";
+import { RecordingSQLiteDriver } from "../unit02/world";
+
+const badge = s
+  .model({
+    id: s.string().id(),
+    slug: s.string().unique(),
+    code: s.string().nullable().unique(),
+    holders: s.toMany(() => holder),
+  })
+  .map("r1r_badges");
+const holder = s
+  .model({
+    id: s.string().id(),
+    name: s.string(),
+    badgeCode: s.string().nullable(),
+    badge: s
+      .toOne(() => badge)
+      .fields("badgeCode")
+      .references("code"),
+  })
+  .map("r1r_holders");
+const schema = { badge, holder };
+
+async function report(label: string, body: () => Promise<unknown>) {
+  try {
+    console.log(label, "RESOLVED", JSON.stringify(await body()));
+  } catch (error) {
+    console.log(
+      label,
+      "REFUSED",
+      (error as Error).constructor.name,
+      (error as Error).message
+    );
+  }
+}
+
+describe("R1 residuals (measured, not pinned)", () => {
+  let driver: RecordingSQLiteDriver;
+  afterEach(async () => {
+    await driver?.disconnect();
+  });
+  async function world() {
+    driver = new RecordingSQLiteDriver();
+    const client = createClient({ schema, driver });
+    await syncLiveSchema(client);
+    await client.badge.create({
+      data: { id: "b1", slug: "codeless", code: null },
+    });
+    await client.badge.create({ data: { id: "b2", slug: "gold", code: "GOLD" } });
+    await client.holder.create({
+      data: { id: "h1", name: "one", badgeCode: "GOLD" },
+    });
+    driver.reset();
+    return client;
+  }
+
+  it("S1: the child-held `set` verb under a parent whose reference reads null", async () => {
+    const client = await world();
+    await report("S1-set-from-null-parent", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: { holders: { set: [{ id: "h1" }] } },
+      })
+    );
+    console.log("S1-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("S2: the child-held connectOrCreate, both arms", async () => {
+    const client = await world();
+    await report("S2-coc-found", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          holders: {
+            connectOrCreate: {
+              where: { id: "h1" },
+              create: { id: "h9", name: "nine" },
+            },
+          },
+        },
+      })
+    );
+    await report("S2-coc-missing", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          holders: {
+            connectOrCreate: {
+              where: { id: "h8" },
+              create: { id: "h8", name: "eight" },
+            },
+          },
+        },
+      })
+    );
+    console.log("S2-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("S3: the child-held upsert arms under a null-referenced parent", async () => {
+    const client = await world();
+    await report("S3-upsert-found", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: {
+          holders: {
+            upsert: {
+              where: { id: "h1" },
+              create: { id: "h1", name: "created" },
+              update: { name: "updated" },
+            },
+          },
+        },
+      })
+    );
+    console.log("S3-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("S4: the parent-held createMany/nested create control", async () => {
+    const client = await world();
+    await report("S4-child-held-createMany", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: { holders: { createMany: { data: [{ id: "h7", name: "seven" }] } } },
+      })
+    );
+    console.log("S4-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("S5: a nested update arm that nulls the referenced column under a live member (FC-02C R3, deliberately untouched)", async () => {
+    const client = await world();
+    await report("S5-update-arm-nulls-reference", () =>
+      client.holder.update({
+        where: { id: "h1" },
+        data: { badge: { update: { code: null } } },
+      })
+    );
+    console.log("S5-holders", JSON.stringify(await client.holder.findMany()));
+  });
+
+  it("S6: the parent-held `set` on the to-one holder side is not a verb this schema has; the disconnect control", async () => {
+    const client = await world();
+    await report("S6-disconnect", () =>
+      client.holder.update({
+        where: { id: "h1" },
+        data: { badge: { disconnect: true } },
+      })
+    );
+    await report("S6-child-held-disconnect", () =>
+      client.badge.update({
+        where: { id: "b1" },
+        data: { holders: { disconnect: [{ id: "h1" }] } },
+      })
+    );
+    console.log("S6-holders", JSON.stringify(await client.holder.findMany()));
+  });
+});

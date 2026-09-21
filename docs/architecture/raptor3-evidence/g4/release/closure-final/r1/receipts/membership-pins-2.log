@@ -1,0 +1,13 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ✓ |extended-local| tests/raptor3/g4/parity/lane-x-set-mutations.test.ts (10 tests) 66ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 80ms
+ ✓ |raptor3| tests/raptor3/g4/parity/published-key.test.ts (12 tests) 80ms
+
+ Test Files  3 passed (3)
+      Tests  34 passed (34)
+   Start at  10:13:43
+   Duration  4.68s (transform 2.53s, setup 22ms, collect 3.82s, tests 226ms, environment 0ms, prepare 81ms)
+
+Vitest resources: 6.69s wall, 572.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

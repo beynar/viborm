@@ -174,9 +174,18 @@ describe("provider-free MySQL catalog reconstruction", () => {
       execution._executeRaw(sql, params)
     );
 
+    // The enum's identity read `order$lines$sta$tus$enum` at the base: a name
+    // derived here and nowhere else, so it never equalled the one the DESIRED
+    // snapshot registers (`serializer.ts` takes that from
+    // `getEnumColumnType`), and every enum-bearing MySQL schema carried two
+    // enum definitions that could not match — which is what the final push
+    // attestation refused. Re-expressed for the decided MySQL qualification
+    // (final-closure handoff §1, "MySQL"): MySQL has no standalone enum
+    // object, so the inline type IS the identity, spelled once by
+    // `mysqlEnumType` and read back through it here.
     expect(snapshot.enums).toEqual([
       {
-        name: "order$lines$sta$tus$enum",
+        name: String.raw`ENUM('a,b', 'it''s', 'back\slash')`,
         values: ["a,b", "it's", "back\\slash"],
       },
     ]);
@@ -199,6 +208,13 @@ describe("provider-free MySQL catalog reconstruction", () => {
           type: "DECIMAL(8)",
           decimal: { precision: 8, scale: 0 },
         }),
+        expect.objectContaining({
+          name: "sta$tus",
+          type: String.raw`ENUM('a,b', 'it''s', 'back\slash')`,
+        }),
+        // A COLUMN_TYPE that parses to no values is not an enum MySQL could
+        // have created; it stays exactly as the catalog spelled it.
+        expect.objectContaining({ name: "unparsed", type: "enum(not-quoted)" }),
         expect.objectContaining({ name: "location", type: "POINT" }),
         expect.objectContaining({ name: "target", type: "POINT SRID 4326" }),
       ])
@@ -238,6 +254,69 @@ describe("provider-free MySQL catalog reconstruction", () => {
         onUpdate: "noAction",
       }),
     ]);
+  });
+
+  // Measured on MySQL 8.4.11: a column declared `DEFAULT ('it''s')` is
+  // reported by `information_schema` as the characters `_utf8mb4\'it\\\'s\'`
+  // — the literal escaped once by MySQL printing it, once more by the catalog
+  // printing that expression. The desired side spells that column `('it''s')`,
+  // so an apostrophe in a default on TEXT, BLOB, JSON or GEOMETRY (the storage
+  // classes that take an expression default) is only comparable if the two
+  // layers are undone here. Untranslated, the column is re-planned on every
+  // push and the push then FAILS at the final attestation with
+  // MIGRATION_DRIFT.
+  test("undoes both layers of MySQL's deparse, and keeps what it cannot", async () => {
+    const execution = catalogDriver({
+      columns: [
+        {
+          ...column("quoted", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'it\\\'s\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("plain", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'plain\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("multiline", "text"),
+          COLUMN_DEFAULT: String.raw`_utf8mb4\'line1\\nline2\'`,
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("stamped", "datetime"),
+          COLUMN_DEFAULT: "CURRENT_TIMESTAMP(3)",
+          EXTRA: "DEFAULT_GENERATED",
+        },
+        {
+          ...column("literal", "varchar"),
+          CHARACTER_MAXIMUM_LENGTH: 10,
+          COLUMN_DEFAULT: "it's",
+        },
+      ],
+    });
+    const driver = getMigrationDriver(execution);
+
+    const snapshot = await driver.introspect((sql, params) =>
+      execution._executeRaw(sql, params)
+    );
+    const byName = new Map(
+      snapshot.tables[0]?.columns.map((col) => [col.name, col])
+    );
+
+    expect(byName.get("quoted")?.default).toBe("('it''s')");
+    expect(byName.get("plain")?.default).toBe("('plain')");
+    expect(byName.get("literal")?.default).toBe("'it''s'");
+    // MySQL prints a newline `\n`, and a value carrying a real backslash is
+    // one `escapeValue` could not have written in the first place. Neither is
+    // an escape this inverse owns, so the catalog text stays EXACTLY as read:
+    // it keeps reading as a difference, which refuses the push instead of
+    // calling two defaults equal that nobody proved equal.
+    expect(byName.get("multiline")?.default).toBe(
+      String.raw`_utf8mb4\'line1\\nline2\'`
+    );
+    // Not a string literal at all, and not this inverse's business.
+    expect(byName.get("stamped")?.default).toBe("CURRENT_TIMESTAMP(3)");
   });
 });
 

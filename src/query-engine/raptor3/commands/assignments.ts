@@ -15,10 +15,22 @@ export type MembershipContribution = {
   scope: Membership["scope"];
   identity?: SelectorFacts;
 };
+/**
+ * One requested final value, and — where the write is a relation's — the
+ * RELATION that value has to be able to represent.
+ *
+ * `relation` is stated by the one reader of the resolved edge
+ * ({@link Commands.assignMembership}) and by nothing else, so it marks exactly
+ * the components a concrete reference supplies out of another row: a
+ * `disconnect`'s explicit NULL is a literal this row asked for and carries no
+ * relation, and a junction's captured pair is not a row's own field at all.
+ * Its consumer is the requirement every such component must meet
+ * ({@link CommandExecution.stored}).
+ */
 export type FieldValue = (
   | { kind: "literal"; value: unknown }
   | { kind: "field"; producer: Assignments; field: string }
-) & { membership?: MembershipContribution };
+) & { relation?: string };
 
 function literal(value: unknown): FieldValue {
   return { kind: "literal", value };
@@ -160,16 +172,11 @@ export class Assignments {
       if (value.kind === "field" && value.producer === producer) return true;
     return false;
   }
-  contribute(
-    field: string,
-    value: FieldValue,
-    failure: string,
-    membership?: MembershipContribution
-  ): void {
+  contribute(field: string, value: FieldValue, failure: string): void {
     const previous = this.writes.get(field);
     if (previous && this.requested.has(field) && !this.equal(previous, value))
       this.reject(new UnsupportedOperationError(failure));
-    this.writes.set(field, { ...value, membership });
+    this.writes.set(field, value);
     this.requested.add(field);
   }
   requireLiteral(field: string, relation: string): void {

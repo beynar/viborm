@@ -956,40 +956,12 @@ describeIf("MySQL namespace containment", () => {
     await withAdmin(dropFixtureDatabases);
   });
 
-  // `push` deliberately carries no storage owner and never touches tracking
-  // (`src/migrations/push/planner.ts`), so this leg proves DDL and runtime
-  // writes only. The tracking half is the separate `apply` leg below.
-  test("pushes and writes into the target, not the connection's database", async () => {
-    const client = createClient({
-      schema: noteSchema,
-      driver: crossTargetDriver(),
-    });
-    // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
-    // whatever pool it holds, including a supplied one, so the fixture that
-    // created the pool owns its lifetime and closes it once in `afterAll`.
-    await syncLiveSchema(client);
-    await client.note.create({ data: { id: "n1", title: "alpha only" } });
-    const found = await client.note.findMany({});
-    expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
-
-    expect(await tableNamesIn(ALPHA_DB)).toContain("ns_notes");
-    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
-  });
-
-  test("introspects only the target and converges on a second push", async () => {
-    const client = createClient({
-      schema: noteSchema,
-      driver: crossTargetDriver(),
-    });
-    const snapshot = await introspect(client);
-    const names = snapshot.tables.map((table) => table.name);
-    expect(names).toContain("ns_notes");
-    expect(names).not.toContain("ns_sentinel");
-
-    const second = await syncLiveSchema(client);
-    expect(second.operations).toEqual([]);
-  });
-
+  // THE APPLY LEG RUNS FIRST, and that is a precondition, not a preference:
+  // an ordinary `apply` requires an EMPTY managed target (a non-empty one is
+  // `baseline`'s job, and the command says so), while the two push cells below
+  // deliberately leave `ns_notes` in alpha for the portability cell at the end
+  // to read back. Declared after them, this cell met a target holding another
+  // suite's table and was refused before it could measure anything.
   test("applies into the TARGET's control tables, over a connection pointing elsewhere", async () => {
     const storage = new MemoryEstateStorage();
     const client = createClient({
@@ -1072,6 +1044,40 @@ describeIf("MySQL namespace containment", () => {
     }
 
     expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  // `push` deliberately carries no storage owner and never touches tracking
+  // (`src/migrations/push/planner.ts`), so this leg proves DDL and runtime
+  // writes only. The tracking half is the separate `apply` leg above.
+  test("pushes and writes into the target, not the connection's database", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    // These clients are NOT disconnected: `MySQL2Driver.closeClient` ends
+    // whatever pool it holds, including a supplied one, so the fixture that
+    // created the pool owns its lifetime and closes it once in `afterAll`.
+    await syncLiveSchema(client);
+    await client.note.create({ data: { id: "n1", title: "alpha only" } });
+    const found = await client.note.findMany({});
+    expect(found.map((row: { id: string }) => row.id)).toEqual(["n1"]);
+
+    expect(await tableNamesIn(ALPHA_DB)).toContain("ns_notes");
+    expect(await tableNamesIn(BETA_DB)).toEqual(["ns_sentinel"]);
+  });
+
+  test("introspects only the target and converges on a second push", async () => {
+    const client = createClient({
+      schema: noteSchema,
+      driver: crossTargetDriver(),
+    });
+    const snapshot = await introspect(client);
+    const names = snapshot.tables.map((table) => table.name);
+    expect(names).toContain("ns_notes");
+    expect(names).not.toContain("ns_sentinel");
+
+    const second = await syncLiveSchema(client);
+    expect(second.operations).toEqual([]);
   });
 
   test("refuses a configured database the server does not have, before any DDL", async () => {

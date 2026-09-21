@@ -104,6 +104,17 @@ no `distinct` (`validation/model/args/aggregate.ts`) and the shipped
 `operations/groupby.ts:110-114` emits the raw signed take too. That is parity,
 not a divergence; do not widen the exception to a verb that admits a cursor.
 
+*Addendum (R2b, 2026-09-21).* A nested to-many page that carries an ORDER BY
+also carries a BOUND, because the aggregate above it reads its rows IN ORDER:
+MySQL merges an unlimited derived table into the query that reads it and the
+merge takes the ORDER BY with it (the rows then arrive in storage order). The
+bound is the caller's own window wherever it asked for one — the offset-only
+window already needed this same spelling for its bare OFFSET — and the
+adapter's `noLimitValue` where it asked for none; a dialect that keeps a
+derived order unbounded declares none (PostgreSQL) and emits nothing. It is not
+a second window and not a limit a caller can observe: `take` still decides
+which rows come back.
+
 `Queries.read` states each read verb's cardinality and public shape over that
 one select/projection/decoder: every verb answers `{ query, single, value,
 result }`, and the private entry adds only the public `…OrThrow` error identity.
@@ -120,6 +131,17 @@ cursors, identities and assignments, and `decodeScalar` — reached only through
 `decodeValue` from `decodeQuery`/`decodeProjection` — is the single leaf
 decoder. Both reuse the existing validation codecs; neither may be duplicated
 per verb or per storage.
+
+*Addendum (R2b, 2026-09-21).* A single value bound against a LIST field is one
+MEMBER of that field's container (`has` is the operator that asks for one), and
+a container carries what it was WRITTEN with. The two scalars whose column
+spelling is PHYSICAL consume that fact inside `fieldValue`: a decimal's exact
+`DECIMAL(p,s)` operand cast and a datetime's dialect rendering of the instant
+(MySQL's naive `DATETIME`, which a JSON container has no column to hold) are
+spelled as members instead — the same fact `nativeType` already states for the
+decode leaf, which refuses to hand a list's native type to a literal. Every
+other scalar crosses a container exactly as it crosses its column. Do not add
+an operator-local converter for `has`.
 
 `Queries.wholeValue` is the one answer to "does an admitted scalar payload name
 a whole value?". A non-plain object is one whole value in EVERY domain — a
@@ -193,6 +215,38 @@ hand-built `{ NOT: { OR: … } }` was read as that model's own field (the closur
 review's executed failure). An empty captured set states no condition and
 excludes nothing. What each consumer claims about its own set stays with that
 consumer — a LIMITED capture claims no complement at all.
+
+**Addendum (D-65, the captured set's consumption time).** A ROOT selected
+UPDATE/DELETE over a captured set carries BOTH facts into its own statement: the
+complete captured identity set and the prepared selector the capture ran
+(`OperationContext.capturedTarget`, composed at `Queries` from the positive
+counterpart of the complement above, `includeIdentities`, under `andSelectors` —
+never public `where` syntax). A captured row that no longer satisfies that
+selector is not mutated, on either route, and the existing cardinality check
+turns the shortfall into the registered `<verb> selected-row cardinality changed
+during its locked mutation.` sentence instead of a silent success publishing the
+captured rows. The premises `requireCapturedSet` states ahead of the write are
+unchanged and answer where they stand; a `limit` is not restated at the write,
+because the capture already took that slice and the identity set IS the bound.
+Failure and commit stay separate facts: an operation-owned interactive
+transaction rolls back at its owner, while a batch that already ACKNOWLEDGED
+keeps what it committed and reports it (`atomicity: "segment"`, `phase:
+"result"`, `committedSegments`) — a check after dispatch cannot undo the batch it
+judges, nothing is replayed and no progress is erased. A NESTED captured series
+is the other half of the decision and is BOUNDED rather than enlarged: the
+initial filter SELECTS the worklist — the members the complement premise
+answered for — and is not a permanent per-member predicate, so an earlier member
+may legally change what a later one was selected by, and a member that qualifies
+after that boundary stays outside the worklist (no enlargement, no second
+recovery; no predicate on a member's own write could see it). What each member
+owes AT THE POSITION IT IS CONSUMED — its identity, its parent's, and its
+relation membership — is unchanged and still enforced: this is not permission to
+delete another parent's member after it moves. No `FOR UPDATE` claim about
+phantoms, no serializable isolation, no blanket lock, no scheduler. Witnesses:
+`tests/providers/docker/pg-captured-set-concurrency.test.ts` (17 cells on native
+PostgreSQL, the default route kept apart from the forced non-RETURNING profile),
+with `batch-captured-bulk`, `prepared-set-predicates`, `member-boundary-packaging`
+and `published-key` as the credential-free consumers.
 
 `Commands.analyze` materializes one placement-owned `CommandOccurrence` tree
 from immutable command recipes. Reusing a command or `Selection` never reuses
@@ -1410,6 +1464,45 @@ concrete reference is the holder's parent's own value and is spent by the
 member's statement. Pins:
 `tests/raptor3/g4/parity/reference-representability.test.ts`,
 `tests/contracts/engine/write/parent-held-lookup.test.ts`.
+
+**Addendum (R1, 2026-09-21) — the two placements the FC-02C addendum lists as
+unreached are the SAME requirement's, and `CommandExecution.supplied` no longer
+exists.** The requirement is not a choice's supply; it is the RECORD's. *All
+components needed to represent a connection must be present and non-NULL* is
+asked where a concrete tuple becomes the row a provider stores —
+`CommandExecution.stored`, over the write values of every record statement —
+so it reads the ACTUAL value of each component whatever supplied it: a located
+row's bytes, an arm this operation itself created, or the PARENT's own current
+value (`CommandAttempt.read`, FC-02A). A value this unit produced into its
+batch scratch is asked once the boundary has read it back and not before
+(D-58); nothing is admitted, defaulted or transformed a second time to obtain
+one. WHICH components to ask is the resolved edge's answer and nobody else's:
+`Commands.assignMembership` is the one reader of that edge and now says so on
+the value it contributes (`FieldValue.relation`, which replaces the
+`membership` carrier that had no consumer). That is why an explicit
+`disconnect`'s own NULL is untouched — it is a literal this row asked for and
+carries no relation — and why only the edge's members are asked rather than
+every field the row happens to demand. FC-02C's two recorded residuals close on
+that one move, and so do the child-held `create`, `createMany`, `connectOrCreate`
+(both arms) and `set`, measured in the unit's note. The FOLD keeps its own gate
+and its old name (`CommandExecution.folded`) and states the requirement a
+second time for the ONE arm the record cannot ask about: once a parent-held
+`connect`'s value is folded into the holder's SET it IS a sub-select, so the
+literal the probe read exists there and nowhere after. The two call sites'
+coverage is disjoint and was falsified one at a time — dropping the record's
+turns 32 cells red and leaves the plain `connect` green, dropping the fold's
+turns exactly the plain `connect` red
+(`g4/release/closure-final/r1/receipts/falsify-stored.log`,
+`falsify-folded.log`). The sentence, its class and its relation meta are the
+inherited ones and the census is unmoved (23 candidate / 75 inherited / 193
+sites, identical to `cdd787ac8`). Still untouched: a nested `update` arm that
+nulls the referenced column under a live member keeps its provider
+`ForeignKeyError`. Pins:
+`tests/raptor3/g4/parity/reference-representability.test.ts` (26 cells),
+`tests/providers/docker/pg-reference-representability.test.ts`,
+`tests/providers/docker/mysql2-reference-representability.test.ts`,
+`tests/contracts/engine/write/parent-held-lookup.test.ts`.
+
 **FC-02B addendum (2026-09-21), correcting the temporal sentence in the
 paragraph above.** The TEXT-stored residual is repaired and is no longer a
 measured limit; the sentence "still NOT addressable from a capture … not a
@@ -1584,6 +1677,90 @@ another row makes that row's members read as additions to a set they were never
 in, and the operation would answer a raceable staleness instead of
 `parent record changed across a committed segment`. An interactive transaction
 needs none of this: its plan-time read took `FOR UPDATE`.
+
+Addendum (R2c, 2026-09-21, repaired after review), narrowing the sentence
+above: the interactive route's plan-time `FOR UPDATE` is what a read takes when
+its answer is a row this operation will mutate. A `choose` PROBE is not that
+read. It may answer "absent", and the arm it then takes INSERTS the very key it
+looked for, so it reads without locking (`Selection.insertsWhenAbsent`, set
+where the missing arm exists and consumed by `Selection.query` alone). A lock
+cannot protect an absence, and on MySQL asking for one costs the operation its
+convergence: a miss on a unique index leaves an X gap lock over the index
+supremum, two racers are GRANTED that same gap at once, and the
+insert-intention each then requests waits for the other's — the cycle InnoDB
+breaks by aborting a whole transaction (`ER_LOCK_DEADLOCK`, measured both ways
+in `g4/release/closure-final/r2c/receipts/`). The create arm's arbiter was
+never that lock but the unique constraint itself (Pin Rule 2), whose violation
+is the retryable signal `CommandExecution.recover` converges on, and whose
+attribution `matchesSelectedConstraint` still checks against the selector's own
+key. A deadlock stays what the provider called it: `TransactionError` with
+`VibORMErrorCode.DEADLOCK`, recovered by nothing.
+
+State plainly what that withdrawal costs, because a statement is chosen before
+its own answer is known: the probe reads unlocked in BOTH outcomes, on every
+provider, so a row it FINDS is no longer held for the update arm that follows
+either. Two readers answer that, and neither is the probe. A CORRELATED nested
+`upsert` — one that carries its OWN `where`, which is the to-many arm — states
+its found target through a membership confirmation (`foundRequirement`, issued
+as `Selection.inspectMembership`) that keeps `forUpdate`: its answer IS the row
+the found arm updates, and a row deleted meanwhile makes that read empty and
+the arm refuse. A to-ONE nested `upsert` carries no `where`, so nothing builds
+that confirmation for it and no such read is issued; it is answered instead by
+the demanded target keys the postwave addendum below states. Where no such
+confirmation exists — a root `upsert` — the answer is the read the write
+already issues of the row it has just written (`OperationContext.update`, the
+non-RETURNING stored-row read), which is a CURRENT read for this reason: under
+REPEATABLE READ a consistent read answers from the snapshot this transaction
+opened plus its OWN changes, so a statement that affected NO row leaves the
+snapshot's copy standing and a snapshot read would hand back a row that is not
+there, with the update not applied, as a success. It was measured doing exactly
+that before the lock was put on it. Never state the protection as "the
+plan-time read holds it": say which read is current, and never replace a lock
+with a consistent read that cannot see another transaction's commit.
+**Addendum (postwave, 2026-09-21, after the integrated review), completing the
+paragraph above.** "Two readers answer that" counted the shapes that round had
+measured, not the shapes the withdrawal reaches. A third has no reader by
+construction: a nested `connectOrCreate` on a CHILD-HELD reference, whose found
+arm is the UPDATE that writes the child's foreign key and nothing else. An arm
+that asks the provider for nothing back never learns whether it addressed a
+row, so `OperationContext.update` issued no read at all — measured on native
+MySQL reporting a connection it had not written, after the found target was
+removed between the unlocked probe and that UPDATE. The rule: an arm whose
+probe did NOT lock its answer (`Selection.insertsWhenAbsent`) demands the
+target's own keys. On a provider without RETURNING that is what makes the same
+CURRENT stored-row read run and raise `UPDATE did not produce the required
+record` (the measured MySQL schedule, the witness cell); on a provider with
+RETURNING the arm emits `UPDATE … RETURNING <keys>` and raises `UPDATE RETURNING
+did not produce the required record` (exercised on the ordinary path by
+`pglite-nested-writes` and `shared-pk-connect-or-create`, not raced). It is
+stated once, where
+that binding arm is built (`RelationBody.association`), and it reaches only the
+arms whose probe withdrew its lock — a child-held `connect`, or a `set`
+target, still locks its row and is untouched. Witness:
+`tests/providers/docker/mysql2-concurrency-policy.test.ts`, "a CHILD-HELD
+connectOrCreate whose found target moves out from under it connects nothing,
+visibly".
+**Addendum (integrated repair round, 2026-09-21), completing that rule's
+reach.** The rule above reaches a THIRD arm, which the round that wrote it did
+not count: a nested to-ONE `upsert`. Its create arm withdraws the probe's lock
+like any other, and it carries no `where`, so no found membership confirmation
+is built for it — its found arm is an ordinary `update` of the probed row
+whose payload demands nothing back, and `OperationContext.update` took the
+effect path and never asked which row the UPDATE wrote. Measured on native
+MySQL before the repair: the operation RESOLVED, returning the renamed parent,
+while the profile it was told to update had been deleted between the unlocked
+probe and that UPDATE and nothing was written. It is the same rule, at the same
+place, stated for the found command that already exists rather than for one
+this binding builds. Witness:
+`tests/providers/docker/mysql2-concurrency-policy.test.ts`, "a nested to-ONE
+upsert whose found target is deleted before the update arm loses nothing
+silently".
+**Addendum (D-65).** That last sentence names a ROW LOCK, not phantom exclusion:
+`FOR UPDATE` holds the members the plan-time read returned, and a member
+connected afterwards is a row it never covered. Neither route claims otherwise —
+the captured set is the WORKLIST on both — and what the complement buys on the
+batch route is the abort-and-converge answer for a member that joined before the
+unit, never a promise about every future joiner.
 
 A premise is proved inside the atomic unit that carries the write it protects,
 never in an earlier planning batch (Arnaud's D-29). The owner is `flush`, the

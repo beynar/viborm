@@ -1,0 +1,81 @@
+diff --git a/src/query-engine/raptor3/commands/commands.ts b/src/query-engine/raptor3/commands/commands.ts
+index 2169b4b83..0a5ad6fbf 100644
+--- a/src/query-engine/raptor3/commands/commands.ts
++++ b/src/query-engine/raptor3/commands/commands.ts
+@@ -1615,6 +1615,9 @@ export class Commands {
+       where: args.where,
+       unique: true,
+     });
++    // The arm this probe chooses INSERTS the key it just looked for, so the
++    // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
++    lookup.insertsWhenAbsent = true;
+     const key = lookup.selector.uniqueKey;
+     const spelled =
+       capabilities.supportsTargetedUpsert &&
+@@ -1781,6 +1784,9 @@ export class Commands {
+         where: args.where,
+         unique: true,
+       });
++      // As above: the missing arm below inserts this very key
++      // (`Selection.insertsWhenAbsent`).
++      lookup.insertsWhenAbsent = true;
+       const queries = this.context.queries;
+       const probes: Condition[] = [];
+       for (const field of ["targetWhere", "setWhere"] as const) {
+diff --git a/src/query-engine/raptor3/commands/relation-body.ts b/src/query-engine/raptor3/commands/relation-body.ts
+index a4031104e..808437908 100644
+--- a/src/query-engine/raptor3/commands/relation-body.ts
++++ b/src/query-engine/raptor3/commands/relation-body.ts
+@@ -590,6 +590,10 @@ export class RelationBody {
+             facts
+           );
+           lookup.origin = origin;
++          // The missing arm inserts the key this probe just looked for, so the
++          // probe does not lock the absence it may find
++          // (`Selection.insertsWhenAbsent`).
++          if (missing) lookup.insertsWhenAbsent = true;
+           if (verb === "connectOrCreate")
+             lookup.retained = () =>
+               new NestedWriteError(
+diff --git a/src/query-engine/raptor3/commands/selection.ts b/src/query-engine/raptor3/commands/selection.ts
+index 951b98429..ba4319566 100644
+--- a/src/query-engine/raptor3/commands/selection.ts
++++ b/src/query-engine/raptor3/commands/selection.ts
+@@ -124,6 +124,28 @@ export class Selection {
+    * would race a queued write.
+    */
+   dependent?: boolean;
++  /**
++   * THIS operation inserts the key this selector names when the row is absent:
++   * the missing arm of an `upsert` or a `connectOrCreate`. Such a probe reads
++   * without locking.
++   *
++   * A locking read cannot protect an absence, and asking for one costs the
++   * operation its own convergence. MySQL answers a miss on a unique index with
++   * a gap lock over the index supremum; the two racers hold that same gap lock
++   * AT ONCE (gap locks do not exclude each other), and the insert-intention
++   * each of them then requests waits for the other's gap — a cycle InnoDB
++   * breaks by aborting one whole transaction (`ER_LOCK_DEADLOCK`). Measured
++   * both ways under `r2c/receipts/`: with the lock, two `X GRANTED` gaps on the
++   * supremum pseudo-record and a deadlock; without it, no lock at all, and the
++   * loser's INSERT is refused by the unique constraint.
++   *
++   * That refusal is the arbiter the create arm already relies on (Pin Rule 2:
++   * no `notExists` premise precedes the create INSERT), and the retryable
++   * signal {@link CommandExecution.recover} converges on. PostgreSQL locks
++   * nothing for a miss and the batch route asks for no lock at all, so an
++   * unlocked probe is the answer the other two routes already give.
++   */
++  insertsWhenAbsent?: boolean;
+ 
+   constructor(
+     private readonly execution: CommandExecution,
+@@ -179,7 +201,7 @@ export class Selection {
+       },
+       this.bindMembership(membership),
+       {
+-        forUpdate: !ctx.usesBatch,
++        forUpdate: !(ctx.usesBatch || this.insertsWhenAbsent),
+         identity,
+         projection: this.rowProjection,
+         selector,

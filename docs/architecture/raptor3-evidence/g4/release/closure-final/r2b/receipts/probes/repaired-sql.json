@@ -1,0 +1,216 @@
+{
+  "includeDesc": {
+    "value": {
+      "id": "author-1",
+      "name": "Alice",
+      "books": [
+        {
+          "id": "book-5",
+          "title": "Epsilon",
+          "pages": 500,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-4",
+          "title": "Delta",
+          "pages": 400,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-3",
+          "title": "Gamma",
+          "pages": 300,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-2",
+          "title": "Beta",
+          "pages": 200,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-1",
+          "title": "Alpha",
+          "pages": 100,
+          "authorId": "author-1"
+        }
+      ]
+    },
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId` ORDER BY `q1`.`pages` DESC LIMIT 18446744073709551615) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+        "params": [
+          "id",
+          "title",
+          "pages",
+          "authorId",
+          "author-1"
+        ]
+      }
+    ]
+  },
+  "includeDescTake": {
+    "value": {
+      "id": "author-1",
+      "name": "Alice",
+      "books": [
+        {
+          "id": "book-5",
+          "title": "Epsilon",
+          "pages": 500,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-4",
+          "title": "Delta",
+          "pages": 400,
+          "authorId": "author-1"
+        }
+      ]
+    },
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId` ORDER BY `q1`.`pages` DESC, `q1`.`id` ASC LIMIT 2) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+        "params": [
+          "id",
+          "title",
+          "pages",
+          "authorId",
+          "author-1"
+        ]
+      }
+    ]
+  },
+  "includeUnordered": {
+    "value": {
+      "id": "author-1",
+      "name": "Alice",
+      "books": [
+        {
+          "id": "book-1",
+          "title": "Alpha",
+          "pages": 100,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-2",
+          "title": "Beta",
+          "pages": 200,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-3",
+          "title": "Gamma",
+          "pages": 300,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-4",
+          "title": "Delta",
+          "pages": 400,
+          "authorId": "author-1"
+        },
+        {
+          "id": "book-5",
+          "title": "Epsilon",
+          "pages": 500,
+          "authorId": "author-1"
+        }
+      ]
+    },
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, (SELECT COALESCE(COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, `q2`.`id`, ?, `q2`.`title`, ?, `q2`.`pages`, ?, `q2`.`authorId`)), JSON_ARRAY()), JSON_ARRAY()) FROM (SELECT `q1`.`id` AS `id`, `q1`.`title` AS `title`, `q1`.`pages` AS `pages`, `q1`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q1` WHERE `q0`.`id` = `q1`.`authorId`) AS `q2`) AS `books` FROM `raptor3_g2`.`r2b_authors` AS `q0` WHERE `q0`.`id` = ?",
+        "params": [
+          "id",
+          "title",
+          "pages",
+          "authorId",
+          "author-1"
+        ]
+      }
+    ]
+  },
+  "rootOrdered": {
+    "value": [
+      {
+        "id": "book-5",
+        "title": "Epsilon",
+        "pages": 500,
+        "authorId": "author-1"
+      },
+      {
+        "id": "book-4",
+        "title": "Delta",
+        "pages": 400,
+        "authorId": "author-1"
+      },
+      {
+        "id": "book-3",
+        "title": "Gamma",
+        "pages": 300,
+        "authorId": "author-1"
+      },
+      {
+        "id": "book-2",
+        "title": "Beta",
+        "pages": 200,
+        "authorId": "author-1"
+      },
+      {
+        "id": "book-1",
+        "title": "Alpha",
+        "pages": 100,
+        "authorId": "author-1"
+      }
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`title` AS `title`, `q0`.`pages` AS `pages`, `q0`.`authorId` AS `authorId` FROM `raptor3_g2`.`r2b_books` AS `q0` WHERE TRUE ORDER BY `q0`.`pages` DESC",
+        "params": []
+      }
+    ]
+  },
+  "listHas": {
+    "value": [
+      {
+        "id": "e1",
+        "name": "both",
+        "moments": [
+          "2024-01-02T03:04:05.000Z",
+          "2024-02-03T04:05:06.000Z"
+        ],
+        "when": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`moments` AS `moments`, `q0`.`when` AS `when` FROM `raptor3_g2`.`r2b_list_entries` AS `q0` WHERE JSON_CONTAINS(`q0`.`moments`, JSON_ARRAY(?))",
+        "params": [
+          "2024-02-03T04:05:06.000Z"
+        ]
+      }
+    ]
+  },
+  "scalarEquals": {
+    "value": [
+      {
+        "id": "e1",
+        "name": "both",
+        "moments": [
+          "2024-01-02T03:04:05.000Z",
+          "2024-02-03T04:05:06.000Z"
+        ],
+        "when": "2024-01-02T03:04:05.000Z"
+      }
+    ],
+    "sql": [
+      {
+        "sql": "SELECT `q0`.`id` AS `id`, `q0`.`name` AS `name`, `q0`.`moments` AS `moments`, `q0`.`when` AS `when` FROM `raptor3_g2`.`r2b_list_entries` AS `q0` WHERE `q0`.`when` = ?",
+        "params": [
+          "2024-01-02 03:04:05.000"
+        ]
+      }
+    ]
+  }
+}

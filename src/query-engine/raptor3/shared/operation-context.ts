@@ -2318,14 +2318,8 @@ export class OperationContext {
       const statement = adapter.mutations.update(
         q.table(model),
         sql.join(assignments, ", "),
-        adapter.operators.or(
-          ...identities.map((identity) => q.lowerIdentity(model, identity))
-        )
+        this.capturedTarget(model, selector, identities)
       );
-      // ONE fact, two consumers: the premises state "the rows this mutation
-      // selected are still the rows it is about to mutate" inside the batch,
-      // before the write; the row count states the same fact after it, as the
-      // detection it always was. Same sentence, same class.
       const changed = () =>
         new TransactionError(
           "updateMany selected-row cardinality changed during its locked mutation.",
@@ -2342,7 +2336,8 @@ export class OperationContext {
         statement,
         this.statementContext(model, this.operation)
       );
-      if (response.rowCount !== identities.length) throw changed();
+      if (response.rowCount !== identities.length)
+        throw this.failure(changed(), "result");
       return this.finishTerminals(
         this.seriesQueries(
           projection,
@@ -2426,13 +2421,12 @@ export class OperationContext {
       const response = await this.capturedMutation(
         adapter.mutations.delete(
           q.table(model),
-          adapter.operators.or(
-            ...identities.map((identity) => q.lowerIdentity(model, identity))
-          )
+          this.capturedTarget(model, selector, identities)
         ),
         this.statementContext(model, this.operation)
       );
-      if (response.rowCount !== identities.length) throw changed();
+      if (response.rowCount !== identities.length)
+        throw this.failure(changed(), "result");
       return this.published(rows, single);
     }
     this.packagedPresence(model, selector, single);
@@ -2480,14 +2474,17 @@ export class OperationContext {
       undefined,
       { selector, forUpdate: !this.usesBatch }
     );
-    // An interactive session takes `FOR UPDATE` and the capture is protected
-    // by the lock it holds until the mutation. A batch-only transport holds
-    // nothing across two statements, so N4 (plan §4, D-52) gives the capture
-    // the shape the series capture already has: it is a SEGMENT OF ITS OWN —
-    // the barrier submits whatever this unit has queued and reads in the same
-    // native batch — and the premises {@link requireCapturedSet} states inside
-    // the MUTATION's batch are what protect it. No lock is claimed where none
-    // exists.
+    // An interactive session takes `FOR UPDATE`, so the ROWS IT CAPTURED
+    // cannot change underneath it until the mutation. A row that JOINS the
+    // selection afterwards is a different guarantee, which no row lock gives —
+    // and it is not this mutation's row: the captured set is the set this
+    // statement is about (D-65). A batch-only transport holds nothing across
+    // two statements, so N4 (plan §4, D-52) gives the capture the shape the
+    // series capture already has: it is a SEGMENT OF ITS OWN — the barrier
+    // submits whatever this unit has queued and reads in the same native
+    // batch — and the premises {@link requireCapturedSet} states inside the
+    // MUTATION's batch are what protect it there. No lock is claimed where
+    // none exists.
     const rows = this.usesBatch
       ? await this.flush(query)
       : await this.read(query, true, false, model);
@@ -2498,11 +2495,18 @@ export class OperationContext {
    *
    * The capture named the rows that matched when it ran, and rule 5 forbids
    * treating an observed set as a lasting truth. So the mutation's own batch
-   * carries the claim as statements ahead of the write: every captured row is
-   * STILL PRESENT and STILL A MEMBER of the selection, and — when the capture
-   * took the whole selection rather than a limited slice — no row has JOINED
-   * it. A stale observation aborts the atomic unit before anything is written,
-   * which is what the row-count check after the mutation could not do.
+   * carries the claim as statements AHEAD OF THE WRITE: as the unit begins,
+   * every captured row is present and a member of the selection, and — when
+   * the capture took the whole selection rather than a limited slice — no row
+   * has joined it. A capture already stale there aborts the atomic unit before
+   * anything is written, which is what a count after the mutation cannot do.
+   *
+   * These premises answer WHERE THEY STAND and claim nothing about the effect:
+   * between the last of them and the write a row can still stop matching, as
+   * `g4/release/closure/fcpg/` measured on native PostgreSQL. That window
+   * belongs to the write, which carries the selector itself
+   * ({@link capturedTarget}, D-65) — such a row is not mutated, and the
+   * cardinality sentence is the answer for it.
    *
    * Only on the batch route: an interactive session captured `FOR UPDATE`.
    */
@@ -2538,6 +2542,21 @@ export class OperationContext {
    * The captured mutation's own statement and the row count it affected, on
    * either transport. On the batch route it rides the same batch its premises
    * are in, so the write never runs when a premise disagrees.
+   *
+   * ONE fact at two positions, and the count is how the second one is read.
+   * The premises {@link requireCapturedSet} queues ahead of the write say the
+   * captured rows are still the selection AS THE UNIT BEGINS; the write's own
+   * selector ({@link capturedTarget}) says it AT THE EFFECT (D-65). A captured
+   * row this statement did not match is a row the operation was asked to
+   * change and did not — the registered cardinality sentence its caller
+   * throws, never a silent success publishing the captured rows.
+   *
+   * Failure and commit stay separate facts there. On an operation-owned
+   * interactive transaction the owner rolls back; on a batch that already
+   * ACKNOWLEDGED, what it committed stands and the sentence is a RESULT-phase
+   * failure that says so ({@link failure}: `atomicity: "segment"` with this
+   * operation's committed segments). It replays nothing and erases no
+   * progress, because a check after dispatch cannot undo the batch it judges.
    */
   private async capturedMutation(
     statement: Sql,
@@ -2567,6 +2586,35 @@ export class OperationContext {
         );
       return response;
     });
+  }
+  /**
+   * WHERE a captured root mutation writes: the rows the capture named, AND the
+   * selector it captured them by (D-65).
+   *
+   * The identity set alone addresses a row by a key that WAS in the selection;
+   * the selector is what that row must still satisfy for this statement to be
+   * about it. Carrying both leaves a row that stopped matching alone — the
+   * answer the interactive route's `FOR UPDATE` already gave, now given by the
+   * statement itself on every route — and the row count each verb checks turns
+   * the shortfall into its cardinality sentence. It is the prepared meaning the
+   * capture already ran, composed at `Queries` and never respelled as public
+   * syntax, in one statement: no lock, no protocol, no second reading.
+   *
+   * A `limit` is not restated here. The capture took that slice already
+   * ({@link captureMutationIdentities}'s `take`), so the identity set IS the
+   * bound, and a row that joined the selection since is outside this set.
+   */
+  private capturedTarget(
+    model: AnyModel,
+    selector: PreparedSelector,
+    identities: readonly Input[]
+  ): Sql | undefined {
+    const q = this.queries;
+    return q.lowerMutationLimit(
+      model,
+      q.andSelectors(model, [selector, q.includeIdentities(model, identities)]),
+      undefined
+    ).where;
   }
   private updatedIdentity(
     model: AnyModel,
@@ -2998,9 +3046,19 @@ export class OperationContext {
         await this.dispatch(1, false, () =>
           this.transport._execute(statement, context)
         );
-        // The mutation's locked capture remains protected through this stored-row read.
+        // This read answers "which row did the UPDATE just write?", and only a
+        // CURRENT read can: under REPEATABLE READ a consistent read answers
+        // from the snapshot this transaction opened plus its OWN changes, so a
+        // statement that affected NO row leaves the snapshot's copy standing
+        // and the check below sees a row that is not there. The lock is the
+        // same one the UPDATE itself took on every row it did write, so on the
+        // ordinary path it costs nothing and the comment it replaces — the
+        // mutation's locked capture protects this read — becomes true of this
+        // statement rather than of a plan-time probe that may no longer hold
+        // it (`Selection.insertsWhenAbsent`).
         const rows = await this.read(
           q.select(model, {}, undefined, {
+            forUpdate: true,
             projection,
             identity: this.updatedIdentity(model, identity, values),
           }),

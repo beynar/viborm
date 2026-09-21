@@ -1,0 +1,14 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r13
+
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 74ms
+ ✓ |coverage-raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 18ms
+ ✓ |raptor3| tests/raptor3/g4/parity/prepared-set-predicates.test.ts (9 tests) 64ms
+ ✓ |raptor3| tests/raptor3/g4/parity/batch-captured-bulk.test.ts (7 tests) 18ms
+
+ Test Files  4 passed (4)
+      Tests  32 passed (32)
+   Start at  11:25:26
+   Duration  3.09s (transform 1.60s, setup 16ms, collect 2.54s, tests 174ms, environment 0ms, prepare 48ms)
+
+Vitest resources: 4.87s wall, 614.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

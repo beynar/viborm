@@ -1,0 +1,265 @@
+/**
+ * R2a diagnostic probe (TEMPORARY, not a registered pin).
+ *
+ * Reproduces the final push attestation's disagreement on an isolated `r2a_`
+ * schema and retains the two fingerprint inputs, column by column.
+ */
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { createClient } from "@client/client";
+import { getPushMigrationDriver } from "@migrations/push/planner";
+import { resolveCommandDriver } from "@migrations/pinned-session";
+import { serializeResolvedModels } from "@migrations/serializer";
+import { hydrateSchemaNames } from "@schema/hydration";
+import { validateResolvedSchemaOrThrow } from "@schema/validation/validator";
+import { s } from "@schema";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { describe, it } from "vitest";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+const OUT = process.env.R2A_PROBE_OUT ?? "/private/tmp/viborm-r2ab-tmp/r2a";
+
+type Json = unknown;
+
+function project(snapshot: {
+  tables: readonly any[];
+  enums?: readonly any[];
+}): Json {
+  return {
+    tables: [...snapshot.tables]
+      .map((table) => ({
+        name: table.name,
+        columns: [...table.columns]
+          .map((column: any) => ({
+            name: column.name,
+            type: column.type,
+            nullable: column.nullable,
+            default: column.default ?? null,
+            autoIncrement: column.autoIncrement ?? false,
+            decimal: column.decimal ?? null,
+          }))
+          .sort((a: any, b: any) => (a.name < b.name ? -1 : 1)),
+        primaryKey: table.primaryKey ?? null,
+        indexes: [...table.indexes]
+          .map((index: any) => ({
+            name: index.name,
+            columns: index.columns,
+            unique: index.unique ?? false,
+            type: index.type ?? "btree",
+            where: index.where?.trim() || null,
+          }))
+          .sort((a: any, b: any) => (a.name < b.name ? -1 : 1)),
+        foreignKeys: [...table.foreignKeys]
+          .map((fk: any) => ({
+            name: fk.name,
+            columns: fk.columns,
+            referencedTable: fk.referencedTable,
+            referencedColumns: fk.referencedColumns,
+            onDelete: fk.onDelete ?? "noAction",
+            onUpdate: fk.onUpdate ?? "noAction",
+          }))
+          .sort((a: any, b: any) => (a.name < b.name ? -1 : 1)),
+        uniqueConstraints: [...table.uniqueConstraints]
+          .map((uq: any) => ({ name: uq.name, columns: uq.columns }))
+          .sort((a: any, b: any) => (a.name < b.name ? -1 : 1)),
+      }))
+      .sort((a, b) => (a.name < b.name ? -1 : 1)),
+    enums: [...(snapshot.enums ?? [])]
+      .map((item: any) => ({ name: item.name, values: item.values }))
+      .sort((a, b) => (a.name < b.name ? -1 : 1)),
+  };
+}
+
+function differences(desired: any, live: any, path = ""): string[] {
+  const out: string[] = [];
+  const a = JSON.stringify(desired);
+  const b = JSON.stringify(live);
+  if (a === b) return out;
+  if (
+    desired === null ||
+    live === null ||
+    typeof desired !== "object" ||
+    typeof live !== "object"
+  ) {
+    out.push(`${path}: desired=${a} live=${b}`);
+    return out;
+  }
+  const keys = new Set([...Object.keys(desired), ...Object.keys(live)]);
+  for (const key of keys) {
+    out.push(...differences(desired[key], live[key], `${path}/${key}`));
+  }
+  return out;
+}
+
+async function measure(name: string, schema: Record<string, any>) {
+  await dropEveryLiveTable();
+  const client = createClient({ schema, driver: createMySQL2Driver() });
+  let pushed: string | undefined;
+  try {
+    await syncLiveSchema(client);
+    pushed = "applied";
+  } catch (error) {
+    const chain: string[] = [];
+    let current: unknown = error;
+    while (current instanceof Error) {
+      const extra = (current as { originalCause?: { code?: string; errno?: number; sqlMessage?: string } }).originalCause;
+      chain.push(
+        `${current.name}: ${current.message}${extra ? ` [${extra.code ?? ""} ${String(extra.errno ?? "")} ${extra.sqlMessage ?? ""}]` : ""}`
+      );
+      current = (current as { cause?: unknown }).cause;
+    }
+    pushed = chain.join(" <- ");
+  }
+  hydrateSchemaNames(client.$schema as any);
+  const relations = validateResolvedSchemaOrThrow(client.$schema as any);
+  const migrationDriver = getPushMigrationDriver(client as any);
+  const command = await resolveCommandDriver(client.$driver, migrationDriver);
+  const desired = serializeResolvedModels(
+    client.$schema as any,
+    command,
+    relations
+  );
+  const live = await command.introspect((sql: string, params?: unknown[]) =>
+    client.$driver._executeRaw(sql, params)
+  );
+  const liveManaged = {
+    ...live,
+    tables: live.tables.filter(
+      (table: any) => !table.name.startsWith("_viborm_")
+    ),
+  };
+  const catalog = await (client as any).$queryRawUnsafe(
+    "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, COLUMN_DEFAULT, EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'r2a\\_%' ORDER BY TABLE_NAME, ORDINAL_POSITION"
+  );
+  const report = {
+    name,
+    pushed,
+    catalog,
+    differences: differences(project(desired), project(liveManaged)),
+    desired: project(desired),
+    live: project(liveManaged),
+  };
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}/${name}.json`, `${JSON.stringify(report, null, 2)}\n`);
+  await client.$disconnect();
+  // biome-ignore lint/suspicious/noConsole: diagnostic probe
+  console.log(
+    `[r2a] ${name}: ${pushed}\n${report.differences.join("\n") || "  (no structural difference)"}`
+  );
+}
+
+describeIf("R2a probe", () => {
+  it("minimal id+title", async () => {
+    const note = s
+      .model({ id: s.string().id(), title: s.string() })
+      .map("r2a_notes");
+    await measure("minimal", { note });
+  });
+
+  it("scalars", async () => {
+    const row = s
+      .model({
+        id: s.string().id(),
+        title: s.string(),
+        count: s.int(),
+        flag: s.boolean(),
+        at: s.dateTime(),
+        amount: s.decimal({ precision: 10, scale: 2 }),
+        payload: s.json(),
+        tags: s.string().array(),
+      })
+      .map("r2a_rows");
+    await measure("scalars", { row });
+  });
+
+  it("enum", async () => {
+    const account = s
+      .model({
+        id: s.string().id(),
+        role: s.enum(["admin", "member", "guest"]).nullable(),
+      })
+      .map("r2a_accounts");
+    await measure("enum", { account });
+  });
+
+  it("enum with default", async () => {
+    const account = s
+      .model({
+        id: s.string().id(),
+        role: s.enum(["admin", "member", "guest"]).default("member"),
+      })
+      .map("r2a_defaulted");
+    await measure("enum-default", { account });
+  });
+
+  it("relation pair", async () => {
+    const user = s
+      .model({
+        id: s.string().id(),
+        email: s.string().unique(),
+        posts: s.toMany(() => post),
+      })
+      .map("r2a_rel_users");
+    const post = s
+      .model({
+        id: s.string().id(),
+        title: s.string(),
+        published: s.boolean().default(false),
+        views: s.int().default(0),
+        authorId: s.string(),
+        author: s.toOne(() => user).fields("authorId").references("id"),
+      })
+      .map("r2a_rel_posts");
+    await measure("relation", { user, post });
+  });
+
+  it("string default", async () => {
+    const ticket = s
+      .model({
+        id: s.int().id().increment(),
+        label: s.string().default("application-default"),
+        qty: s.int().default(0),
+        note: s.string().nullable(),
+      })
+      .map("r2a_tickets");
+    await measure("string-default", { ticket });
+  });
+
+  it("generated and quoted defaults", async () => {
+    const stamped = s
+      .model({
+        id: s.string().id(),
+        createdAt: s.dateTime().now(),
+        quoted: s.string().default("it's"),
+        flag: s.boolean().default(true),
+      })
+      .map("r2a_stamped");
+    await measure("generated-defaults", { stamped });
+  });
+
+  it("enum list", async () => {
+    const bag = s
+      .model({
+        id: s.string().id(),
+        roles: s.enum(["admin", "member"]).array(),
+      })
+      .map("r2a_bags");
+    await measure("enum-list", { bag });
+  });
+
+  it("unique and index", async () => {
+    const user = s
+      .model({
+        id: s.string().id(),
+        email: s.string().unique(),
+        name: s.string(),
+      })
+      .map("r2a_users");
+    await measure("unique", { user });
+  });
+});

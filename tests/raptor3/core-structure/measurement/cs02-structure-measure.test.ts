@@ -343,7 +343,7 @@ function overlapCommands(
       scope: edge.scope,
       identity: located.facts,
     };
-    commands.assignMembership(edge, child.fields, root.fields, contribution);
+    commands.assignMembership(edge, child.fields, root.fields);
     commands.publishMembership(occurrence, child.fields, contribution);
     return occurrence;
   });

@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-relations-ddl.test.ts (106 tests) 16499ms
+   ✓ MySQL2 Driver > MySQL2 many-to-many write behavior > unnamed duplicate pairs are rejected before any DDL  325ms
+
+ Test Files  1 passed (1)
+      Tests  106 passed (106)
+   Start at  13:58:04
+   Duration  17.98s (transform 880ms, setup 10ms, collect 1.35s, tests 16.50s, environment 0ms, prepare 26ms)
+
+Vitest resources: 19.65s wall, 654.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

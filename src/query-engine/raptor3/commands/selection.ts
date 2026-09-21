@@ -124,6 +124,29 @@ export class Selection {
    * would race a queued write.
    */
   dependent?: boolean;
+  /**
+   * THIS operation inserts the key this selector names when the row is absent:
+   * the missing arm of an `upsert` or a `connectOrCreate`. Such a probe reads
+   * without locking — the PROBE alone ({@link query}); the other reads this
+   * selection answers keep the lock their own answer earns.
+   *
+   * A locking read cannot protect an absence, and asking for one costs the
+   * operation its own convergence. MySQL answers a miss on a unique index with
+   * a gap lock over the index supremum; the two racers hold that same gap lock
+   * AT ONCE (gap locks do not exclude each other), and the insert-intention
+   * each of them then requests waits for the other's gap — a cycle InnoDB
+   * breaks by aborting one whole transaction (`ER_LOCK_DEADLOCK`). Measured
+   * both ways under `r2c/receipts/`: with the lock, two `X GRANTED` gaps on the
+   * supremum pseudo-record and a deadlock; without it, no lock at all, and the
+   * loser's INSERT is refused by the unique constraint.
+   *
+   * That refusal is the arbiter the create arm already relies on (Pin Rule 2:
+   * no `notExists` premise precedes the create INSERT), and the retryable
+   * signal {@link CommandExecution.recover} converges on. PostgreSQL locks
+   * nothing for a miss and the batch route asks for no lock at all, so an
+   * unlocked probe is the answer the other two routes already give.
+   */
+  insertsWhenAbsent?: boolean;
 
   constructor(
     private readonly execution: CommandExecution,
@@ -170,6 +193,7 @@ export class Selection {
     selector: PreparedSelector,
     membership: BoundMembership | undefined,
     identity?: Input,
+    unlocked = false,
   ) {
     const ctx = this.execution.context;
     return ctx.queries.select(
@@ -179,13 +203,19 @@ export class Selection {
       },
       this.bindMembership(membership),
       {
-        forUpdate: !ctx.usesBatch,
+        forUpdate: !(ctx.usesBatch || unlocked),
         identity,
         projection: this.rowProjection,
         selector,
       },
     );
   }
+  /**
+   * The membership confirmation of a found arm, which is a read whose answer is
+   * a row this operation is about to UPDATE: it keeps its lock whatever the
+   * PROBE of the same selection does ({@link insertsWhenAbsent} reaches
+   * {@link query} alone).
+   */
   inspectMembership(membership: BoundMembership) {
     return this.rowQuery(
       this.selector,
@@ -212,7 +242,12 @@ export class Selection {
       this.source.kind === "producer"
         ? this.execution.identity(this.source.producer)
         : undefined;
-    return this.rowQuery(this.selector, this.membership(), identity);
+    return this.rowQuery(
+      this.selector,
+      this.membership(),
+      identity,
+      this.insertsWhenAbsent,
+    );
   }
   captured(
     condition: Selection = this,

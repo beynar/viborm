@@ -1,0 +1,5 @@
+failed	tests/providers/docker/mysql2-writes-raw.test.ts	MySQL2 Driver MySQL2 upsert atomicity behavior concurrent fallback upserts of the same missing key both succeed
+failed	tests/providers/docker/mysql2-writes-raw.test.ts	MySQL2 Driver MySQL2 upsert atomicity behavior concurrent plain upserts of the same missing key both succeed
+failed	tests/providers/docker/mysql2-writes-raw.test.ts	MySQL2 Driver mysql2 nested-write concurrency behavior concurrent nested connectOrCreate of a missing key converges to one row (tx)
+failed	tests/providers/docker/mysql2-writes-raw.test.ts	MySQL2 Driver mysql2 nested-write concurrency behavior concurrent upsert of a missing key converges to one row (tx)
+skipped	tests/providers/docker/mysql2.test.ts	MySQL2 Driver MySQL2 polymorphic relations inverse reads use the generated discriminator/id index

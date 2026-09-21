@@ -1,0 +1,96 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ❯ |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts (7 tests | 5 failed) 252019ms
+   × MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create 50396ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate 50297ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race 50398ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ MySQL2 concurrency policy > a native deadlock > the victim fails visibly, replays nothing, and leaves the survivor's state 78ms
+   ✓ MySQL2 concurrency policy > a native deadlock > the same two row locks in the SAME order both succeed 59ms
+   × MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle 50379ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed 50409ms
+     → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > converges through the update arm on ONE admitted create
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:226:5
+    224| 
+    225|   describe("an eligible unique-key race", () => {
+    226|     test("converges through the update arm on ONE admitted create", as…
+       |     ^
+    227|       const planter = boot(new RecordingMySQL2Driver());
+    228|       let planted = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > converges through the connect arm of a nested connectOrCreate
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:275:5
+    273|     });
+    274| 
+    275|     test("converges through the connect arm of a nested connectOrCreat…
+       |     ^
+    276|       const planter = boot(new RecordingMySQL2Driver());
+    277|       let planted = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > an eligible unique-key race > a rejection on a constraint the selector does NOT name is not a lost race
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:315:5
+    313|     });
+    314| 
+    315|     test("a rejection on a constraint the selector does NOT name is no…
+       |     ^
+    316|       // Exact producer ownership: the convergence belongs to the cons…
+    317|       // choose's own selector addresses (`matchesSelectedConstraint`)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > borrowed execution > a lost race inside the caller's transaction is the caller's to handle
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:493:5
+    491| 
+    492|   describe("borrowed execution", () => {
+    493|     test("a lost race inside the caller's transaction is the caller's …
+       |     ^
+    494|       const planter = boot(new RecordingMySQL2Driver());
+    495|       let planted = false;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |provider-mysql2| tests/providers/docker/mysql2-concurrency-policy.test.ts > MySQL2 concurrency policy > borrowed execution > the caller's transaction survives the rejection it was handed
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/providers/docker/mysql2-concurrency-policy.test.ts:565:5
+    563|     });
+    564| 
+    565|     test("the caller's transaction survives the rejection it was hande…
+       |     ^
+    566|       // The other half of ownership: because the member rolled back t…
+    567|       // savepoint and nothing else, the transaction the caller opened…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed (7)
+   Start at  10:38:49
+   Duration  253.44s (transform 900ms, setup 9ms, collect 1.29s, tests 252.02s, environment 0ms, prepare 33ms)
+
+Vitest resources: 255.16s wall, 495.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

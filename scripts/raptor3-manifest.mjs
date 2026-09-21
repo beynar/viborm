@@ -1403,13 +1403,14 @@ export const G4_PARITY_COUNTS = Object.freeze({
   "tests/raptor3/g4/parity/published-key.test.ts": 12,
   "tests/raptor3/g4/parity/captured-identity-domains.test.ts": 18,
   "tests/raptor3/g4/parity/transport-witnesses.test.ts": 7,
-  "tests/raptor3/g4/parity/reference-representability.test.ts": 12,
+  "tests/raptor3/g4/parity/reference-representability.test.ts": 26,
   "tests/raptor3/g4/parity/one-write-outcome-composition.test.ts": 4,
   "tests/raptor3/g4/parity/cacheable-read-vocabulary.test.ts": 3,
   "tests/raptor3/g4/parity/fresh-member-placement.test.ts": 16,
   "tests/raptor3/g4/parity/prepared-set-predicates.test.ts": 9,
   "tests/raptor3/g4/parity/cascaded-current-identity.test.ts": 21,
   "tests/raptor3/g4/parity/generated-key-reach.test.ts": 7,
+  "tests/raptor3/g4/parity/read-only-build-contract.test.ts": 3,
 });
 export const G4_PARITY_TESTS = Object.freeze(Object.keys(G4_PARITY_COUNTS));
 /** D-50: the exact identity scratch on a PostgreSQL batch-only transport (live PGlite). */

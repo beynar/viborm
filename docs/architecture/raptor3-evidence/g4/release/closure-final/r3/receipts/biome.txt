@@ -1,0 +1,8 @@
+# Biome per changed file — base copy vs working tree (R3)
+
+pg-captured-set-concurrency.test.ts (base): Checked 1 file in 9ms. No fixes applied.
+pg-captured-set-concurrency.test.ts (now):  Checked 1 file in 13ms. No fixes applied.
+
+query.ts: base diagnostics 16, now 16
+operation-context.ts: base diagnostics 7, now 7
+execution.ts: base diagnostics 5, now 5

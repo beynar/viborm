@@ -1,0 +1,96 @@
+{
+  "name": "enum-list",
+  "pushed": "applied",
+  "catalog": [
+    {
+      "TABLE_NAME": "r2a_bags",
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "varchar",
+      "COLUMN_TYPE": "varchar(191)",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    },
+    {
+      "TABLE_NAME": "r2a_bags",
+      "COLUMN_NAME": "roles",
+      "DATA_TYPE": "json",
+      "COLUMN_TYPE": "json",
+      "COLUMN_DEFAULT": null,
+      "EXTRA": ""
+    }
+  ],
+  "differences": [
+    "/tables/0/columns/0/type: desired=\"VARCHAR(191)\" live=\"varchar(191)\"",
+    "/tables/0/primaryKey/name: desired=\"r2a_bags_pkey\" live=\"PRIMARY\""
+  ],
+  "desired": {
+    "tables": [
+      {
+        "name": "r2a_bags",
+        "columns": [
+          {
+            "name": "id",
+            "type": "VARCHAR(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "roles",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "r2a_bags_pkey"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  },
+  "live": {
+    "tables": [
+      {
+        "name": "r2a_bags",
+        "columns": [
+          {
+            "name": "id",
+            "type": "varchar(191)",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          },
+          {
+            "name": "roles",
+            "type": "JSON",
+            "nullable": false,
+            "default": null,
+            "autoIncrement": false,
+            "decimal": null
+          }
+        ],
+        "primaryKey": {
+          "columns": [
+            "id"
+          ],
+          "name": "PRIMARY"
+        },
+        "indexes": [],
+        "foreignKeys": [],
+        "uniqueConstraints": []
+      }
+    ],
+    "enums": []
+  }
+}

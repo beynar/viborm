@@ -512,6 +512,13 @@ export interface DatabaseAdapter {
    * LIMIT value meaning "no limit", for dialects that reject OFFSET without
    * LIMIT (MySQL: 18446744073709551615, SQLite: -1).
    * Omit when the dialect supports bare OFFSET (PostgreSQL).
+   *
+   * It is also the bound an ORDERED derived table states when its caller asked
+   * for no window: MySQL merges an unlimited derived table into the query that
+   * reads it and the merge takes the ORDER BY with it, so a page whose order a
+   * reader consumes (the to-many include's aggregate) spells this value rather
+   * than losing it. A dialect that keeps a derived order unbounded declares
+   * none and emits nothing.
    */
   noLimitValue?: Sql;
 

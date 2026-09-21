@@ -97,6 +97,47 @@ crosses into the next as a literal, so none of this depends on the transport
 keeping a session between requests.
 :::
 
+### Captured-set mutations, per route
+
+A selected `updateMany` or `deleteMany` captures the identities it will mutate
+and then consumes them. **Both routes give the same answer**: the consuming
+statement carries the captured identities AND the statement's own original
+selector, so a row that stopped matching between the capture and the effect is
+not mutated — on an interactive transaction (`pg`, `postgres`, `pglite`,
+`bun-sql`, `mysql2`, `planetscale`, the three SQLite drivers) and on the
+batch-only routes (`neon-http`, `d1`) alike. When fewer rows are affected than
+were captured, the answer is the `selected-row cardinality changed` error.
+
+Where the two routes still differ is what a failure at that point leaves
+behind, and the difference is the transport's, not the rule's. On an
+interactive transaction the operation's owner rolls back and nothing is
+committed. On a batch-only route the batch that carried the mutation has
+already been acknowledged when the count is checked, so the error reports the
+acknowledged effects alongside the result-phase failure rather than claiming a
+rollback that no longer exists. A check after dispatch cannot undo a committed
+batch.
+
+A nested captured series is bounded the same way on every driver: the filter
+selects the worklist once, and a qualifying row that joins after that boundary
+is not adopted into it. The identity, parent and relation-membership
+requirements are still enforced at their own consumption boundaries, so a
+member that loses or changes its membership is not consumed either way.
+`SELECT … FOR UPDATE` locks the rows it reads; it does not exclude rows that
+appear afterwards, and no driver here claims that it does.
+
+### MySQL, locally qualified
+
+`mysql2` is qualified against a local MySQL 8.4 in its own right — schema push
+and re-push, the migration and namespace boundaries, the read and nested-write
+inventory, and concurrency — rather than inheriting its status from the shared
+transport code the table above cites. A
+database-selected deadlock victim is a failed transaction on this driver: the
+normalized provider error is reported, the victim's effects are not committed,
+and it is neither treated as an eligible unique-key race nor replayed. The
+recoverable unique-key race that `upsert` and `connectOrCreate` already
+converge under is unchanged. `planetscale` (hosted MySQL) keeps the shared
+transport-code qualification; hosted qualification is deferred.
+
 ## GeoPoint tiers
 
 | Driver | Tier |

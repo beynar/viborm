@@ -153,66 +153,100 @@ export class CommandExecution {
     }
   }
   /**
-   * What a LOCATED row supplies to the row that SPENDS it, and the one place a
-   * concrete reference becomes a relation.
+   * The ONE requirement a concrete reference must meet to become a relation:
+   * every component that represents the connection is present and non-NULL.
    *
-   * Two facts meet here, and only one of them is an arm's.
+   * A nullable referenced unique can read NULL on the row a probe FOUND, on a
+   * row this operation itself PRODUCED, and on the PARENT whose own value a
+   * member's statement spends. Writing that NULL does not connect the
+   * relation — it DISCONNECTS the holder the payload asked to connect — and no
+   * provider reports it, because NULL in a nullable foreign key is a legal
+   * absence.
    *
-   * The REQUIREMENT is the relation's, whatever verb located the target: a
-   * value the holder writes for the edge must be able to REPRESENT it. A
-   * nullable referenced unique can read NULL on the row the probe found, and
-   * writing that NULL does not connect the relation — it DISCONNECTS the
-   * holder the payload asked to connect. So every demanded field the choice
-   * supplies from its located row is asked — before any write of the unit
-   * wherever the arm stands before its holder (a parent-held edge,
-   * `relation-body.ts:960`); a junction's demanded fields are row keys and
-   * cannot be NULL — the sibling scalars of the same SET included, and the
-   * sentence is the
-   * relation's one inherited sentence — `connect`, the retired engine's fixed
-   * wording, because what is refused is the CONNECTION and not the verb that
-   * spelled it (`write-engine/messages.ts:lookupKeyIsNull`, asserted there for
-   * a plain `connect` AND for a `connectOrCreate`'s FOUND arm,
-   * `RecordUpdateCompiler.assertLookupKeyPresent`). Narrowing it to the folded
-   * arm is what let a found `connectOrCreate` write that NULL (N5's residual).
-   *
-   * The FOLD is the arm's: a parent-held `connect`'s value is the one a
-   * consumer's own SET writes, so it is read inside that statement over this
-   * arm's own selector ({@link Queries.locatedValue}) and a probe row that
-   * changed under us cannot move the written key. `membershipOnly` says this
-   * arm's value is not a pure membership and is FALSE for every verb but
-   * `connect`, so the verb is asked with it. Every other arm binds what the
-   * probe read, unchanged: a junction writes its captured pair, and a
-   * `connectOrCreate` FOUND arm spends the bytes its own probe returned — the
-   * retired engine folded the `connect` lookup and no other, which is what the
-   * scripted transport replies still spell (`tests/raptor3/transport/world.ts`,
-   * `coc-found`).
+   * The sentence is the relation's one inherited sentence, with the verb FIXED
+   * at `connect` (`write-engine/messages.ts:lookupKeyIsNull`), because what is
+   * refused is the CONNECTION and not the verb, the arm or the DIRECTION that
+   * spelled it. Nothing else is refused: a nullable referenced unique is still
+   * a legal schema, a row holding NULL in one is still updatable, a foreign key
+   * is still nullable, and an explicit `disconnect` still writes its own NULL —
+   * that one is a literal this row asked for, and carries no relation
+   * ({@link FieldValue}).
    */
-  private suppliedValues(
+  private requireRepresentable(
+    relation: string,
+    referenced: string,
+    value: unknown
+  ): void {
+    if (value !== null) return;
+    throw new NestedWriteError(
+      `Cannot connect relation '${relation}': the located target's referenced field '${referenced}' is null.`,
+      relation
+    );
+  }
+  /**
+   * The values one record's statement STORES — the point where a concrete
+   * tuple becomes an explicit relation, and therefore where the requirement
+   * above is asked.
+   *
+   * It is the earliest boundary holding the ACTUAL value of every component,
+   * whatever supplied it: a located row's bytes, an arm this operation
+   * created, or the parent's own current value ({@link CommandAttempt.read},
+   * FC-02A). A value this unit produced into its batch scratch is asked once
+   * the boundary has read it back and not before (D-58,
+   * `TransportAttempt.carried`), and nothing is admitted, defaulted or
+   * transformed a second time to obtain one. Only the components the RESOLVED
+   * EDGE named are asked, not every field the row happens to demand.
+   */
+  private stored(fields: Assignments): Input {
+    const values = this.attempt.values(fields);
+    for (const [field, value] of fields.contributions())
+      if (value.kind === "field" && value.relation !== undefined)
+        this.requireRepresentable(value.relation, value.field, values[field]);
+    return values;
+  }
+  /**
+   * The value a parent-held `connect` writes into its HOLDER's own SET, read
+   * WHERE it is spent.
+   *
+   * That value is the one a consumer's own SET writes, so it is read inside
+   * that statement over this arm's own selector
+   * ({@link Queries.locatedValue}) and a probe row that changed under us cannot
+   * move the written key. `membershipOnly` says this arm's value is not a pure
+   * membership and is FALSE for every verb but `connect`, so the verb is asked
+   * with it. Every other arm binds what the probe read, unchanged: a junction
+   * writes its captured pair, and a `connectOrCreate` FOUND arm spends the
+   * bytes its own probe returned — the retired engine folded the `connect`
+   * lookup and no other, which is what the scripted transport replies still
+   * spell (`tests/raptor3/transport/world.ts`, `coc-found`).
+   *
+   * This is also the ONE supply {@link CommandExecution.stored} cannot ask
+   * about, and the only reason the requirement is stated from two places: once
+   * the holder's SET names this value it IS a sub-select, so the literal the
+   * probe read exists here and nowhere after. Every other supply — every other
+   * verb, both directions, found and produced alike — is the consumer's.
+   */
+  private folded(
     command: Choose,
     enclosing: Command | undefined,
     captured: Input
   ): Input {
     const origin = command.lookup.origin;
-    if (!origin) return captured;
-    for (const field of command.fields.demands)
-      if (captured[field] === null)
-        throw new NestedWriteError(
-          `Cannot connect relation '${origin.relation}': the located target's referenced field '${field}' is null.`,
-          origin.relation
-        );
     if (
+      !origin ||
       origin.operation !== "connect" ||
       command.lookup.membershipOnly !== false
     )
       return captured;
     const values: Input = { ...captured };
-    for (const field of command.fields.demands)
+    for (const field of command.fields.demands) {
+      this.requireRepresentable(origin.relation, field, captured[field]);
       values[field] = this.context.queries.locatedValue(
         command.model,
         field,
         command.lookup.selector,
         enclosing?.kind === "record" ? enclosing.model : undefined
       );
+    }
     return values;
   }
   /**
@@ -479,6 +513,7 @@ export class CommandExecution {
           command.fields.moved((holder) => this.carried(holder));
         if (moved)
           attempt.materialize(command.located!.fields, attempt.resolve(moved));
+        const values = this.stored(command.fields);
         attempt.bind(
           command.fields,
           command.located
@@ -494,14 +529,14 @@ export class CommandExecution {
                   ...ctx.schema.keys(command.model),
                   ...command.fields.demands,
                 ]),
-                attempt.values(command.fields),
+                values,
                 member,
                 command.operation,
                 command.fields.demands
               )
             : await ctx.insert(
                 command.model,
-                attempt.values(command.fields),
+                values,
                 command.fields.demands,
                 member,
                 command.operation,
@@ -674,7 +709,7 @@ export class CommandExecution {
           } else
             attempt.bind(
               command.fields,
-              this.suppliedValues(command, occurrence.parent?.command, captured)
+              this.folded(command, occurrence.parent?.command, captured)
             );
         } else if (missing) {
           attempt.missingChoices.set(missing.command.fields, command);
@@ -966,8 +1001,19 @@ export class CommandExecution {
    * the atomic unit instead of being silently missed, and the one recovery
    * re-plans from the admitted values against the larger set (Arnaud's D-25).
    *
+   * The premise BOUNDS THE WORKLIST, and D-65 says so: the members this series
+   * writes are the ones the capture held when this premise answered. One that
+   * qualifies later neither enlarges the worklist nor earns a second recovery,
+   * and the filter that SELECTED the worklist is not re-asked of each member at
+   * its own write — an earlier member may legally change what a later one was
+   * selected by. What each member owes AT THE POSITION IT IS CONSUMED is
+   * unchanged and still enforced: its own identity, its parent's, and the
+   * relation membership {@link captureSeries} and `executeSeries` assert.
+   *
    * Only on the batch route: an interactive transaction took `FOR UPDATE` on
-   * the same read, so its member set cannot grow underneath it.
+   * the same read, so the members it READ cannot change underneath it. That is
+   * a row lock and not phantom exclusion — a member connected afterwards is a
+   * row no lock covered, and on both routes it is outside the worklist.
    */
   private async requireNoAddedMember(
     series: SeriesOccurrence["series"],

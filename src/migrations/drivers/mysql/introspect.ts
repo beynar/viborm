@@ -5,11 +5,7 @@
  * returning a normalized SchemaSnapshot.
  */
 
-import {
-  type DecimalDescriptor,
-  decimalListDefaultText,
-  decodePhysicalDecimalList,
-} from "@validation/primitives/decimal-codec";
+import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   readMysqlDecimalListMarker,
@@ -26,6 +22,7 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import { mysqlEnumType } from "../type-mapping";
 import { groupBy, groupByNested } from "../utils";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import type {
@@ -136,6 +133,27 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
 
 /**
+ * The MySQL storage whose literal default the catalog already reports the way
+ * the estate spells it: a number is a number, and a `BIT` default is reported
+ * as its own `b'…'` literal. Every other type's literal default is a QUOTED
+ * string in DDL, and `information_schema` reports it with the quotes gone.
+ */
+const MYSQL_NUMERIC_DATA_TYPES = new Set([
+  "bigint",
+  "bit",
+  "decimal",
+  "double",
+  "float",
+  "int",
+  "integer",
+  "mediumint",
+  "numeric",
+  "real",
+  "smallint",
+  "tinyint",
+]);
+
+/**
  * Parse enum values from MySQL COLUMN_TYPE string.
  * Handles values containing commas, doubled single quotes (''), and backslash escapes (\').
  * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
@@ -214,9 +232,14 @@ function formatColumnType(col: MySQLColumn): string {
     return srid === undefined ? "POINT" : `POINT SRID ${srid}`;
   }
 
-  // For ENUM types, return the full COLUMN_TYPE which includes values
+  // An ENUM's values ARE its type. `information_schema` prints its own
+  // rendering of them — `enum('a','b')`, no space after the comma — so the
+  // parsed values are re-spelled through the estate's ONE enum speller and the
+  // two snapshots name one type. A COLUMN_TYPE that parses to no values at all
+  // is not an enum MySQL could have created; it stays exactly as read.
   if (col.DATA_TYPE === "enum") {
-    return col.COLUMN_TYPE; // e.g., "enum('active','inactive')"
+    const values = parseEnumValues(col.COLUMN_TYPE);
+    return values ? mysqlEnumType(values) : col.COLUMN_TYPE;
   }
 
   // For types with modifiers (unsigned, zerofill) or size info in COLUMN_TYPE,
@@ -309,39 +332,80 @@ function readDecimalDomain(col: MySQLColumn): DecimalDescriptor | undefined {
   return readMysqlDecimalListMarker(col.COLUMN_COMMENT);
 }
 
-/**
- * MySQL deparses an expression-backed string default as
- * `_charset\\'value\\'` in `information_schema.COLUMNS`. Normalize only the
- * exact decimal-list value this driver emits: the column must carry the exact
- * marker, the container must decode through its descriptor, and re-encoding it
- * must reproduce every byte. A generic JSON default or a manually respelled
- * container remains catalog text and therefore remains different.
- */
+/** MySQL deparses an expression-backed string literal as `_charset\\'value\\'`. */
 const MYSQL_STRING_EXPRESSION_DEFAULT = /^_[A-Za-z0-9_]+\\'([\s\S]*)\\'$/;
 
-function cleanDefault(
-  col: MySQLColumn,
-  descriptor: DecimalDescriptor | undefined
-): string | undefined {
-  const columnDefault = col.COLUMN_DEFAULT;
-  if (
-    columnDefault === null ||
-    descriptor === undefined ||
-    col.DATA_TYPE !== "json"
-  ) {
-    return columnDefault ?? undefined;
-  }
-  const match = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault);
-  const container = match?.[1];
-  if (container === undefined) return columnDefault;
-  const canonicals = decodePhysicalDecimalList(
-    container,
-    descriptor,
-    "coefficient"
+/** One backslash escape, with the character it escapes. */
+const MYSQL_ESCAPE_SEQUENCE = /\\([\s\S]?)/g;
+
+/** A string value spelled the way `escapeValue` writes it into DDL. */
+function quotedLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+/** `undefined` for a body carrying an escape other than `\'` or `\\`. */
+function unescapeOneLayer(body: string): string | undefined {
+  let owned = true;
+  const unescaped = body.replace(
+    MYSQL_ESCAPE_SEQUENCE,
+    (_match: string, escaped: string) => {
+      if (escaped !== "\\" && escaped !== "'") owned = false;
+      return escaped;
+    }
   );
-  if (canonicals === undefined) return columnDefault;
-  const rendered = decimalListDefaultText("mysql", canonicals, descriptor);
-  return rendered === container ? `('${rendered}')` : columnDefault;
+  return owned ? unescaped : undefined;
+}
+
+/**
+ * The VALUE behind MySQL's deparse of a string default, or `undefined` when
+ * the catalog text carries an escape this inverse does not own.
+ *
+ * The text is escaped TWICE — once by MySQL printing the string literal inside
+ * the expression, once by `information_schema` printing that expression — so a
+ * declared `it's` arrives as the characters `_utf8mb4\'it\\\'s\'` (measured on
+ * MySQL 8.4.11). Each pass undoes one layer. Only `\'` and `\\` are undone:
+ * every other escape MySQL prints (`\n` for a newline, measured) stands for a
+ * value whose own DDL spelling `escapeValue` could not have written — it leaves
+ * a backslash alone, which MySQL's DDL reads as an escape introducer — so
+ * inverting it would be a guess, and a wrong guess calls two different defaults
+ * equal.
+ */
+function deparsedStringValue(columnDefault: string): string | undefined {
+  const printed = MYSQL_STRING_EXPRESSION_DEFAULT.exec(columnDefault)?.[1];
+  const literal = printed === undefined ? undefined : unescapeOneLayer(printed);
+  return literal === undefined ? undefined : unescapeOneLayer(literal);
+}
+
+/**
+ * The column's default, in the ONE spelling the estate uses.
+ *
+ * MySQL reports a default in two vocabularies and neither is the estate's. A
+ * LITERAL default comes back as the bare VALUE — `member`, `x'y` — with the
+ * quotes DDL required stripped off. An EXPRESSION default (every default on a
+ * TEXT, BLOB, JSON or GEOMETRY column, since those refuse a literal) comes back
+ * as MySQL's deparse of the expression, where a string literal is printed
+ * `_charset\\'value\\'`. Both are translated here, at the one boundary that
+ * reads the catalog, into what `finalizeMySQLColumn` spells on the desired
+ * side; otherwise a default nobody touched reads as a changed column on every
+ * push, and the final push attestation refuses the schema it just created.
+ *
+ * A deparse this inverse does not own keeps MySQL's own catalog text, which
+ * stays different from the desired side: the column is re-planned and the push
+ * then FAILS at the final attestation with `MIGRATION_DRIFT`. That is the
+ * fail-closed direction — the same one the decimal-list container took when it
+ * could not be re-encoded byte for byte — and it refuses a default nobody
+ * proved equal instead of reporting a schema the database does not hold.
+ */
+function cleanDefault(col: MySQLColumn): string | undefined {
+  const columnDefault = col.COLUMN_DEFAULT;
+  if (columnDefault === null) return undefined;
+  if (col.EXTRA.toUpperCase().includes("DEFAULT_GENERATED")) {
+    const value = deparsedStringValue(columnDefault);
+    return value === undefined ? columnDefault : `(${quotedLiteral(value)})`;
+  }
+  return MYSQL_NUMERIC_DATA_TYPES.has(col.DATA_TYPE.toLowerCase())
+    ? columnDefault
+    : quotedLiteral(columnDefault);
 }
 
 /**
@@ -451,20 +515,17 @@ export async function introspect(
     const columns: ColumnDef[] = [];
     for (const col of columnsByTable.get(tableName) || []) {
       // Extract enum values if this is an enum column
+      // MySQL has no standalone enum object, so the inline type IS the
+      // identity — and it is the identity the DESIRED snapshot registers too
+      // (`serializer.ts` names an enum by `getEnumColumnType`). Naming it
+      // anything else here, as a derived `table$column$enum` did, made every
+      // enum-bearing schema carry two enum definitions that could never match.
       if (col.DATA_TYPE === "enum") {
-        // Use $ as delimiter and escape any $ in names to prevent collisions
-        // e.g. table "foo$bar" col "baz" -> "foo$$bar$baz$enum"
-        const escapedTable = tableName.replace(/\$/g, "$$");
-        const escapedCol = col.COLUMN_NAME.replace(/\$/g, "$$");
-        const enumName = `${escapedTable}$${escapedCol}$enum`;
-        if (!seenEnums.has(enumName)) {
-          // Parse enum values from COLUMN_TYPE: enum('val1','val2')
-          // Uses stateful parser to handle commas and escaped quotes in values
-          const values = parseEnumValues(col.COLUMN_TYPE);
-          if (values) {
-            enumDefs.push({ name: enumName, values });
-            seenEnums.add(enumName);
-          }
+        const values = parseEnumValues(col.COLUMN_TYPE);
+        const enumName = values && mysqlEnumType(values);
+        if (values && enumName && !seenEnums.has(enumName)) {
+          enumDefs.push({ name: enumName, values });
+          seenEnums.add(enumName);
         }
       }
 
@@ -473,7 +534,7 @@ export async function introspect(
         name: col.COLUMN_NAME,
         type: formatColumnType(col),
         nullable: col.IS_NULLABLE === "YES",
-        default: cleanDefault(col, decimal),
+        default: cleanDefault(col),
         autoIncrement: isAutoIncrement(col.EXTRA),
         decimal,
       });

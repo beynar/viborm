@@ -487,7 +487,6 @@ export class Commands {
     edge: Reference,
     destination: Assignments,
     producer: Assignments,
-    contribution?: MembershipContribution,
     binding: {
       readonly carried?: Assignments;
       readonly requested?: boolean;
@@ -525,7 +524,14 @@ export class Commands {
             )
           );
       }
-      const value = producer.field(referenced);
+      // The one place the resolved edge is read, so the one place that can
+      // say what this written component has to be able to REPRESENT: the
+      // relation travels with the value, and the requirement is asked where
+      // the value is known ({@link CommandExecution.stored}).
+      const value: FieldValue = {
+        ...producer.field(referenced),
+        relation: edge.name,
+      };
       if (
         binding.carried?.writesField(referenced) &&
         !destination.writesField(field)
@@ -535,16 +541,14 @@ export class Commands {
         destination.contribute(
           field,
           value,
-          `query-engine-v2 ${destination.operation} has conflicting final assignments for column '${this.context.queries.columnName(destination.model, field)}' on relation '${edge.name}'.`,
-          contribution
+          `query-engine-v2 ${destination.operation} has conflicting final assignments for column '${this.context.queries.columnName(destination.model, field)}' on relation '${edge.name}'.`
         );
     }
     if (edge.discriminator && binding.requested !== false)
       destination.contribute(
         edge.discriminator.field,
         { kind: "literal", value: edge.discriminator.value },
-        `Conflicting stored discriminator for relation '${edge.name}'.`,
-        contribution
+        `Conflicting stored discriminator for relation '${edge.name}'.`
       );
   }
   publishMembership(
@@ -1615,6 +1619,9 @@ export class Commands {
       where: args.where,
       unique: true,
     });
+    // The arm this probe chooses INSERTS the key it just looked for, so the
+    // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
+    lookup.insertsWhenAbsent = true;
     const key = lookup.selector.uniqueKey;
     const spelled =
       capabilities.supportsTargetedUpsert &&
@@ -1781,6 +1788,9 @@ export class Commands {
         where: args.where,
         unique: true,
       });
+      // As above: the missing arm below inserts this very key
+      // (`Selection.insertsWhenAbsent`).
+      lookup.insertsWhenAbsent = true;
       const queries = this.context.queries;
       const probes: Condition[] = [];
       for (const field of ["targetWhere", "setWhere"] as const) {
@@ -1794,14 +1804,22 @@ export class Commands {
           );
         const skip = failure(false);
         skip.meta.raceable = true;
+        const probe = this.lookup(model, {
+          kind: "query",
+          selector: queries.andSelectors(model, [
+            lookup.selector,
+            conditionSelector,
+          ]),
+        });
+        // This probe runs before either arm is chosen and its selector is the
+        // locator's own, narrowed by the condition — so it names the key the
+        // missing arm inserts, and a miss here must not lock that absence
+        // either (`Selection.insertsWhenAbsent`). `targetWhere` / `setWhere`
+        // are public arguments and `rootUpsert` declines them, so on MySQL
+        // this is the only spelling of the shape that reaches the provider.
+        probe.insertsWhenAbsent = true;
         probes.push({
-          lookup: this.lookup(model, {
-            kind: "query",
-            selector: queries.andSelectors(model, [
-              lookup.selector,
-              conditionSelector,
-            ]),
-          }),
+          lookup: probe,
           match: failure(true),
           skip,
         });

@@ -286,7 +286,7 @@ export function runNonReturningMutationAtomicityBehavior(
 
         const firstMutated = createDeferred();
         const releaseFirst = createDeferred();
-        const secondLockAttempted = createDeferred();
+        const secondContended = createDeferred();
         const firstDriver = createDriver({
           afterStatement: async ({ statement }) => {
             if (!(isItemUpdate(statement) || isNativeUpsert(statement))) return;
@@ -294,9 +294,19 @@ export function runNonReturningMutationAtomicityBehavior(
             await releaseFirst.promise;
           },
         });
+        // The upsert probe no longer locks (the decided handoff's "MySQL
+        // deadlocks": the arm it chooses INSERTS the key it just looked for,
+        // and locking that absence is a gap lock two racers are granted at
+        // once — see `Selection.insertsWhenAbsent`). So the second operation's
+        // CONTENTION POINT is no longer its probe but the UPDATE its found arm
+        // issues, which is the statement that queues behind the first
+        // operation's row lock. The latch waits for that statement; the
+        // interleaving this row measures, and every assertion below, are
+        // unchanged. The two rows above still latch on `isItemLock`: a root
+        // update and a root delete keep the locate lock they have always had.
         const secondDriver = createDriver({
           beforeStatement: ({ statement }) => {
-            if (isItemLock(statement)) secondLockAttempted.resolve();
+            if (isItemUpdate(statement)) secondContended.resolve();
           },
         });
         const first = boot(firstDriver);
@@ -315,7 +325,7 @@ export function runNonReturningMutationAtomicityBehavior(
         const secondPromise = Promise.resolve(
           upsert(second, "unused-second", "second")
         );
-        await secondLockAttempted.promise;
+        await secondContended.promise;
         releaseFirst.resolve();
 
         const [firstResult, secondResult] = await Promise.all([

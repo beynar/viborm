@@ -74,7 +74,11 @@ import {
   type RenameColumnOperation,
   type RenameTableOperation,
 } from "../base";
-import { getMySQLType, MYSQL_TYPE_DEFAULTS } from "../type-mapping";
+import {
+  getMySQLType,
+  MYSQL_TYPE_DEFAULTS,
+  mysqlEnumType,
+} from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import { introspect as introspectMySQL } from "./introspect";
@@ -101,6 +105,49 @@ const MYSQL_POINT_SRID_ATTRIBUTE = MYSQL_TYPE_DEFAULTS.point.slice(
  * documented behaviour.
  */
 const MIGRATION_LOCK_TIMEOUT_SECONDS = 30;
+
+/**
+ * The storage classes MySQL refuses a literal `DEFAULT` on. Its own error names
+ * them: "BLOB, TEXT, GEOMETRY or JSON column can't have a default value"
+ * (errno 1101, measured on MySQL 8.4 under `STRICT_TRANS_TABLES`). MySQL 8.0.13
+ * gave exactly those four an EXPRESSION default instead — `DEFAULT ('value')` —
+ * which is the spelling the JSON decimal-list container already used, so it is
+ * the one spelling for all four.
+ */
+function mysqlRefusesLiteralDefault(columnType: string): boolean {
+  const upper = columnType.toUpperCase();
+  return (
+    upper.includes("TEXT") ||
+    upper.includes("BLOB") ||
+    upper.includes("JSON") ||
+    SPATIAL_TYPE_PATTERNS.some((pattern) => pattern.test(upper))
+  );
+}
+
+/**
+ * One column, as MySQL will hold and report it.
+ *
+ * Both rewrites belong to the same moment — after this, the desired snapshot
+ * and the live one are comparable — and both are MySQL facts, not schema
+ * decisions: a keyed TEXT column has to carry a key length, and a default on a
+ * storage class that refuses a literal is carried as an expression. Leaving
+ * the second one to the DDL emitter is what silently DROPPED the declared
+ * default: the estate asked for one, the emitter wrote none, and the final
+ * push attestation reported the column it did not get.
+ */
+function finalizeMySQLColumn(column: ColumnDef, keyed: boolean): ColumnDef {
+  const type =
+    column.type.toUpperCase() === "TEXT" && keyed
+      ? "VARCHAR(191)"
+      : column.type;
+  const spelled =
+    column.default !== undefined && mysqlRefusesLiteralDefault(type)
+      ? `(${column.default})`
+      : column.default;
+  return type === column.type && spelled === column.default
+    ? column
+    : { ...column, type, default: spelled };
+}
 
 /** Exact integer storage that can be adopted without inventing a source scale. */
 function isMySQLExactIntegerType(type: string): boolean {
@@ -290,9 +337,7 @@ export class MySQLMigrationDriver
     return {
       ...table,
       columns: table.columns.map((column) =>
-        column.type.toUpperCase() === "TEXT" && keyedColumns.has(column.name)
-          ? { ...column, type: "VARCHAR(191)" }
-          : column
+        finalizeMySQLColumn(column, keyedColumns.has(column.name))
       ),
       indexes: [...table.indexes, ...uniquesAsIndexes],
       uniqueConstraints: [],
@@ -333,10 +378,7 @@ export class MySQLMigrationDriver
     _columnName: string,
     values: string[]
   ): string {
-    const escapedValues = values
-      .map((v) => `'${v.replace(/'/g, "''")}'`)
-      .join(", ");
-    return `ENUM(${escapedValues})`;
+    return mysqlEnumType(values);
   }
 
   // ===========================================================================
@@ -409,31 +451,12 @@ export class MySQLMigrationDriver
       parts.push(MYSQL_POINT_SRID_ATTRIBUTE);
     }
 
-    // DEFAULT clause (skip for auto-increment columns and types that do not
-    // support a simple default). JSON stays suppressed except for the exact
-    // decimal-list expression the serializer owns below.
+    // DEFAULT clause (an auto-increment column has no default to spell).
+    // `finalizeMySQLColumn` already spelled a default whose storage class
+    // refuses a literal as MySQL's expression default, so every default that
+    // reaches here is one MySQL can take.
     if (column.default !== undefined && !column.autoIncrement) {
-      const upperType = column.type.toUpperCase();
-      const isTextOrBlob =
-        upperType.includes("TEXT") ||
-        upperType.includes("BLOB") ||
-        upperType === "TINYTEXT" ||
-        upperType === "MEDIUMTEXT" ||
-        upperType === "LONGTEXT" ||
-        upperType === "TINYBLOB" ||
-        upperType === "MEDIUMBLOB" ||
-        upperType === "LONGBLOB";
-      const isJson = upperType.includes("JSON");
-      const isDecimalList =
-        column.decimal !== undefined &&
-        mysqlDecimalStorageKind(column) === "list";
-      const isSpatial = SPATIAL_TYPE_PATTERNS.some((pattern) =>
-        pattern.test(upperType)
-      );
-
-      if (!(isTextOrBlob || (isJson && !isDecimalList) || isSpatial)) {
-        parts.push(`DEFAULT ${column.default}`);
-      }
+      parts.push(`DEFAULT ${column.default}`);
     }
 
     // The descriptor marker for a JSON-backed decimal LIST. A scalar needs

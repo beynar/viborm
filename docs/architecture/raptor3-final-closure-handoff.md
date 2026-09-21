@@ -1,5 +1,10 @@
 # Raptor 3 — adversarial review and final implementation plan
 
+> The follow-up after checkpoint `cdd787ac8bbd` is the
+> [decided final local-closure prompt](raptor3-local-release-finish.md).
+> Use it for remaining work. The review and original units below are historical;
+> do not restart completed units or treat their resolved questions as open.
+
 This is the single handoff document for the next agent. It contains the review,
 its evidence and limits, the ELEGANCE assessment, concrete LOC-reduction
 opportunities, the low-refusal objective, implementation units and final

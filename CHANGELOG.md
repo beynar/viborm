@@ -5,6 +5,52 @@ Versioning.
 
 ## Unreleased
 
+- **A connection must be representable.** An explicit `connect`, and the found
+  and the create arm of `connectOrCreate`, establish a relation by writing the
+  value the target holds for the referenced field. Every component that
+  connection needs must be present and non-NULL. A target whose
+  referenced field reads NULL cannot establish the requested relation, so the
+  write is refused — `NestedWriteError`, naming the relation and the field —
+  instead of writing that NULL and silently disconnecting the holder from
+  whatever it pointed at. One requirement covers both directions (a parent-held
+  edge and a child-held one), found and produced values, and single and compound
+  references; it is checked before the connection is consumed, so nothing is
+  written and then discovered. Ordinary nullable scalar writes, an explicit
+  `disconnect`, and a NULL field that is not part of the consumed reference are
+  unaffected, and a model declaring a nullable referenced unique is not itself
+  refused.
+- **A selected bulk mutation carries its selector to the
+  effect.** An `updateMany` or `deleteMany` that captures an identity set and
+  then consumes it sends BOTH the complete captured identity set and that
+  statement's original prepared selector in the consuming statement. A row that
+  stopped matching the selector between the capture and the effect is therefore
+  not mutated, on the batch route as on the interactive one, and the existing
+  `selected-row cardinality changed` error is the answer when fewer rows are
+  affected than were captured. Failure and commit stay separate facts: on an
+  operation-owned interactive transaction its owner rolls back; on an already
+  acknowledged atomic batch the acknowledged effects and the result-phase
+  failure are both reported truthfully — a check after dispatch cannot undo that
+  batch and does not claim to. Compound and mapped keys, `limit` and the
+  zero-result answer are unchanged.
+  A nested captured series is BOUNDED in the same spirit: the initial filter
+  selects the worklist ONCE, and a qualifying row that joins after that boundary
+  is not adopted into it. The filter is not re-evaluated before every member —
+  an earlier member may legally change the facts a later one was selected by —
+  but the actual identity, parent and relation-membership requirements are still
+  enforced where they always were, so a member that loses or changes its
+  membership is still not consumed. `FOR UPDATE` locks rows; it does not exclude
+  phantoms, and nothing here claims otherwise.
+- **Native MySQL is part of local release qualification.**
+  The `mysql2` driver is qualified against a local MySQL 8.4 — schema push and
+  re-push, the migration and namespace boundaries, the read and nested-write
+  inventory, and concurrency — rather than inheriting its status from shared
+  transport code. A database-selected deadlock victim is a FAILED transaction:
+  it is reported as the provider failure it is, with no committed victim
+  effects, and it is never treated as an eligible unique-key race or silently
+  replayed. The recoverable unique-key race that `upsert` and `connectOrCreate`
+  already converge under is unchanged. Hosted MySQL (PlanetScale) qualification
+  remains deferred.
+
 - Prepare the V1 release and publication system.
 - **The query engine is replaced.** Raptor 3 (the name that appears in some
   engine error messages) is now the only engine behind the public client API,
@@ -12,13 +58,33 @@ Versioning.
   write, transaction form and result shape is the same, and the differences
   the cutover surfaced were repaired to the old engine's answers or ruled and
   documented one by one. What changed at the adapter and driver contracts is
-  listed below. Every refusal the engine raises is a documented sentence; 23 of
-  them are sentences the previous engine did not carry and the rest are its
-  own, inherited word for word. That is a count of SENTENCES, not of
-  operations you can no longer perform. Each names a capability limit, a provider-integrity fact or a
-  transport boundary rather than a defect. A failed internal invariant is
-  thrown as an `EngineInvariantError`, which carries no `V####` code and is
-  never one of those refusals.
+  listed below. Every refusal the engine raises is a documented sentence, and
+  the sentences fall into three kinds that are easy to confuse:
+
+    - **An invalid request.** The operation asked for something the data cannot
+      represent — a connection whose reference value is NULL, a `_distance`
+      selection beside a field of that name. Nothing is written; correcting the
+      request is the whole remedy.
+    - **An operational database failure.** The provider refused the work or
+      aborted the transaction — a deadlock victim, a constraint violation, a
+      driver that answered a malformed or missing result. The driver normalizes
+      it; it is a fact about that run, not a limit of the ORM, and the same
+      request can succeed on the next one.
+    - **A capability refusal.** The engine will not do this here — building a
+      write to one SQL statement, a generated non-increment key on a transport
+      with no interactive transaction. This one names a boundary that will not
+      move by retrying.
+
+  A failed internal invariant is none of the three: it is thrown as an
+  `EngineInvariantError`, carries no `V####` code, and is a defect to report.
+  Counting sentences does not measure any of this. The three kinds above are
+  this changelog's own reading of what a failure means to a caller; the census
+  (`scripts/raptor3-refusal-census.mjs`) separates a different three by
+  construction — invariants, private-fit internals and refusals — and reports
+  23 distinct candidate sentences this engine spells that the previous one did
+  not: a count of SENTENCES, not of operations you can no longer perform, and
+  not a coverage figure. What the engine does and does not support is the
+  behavioural inventory's fact, one row per admitted fact.
 - `DatabaseAdapter["expressions"]["integerDivide"](left, right)` is a
   **required** adapter member: the portable integer quotient the engine uses when it has to state in SQL
   the value an integer or bigint column will hold after a `{ divide }` (PostgreSQL integer

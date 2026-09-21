@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-r2c
+
+ ✓ |extended-local| tests/contracts/engine/write/junction-upsert-arm-probe.test.ts (10 tests) 833ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  10:29:43
+   Duration  2.17s (transform 792ms, setup 8ms, collect 1.18s, tests 833ms, environment 0ms, prepare 25ms)
+
+Vitest resources: 3.82s wall, 1491.4 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

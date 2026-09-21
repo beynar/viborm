@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-rint
+
+ ✓ |extended-local| tests/contracts/engine/write/shared-pk-connect-or-create.test.ts (29 tests) 908ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  12:34:30
+   Duration  2.24s (transform 789ms, setup 9ms, collect 1.17s, tests 908ms, environment 0ms, prepare 24ms)
+
+Vitest resources: 3.93s wall, 1519.8 MiB peak sampled process-group RSS (sampled ceiling 2560 MiB, isolated PGlite provider). Teardown verified.

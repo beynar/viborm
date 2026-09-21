@@ -24,8 +24,9 @@ import {
 import { describe, expect, it } from "vitest";
 
 const SQLITE_INLINE_TABLE_PK = /PRIMARY KEY \("id"\)/;
-const MYSQL_TEXT_COLUMN_DEFAULT = /`content` TEXT[^)]*DEFAULT/;
-const MYSQL_BLOB_COLUMN_DEFAULT = /`data` BLOB[^)]*DEFAULT/;
+/** A BARE literal default on the storage MySQL refuses one on (errno 1101). */
+const MYSQL_TEXT_LITERAL_DEFAULT = /`content` TEXT[^)]*DEFAULT '/;
+const MYSQL_BLOB_LITERAL_DEFAULT = /`data` BLOB[^)]*DEFAULT '/;
 
 /** The bounded, database-scoped MySQL lock name (section 3.5), by shape. */
 const MYSQL_ACQUIRE_LOCK_SHAPE =
@@ -1470,51 +1471,60 @@ describe("MySQL DDL Generation", () => {
       expect(ddl).toContain("ON DELETE CASCADE");
     });
 
-    it("should NOT include DEFAULT for TEXT columns", () => {
-      const op: DiffOperation = {
-        type: "createTable",
-        table: {
-          name: "posts",
-          columns: [
-            {
-              name: "content",
-              type: "TEXT",
-              nullable: true,
-              default: "'default'",
-            },
-          ],
-          indexes: [],
-          foreignKeys: [],
-          uniqueConstraints: [],
-        },
+    // These two cells read "should NOT include DEFAULT for TEXT / BLOB
+    // columns" at the base: the emitter dropped the clause because MySQL
+    // refuses a LITERAL default there (errno 1101). Dropping it created a
+    // column the schema had not declared — and then `push()` refused its own
+    // final fingerprint, which is how 150 cells of the native MySQL inventory
+    // never reached their body. Re-expressed for the decided MySQL
+    // qualification (final-closure handoff §1, "MySQL": repair the bounded
+    // causes, do not lower the advertised contract): MySQL 8.0.13+ takes an
+    // EXPRESSION default on exactly those storage classes, `finalizeTable` is
+    // the one owner that spells it, and the emitter writes what the snapshot
+    // says. A bare literal is still never emitted.
+    it("carries a TEXT column's default as MySQL's expression default", () => {
+      const table = {
+        name: "posts",
+        columns: [
+          {
+            name: "content",
+            type: "TEXT",
+            nullable: true,
+            default: "'default'",
+          },
+        ],
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [],
       };
 
-      const ddl = generateDDL(op);
+      const finalized = mysqlMigrationDriver.finalizeTable(table);
+      expect(finalized.columns[0]?.default).toBe("('default')");
 
-      expect(ddl).toContain("`content` TEXT");
-      // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(MYSQL_TEXT_COLUMN_DEFAULT);
+      const ddl = generateDDL({ type: "createTable", table: finalized });
+
+      expect(ddl).toContain("`content` TEXT DEFAULT ('default')");
+      expect(ddl).not.toMatch(MYSQL_TEXT_LITERAL_DEFAULT);
     });
 
-    it("should NOT include DEFAULT for BLOB columns", () => {
-      const op: DiffOperation = {
-        type: "createTable",
-        table: {
-          name: "files",
-          columns: [
-            { name: "data", type: "BLOB", nullable: true, default: "''" },
-          ],
-          indexes: [],
-          foreignKeys: [],
-          uniqueConstraints: [],
-        },
+    it("carries a BLOB column's default as MySQL's expression default", () => {
+      const table = {
+        name: "files",
+        columns: [
+          { name: "data", type: "BLOB", nullable: true, default: "''" },
+        ],
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [],
       };
 
-      const ddl = generateDDL(op);
+      const finalized = mysqlMigrationDriver.finalizeTable(table);
+      expect(finalized.columns[0]?.default).toBe("('')");
 
-      expect(ddl).toContain("`data` BLOB");
-      // Should not have DEFAULT for the column itself (but table has DEFAULT CHARSET)
-      expect(ddl).not.toMatch(MYSQL_BLOB_COLUMN_DEFAULT);
+      const ddl = generateDDL({ type: "createTable", table: finalized });
+
+      expect(ddl).toContain("`data` BLOB DEFAULT ('')");
+      expect(ddl).not.toMatch(MYSQL_BLOB_LITERAL_DEFAULT);
     });
   });
 

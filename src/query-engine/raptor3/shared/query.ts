@@ -799,9 +799,19 @@ export class Queries {
     if (value === null || value === undefined) return a.literals.null();
     if (state.array === true && Array.isArray(value))
       return this.listValue(state, value, field);
+    // A single value bound against a LIST field is one MEMBER of that field's
+    // container (`has` is the operator that asks for one), and a container
+    // carries what it was WRITTEN with — the same fact {@link nativeType}
+    // already states for the decode leaf, which refuses to hand a list's
+    // native type to a literal. The two scalars whose column spelling is
+    // PHYSICAL have to consume it: a decimal's exact `DECIMAL(p,s)` operand
+    // cast, and a datetime's dialect rendering of the instant (MySQL's naive
+    // `DATETIME`, which a JSON container has no column to hold). Every other
+    // scalar crosses a container exactly as it crosses its column.
+    const member = state.array === true;
     switch (state.type) {
       case "decimal":
-        return state.array === true
+        return member
           ? a.literals.value(
               decimalMembers(state, [value], field, this.adapter.result)[0]!,
             )
@@ -829,7 +839,7 @@ export class Queries {
           : a.literals.value(value);
       case "datetime": {
         const wire = admittedTemporal(value, validateIsoTimestamp);
-        return typeof wire === "string"
+        return typeof wire === "string" && !member
           ? a.literals.dateTime(wire, this.nativeType(scalar))
           : a.literals.value(wire);
       }
@@ -1282,20 +1292,58 @@ export class Queries {
       exact: true,
       reads: [],
     };
-    const captured = identities.map((identity) =>
-      this.identityPredicate(model, identity, facts),
-    );
-    // A negated set pins no equality: the facts describe a filter, not a
-    // discriminator, exactly as the combinator walker recorded it.
-    if (captured.length > 0) facts.exact = false;
+    const captured = this.capturedSet(model, identities, facts);
     return Object.freeze({
       model,
       facts,
       predicate:
-        captured.length === 0
-          ? undefined
-          : this.combine("NOT", [this.combine("OR", captured)]),
+        identities.length === 0 ? undefined : this.combine("NOT", [captured]),
     });
+  }
+  /**
+   * The captured identity set ITSELF — "this row is one of the rows the engine
+   * read" — and the positive counterpart of {@link excludeIdentities}.
+   *
+   * D-65 gives the consuming UPDATE/DELETE of a captured ROOT set both facts:
+   * the rows the capture named, and the selector it captured them by. This
+   * states the first, from the same identities' own equalities under the same
+   * combinator owner, so the effect addresses the captured rows with no public
+   * payload to collide with a declared `OR` (N4).
+   *
+   * An empty set names NO row — the vacuous FALSE {@link combine} already
+   * states — which is why each caller answers an empty capture before any
+   * statement is built.
+   */
+  includeIdentities(
+    model: AnyModel,
+    identities: readonly Input[],
+  ): PreparedSelector {
+    const facts: SelectorFacts = {
+      fields: new Set(),
+      equals: new Map(),
+      keys: new Map(),
+      exact: true,
+      reads: [],
+    };
+    return Object.freeze({
+      model,
+      facts,
+      predicate: this.capturedSet(model, identities, facts),
+    });
+  }
+  /** One captured set's rows, as the disjunction of their own identities. */
+  private capturedSet(
+    model: AnyModel,
+    identities: readonly Input[],
+    facts: SelectorFacts,
+  ): PreparedPredicate {
+    const captured = identities.map((identity) =>
+      this.identityPredicate(model, identity, facts),
+    );
+    // A SET pins no equality: the facts describe a filter, not a discriminator,
+    // exactly as the combinator walker records any `OR` arm.
+    if (captured.length > 0) facts.exact = false;
+    return this.combine("OR", captured);
   }
   andSelectors(
     model: AnyModel,
@@ -4247,7 +4295,22 @@ export class Queries {
         ...(window.cursor ? [window.cursor] : []),
       ),
       orderBy: window.orderBy,
-      limit: edge.many ? window.limit : this.value(1),
+      // The aggregate below reads this page IN ORDER, so an ordered page
+      // states its bound. MySQL merges an UNLIMITED derived table into the
+      // query that reads it and the merge takes the ORDER BY with it, and the
+      // rows then arrive in storage order — measured, both answers from the
+      // same aggregate over the same page. What the bound buys is the MERGE
+      // RULE, which is the documented fact: MySQL does not merge a derived
+      // table that states a LIMIT. That the same page then answered in the
+      // requested order is the measurement beside it, not a documented
+      // property of materialising. The caller's window is that bound wherever
+      // it asked for one — including the offset-only window, whose bare
+      // OFFSET already needs the same spelling — and where it asked for none,
+      // the dialect's own "no limit" value is. A dialect that needs no bound
+      // to keep a derived order declares none (PostgreSQL) and emits nothing.
+      limit: edge.many
+        ? (window.limit ?? (window.orderBy ? a.noLimitValue : undefined))
+        : this.value(1),
       offset: window.offset,
       ...(window.distinct
         ? { distinct: window.distinct, distinctColumnAliases: child.names }
