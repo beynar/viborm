@@ -290,7 +290,19 @@ function actorScript(
           ? [actor.accountId, actor.accountId]
           : [actor.accountId, actor.code],
       },
-      { action: "INSERT", parameters: [actor.tokenId, actor.code] },
+      {
+        action: "INSERT",
+        // Repair prompt §1: a FOUND supplier's reference is read WHERE IT IS
+        // SPENT, at the identity this operation located — the probe read
+        // without locking and the batch route takes no confirmation, so the
+        // bytes it saw are not the bytes the column holds when the consumer
+        // runs. The statement binds that identity and the sub-select's limit
+        // in place of the captured literal; a PRODUCED supplier's value is
+        // this unit's own and is carried, unchanged.
+        parameters: found
+          ? [actor.tokenId, actor.accountId, 1]
+          : [actor.tokenId, actor.code],
+      },
       {
         action: "SELECT",
         parameters: [mode === "create" ? actor.accountId : actor.tokenId],

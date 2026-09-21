@@ -1909,6 +1909,31 @@ neighbours already did), and the lock-HELD control beside it proves the waiter
 queues on the holder's `X,REC_NOT_GAP` record lock and then answers over what
 the holder COMMITTED.
 
+**Addendum (the repair prompt 2 §2, 2026-09-22, correcting "the failure is the
+first condition's" in the addendum above).** One statement still cannot name
+WHICH of several matched conditions a concurrent commit took away — and it no
+longer claims to. What it lost is the ONE premise it proved, the conjunction, so
+that is what it reports: where several conditions were conjoined the sentence
+says a MATCHED REQUIREMENT changed and names them as a SET
+(`query-engine-v2 top-level upsert matched premise (targetWhere, setWhere)
+changed before the atomic batch.`), where before it named the FIRST condition
+whichever one had actually gone. Where exactly one condition was matched the
+premise IS that condition, and its own precise sentence is unchanged byte for
+byte. The failure is decided where the premises are built
+(`Choose["conditions"].matched`, the root upsert in `Commands`), so the one
+place that raises it (`confirmFound`) states no diagnosis of its own; no round
+trip is added to tell the conditions apart, and none was available — asking
+after a miss takes further locks after the answer, which is what the
+harmlessness argument for a missing confirmation rests on not doing. The BATCH
+route is untouched and stays per-field exact, for a reason: there each condition
+is its OWN premise statement (one `requirePresent` per probe), so naming the one
+that disagreed is a fact that route measured. Witnesses:
+`tests/providers/local/sqlite3-found-consumption.test.ts` and
+`tests/providers/docker/mysql2-found-consumption.test.ts` — first-only,
+second-only and both conditions changing, each asserting ONE confirmation, the
+unchanged stored row and no consuming write, beside the single-condition
+controls for both spellings, which keep their exact sentences.
+
 **Addendum (the repair prompt §2, what "proved atomically" does and does not
 say).** It is true of the UNIT's OUTCOME — a premise that disagrees aborts the
 batch before it commits — and not of the window between a premise and the
@@ -1921,6 +1946,44 @@ paragraph keep their unlocked form: no schedule in this tree measures that
 window for them, and the note that repaired the nested one names it as a
 residual rather than claiming it closed
 (`g4/release/closure-repair/u2/note.md` §11).
+
+**Addendum (the repair prompt 2 §1, 2026-09-21, the batch route's half of the
+rule — correcting "asks for no read here at all" and the sentence above about
+the found-consumption premises' unlocked form).** The batch route still asks for
+no READ, and it still states the identity, the membership and the matched
+condition as premises. What those premises never stated is the referenced
+COLUMN the holder's own statement spends, and on that route nothing re-bound it:
+`confirmFound` returned the probe's bytes, so a PARENT-held `connectOrCreate`
+spent a literal that another row could have acquired between the plan-time probe
+and the batch — measured as a holder connected to `b2` after `b1.code` moved to
+`M` and `b2` took `G` (`tests/providers/docker/pg-batch-reference-reuse.test.ts`,
+two real connections on the forced batch profile). The answer is the doctrine
+this engine already spells for a parent-held `connect`: the value is read WHERE
+IT IS SPENT, a scalar sub-select inside the consuming statement
+(`Queries.locatedValue`, bound by `CommandExecution.folded`) — but read at the
+CAPTURED COMPLETE IDENTITY (`Queries.includeIdentities` over the located row's
+key), never at the arm's own selector, because a probe that read unlocked cannot
+vouch for a selector a replacement row may since have acquired. Only the
+components the HOLDER's own write spends are folded (`spentByHolder`, the one
+reader of `Commands.assignMembership`'s own contribution read back), so a
+junction's captured pair and a child-held arm's value are untouched. Two things
+stand beside it, each with its own coverage: the selection's retained premise is
+now a HELD read wherever the probe read unlocked (`Selection.insertsWhenAbsent`
+→ `Selection.captured`'s `held`), so a row found by such a probe cannot be
+deleted, moved or nulled between the premise and the statement that spends it on
+a provider that has a lock to take — proved by a schedule, not a hook: a second
+connection's UPDATE of the located row is started after the premise has answered
+and is still waiting when the unit's own write goes out. And because the folded
+value is a sub-select, the representability requirement
+(`CommandExecution.requireRepresentable`) can only be asked of the CAPTURE, so
+the same requirement is stated of the row the sub-select will read, as an
+ABSENCE premise of the same unit — one per NULLABLE component, each carrying
+that component's own sentence, and none at all for a component no schema admits
+a NULL in. An absence, so a row that has GONE satisfies it and the loss stays
+the presence premise's, with the sentence that premise owns. Nothing else moves:
+the interactive route is unchanged, missing-key probes still lock nothing, no
+sentence is added, and the uncontended consumption commits its ordinary result
+on both batch fixtures.
 
 **Addendum (D-65).** That last sentence names a ROW LOCK, not phantom exclusion:
 `FOR UPDATE` holds the members the plan-time read returned, and a member

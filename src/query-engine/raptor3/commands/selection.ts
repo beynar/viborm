@@ -240,6 +240,35 @@ export class Selection {
     );
   }
   /**
+   * This located row, holding NULL in ONE component the consumer is about to
+   * spend: the complement premise of the reference fold
+   * ({@link CommandExecution.folded}).
+   *
+   * Where the value is folded it is a sub-select, so the literal the probe read
+   * exists nowhere after and the shared representability requirement
+   * ({@link CommandExecution.requireRepresentable}) can only be asked of the
+   * capture. This states the same requirement of the row the fold will READ,
+   * inside the unit that spends it, and states it as an ABSENCE so a row that
+   * has GONE satisfies it — that loss is the presence premise's, with the
+   * sentence that premise owns, and this one keeps the field-exact attribution
+   * its own sentence names. One component per premise, for the same reason.
+   */
+  unrepresentable(field: string) {
+    const ctx = this.execution.context;
+    return ctx.queries.select(
+      this.model,
+      { take: 1 },
+      undefined,
+      {
+        condition: ctx.driver.adapter.operators.isNull(
+          ctx.queries.column(this.model, field),
+        ),
+        identity: this.execution.identity(this.fields),
+        projection: this.identityProjection,
+      },
+    );
+  }
+  /**
    * The rows the selector names OUTSIDE the membership: a batch premise of
    * the observation that finds this row (N1) — absent, the row is either not
    * there or a member, which is what a found requirement asks.

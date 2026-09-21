@@ -33,7 +33,7 @@ import {
 import type { QueryExecutionContext } from "@drivers/driver";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryResult } from "@drivers/types";
-import { NotFoundError, TransactionError } from "@errors";
+import { NotFoundError, TransactionError, VibORMErrorCode } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
@@ -218,6 +218,28 @@ const outcomeOf = async <T>(
     (failure: unknown) => ({ failure, value: undefined })
   );
 
+/**
+ * The sentence a lost CONJOINED premise raises (repair prompt 2 §2).
+ *
+ * Two matched conditions are ONE premise of one consumption, proved by ONE
+ * confirmation (G1), so what a miss loses is that premise and not a term of
+ * it: the sentence names the operation and the conditions as a SET. On the
+ * reviewed source it was `targetWhere`'s own sentence whichever condition had
+ * actually changed — a diagnosis the single statement never made.
+ */
+const CONJOINED_PREMISE =
+  "query-engine-v2 top-level upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
+
+/** The dual-condition shape: both conditions match `t1` as it stands. */
+const conjoinedUpsert = async (subject: FoundClient) =>
+  await subject.tag.upsert({
+    where: { id: "t1" },
+    targetWhere: { name: "chosen" },
+    setWhere: { count: 7 },
+    create: { id: "t1", name: "chosen", count: 0 },
+    update: { count: 42 },
+  });
+
 describe("the shared FOUND-consumption rule on the recording SQLite transport", () => {
   let driver: DriftingSQLite3Driver;
   let client: FoundClient;
@@ -306,6 +328,134 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
     expect(await client.tag.findUnique({ where: { id: "t1" } })).toMatchObject({
       count: 7,
     });
+  });
+
+  test("two matched conditions lost at the FIRST refuse as one premise", async () => {
+    await client.tag.create({ data: { id: "t1", name: "chosen", count: 7 } });
+    driver.statements.length = 0;
+    // The locator and BOTH condition probes read first; the fourth read is the
+    // one confirmation that carries their conjunction.
+    driver.driftBefore(TAG_TABLE, 4, (database) => {
+      database
+        .prepare("UPDATE sfc_tags SET name = 'renamed' WHERE id = 't1'")
+        .run();
+    });
+
+    const outcome = await outcomeOf(conjoinedUpsert(client));
+
+    expect(driver.drifted).toBe(true);
+    // One confirmation for the pair, and no second read to ask WHICH of them
+    // went: the locator, the two probes, the confirmation.
+    expect(planTimeReads(driver, TAG_TABLE)).toHaveLength(4);
+    expect(outcome.value).toBeUndefined();
+    expect(outcome.failure).toBeInstanceOf(TransactionError);
+    expect((outcome.failure as TransactionError).code).toBe(
+      VibORMErrorCode.TRANSACTION_FAILED
+    );
+    expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+    // A lost MATCH premise is not a race another arm may adopt.
+    expect((outcome.failure as TransactionError).meta.raceable).not.toBe(true);
+    expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    expect(await client.tag.findUnique({ where: { id: "t1" } })).toMatchObject({
+      name: "chosen",
+      count: 7,
+    });
+  });
+
+  test("two matched conditions lost at the SECOND refuse with the same sentence", async () => {
+    await client.tag.create({ data: { id: "t1", name: "chosen", count: 7 } });
+    driver.statements.length = 0;
+    driver.driftBefore(TAG_TABLE, 4, (database) => {
+      database.prepare("UPDATE sfc_tags SET count = 8 WHERE id = 't1'").run();
+    });
+
+    const outcome = await outcomeOf(conjoinedUpsert(client));
+
+    expect(driver.drifted).toBe(true);
+    expect(planTimeReads(driver, TAG_TABLE)).toHaveLength(4);
+    expect(outcome.value).toBeUndefined();
+    expect(outcome.failure).toBeInstanceOf(TransactionError);
+    // The condition the reviewed source named here was `targetWhere`, which
+    // had not changed at all.
+    expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+    expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    expect(await client.tag.findUnique({ where: { id: "t1" } })).toMatchObject({
+      name: "chosen",
+      count: 7,
+    });
+  });
+
+  test("two matched conditions lost TOGETHER refuse with the same sentence", async () => {
+    await client.tag.create({ data: { id: "t1", name: "chosen", count: 7 } });
+    driver.statements.length = 0;
+    driver.driftBefore(TAG_TABLE, 4, (database) => {
+      database
+        .prepare(
+          "UPDATE sfc_tags SET name = 'renamed', count = 8 WHERE id = 't1'"
+        )
+        .run();
+    });
+
+    const outcome = await outcomeOf(conjoinedUpsert(client));
+
+    expect(driver.drifted).toBe(true);
+    expect(planTimeReads(driver, TAG_TABLE)).toHaveLength(4);
+    expect(outcome.value).toBeUndefined();
+    expect(outcome.failure).toBeInstanceOf(TransactionError);
+    expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+    expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    expect(await client.tag.findUnique({ where: { id: "t1" } })).toMatchObject({
+      name: "chosen",
+      count: 7,
+    });
+  });
+
+  test("one condition keeps its own precise sentence", async () => {
+    await client.tag.create({ data: { id: "t1", name: "chosen", count: 7 } });
+    driver.statements.length = 0;
+    // One condition is no conjunction: the premise IS that condition, so the
+    // sentence names it — the other spelling of the pair, beside the
+    // `setWhere` control above.
+    driver.driftBefore(TAG_TABLE, 3, (database) => {
+      database
+        .prepare("UPDATE sfc_tags SET name = 'renamed' WHERE id = 't1'")
+        .run();
+    });
+
+    const outcome = await outcomeOf(
+      client.tag.upsert({
+        where: { id: "t1" },
+        targetWhere: { name: "chosen" },
+        create: { id: "t1", name: "chosen", count: 0 },
+        update: { count: 42 },
+      })
+    );
+
+    expect(driver.drifted).toBe(true);
+    expect(planTimeReads(driver, TAG_TABLE)).toHaveLength(3);
+    expect(outcome.value).toBeUndefined();
+    expect(outcome.failure).toBeInstanceOf(TransactionError);
+    expect((outcome.failure as Error).message).toBe(
+      "query-engine-v2 top-level upsert targetWhere match premise changed before the atomic batch."
+    );
+    expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+  });
+
+  test("an uncontended pair of conditions commits its ordinary result", async () => {
+    await client.tag.create({ data: { id: "t1", name: "chosen", count: 7 } });
+    driver.statements.length = 0;
+
+    const upserted = await conjoinedUpsert(client);
+
+    // No blanket refusal: the conjunction is a premise, not a prohibition.
+    expect(upserted).toMatchObject({ id: "t1", name: "chosen", count: 42 });
+    expect(planTimeReads(driver, TAG_TABLE)).toHaveLength(4);
+    expect(matching(driver, "UPDATE", TAG_TABLE)).toHaveLength(1);
+    expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
   });
 
   test("a to-ONE nested upsert's membership is confirmed before the effect", async () => {

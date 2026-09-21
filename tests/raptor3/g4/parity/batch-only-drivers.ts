@@ -19,15 +19,28 @@ import {
 import type Database from "better-sqlite3";
 import { RecordingSQLiteDriver } from "../unit02/world";
 
+/** Does this batch entry mutate? The atomic write unit is the only batch that
+ *  carries one; a planning level is reads only. */
+const MUTATION_STATEMENT = /^\s*(?:insert|update|delete)\b/i;
+
 /**
  * A native batch, no callback transaction. `plant` runs once, against the
  * database, right before the first batch after it is set — a change between
- * the plan-time read and the batch.
+ * the plan-time read and the batch. `plantBeforeFirstWrite` runs once INSIDE
+ * that batch's transaction, between the unit's last premise and the first
+ * statement they stand in front of: a premise and the effect it protects are
+ * two statements, and this substrate's select assembly omits `FOR UPDATE`, so
+ * that window is the one a batch premise cannot close here. One connection
+ * carries both, so neither hook is a concurrent commit — it is the change
+ * itself, applied at the position that names the window (the native
+ * measurement on two real connections is
+ * `tests/providers/docker/pg-batch-reference-reuse.test.ts`).
  */
 export class BatchOnlyDriver extends RecordingSQLiteDriver {
   override readonly supportsTransactions = false;
   override readonly supportsBatch = true;
   plant?: (database: Database.Database) => void;
+  plantBeforeFirstWrite?: (database: Database.Database) => void;
   protected override async executeBatch<T>(
     client: Database.Database,
     queries: BatchQuery[]
@@ -39,13 +52,32 @@ export class BatchOnlyDriver extends RecordingSQLiteDriver {
     }
     client.exec("BEGIN");
     try {
-      const results = await super.executeBatch<T>(client, queries);
+      const results = await this.runSplit<T>(client, queries);
       client.exec("COMMIT");
       return results;
     } catch (error) {
       client.exec("ROLLBACK");
       throw error;
     }
+  }
+  private async runSplit<T>(
+    client: Database.Database,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    const between = this.plantBeforeFirstWrite;
+    const firstWrite = between
+      ? queries.findIndex((query) => MUTATION_STATEMENT.test(query.sql))
+      : -1;
+    if (!between || firstWrite < 0)
+      return await super.executeBatch<T>(client, queries);
+    this.plantBeforeFirstWrite = undefined;
+    const head =
+      firstWrite === 0
+        ? []
+        : await super.executeBatch<T>(client, queries.slice(0, firstWrite));
+    between(client);
+    const tail = await super.executeBatch<T>(client, queries.slice(firstWrite));
+    return [...head, ...tail];
   }
 }
 

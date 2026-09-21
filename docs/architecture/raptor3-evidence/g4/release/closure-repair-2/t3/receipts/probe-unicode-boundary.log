@@ -1,0 +1,43 @@
+default-conn | session {"c":"utf8mb4","cc":"utf8mb4","cr":"utf8mb4","col":"utf8mb4_unicode_ci"}
+default-conn | id extra= col_cs=null
+    client-sees = null
+    server HEX(COLUMN_DEFAULT) = null
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=null chars=null
+    HEX(CONVERT USING binary) = null
+    HEX(binary->utf8mb4)      = null
+default-conn | note extra=DEFAULT_GENERATED col_cs=utf8mb4
+    client-sees = 5f 75 74 66 38 6d 62 34 5c 27 63 61 66 c3 a9 20 e2 98 95 5c 27
+    server HEX(COLUMN_DEFAULT) = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=26 chars=21
+    HEX(CONVERT USING binary) = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+    HEX(binary->utf8mb4)      = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+default-conn | keyed extra= col_cs=utf8mb4
+    client-sees = 63 61 66 e9 20 2615
+    server HEX(COLUMN_DEFAULT) = 636166C3A920E29895
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=9 chars=6
+    HEX(CONVERT USING binary) = 636166C3A920E29895
+    HEX(binary->utf8mb4)      = 636166C3A920E29895
+default-conn | SHOW CREATE (note clause) = "  `note` text NOT NULL DEFAULT (_utf8mb4'café ☕'), |   `keyed` varchar(20) NOT NULL DEFAULT 'café ☕',"
+default-conn | SHOW CREATE bytes around default: 27636166C3A920E29895272C0A20205052494D415259204B4559202860696460
+utf8mb4-conn | session {"c":"utf8mb4","cc":"utf8mb4","cr":"utf8mb4","col":"utf8mb4_general_ci"}
+utf8mb4-conn | id extra= col_cs=null
+    client-sees = null
+    server HEX(COLUMN_DEFAULT) = null
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=null chars=null
+    HEX(CONVERT USING binary) = null
+    HEX(binary->utf8mb4)      = null
+utf8mb4-conn | note extra=DEFAULT_GENERATED col_cs=utf8mb4
+    client-sees = 5f 75 74 66 38 6d 62 34 5c 27 63 61 66 c3 a9 20 e2 98 95 5c 27
+    server HEX(COLUMN_DEFAULT) = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=26 chars=21
+    HEX(CONVERT USING binary) = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+    HEX(binary->utf8mb4)      = 5F757466386D62345C27636166C383C2A920C3A2C298C2955C27
+utf8mb4-conn | keyed extra= col_cs=utf8mb4
+    client-sees = 63 61 66 e9 20 2615
+    server HEX(COLUMN_DEFAULT) = 636166C3A920E29895
+    server CHARSET = utf8mb3 / utf8mb3_bin bytes=9 chars=6
+    HEX(CONVERT USING binary) = 636166C3A920E29895
+    HEX(binary->utf8mb4)      = 636166C3A920E29895
+utf8mb4-conn | SHOW CREATE (note clause) = "  `note` text NOT NULL DEFAULT (_utf8mb4'café ☕'), |   `keyed` varchar(20) NOT NULL DEFAULT 'café ☕',"
+utf8mb4-conn | SHOW CREATE bytes around default: 27636166C3A920E29895272C0A20205052494D415259204B4559202860696460
+mysql2 version: 3.16.1

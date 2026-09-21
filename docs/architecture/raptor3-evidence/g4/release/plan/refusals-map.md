@@ -256,3 +256,31 @@ them widens nothing.
 - Whether #12's `aggregate` parameter is narrowed to the closed
   `AGGREGATES`/`AGGREGATE_NAMES` type at every call site (didn't trace every
   caller of `aggregateExpression`).
+
+---
+
+## Addendum (repair prompt 2 §2, 2026-09-22) — the conjoined-premise sentence
+
+One sentence this engine now spells that it did not spell at `88fe2814b`, and
+the reason it is registered HERE rather than in the census: the conditional
+upsert's premise failures are BUILT at analysis (`Commands`' root upsert) and
+raised through a `DeferredFailure` at one place (`CommandExecution.confirmFound`,
+`throw failure()`), which the census reads as a rethrow — so neither the old
+`${field} match premise` spelling nor this one has ever appeared in its counts,
+and its totals are byte-identical before and after (22/21, 11/11, 75/75, 30
+sites / 23 distinct, rethrow 56, **194 sites**;
+`g4/release/closure-repair-2/t2/receipts/09-census-{base,after}.md`). It is a
+new PUBLIC sentence all the same, so it is listed here with the map's own
+columns. Nothing above is rewritten.
+
+| # | sentence | site (current) | guard condition | reachable | kind | disposition |
+|---|---|---|---|---|---|---|
+| R2-1 | query-engine-v2 top-level upsert matched premise (targetWhere, setWhere) changed before the atomic batch. | built `commands/commands.ts` (root upsert, `premiseChanged`); raised `commands/execution.ts` (`confirmFound`) | the found arm's ONE confirmation answers no row while MORE THAN ONE condition probe had matched — the conjunction it proved no longer holds | YES — a root `upsert` carrying both `targetWhere` and `setWhere` whose matched premise a concurrent commit changes between the unlocked probe and the confirmation, on the interactive route | INTEGRITY | KEEP |
+
+It REPLACES no sentence: the per-field spelling
+(`… ${field} match premise changed before the atomic batch.`) is unchanged and
+still raised wherever exactly one condition was matched, and on the BATCH route
+for every condition, where each is its own premise statement and naming the one
+that disagreed is a fact that route measured. Same class (`TransactionError`,
+V5001), same meta (`model`, `operation`), no `raceable` — a lost MATCH premise
+is not a race another arm may adopt.

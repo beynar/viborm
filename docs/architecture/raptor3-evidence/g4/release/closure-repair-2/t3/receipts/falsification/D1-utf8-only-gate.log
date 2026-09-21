@@ -1,0 +1,40 @@
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '_latin1\\'plain\\'' to be '(\'plain\')' // Object.is equality
+
+Expected: [32m"[7m([27m'plain'[7m)[27m"[39m
+Received: [31m"[7m_latin1\[27m'plain[7m\[27m'"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:460:49
+    458|     // is the catalog's text itself, which is what this boundary retur…
+    459|     // EVERY introducer before it consulted them at all.
+    460|     expect(byName.get("ascii_latin1")?.default).toBe("('plain')");
+       |                                                 ^
+    461|     expect(byName.get("other_charset")?.default).toBe("('\u00c3\u00a9'…
+    462|     // A leading U+FEFF is part of the value, not a mark the reader ea…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '_latin1\\'plain\\'' to be '(\'plain\')' // Object.is equality
+
+Expected: [32m"[7m([27m'plain'[7m)[27m"[39m
+Received: [31m"[7m_latin1\[27m'plain[7m\[27m'"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:460:49
+    458|     // is the catalog's text itself, which is what this boundary retur…
+    459|     // EVERY introducer before it consulted them at all.
+    460|     expect(byName.get("ascii_latin1")?.default).toBe("('plain')");
+       |                                                 ^
+    461|     expect(byName.get("other_charset")?.default).toBe("('\u00c3\u00a9'…
+    462|     // A leading U+FEFF is part of the value, not a mark the reader ea…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  23:49:23
+   Duration  1.01s (transform 464ms, setup 15ms, collect 691ms, tests 17ms, environment 0ms, prepare 53ms)
+
+Vitest resources: 2.98s wall, 470.7 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

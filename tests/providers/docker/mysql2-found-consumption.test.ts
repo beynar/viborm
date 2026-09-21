@@ -293,6 +293,28 @@ const outcomeOf = async <T>(
   );
 
 /**
+ * The sentence a lost CONJOINED premise raises (repair prompt 2 §2).
+ *
+ * Two matched conditions are ONE premise of one consumption, proved by ONE
+ * confirmation (G1), so what a miss loses is that premise and not a term of
+ * it: the sentence names the operation and the conditions as a SET. On the
+ * reviewed source it was `targetWhere`'s own sentence whichever condition had
+ * actually changed — a diagnosis the single statement never made.
+ */
+const CONJOINED_PREMISE =
+  "query-engine-v2 top-level upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
+
+/** The dual-condition shape: both conditions match `t1` as it stands. */
+const conjoinedUpsert = async (subject: FoundClient) =>
+  await subject.tag.upsert({
+    where: { id: "t1" },
+    targetWhere: { name: "chosen" },
+    setWhere: { count: 7 },
+    create: { id: "t1", name: "chosen", slug: "chosen", count: 0 },
+    update: { count: 42 },
+  });
+
+/**
  * The ONE window this repair closes, expressed so that the same hook names it
  * on both trees: plant exactly once, immediately before the first statement
  * this operation sends after its unlocked plan-time read of `table` that is not
@@ -472,6 +494,111 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       const rows = await planter.tag.findMany({});
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ id: "t1", count: 8 });
+      expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+      expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    });
+
+    test("two matched conditions lost at the FIRST refuse as one premise", async () => {
+      // Repair prompt 2 §2. Both conditions MATCHED, so the confirmation
+      // carries their CONJUNCTION and a miss is the loss of that one premise.
+      // The reviewed source named `targetWhere` here — and named it in the two
+      // cells below as well, where it had not changed at all.
+      const planter = boot(new RecordingMySQL2Driver());
+      await planter.tag.create({
+        data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
+      });
+
+      const planted = plantAfterUnlockedRead(TAG_TABLE, async () => {
+        await planter.tag.update({
+          where: { id: "t1" },
+          data: { name: "renamed" },
+        });
+      });
+      const driver = new RecordingMySQL2Driver({
+        beforeStatement: planted.hook,
+      });
+
+      const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
+
+      expect(planted.state.planted).toBe(true);
+      expect(outcome.value).toBeUndefined();
+      expect(outcome.failure).toBeInstanceOf(TransactionError);
+      expect((outcome.failure as TransactionError).code).toBe(
+        VibORMErrorCode.TRANSACTION_FAILED
+      );
+      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+      // A lost MATCH premise is not a race another arm may adopt.
+      expect((outcome.failure as TransactionError).meta.raceable).not.toBe(
+        true
+      );
+      // ONE locked confirmation carried the pair: the truthful sentence buys no
+      // round trip, here or in either cell below.
+      const confirmations = confirmationsOf(driver, TAG_TABLE);
+      expect(confirmations).toHaveLength(1);
+      expect(whereOf(confirmations[0] ?? "")).toContain("`id`");
+
+      const rows = await planter.tag.findMany({});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "t1", name: "renamed", count: 7 });
+      expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+      expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    });
+
+    test("two matched conditions lost at the SECOND refuse with the same sentence", async () => {
+      const planter = boot(new RecordingMySQL2Driver());
+      await planter.tag.create({
+        data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
+      });
+
+      const planted = plantAfterUnlockedRead(TAG_TABLE, async () => {
+        await planter.tag.update({ where: { id: "t1" }, data: { count: 8 } });
+      });
+      const driver = new RecordingMySQL2Driver({
+        beforeStatement: planted.hook,
+      });
+
+      const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
+
+      expect(planted.state.planted).toBe(true);
+      expect(outcome.value).toBeUndefined();
+      expect(outcome.failure).toBeInstanceOf(TransactionError);
+      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+      expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
+
+      const rows = await planter.tag.findMany({});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "t1", name: "chosen", count: 8 });
+      expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+      expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+    });
+
+    test("two matched conditions lost TOGETHER refuse with the same sentence", async () => {
+      const planter = boot(new RecordingMySQL2Driver());
+      await planter.tag.create({
+        data: { id: "t1", name: "chosen", slug: "chosen", count: 7 },
+      });
+
+      const planted = plantAfterUnlockedRead(TAG_TABLE, async () => {
+        await planter.tag.update({
+          where: { id: "t1" },
+          data: { name: "renamed", count: 8 },
+        });
+      });
+      const driver = new RecordingMySQL2Driver({
+        beforeStatement: planted.hook,
+      });
+
+      const outcome = await outcomeOf(conjoinedUpsert(boot(driver)));
+
+      expect(planted.state.planted).toBe(true);
+      expect(outcome.value).toBeUndefined();
+      expect(outcome.failure).toBeInstanceOf(TransactionError);
+      expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+      expect(confirmationsOf(driver, TAG_TABLE)).toHaveLength(1);
+
+      const rows = await planter.tag.findMany({});
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ id: "t1", name: "renamed", count: 8 });
       expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
       expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
     });

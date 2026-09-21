@@ -119,7 +119,20 @@ export interface Choose {
   operation?: string;
   missing?: CommandOccurrence<RecordCommand>;
   found?: CommandOccurrence<RecordCommand>;
-  conditions?: { probes: Condition[]; missingRow: Error };
+  conditions?: {
+    probes: Condition[];
+    missingRow: Error;
+    /**
+     * The failure the found arm's ONE confirmation raises when it answers no
+     * row (`CommandExecution.confirmFound`). That confirmation proves the
+     * CONJUNCTION of the probes that matched, so what it loses is that single
+     * premise: where several conditions were conjoined the sentence says a
+     * MATCHED REQUIREMENT changed and names them as a SET, because a
+     * conjunction has no first term to blame. With ONE condition the premise
+     * IS that condition, and so is this ({@link Condition.match}).
+     */
+    matched: Error;
+  };
 }
 export interface Link {
   kind: "link";
@@ -1793,16 +1806,19 @@ export class Commands {
       lookup.insertsWhenAbsent = true;
       const queries = this.context.queries;
       const probes: Condition[] = [];
+      const conditioned: string[] = [];
+      // One builder for every premise sentence this operation owns; the subject
+      // is the premise that no longer holds.
+      const premiseChanged = (subject: string) =>
+        new TransactionError(
+          `query-engine-v2 top-level upsert ${subject} changed before the atomic batch.`,
+          { meta: { model: model["~"].names.ts!, operation: "upsert" } }
+        );
       for (const field of ["targetWhere", "setWhere"] as const) {
         const where = args[field];
         if (!where) continue;
         const conditionSelector = queries.prepareSelector(model, where);
-        const failure = (match: boolean) =>
-          new TransactionError(
-            `query-engine-v2 top-level upsert ${field} ${match ? "match" : "skip"} premise changed before the atomic batch.`,
-            { meta: { model: model["~"].names.ts!, operation: "upsert" } }
-          );
-        const skip = failure(false);
+        const skip = premiseChanged(`${field} skip premise`);
         skip.meta.raceable = true;
         const probe = this.lookup(model, {
           kind: "query",
@@ -1818,12 +1834,14 @@ export class Commands {
         // are public arguments and `rootUpsert` declines them, so on MySQL
         // this is the only spelling of the shape that reaches the provider.
         probe.insertsWhenAbsent = true;
+        conditioned.push(field);
         probes.push({
           lookup: probe,
-          match: failure(true),
+          match: premiseChanged(`${field} match premise`),
           skip,
         });
       }
+      const [firstProbe] = probes;
       const found = this.occurrence(
         this.update(lookup, args.update!, raw.update!, true)
       );
@@ -1846,9 +1864,17 @@ export class Commands {
         lookup,
         operation: "upsert",
         missing: this.occurrence(missing),
-        conditions: {
+        // A conditions record exists where a condition does. Its `matched`
+        // failure is decided HERE, where the premises are built, so the one
+        // place that raises it states no diagnosis of its own (repair prompt 2
+        // §2).
+        conditions: firstProbe && {
           probes,
           missingRow: new NotFoundError(model["~"].names.ts!, "upsert"),
+          matched:
+            probes.length === 1
+              ? firstProbe.match
+              : premiseChanged(`matched premise (${conditioned.join(", ")})`),
         },
         fields: new Assignments(model, "select", {}, {}, undefined, [
           missing.fields,

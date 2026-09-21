@@ -1,0 +1,2 @@
+154	19	src/migrations/drivers/mysql/introspect.ts
+182	2	tests/unit/migrations/mysql-provider-free-catalog.core.test.ts

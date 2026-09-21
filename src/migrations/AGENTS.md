@@ -264,6 +264,79 @@ the keyed rewrite) round-trips. Re-decoding those bytes would
 be a guess on a read path other MySQL transports share, so it is reported, not
 repaired here.
 
+**Addendum (repair prompt §3, 2026-09-21).** The TWO neighbours the paragraph
+above leaves fail-closed were the same boundary seen twice, and both are now
+closed at it. FIRST, `mysqlEnumType` no longer carries a spelling of its own:
+an ENUM's member IS a MySQL string literal, so it is spelled by
+`mysqlStringLiteral` like every other one, and the rule the two owners
+disagreed about is gone rather than reconciled. The consequences are the
+literal's, exactly: `ENUM('a\b')` declared a member holding a BACKSPACE and
+`ENUM('end\')` did not parse, and a backslash-bearing member that was also the
+column's default made MySQL refuse the CREATE/MODIFY with errno 1067 — all of
+that is repaired by the one spelling. An estate CREATED under the old one is
+re-planned into the declared members like any other changed column, and
+converges — unless a row still holds the corrupted member, in which case MySQL
+refuses the `MODIFY` itself under the strict mode the pinned session proves
+(errno 1265 WARN_DATA_TRUNCATED, measured), leaving the column as it was: the
+push fails, and no row is silently re-valued. The catalog inverse is the same
+table read backwards: `parseEnumValues` undoes the
+escapes MySQL's `COLUMN_TYPE` printer writes through `MYSQL_PRINTED_CHARACTERS`
+(the enum printer writes a strict SUBSET — `\\`, `\n`, `\r`, `\0`; it doubles
+`'` and prints ctrl-Z raw, measured on 8.4.11), where reading `\x` as a bare
+`x` had turned a declared NEWLINE into the letter `n`. An escape outside that
+table is still unowned: the `COLUMN_TYPE` is kept exactly as read, no enum
+identity is registered for it, and the push fails at the attestation.
+
+SECOND, a non-ASCII default. `information_schema.COLUMNS.COLUMN_DEFAULT` hands
+an EXPRESSION default's text back one codepoint per BYTE, and the boundary
+where that is corrected is `deparsedStringValue` — the place that already
+parses MySQL's `_charset\'…\'` deparse and, until now, DISCARDED the
+introducer. The introducer names the encoding of those bytes, so they are read
+back with it. The measurement that locates the loss, hypothesis by hypothesis
+(`closure-repair-2/t3/receipts/measurements.md`): the connection's character
+set is not it (identical under an explicit `charset: "utf8mb4"`), the catalog
+column's own charset is not it (the same utf8mb3 column carries a LITERAL
+default's value decoded, `HEX()` and all), the DDL spelling is not it
+(`SHOW CREATE TABLE` prints the true bytes for the very same column) — the
+server's own `HEX(COLUMN_DEFAULT)` carries the expansion, so what arrives is
+MySQL's rendering of a stored expression and the ORM's only choice is how to
+read it. Nothing global was re-decoded: the bytes go through ONE table of
+charset → how that charset's bytes are read (the UTF-8 family decodes, and
+`ascii` and `binary` ARE their bytes — each the codepoint of the same number —
+and `latin1` is MySQL's Windows-1252, where 0x93 is U+201C and the five bytes
+cp1252 leaves undefined map to the same-numbered control), and three named
+bodies keep the catalog's own text, each pinned
+provider-free: a charset outside that table (`cp1251`, where those same bytes
+are two Cyrillic letters), a text that is not a byte sequence at all (a
+transport that already decoded it hands back `2615`, whose low byte is itself a
+valid character), and bytes that are not valid in their charset. Two of those
+are a CHANGE of outcome and not a narrowing of the old one, because this
+boundary used to return the body UNREAD — the right value for a single-byte
+charset, a silent guess for every other. So a schema whose defaults were
+written under a charset this table does not name, and ANY transport that
+returns `COLUMN_DEFAULT` already decoded (there, every non-ASCII expression
+default), now fail the final attestation with `MIGRATION_DRIFT` where they
+converged before. The first path needs no caller-supplied `charset`: MySQL
+freezes the introducer in the stored expression at CREATE time, so a column
+another session created under `latin1` reports `_latin1` — pure-ASCII defaults
+included — to an ordinary utf8mb4 connection (measured,
+`closure-repair-2/t3/receipts/probe-frozen-introducer.log`), which is why the
+table reads the single-byte ASCII-compatible charsets instead of refusing them.
+A LITERAL default arrives decoded and is untouched. The shared UTF-8 decoder
+(`identity.ts`) reads a leading U+FEFF as part of the value rather than as a
+mark, so a default beginning with one is reported as declared; a caller that
+refuses a BOM refuses it as a byte, before the decode.
+The SQL-mode assumption is unchanged and now covers enum members too, because
+they are the same rule — `mysql-strict-mode-docker.test.ts` states it on
+`escapeValue`, and `NO_BACKSLASH_ESCAPES` remains an admitted mode this
+spelling regresses on, as the paragraph above says. The live matrix for both
+halves is `mysql-defaults-docker.test.ts` and `mysql2-schema-attestation.test.ts`
+(initial push, unchanged repush, a declared change, and a RAW INSERT omitting
+the column as the oracle). One limit is measured and NOT repairable at this
+boundary: `COLUMN_TYPE` is utf8mb3, so an enum member outside the BMP comes
+back as `?` and such a schema cannot converge — an EXPRESSION default carrying
+the same character does round-trip, because its bytes survive the expansion.
+
 ### Closed parsing
 
 Hostile estate and control bytes become trusted V1 values only through the

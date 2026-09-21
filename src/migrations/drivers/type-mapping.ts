@@ -95,10 +95,16 @@ export const MYSQL_TYPE_DEFAULTS = {
  * identity of its own invention — and two spellings of ONE type read as a
  * changed column on every push and as the mismatch the final push attestation
  * refuses.
+ *
+ * A member IS a MySQL string literal, so it is spelled by the one function that
+ * spells those (`mysqlStringLiteral` below) rather than by a second rule of its
+ * own. Doubling `'` alone was that second rule: `ENUM('a\b')` declared a member
+ * holding a BACKSPACE, `ENUM('end\')` did not parse at all, and once the
+ * default beside such a member went through the shared spelling the two
+ * disagreed and MySQL refused the CREATE/MODIFY with errno 1067 (all measured).
  */
 export function mysqlEnumType(values: readonly string[]): string {
-  const escaped = values.map((value) => `'${value.replace(/'/g, "''")}'`);
-  return `ENUM(${escaped.join(", ")})`;
+  return `ENUM(${values.map((value) => mysqlStringLiteral(value)).join(", ")})`;
 }
 
 /**

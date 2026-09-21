@@ -96,6 +96,21 @@ condition — every registered witness of a lost condition, native
 (`mysql2-found-consumption`), local (`sqlite3-found-consumption`) and scripted
 (`transitions/conditional-upsert.ts`) — keeps its exact sentence.
 
+> **Addendum (repair prompt 2 §2, 2026-09-22, `closure-repair-2/t2`).** The cost
+> above is now paid honestly instead of by a wrong name. The statement still
+> cannot say WHICH of two matched conditions went, and it no longer says: where
+> several conditions were conjoined the failure reports that a MATCHED
+> REQUIREMENT changed and names them as a SET
+> (`query-engine-v2 top-level upsert matched premise (targetWhere, setWhere)
+> changed before the atomic batch.`), decided where the premises are built
+> (`Choose["conditions"].matched`) so that `confirmFound` states no diagnosis of
+> its own. The single-condition sentences this section promised are unchanged
+> byte for byte, both spellings, and the single combined confirmation stands —
+> no round trip was added to tell the conditions apart. §12's last bullet ("the
+> attribution cost has no registered witness") is closed: three cells per
+> transport, credential-free and native, now witness first-only, second-only and
+> both conditions changing.
+
 ### The re-expressed cell, and why
 
 The repaired contract changed the answer, so the cell's recorded expectation is

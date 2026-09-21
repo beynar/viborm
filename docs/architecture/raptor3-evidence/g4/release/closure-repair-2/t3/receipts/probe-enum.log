@@ -1,0 +1,19 @@
+base-spelling   | CREATE refused: errno=1064 ER_PARSE_ERROR
+shared-spelling | COLUMN_TYPE = "enum('plain','a\\\\b','line1\\nline2','it''s','café ☕','end\\\\')"
+shared-spelling | COLUMN_TYPE codes = 65 6e 75 6d 28 27 70 6c 61 69 6e 27 2c 27 61 5c 5c 62 27 2c 27 6c 69 6e 65 31 5c 6e 6c 69 6e 65 32 27 2c 27 69 74 27 27 73 27 2c 27 63 61 66 e9 20 2615 27 2c 27 65 6e 64 5c 5c 27 29
+shared-spelling | COLUMN_DEFAULT = null
+shared-spelling |   member "plain" -> stored "plain" OK
+shared-spelling |   member "a\\b" -> stored "a\\b" OK
+shared-spelling |   member "line1\nline2" -> stored "line1\nline2" OK
+shared-spelling |   member "it's" -> stored "it's" OK
+shared-spelling |   member "café ☕" -> stored "café ☕" OK
+shared-spelling |   member "end\\" -> stored "end\\" OK
+shared+default  | COLUMN_TYPE = "enum('plain','a\\\\b','line1\\nline2','it''s','café ☕','end\\\\')"
+shared+default  | COLUMN_TYPE codes = 65 6e 75 6d 28 27 70 6c 61 69 6e 27 2c 27 61 5c 5c 62 27 2c 27 6c 69 6e 65 31 5c 6e 6c 69 6e 65 32 27 2c 27 69 74 27 27 73 27 2c 27 63 61 66 e9 20 2615 27 2c 27 65 6e 64 5c 5c 27 29
+shared+default  | COLUMN_DEFAULT = "a\\b"
+shared+default  |   member "plain" -> stored "plain" OK
+shared+default  |   member "a\\b" -> stored "a\\b" OK
+shared+default  |   member "line1\nline2" -> stored "line1\nline2" OK
+shared+default  |   member "it's" -> stored "it's" OK
+shared+default  |   member "café ☕" -> stored "café ☕" OK
+shared+default  |   member "end\\" -> stored "end\\" OK

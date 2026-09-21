@@ -1,0 +1,26 @@
+reporter/violations ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Some lint rules or assist actions reported some violations.
+  
+  i The following files have violations:
+  
+  - src/query-engine/raptor3/commands/commands.ts (2 errors)
+  - src/query-engine/raptor3/commands/execution.ts (4 errors)
+  
+  i The following lint rules have violations:
+  
+  Rule Name                                       Diagnostics
+  
+  lint/style/useDefaultSwitchClause               1 (1 error)
+  lint/style/noParameterProperties                2 (2 errors)
+  lint/complexity/noCommaOperator                 1 (1 error)
+  assist/source/organizeImports                   1 (1 error)
+  lint/style/noParameterAssign                    1 (1 error)
+
+Checked 4 files in 52ms. No fixes applied.
+Found 6 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

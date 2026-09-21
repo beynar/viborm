@@ -1,0 +1,249 @@
+=== Falsification 1: confirmFound raises the FIRST condition's failure again (execution.ts) ===
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests | 3 failed) 77ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > the located row's reference is spent at the value the confirmation read 31ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure 6ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise 8ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence 4ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence 4ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended pair of conditions commits its ordinary result 4ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a to-ONE nested upsert's membership is confirmed before the effect 4ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort 6ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended found consumption commits its ordinary result 6ms
+ ❯ |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests | 3 failed) 60ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > the located row's reference is spent at the value the confirmation read 22ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure 6ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise 7ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence 4ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   × the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence 3ms
+     → expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence 2ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended pair of conditions commits its ordinary result 2ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a to-ONE nested upsert's membership is confirmed before the effect 6ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended found consumption commits its ordinary result 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:355:48
+    353|       VibORMErrorCode.TRANSACTION_FAILED
+    354|     );
+    355|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    356|     // A lost MATCH premise is not a race another arm may adopt.
+    357|     expect((outcome.failure as TransactionError).meta.raceable).not.to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:381:48
+    379|     // The condition the reviewed source named here was `targetWhere`,…
+    380|     // had not changed at all.
+    381|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    382|     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    383|     expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:407:48
+    405|     expect(outcome.value).toBeUndefined();
+    406|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    407|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    408|     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    409|     expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:355:48
+    353|       VibORMErrorCode.TRANSACTION_FAILED
+    354|     );
+    355|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    356|     // A lost MATCH premise is not a race another arm may adopt.
+    357|     expect((outcome.failure as TransactionError).meta.raceable).not.to…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:381:48
+    379|     // The condition the reviewed source named here was `targetWhere`,…
+    380|     // had not changed at all.
+    381|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    382|     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    383|     expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence
+AssertionError: expected 'query-engine-v2 top-level upsert targ…' to be 'query-engine-v2 top-level upsert matc…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mmatched premise (targetWhere, setWhere)[27m changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert [7mtargetWhere match premise[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:407:48
+    405|     expect(outcome.value).toBeUndefined();
+    406|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    407|     expect((outcome.failure as Error).message).toBe(CONJOINED_PREMISE);
+       |                                                ^
+    408|     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
+    409|     expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 14 passed (20)
+   Start at  00:26:31
+   Duration  3.18s (transform 1.73s, setup 17ms, collect 2.66s, tests 137ms, environment 0ms, prepare 78ms)
+
+Vitest resources: 5.00s wall, 544.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1
+
+=== Falsification 2: the SET sentence swallows the single condition (commands.ts) ===
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests | 2 failed) 61ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > the located row's reference is spent at the value the confirmation read 22ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure 8ms
+     → expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert setW…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise 4ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence 3ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence 3ms
+     → expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert targ…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended pair of conditions commits its ordinary result 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a to-ONE nested upsert's membership is confirmed before the effect 6ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort 4ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended found consumption commits its ordinary result 5ms
+ ❯ |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts (10 tests | 2 failed) 62ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > the located row's reference is spent at the value the confirmation read 22ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure 9ms
+     → expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert setW…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the FIRST refuse as one premise 4ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost at the SECOND refuse with the same sentence 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > two matched conditions lost TOGETHER refuse with the same sentence 3ms
+   × the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence 3ms
+     → expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert targ…' // Object.is equality
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended pair of conditions commits its ordinary result 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a to-ONE nested upsert's membership is confirmed before the effect 6ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > a target lost AFTER the confirmation is caught by the reader of last resort 3ms
+   ✓ the shared FOUND-consumption rule on the recording SQLite transport > an uncontended found consumption commits its ordinary result 5ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 81ms
+ ✓ |coverage-raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 46ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-commands.test.ts (11 tests) 90ms
+ ✓ |raptor3| tests/raptor3/transitions/conditional-upsert-legacy.test.ts (11 tests) 50ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure
+AssertionError: expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert setW…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7msetWhere [27mmatch premise changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert match[7med[27m premise[7m (setWhere)[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:318:48
+    316|     expect(outcome.value).toBeUndefined();
+    317|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    318|     expect((outcome.failure as Error).message).toBe(
+       |                                                ^
+    319|       "query-engine-v2 top-level upsert setWhere match premise changed…
+    320|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence
+AssertionError: expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert targ…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mtargetWhere [27mmatch premise changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert match[7med[27m premise[7m (targetWhere)[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:441:48
+    439|     expect(outcome.value).toBeUndefined();
+    440|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    441|     expect((outcome.failure as Error).message).toBe(
+       |                                                ^
+    442|       "query-engine-v2 top-level upsert targetWhere match premise chan…
+    443|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > a matched condition lost before the effect refuses with its own premise failure
+AssertionError: expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert setW…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7msetWhere [27mmatch premise changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert match[7med[27m premise[7m (setWhere)[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:318:48
+    316|     expect(outcome.value).toBeUndefined();
+    317|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    318|     expect((outcome.failure as Error).message).toBe(
+       |                                                ^
+    319|       "query-engine-v2 top-level upsert setWhere match premise changed…
+    320|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-found-consumption.test.ts > the shared FOUND-consumption rule on the recording SQLite transport > one condition keeps its own precise sentence
+AssertionError: expected 'query-engine-v2 top-level upsert matc…' to be 'query-engine-v2 top-level upsert targ…' // Object.is equality
+
+Expected: [32m"query-engine-v2 top-level upsert [7mtargetWhere [27mmatch premise changed before the atomic batch."[39m
+Received: [31m"query-engine-v2 top-level upsert match[7med[27m premise[7m (targetWhere)[27m changed before the atomic batch."[39m
+
+ ❯ tests/providers/local/sqlite3-found-consumption.test.ts:441:48
+    439|     expect(outcome.value).toBeUndefined();
+    440|     expect(outcome.failure).toBeInstanceOf(TransactionError);
+    441|     expect((outcome.failure as Error).message).toBe(
+       |                                                ^
+    442|       "query-engine-v2 top-level upsert targetWhere match premise chan…
+    443|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed | 4 passed (6)
+      Tests  4 failed | 60 passed (64)
+   Start at  00:26:43
+   Duration  5.98s (transform 3.15s, setup 29ms, collect 4.92s, tests 388ms, environment 0ms, prepare 104ms)
+
+Vitest resources: 7.80s wall, 664.2 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
+exit=1

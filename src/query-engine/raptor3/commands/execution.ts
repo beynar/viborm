@@ -12,9 +12,13 @@ import type {
   MembershipParent,
   ObservationPremise,
 } from "../shared/operation-context";
-import type { Query } from "../shared/query";
+import type { PreparedSelector, Query } from "../shared/query";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
-import { type Membership, storedFields } from "../shared/storage";
+import {
+  type Membership,
+  physicalField,
+  storedFields,
+} from "../shared/storage";
 import type { TransportAttempt } from "../shared/transport-attempt";
 import type { Assignments } from "./assignments";
 import { CommandAttempt } from "./command-attempt";
@@ -184,7 +188,16 @@ export class CommandExecution {
     value: unknown
   ): void {
     if (value !== null) return;
-    throw new NestedWriteError(
+    throw this.unrepresentable(relation, referenced);
+  }
+  /**
+   * The same requirement's failure, BUILT rather than raised: the fold's own
+   * value is a sub-select, so the requirement is also asked of the row that
+   * sub-select will read, as a premise of the unit that spends it
+   * ({@link folded}). One sentence, one builder, two askers.
+   */
+  private unrepresentable(relation: string, referenced: string): Error {
+    return new NestedWriteError(
       `Cannot connect relation '${relation}': the located target's referenced field '${referenced}' is null.`,
       relation
     );
@@ -230,30 +243,109 @@ export class CommandExecution {
    * the holder's SET names this value it IS a sub-select, so the literal the
    * probe read exists here and nowhere after. Every other supply — every other
    * verb, both directions, found and produced alike — is the consumer's.
+   *
+   * The BATCH route folds a second arm, for the same reason and at a different
+   * row ({@link locatedAt}): a probe that reads UNLOCKED because its other arm
+   * inserts the key it looked for has no lock and — on this route — no
+   * confirmation either ({@link confirmFound}), so the bytes it read are the
+   * bytes of a row another transaction may since have changed. That arm's value
+   * is therefore read where it is spent too, and read at the row this operation
+   * LOCATED, never at the selector, which an unlocked probe cannot vouch for:
+   * a replacement row that has acquired the selector would answer it.
    */
-  private folded(
+  private async folded(
     command: Choose,
     enclosing: Command | undefined,
     captured: Input
-  ): Input {
+  ): Promise<Input> {
     const origin = command.lookup.origin;
-    if (
-      !origin ||
-      origin.operation !== "connect" ||
-      command.lookup.membershipOnly !== false
-    )
-      return captured;
+    if (!origin) return captured;
+    const selector =
+      origin.operation === "connect" && command.lookup.membershipOnly === false
+        ? command.lookup.selector
+        : await this.locatedAt(command, enclosing, origin.relation);
+    if (!selector) return captured;
     const values: Input = { ...captured };
     for (const field of command.fields.demands) {
       this.requireRepresentable(origin.relation, field, captured[field]);
       values[field] = this.context.queries.locatedValue(
         command.model,
         field,
-        command.lookup.selector,
+        selector,
         enclosing?.kind === "record" ? enclosing.model : undefined
       );
     }
     return values;
+  }
+  /**
+   * Where an UNLOCKED probe's answer is re-read on the batch route: the
+   * CAPTURED COMPLETE IDENTITY of the row it found ({@link Queries.includeIdentities}
+   * over the located row's own key) — or `undefined` where the holder spends
+   * nothing of this row, which is every other placement.
+   *
+   * The fact that makes this necessary is the route's, not the verb's. The
+   * batch route states this consumption's requirements as PREMISES of the
+   * atomic unit — the selection's retained requirement ({@link runSelection}),
+   * held through the effect because this probe took no lock — and a premise
+   * proves that the row is still there, not what its columns now hold. The
+   * reference the holder's own statement spends is such a column, so it is read
+   * INSIDE that statement, at the identity the premise pins: a key recycled
+   * onto another row between the plan-time read and the write moves nothing,
+   * because nothing here names the key.
+   *
+   * What a premise cannot prove of a column, it can prove of its ABSENCE, and
+   * the one thing the fold's sub-select cannot report is a NULL: the value is
+   * gone from the engine, so {@link requireRepresentable} can only be asked of
+   * the capture. The complement is stated beside it — one premise per NULLABLE
+   * component, each carrying that component's own sentence — and a component no
+   * schema admits a NULL in states nothing at all.
+   */
+  private async locatedAt(
+    command: Choose,
+    enclosing: Command | undefined,
+    relation: string
+  ): Promise<PreparedSelector | undefined> {
+    const ctx = this.context;
+    const lookup = command.lookup;
+    if (!(ctx.usesBatch && lookup.insertsWhenAbsent)) return undefined;
+    const spent = this.spentByHolder(command, enclosing);
+    if (spent.length === 0) return undefined;
+    for (const field of spent)
+      if (physicalField(ctx.schema, lookup.model, field).nullable)
+        await ctx.requireAbsent(
+          lookup.unrepresentable(field),
+          this.unrepresentable(relation, field)
+        );
+    return ctx.queries.includeIdentities(lookup.model, [
+      this.identity(lookup.fields),
+    ]);
+  }
+  /**
+   * The components of a located row the ENCLOSING record's OWN statement
+   * spends, named as that row spells them.
+   *
+   * It is the one reader of the resolved edge that states them
+   * ({@link Commands.assignMembership}) read back: a contribution of the
+   * holder's write whose producer is this choice's binding and that carries a
+   * relation. So it is TRUE for the parent-held direction, where the holder's
+   * SET writes the target's referenced value, and FALSE for every other
+   * placement — a junction's captured pair is not the holder's own field, and a
+   * child-held arm's value is written by the arm, not by the row above it.
+   */
+  private spentByHolder(
+    command: Choose,
+    enclosing: Command | undefined
+  ): string[] {
+    if (enclosing?.kind !== "record") return [];
+    const spent: string[] = [];
+    for (const value of enclosing.fields.contributions().values())
+      if (
+        value.kind === "field" &&
+        value.producer === command.fields &&
+        value.relation !== undefined
+      )
+        spent.push(value.field);
+    return spent;
   }
   /**
    * The PARENT row this created record is a member of, where it has one.
@@ -454,8 +546,24 @@ export class CommandExecution {
     }
     attempt.rows.set(selection, found);
     attempt.bind(selection.fields, found);
+    // The requirement this premise proves must last through the effect that
+    // consumes it, and a probe that read UNLOCKED (`Selection.insertsWhenAbsent`)
+    // holds nothing of its own answer — so on the batch route, where no
+    // confirmation is taken (`confirmFound`), the premise itself HOLDS the row
+    // it found, the way a captured member's does (`holdMember`, D-65). It is
+    // addressed by the identity of a row that EXISTS, so it locks no absence
+    // and R2c's convergence is untouched; a probe that kept its lock states the
+    // premise it always stated.
     if (this.context.usesBatch && selection.retained)
-      this.context.requirePresent(selection.captured(), selection.retained());
+      this.context.requirePresent(
+        selection.captured(
+          selection,
+          selection.membership(),
+          undefined,
+          selection.insertsWhenAbsent === true
+        ),
+        selection.retained()
+      );
   }
   /**
    * The shared FOUND-consumption rule: an unlocked positive observation is
@@ -500,8 +608,15 @@ export class CommandExecution {
    * which is the same fact proved atomically and aborts before any write —
    * which is the unit's OUTCOME, not the window between a premise and the
    * statement it protects; where a requirement must hold THROUGH its effect
-   * the member is held ({@link holdMember}). And a
+   * the member is held ({@link holdMember}), which is what the retained premise
+   * of an unlocked probe now does ({@link runSelection}). And a
    * probe that KEPT its lock is already holding its own answer.
+   *
+   * What those premises never state is the referenced COLUMN a holder's own
+   * statement spends, and a read is not how that route binds it: the value is
+   * folded into that statement as a sub-select of the located row's CURRENT
+   * value ({@link folded}'s batch arm), so there too the reference is the
+   * intended row's own and never a captured key another row has acquired.
    */
   private async confirmFound(
     command: Choose,
@@ -526,17 +641,21 @@ export class CommandExecution {
     // carry — the locator's own base among them, reused, not prepared again).
     // The alternative, a confirmation per condition, asks the same row the same
     // question twice and pays a round trip for the answer it is already
-    // holding under lock. What one statement cannot do is name WHICH of two
-    // matched conditions a concurrent commit took away — a miss is the loss of
-    // the premise, not of a field — so the failure is the first condition's,
-    // the same ordering `case "choose"` already speaks with when it reports one
-    // unmatched probe for the skip. Exact per-field attribution would need the
-    // conditions evaluated over the confirmed row rather than in its `WHERE`,
-    // which no adapter can project today (the note's §1 cost).
-    const conditions = command.conditions?.probes ?? [];
+    // holding under lock. What this one statement then loses is that ONE
+    // premise and never a named field, so the failure it raises is the
+    // premise's own (`Choose["conditions"].matched`, decided where the premises
+    // are built): a conjunction says a MATCHED REQUIREMENT changed and names
+    // the conditions as a set, a single condition keeps its exact sentence.
+    // Blaming the first of several would be a diagnosis this statement did not
+    // make; making it would need the conditions evaluated over the confirmed
+    // row rather than in its `WHERE`, which no adapter can project today, or
+    // the round trip per condition this one statement removed (repair prompt 2
+    // §2).
+    const conditional = command.conditions;
+    const conditions = conditional?.probes ?? [];
     const first = conditions[0];
-    const failure: DeferredFailure = first
-      ? () => first.match
+    const failure: DeferredFailure = conditional
+      ? () => conditional.matched
       : (requirement?.failure ??
         lookup.retained ??
         lookup.required ??
@@ -814,7 +933,7 @@ export class CommandExecution {
           } else
             attempt.bind(
               command.fields,
-              this.folded(command, occurrence.parent?.command, current)
+              await this.folded(command, occurrence.parent?.command, current)
             );
         } else if (missing) {
           attempt.missingChoices.set(missing.command.fields, command);

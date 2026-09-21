@@ -83,6 +83,33 @@ const backslashed = s
   })
   .map("attest_backslashed");
 
+/**
+ * The shared literal boundary (repair prompt §3): an ENUM's members ARE MySQL
+ * string literals, and a non-ASCII default's bytes come back from the catalog
+ * in the charset MySQL's own deparse names. Both spellings meet here, on one
+ * column each and on one that carries both at once — the enum's default is a
+ * member, so a member spelled by one rule and a default spelled by another is
+ * a CREATE MySQL refuses outright (errno 1067, measured).
+ */
+const spelled = s
+  .model({
+    id: s.string().id(),
+    kind: s.enum(["plain", "a\\b", "it's", "café ☕"]).default("a\\b"),
+    note: s.string().default("café ☕"),
+    code: s.string().unique().default("café ☕"),
+  })
+  .map("attest_spelled");
+
+/** The same model with a trailing-backslash member added and the default moved. */
+const widenedSpelled = s
+  .model({
+    id: s.string().id(),
+    kind: s.enum(["plain", "a\\b", "it's", "café ☕", "end\\"]).default("a\\b"),
+    note: s.string().default("thé ☕"),
+    code: s.string().unique().default("café ☕"),
+  })
+  .map("attest_spelled");
+
 describeIf("MySQL2 schema attestation", () => {
   beforeEach(dropEveryLiveTable);
 
@@ -263,5 +290,79 @@ describeIf("MySQL2 schema attestation", () => {
     expect(rows[0]?.note).toBe(String.raw`a\b`);
 
     await client.$disconnect();
+  });
+  test("an escaped enum member and a Unicode default survive the attestation", async () => {
+    const client = createClient({
+      schema: { spelled },
+      driver: createMySQL2Driver(),
+    });
+    expect((await syncLiveSchema(client)).applied).toBe(true);
+
+    // The spelling the DDL wrote is the spelling the catalog reads back, so
+    // there is nothing left to do; read back in any other spelling, these
+    // columns would be re-planned and the push would FAIL at the final
+    // attestation with MIGRATION_DRIFT.
+    const second = await syncLiveSchema(client);
+    expect(second.operations).toEqual([]);
+    expect(second.sql).toEqual([]);
+
+    const snapshot = await introspect(client);
+    const byName = new Map(
+      snapshot.tables
+        .find((t) => t.name === "attest_spelled")
+        ?.columns.map((c) => [c.name, c])
+    );
+    const enumType = `${String.raw`ENUM('plain', 'a\\b', 'it''s', `}'café ☕')`;
+    expect(byName.get("kind")?.type).toBe(enumType);
+    expect(byName.get("kind")?.default).toBe(String.raw`'a\\b'`);
+    expect(byName.get("note")?.default).toBe("('café ☕')");
+    expect(byName.get("code")?.default).toBe("'café ☕'");
+    expect(snapshot.enums).toEqual([
+      {
+        name: enumType,
+        values: ["plain", "a\\b", "it's", "café ☕"],
+      },
+    ]);
+
+    // The VALUES are the database's: raw SQL, so no admission-time default can
+    // supply them.
+    await client.$executeRawUnsafe(
+      "INSERT INTO `attest_spelled` (`id`) VALUES ('s1')"
+    );
+    const rows = await client.$queryRawUnsafe<{
+      kind: string;
+      note: string;
+      code: string;
+    }>("SELECT `kind`, `note`, `code` FROM `attest_spelled` WHERE `id` = 's1'");
+    expect(rows[0]).toMatchObject({
+      kind: "a\\b",
+      note: "café ☕",
+      code: "café ☕",
+    });
+
+    // An actual change: a member the old spelling could not put into a
+    // statement at all, beside a declared default in the same alphabet.
+    const after = createClient({
+      schema: { spelled: widenedSpelled },
+      driver: createMySQL2Driver(),
+    });
+    const changed = await syncLiveSchema(after);
+    expect(changed.applied).toBe(true);
+    expect(changed.operations.length).toBeGreaterThan(0);
+    expect((await syncLiveSchema(after)).operations).toEqual([]);
+
+    const changedSnapshot = await introspect(after);
+    const changedColumns = new Map(
+      changedSnapshot.tables
+        .find((t) => t.name === "attest_spelled")
+        ?.columns.map((c) => [c.name, c])
+    );
+    expect(changedColumns.get("kind")?.type).toBe(
+      `${String.raw`ENUM('plain', 'a\\b', 'it''s', `}'café ☕'${String.raw`, 'end\\')`}`
+    );
+    expect(changedColumns.get("note")?.default).toBe("('thé ☕')");
+
+    await client.$disconnect();
+    await after.$disconnect();
   });
 });

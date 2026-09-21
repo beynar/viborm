@@ -1,0 +1,12 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ✓ |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts (22 tests) 115ms
+ ✓ |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts (22 tests) 106ms
+
+ Test Files  2 passed (2)
+      Tests  44 passed (44)
+   Start at  23:37:19
+   Duration  2.59s (transform 1.37s, setup 13ms, collect 2.00s, tests 221ms, environment 0ms, prepare 54ms)
+
+Vitest resources: 4.38s wall, 630.6 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

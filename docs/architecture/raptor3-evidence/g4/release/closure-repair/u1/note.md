@@ -353,6 +353,23 @@ is not counted as compression — `tokenLines` excludes comments by construction
   addendum); the batch-route schedule is NOT added here, so §1.3 of the repair
   prompt is closed on the interactive route only.
 
+  **Addendum (2026-09-21, repair prompt 2 §1 / unit `closure-repair-2/t1`):
+  CLOSED.** The batch route now re-binds that reference itself, without a read:
+  the components the HOLDER's own statement spends are folded into it as a
+  scalar sub-select of the located row's CURRENT value
+  (`Queries.locatedValue`, `CommandExecution.folded`), read at the CAPTURED
+  COMPLETE IDENTITY (`Queries.includeIdentities`) and never at the arm's own
+  selector; the selection's retained premise is HELD wherever the probe read
+  unlocked, so the row cannot move between that premise and the statement that
+  spends it; and the representability requirement the fold can no longer ask of
+  a sub-select is stated of the row it will read, as an absence premise, one per
+  nullable component. The schedule this entry describes is registered on both
+  local forced-batch fixtures
+  (`tests/providers/local/sqlite3-batch-reference-reuse.test.ts`, 11 cells) and
+  natively on two real PostgreSQL connections
+  (`tests/providers/docker/pg-batch-reference-reuse.test.ts`, 6 cells). §1.3 of
+  the first repair prompt is closed on both routes.
+
 ## 12. Blockers
 
 None.

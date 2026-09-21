@@ -1,0 +1,40 @@
+
+ FAIL  |layer-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'cafÃ© â\u0098\u0095\')' to be '(\'café ☕\')' // Object.is equality
+
+Expected: [32m"('caf[7mé ☕[27m')"[39m
+Received: [31m"('caf[7mÃ© â[27m')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:450:44
+    448|     // catalog spells one per codepoint, so the value comes back in the
+    449|     // spelling the desired side wrote instead of one codepoint per by…
+    450|     expect(byName.get("unicode")?.default).toBe(`('${CAFE}')`);
+       |                                            ^
+    451|     expect(byName.get("astral")?.default).toBe("('e\u{1F600}nd')");
+    452|     expect(byName.get("escaped")?.default).toBe(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts > provider-free MySQL catalog reconstruction > reads an expression default's bytes back through its introducer, or keeps the text
+AssertionError: expected '(\'cafÃ© â\u0098\u0095\')' to be '(\'café ☕\')' // Object.is equality
+
+Expected: [32m"('caf[7mé ☕[27m')"[39m
+Received: [31m"('caf[7mÃ© â[27m')"[39m
+
+ ❯ tests/unit/migrations/mysql-provider-free-catalog.core.test.ts:450:44
+    448|     // catalog spells one per codepoint, so the value comes back in the
+    449|     // spelling the desired side wrote instead of one codepoint per by…
+    450|     expect(byName.get("unicode")?.default).toBe(`('${CAFE}')`);
+       |                                            ^
+    451|     expect(byName.get("astral")?.default).toBe("('e\u{1F600}nd')");
+    452|     expect(byName.get("escaped")?.default).toBe(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 12 passed (14)
+   Start at  23:49:31
+   Duration  1.29s (transform 581ms, setup 15ms, collect 865ms, tests 18ms, environment 0ms, prepare 55ms)
+
+Vitest resources: 3.06s wall, 461.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

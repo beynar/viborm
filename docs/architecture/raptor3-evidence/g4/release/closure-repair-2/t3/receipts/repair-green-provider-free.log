@@ -1,0 +1,8 @@
+ ✓ |coverage-migrations| tests/unit/migrations/mysql-provider-free-catalog.core.test.ts (7 tests) 8ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed (14)
+   Start at  23:55:54
+   Duration  2.03s (transform 885ms, setup 27ms, collect 1.33s, tests 16ms, environment 0ms, prepare 121ms)
+
+Vitest resources: 5.06s wall, 469.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

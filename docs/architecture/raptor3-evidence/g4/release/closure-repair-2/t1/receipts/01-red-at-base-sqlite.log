@@ -1,0 +1,793 @@
+
+ RUN  v3.1.4 /private/tmp/viborm-te
+
+ ❯ |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts (22 tests | 12 failed) 200ms
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit 107ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write 6ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   ✓ batch reference reuse on the session-keeping batch transport > does not adopt a replacement row that acquires the SELECTOR after the premise 6ms
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference at a NESTED placement 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+   × batch reference reuse on the session-keeping batch transport > spends a COMPOUND reference at the intended row's current pair, both members 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+   ✓ batch reference reuse on the session-keeping batch transport > aborts the unit with the arm's own failure when the located target disappears 6ms
+   × batch reference reuse on the session-keeping batch transport > never writes the NULL a reference transitions to 5ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+   ✓ batch reference reuse on the session-keeping batch transport > refuses a target whose reference already reads NULL, by R1's own sentence 4ms
+   ✓ batch reference reuse on the session-keeping batch transport > asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field 5ms
+   ✓ batch reference reuse on the session-keeping batch transport > commits its ordinary result when nothing interferes 6ms
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   ✓ batch reference reuse on the sessionless batch transport > does not adopt a replacement row that acquires the SELECTOR after the premise 4ms
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference at a NESTED placement 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+   × batch reference reuse on the sessionless batch transport > spends a COMPOUND reference at the intended row's current pair, both members 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+   ✓ batch reference reuse on the sessionless batch transport > aborts the unit with the arm's own failure when the located target disappears 5ms
+   × batch reference reuse on the sessionless batch transport > never writes the NULL a reference transitions to 3ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+   ✓ batch reference reuse on the sessionless batch transport > refuses a target whose reference already reads NULL, by R1's own sentence 3ms
+   ✓ batch reference reuse on the sessionless batch transport > asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field 3ms
+   ✓ batch reference reuse on the sessionless batch transport > commits its ordinary result when nothing interferes 3ms
+ ❯ |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts (22 tests | 12 failed) 115ms
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit 28ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write 6ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   ✓ batch reference reuse on the session-keeping batch transport > does not adopt a replacement row that acquires the SELECTOR after the premise 5ms
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT 5ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference at a NESTED placement 7ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+   × batch reference reuse on the session-keeping batch transport > spends a COMPOUND reference at the intended row's current pair, both members 4ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+   ✓ batch reference reuse on the session-keeping batch transport > aborts the unit with the arm's own failure when the located target disappears 6ms
+   × batch reference reuse on the session-keeping batch transport > never writes the NULL a reference transitions to 5ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+   ✓ batch reference reuse on the session-keeping batch transport > refuses a target whose reference already reads NULL, by R1's own sentence 4ms
+   ✓ batch reference reuse on the session-keeping batch transport > asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field 6ms
+   ✓ batch reference reuse on the session-keeping batch transport > commits its ordinary result when nothing interferes 4ms
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+   ✓ batch reference reuse on the sessionless batch transport > does not adopt a replacement row that acquires the SELECTOR after the premise 3ms
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+   × batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference at a NESTED placement 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+   × batch reference reuse on the sessionless batch transport > spends a COMPOUND reference at the intended row's current pair, both members 3ms
+     → Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+   ✓ batch reference reuse on the sessionless batch transport > aborts the unit with the arm's own failure when the located target disappears 5ms
+   × batch reference reuse on the sessionless batch transport > never writes the NULL a reference transitions to 3ms
+     → The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+   ✓ batch reference reuse on the sessionless batch transport > refuses a target whose reference already reads NULL, by R1's own sentence 3ms
+   ✓ batch reference reuse on the sessionless batch transport > asks nothing of a JUNCTION choice, whose captured pair is not the holder's own field 3ms
+   ✓ batch reference reuse on the sessionless batch transport > commits its ordinary result when nothing interferes 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 24 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h1",[22m
+[2m    "name": "connected",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:198:14
+    196|       const client = await world();
+    197|       driver.plant = recycle;
+    198|       assert.deepEqual(
+       |              ^
+    199|         await client.holder.update({
+    200|           where: { id: "h1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/24]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h1",[22m
+[2m    "name": "connected",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:227:14
+    225|       const client = await world();
+    226|       driver.plantBeforeFirstWrite = recycle;
+    227|       assert.deepEqual(
+       |              ^
+    228|         await client.holder.update({
+    229|           where: { id: "h1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/24]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h2",[22m
+[2m    "name": "two",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:290:14
+    288|       const client = await world();
+    289|       driver.plant = recycle;
+    290|       assert.deepEqual(
+       |              ^
+    291|         await client.holder.create({
+    292|           data: { id: "h2", name: "two", officeId: "o1", badge: connec…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/24]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference at a NESTED placement
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference at a NESTED placement
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -5,11 +5,11 @@[39m
+[2m        "id": "h1",[22m
+[2m        "name": "one",[22m
+[2m        "officeId": "o1",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "badgeCode": "M",[39m
+[31m+       "badgeCode": "G",[39m
+[2m        "id": "h3",[22m
+[2m        "name": "three",[22m
+[2m        "officeId": "o1",[22m
+[2m      },[22m
+[2m    ],[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:313:14
+    311|       const client = await world();
+    312|       driver.plant = recycle;
+    313|       assert.deepEqual(
+       |              ^
+    314|         await client.office.update({
+    315|           where: { id: "o1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/24]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends a COMPOUND reference at the intended row's current pair, both members
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends a COMPOUND reference at the intended row's current pair, both members
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "id": "g1",[22m
+[2m    "label": "moved",[22m
+[32m-   "passSerial": "S9",[39m
+[31m+   "passSerial": "S1",[39m
+[2m    "passZone": "north",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:347:14
+    345|           .run();
+    346|       };
+    347|       assert.deepEqual(
+       |              ^
+    348|         await client.gate.update({
+    349|           where: { id: "g1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/24]⎯
+
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > never writes the NULL a reference transitions to
+ FAIL  |provider-sqlite3| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > never writes the NULL a reference transitions to
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+ForeignKeyError {
+  "message": "Foreign key constraint violation",
+  "code": "V3002",
+  "originalCause": Error {
+    "message": "Underlying error details redacted",
+    "name": "Error",
+    "code": "SQLITE_CONSTRAINT_FOREIGNKEY",
+  },
+  "meta": {
+    "correlationId": "7e16a661-5ce5-4010-b2b8-2d1dd5e13d10",
+    "driver": "sqlite3",
+    "model": "holder",
+    "operation": "update",
+    "providerCode": "SQLITE_CONSTRAINT_FOREIGNKEY",
+    "statementIndex": 2,
+  },
+  "timestamp": 2026-09-21T21:29:21.149Z,
+  "name": "ForeignKeyError",
+}
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:427:7
+    425|           .run();
+    426|       };
+    427|       await assert.rejects(
+       |       ^
+    428|         async () => {
+    429|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled before the unit
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h1",[22m
+[2m    "name": "connected",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:198:14
+    196|       const client = await world();
+    197|       driver.plant = recycle;
+    198|       assert.deepEqual(
+       |              ^
+    199|         await client.holder.update({
+    200|           where: { id: "h1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference when the key is recycled BETWEEN the unit's premise and its write
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h1',
+    name: 'connected',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h1",[22m
+[2m    "name": "connected",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:227:14
+    225|       const client = await world();
+    226|       driver.plantBeforeFirstWrite = recycle;
+    227|       assert.deepEqual(
+       |              ^
+    228|         await client.holder.update({
+    229|           where: { id: "h1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference from a ROOT create's own INSERT
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   badgeCode: 'G',
+-   badgeCode: 'M',
+    id: 'h2',
+    name: 'two',
+    officeId: 'o1'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "badgeCode": "M",[39m
+[31m+   "badgeCode": "G",[39m
+[2m    "id": "h2",[22m
+[2m    "name": "two",[22m
+[2m    "officeId": "o1",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:290:14
+    288|       const client = await world();
+    289|       driver.plant = recycle;
+    290|       assert.deepEqual(
+       |              ^
+    291|         await client.holder.create({
+    292|           data: { id: "h2", name: "two", officeId: "o1", badge: connec…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends the intended row's CURRENT reference at a NESTED placement
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends the intended row's CURRENT reference at a NESTED placement
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+... Skipped lines
+
+  {
+    holders: [
+      {
+        badgeCode: null,
+        id: 'h1',
+...
+      {
++       badgeCode: 'G',
+-       badgeCode: 'M',
+        id: 'h3',
+        name: 'three',
+        officeId: 'o1'
+      }
+    ],
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -5,11 +5,11 @@[39m
+[2m        "id": "h1",[22m
+[2m        "name": "one",[22m
+[2m        "officeId": "o1",[22m
+[2m      },[22m
+[2m      {[22m
+[32m-       "badgeCode": "M",[39m
+[31m+       "badgeCode": "G",[39m
+[2m        "id": "h3",[22m
+[2m        "name": "three",[22m
+[2m        "officeId": "o1",[22m
+[2m      },[22m
+[2m    ],[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:313:14
+    311|       const client = await world();
+    312|       driver.plant = recycle;
+    313|       assert.deepEqual(
+       |              ^
+    314|         await client.office.update({
+    315|           where: { id: "o1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > spends a COMPOUND reference at the intended row's current pair, both members
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > spends a COMPOUND reference at the intended row's current pair, both members
+AssertionError: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
+    id: 'g1',
+    label: 'moved',
++   passSerial: 'S1',
+-   passSerial: 'S9',
+    passZone: 'north'
+  }
+
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[2m    "id": "g1",[22m
+[2m    "label": "moved",[22m
+[32m-   "passSerial": "S9",[39m
+[31m+   "passSerial": "S1",[39m
+[2m    "passZone": "north",[22m
+[2m  }[22m
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:347:14
+    345|           .run();
+    346|       };
+    347|       assert.deepEqual(
+       |              ^
+    348|         await client.gate.update({
+    349|           where: { id: "g1" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/24]⎯
+
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the session-keeping batch transport > never writes the NULL a reference transitions to
+ FAIL  |coverage-drivers| tests/providers/local/sqlite3-batch-reference-reuse.test.ts > batch reference reuse on the sessionless batch transport > never writes the NULL a reference transitions to
+AssertionError: The validation function is expected to return "true". Received false
+
+Caught error:
+
+ForeignKeyError: Foreign key constraint violation
+
+[32m- Expected:[39m 
+[Function anonymous]
+
+[31m+ Received:[39m 
+ForeignKeyError {
+  "message": "Foreign key constraint violation",
+  "code": "V3002",
+  "originalCause": Error {
+    "message": "Underlying error details redacted",
+    "name": "Error",
+    "code": "SQLITE_CONSTRAINT_FOREIGNKEY",
+  },
+  "meta": {
+    "correlationId": "34deeb3f-31d6-427a-92f9-ac63e35053f5",
+    "driver": "sqlite3",
+    "model": "holder",
+    "operation": "update",
+    "providerCode": "SQLITE_CONSTRAINT_FOREIGNKEY",
+    "statementIndex": 2,
+  },
+  "timestamp": 2026-09-21T21:29:22.613Z,
+  "name": "ForeignKeyError",
+}
+
+ ❯ tests/providers/local/sqlite3-batch-reference-reuse.test.ts:427:7
+    425|           .run();
+    426|       };
+    427|       await assert.rejects(
+       |       ^
+    428|         async () => {
+    429|           await client.holder.update({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/24]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  24 failed | 20 passed (44)
+   Start at  23:29:19
+   Duration  3.46s (transform 1.79s, setup 15ms, collect 2.77s, tests 315ms, environment 0ms, prepare 68ms)
+
+Vitest resources: 5.82s wall, 533.9 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.

@@ -28,7 +28,6 @@
 
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { VibORMErrorCode } from "@errors";
 import { introspect } from "@migrations/push/planner";
 import { s, TYPES } from "@src/schema";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
@@ -45,6 +44,7 @@ const WHOLE_SECONDS = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const TEXT_TABLE = "sm_default_text";
 const NOW_TABLE = "sm_default_now";
 const UNICODE_TABLE = "sm_default_unicode";
+const ENUM_TABLE = "tm_default_enum";
 
 function mysqlDriver(): MySQL2Driver {
   if (CONNECTION === undefined) {
@@ -127,6 +127,69 @@ function widenedNowSchema() {
         at: s.dateTime(TYPES.MYSQL.DATETIME.DATETIME(6)).now(),
       })
       .map(NOW_TABLE),
+  };
+}
+
+/** The declared Unicode values, beside the columns that carry them. */
+const UNICODE_VALUE = "café ☕";
+const DECLARED_UNICODE = {
+  note: UNICODE_VALUE,
+  emoji: "e\u{1F600}nd",
+  keyed: UNICODE_VALUE,
+} as const;
+const CHANGED_UNICODE = "thé ☕☕";
+
+function unicodeSchema(note: string) {
+  return {
+    notes: s
+      .model({
+        id: s.string().id(),
+        // TEXT refuses a literal default, so this is MySQL's EXPRESSION
+        // default — the form whose text the catalog hands back as BYTES.
+        note: s.string().default(note),
+        // Four bytes to the codepoint, outside the BMP.
+        emoji: s.string().default(DECLARED_UNICODE.emoji),
+        // A keyed string is VARCHAR(191), which takes the LITERAL default: the
+        // control, reported as the bare VALUE and untouched by this repair.
+        keyed: s.string().unique().default(DECLARED_UNICODE.keyed),
+      })
+      .map(UNICODE_TABLE),
+  };
+}
+
+/** Members carrying every escape MySQL's printer writes, and a Unicode one. */
+const ENUM_VALUES = [
+  "plain",
+  DECLARED.backslash,
+  DECLARED.multiline,
+  DECLARED.apostrophe,
+  UNICODE_VALUE,
+];
+
+/** The ONE spelling both snapshot producers write for those members. */
+const ENUM_TYPE = `${String.raw`ENUM('plain', 'a\\b', 'line1\nline2', 'it''s', `}'${UNICODE_VALUE}')`;
+
+function enumSchema() {
+  return {
+    kinds: s
+      .model({
+        id: s.string().id(),
+        kind: s.enum([...ENUM_VALUES]).default(DECLARED.backslash),
+      })
+      .map(ENUM_TABLE),
+  };
+}
+
+function widenedEnumSchema() {
+  return {
+    kinds: s
+      .model({
+        id: s.string().id(),
+        kind: s
+          .enum([...ENUM_VALUES, DECLARED.trailing])
+          .default(DECLARED.backslash),
+      })
+      .map(ENUM_TABLE),
   };
 }
 
@@ -268,66 +331,139 @@ describeIfMySQL("MySQL declared defaults, at the database's own oracle", () => {
     }
   });
   /**
-   * A THIRD gap in the same family, measured by this unit and OUTSIDE the two
-   * §4 repairs: `information_schema.COLUMN_DEFAULT` hands an expression
-   * default's UTF-8 bytes back one codepoint per BYTE (the coffee cup
-   * `U+2615` arrives as `e2 98 95`, measured on 8.4.11 through this same
-   * driver), so the value the inverse reconstructs is not the declared one and
-   * the push fails at the final attestation. Re-decoding those bytes would be
-   * a GUESS on a read path other MySQL transports share — a body that is
-   * already decoded and happens to sit in the Latin-1 range would be corrupted
-   * by it — so this unit measures and reports it rather than repairing it
-   * behind §4's scope. The outcome is the fail-closed one, and it is pinned
-   * here so the next repair has a red cell to turn green.
+   * Re-expressed for the repaired catalog boundary (repair prompt §3).
    *
-   * The LITERAL half of the same declaration is unaffected: a keyed string is
-   * `VARCHAR(191)`, whose default the catalog reports as the bare value, and
-   * that Unicode control round-trips today.
+   * This cell pinned the fail-closed OUTCOME of the third gap U4 measured:
+   * `information_schema.COLUMN_DEFAULT` hands an EXPRESSION default's text back
+   * one codepoint per BYTE — the coffee cup `U+2615` arrives as the three
+   * codepoints `e2 98 95`, measured on 8.4.11 through this same driver — so the
+   * value the inverse reconstructed was not the declared one and the push
+   * failed at the final attestation. Those bytes are the literal in the charset
+   * MySQL's own deparse NAMES (`_utf8mb4\'…\'`), and that introducer is what
+   * the inverse reads them with now, so the declared value comes back. Nothing
+   * global is re-decoded: a body that is not those bytes keeps the catalog's
+   * text and still refuses the push (pinned provider-free, in
+   * `mysql-provider-free-catalog.core`).
+   *
+   * The LITERAL half of the same declaration is the control: a keyed string is
+   * `VARCHAR(191)`, whose default the catalog reports as the bare VALUE, and
+   * that half round-tripped before this repair and is untouched by it.
    */
-  it("refuses a Unicode expression default, and keeps the literal one", async () => {
+  it("round-trips a Unicode default in both the expression and the literal form", async () => {
     const driver = mysqlDriver();
-    const expression = createClient({
-      schema: {
-        notes: s
-          .model({
-            id: s.string().id(),
-            note: s.string().default("caf\u00e9 \u2615"),
-          })
-          .map(UNICODE_TABLE),
-      },
-      driver,
-    });
-    const literal = createClient({
-      schema: {
-        notes: s
-          .model({
-            id: s.string().id(),
-            keyed: s.string().unique().default("caf\u00e9 \u2615"),
-          })
-          .map(UNICODE_TABLE),
-      },
+    const client = createClient({
+      schema: unicodeSchema(DECLARED_UNICODE.note),
       driver,
     });
     try {
       await driver._executeRaw(`DROP TABLE IF EXISTS \`${UNICODE_TABLE}\``);
-      await expect(push(expression, { force: true })).rejects.toMatchObject({
-        code: VibORMErrorCode.MIGRATION_DRIFT,
-      });
+      expect((await push(client, { force: true })).applied).toBe(true);
+      expect((await push(client, { force: true })).operations).toEqual([]);
 
-      await driver._executeRaw(`DROP TABLE IF EXISTS \`${UNICODE_TABLE}\``);
-      expect((await push(literal, { force: true })).applied).toBe(true);
-      expect((await push(literal, { force: true })).operations).toEqual([]);
+      const snapshot = await introspect(client);
+      const byName = new Map(
+        snapshot.tables
+          .find((table) => table.name === UNICODE_TABLE)
+          ?.columns.map((column) => [column.name, column])
+      );
+      expect(byName.get("note")?.default).toBe(`('${DECLARED_UNICODE.note}')`);
+      expect(byName.get("emoji")?.default).toBe(
+        `('${DECLARED_UNICODE.emoji}')`
+      );
+      expect(byName.get("keyed")?.default).toBe(`'${DECLARED_UNICODE.keyed}'`);
+
+      // THE ORACLE: no ORM admission, so only a default the DDL actually
+      // created can fill these columns.
       await driver._executeRaw(
         `INSERT INTO \`${UNICODE_TABLE}\` (\`id\`) VALUES ('u1')`
       );
-      const rows = await driver._executeRaw<{ keyed: string }>(
-        `SELECT \`keyed\` FROM \`${UNICODE_TABLE}\` WHERE \`id\` = 'u1'`
+      const rows = await driver._executeRaw<Record<string, string>>(
+        `SELECT * FROM \`${UNICODE_TABLE}\` WHERE \`id\` = 'u1'`
       );
-      expect(rows.rows[0]?.keyed).toBe("caf\u00e9 \u2615");
+      expect(rows.rows[0]).toMatchObject(DECLARED_UNICODE);
+
+      // An actual declared change, in the same non-ASCII alphabet.
+      const changed = createClient({
+        schema: unicodeSchema(CHANGED_UNICODE),
+        driver,
+      });
+      const applied = await push(changed, { force: true });
+      expect(applied.applied).toBe(true);
+      expect(applied.operations.length).toBeGreaterThan(0);
+      expect((await push(changed, { force: true })).operations).toEqual([]);
+      // `keyed` is unique and already holds its default from the row above, so
+      // this row names its own value; the column under test is still the
+      // database's.
+      await driver._executeRaw(
+        `INSERT INTO \`${UNICODE_TABLE}\` (\`id\`, \`keyed\`) VALUES ('u2', 'other')`
+      );
+      const changedRows = await driver._executeRaw<{ note: string }>(
+        `SELECT \`note\` FROM \`${UNICODE_TABLE}\` WHERE \`id\` = 'u2'`
+      );
+      expect(changedRows.rows[0]?.note).toBe(CHANGED_UNICODE);
     } finally {
       await driver._executeRaw(`DROP TABLE IF EXISTS \`${UNICODE_TABLE}\``);
-      await expression.$disconnect();
-      await literal.$disconnect();
+      await client.$disconnect();
+    }
+  });
+
+  /**
+   * The enum half of the same literal boundary (repair prompt §3).
+   *
+   * An ENUM's members ARE its type, and each member IS a MySQL string literal.
+   * Spelled with quote doubling only, `ENUM('a\b')` declared a member holding a
+   * BACKSPACE, `ENUM('end\')` did not parse at all, and — once the default
+   * beside such a member went through `mysqlStringLiteral` — the two spellings
+   * disagreed and MySQL refused the CREATE/MODIFY itself with errno 1067,
+   * mid-push (all measured on 8.4.11). One speller, so the member the DDL
+   * declares is the member the declaration named, and the catalog's printed
+   * escapes are read back through the same table the string inverse reads.
+   */
+  it("round-trips escaped and Unicode enum members, and the default beside them", async () => {
+    const driver = mysqlDriver();
+    const client = createClient({ schema: enumSchema(), driver });
+    try {
+      await driver._executeRaw(`DROP TABLE IF EXISTS \`${ENUM_TABLE}\``);
+      expect((await push(client, { force: true })).applied).toBe(true);
+      expect((await push(client, { force: true })).operations).toEqual([]);
+
+      const snapshot = await introspect(client);
+      const kind = snapshot.tables
+        .find((table) => table.name === ENUM_TABLE)
+        ?.columns.find((column) => column.name === "kind");
+      expect(kind?.type).toBe(ENUM_TYPE);
+      expect(kind?.default).toBe(String.raw`'a\\b'`);
+      expect(snapshot.enums).toEqual([
+        { name: ENUM_TYPE, values: [...ENUM_VALUES] },
+      ]);
+
+      // THE ORACLE: the raw insert omits the column, so the member it holds is
+      // the one the DDL made the column's default.
+      await driver._executeRaw(
+        `INSERT INTO \`${ENUM_TABLE}\` (\`id\`) VALUES ('e1')`
+      );
+      const rows = await driver._executeRaw<{ kind: string }>(
+        `SELECT \`kind\` FROM \`${ENUM_TABLE}\` WHERE \`id\` = 'e1'`
+      );
+      expect(rows.rows[0]?.kind).toBe(DECLARED.backslash);
+
+      // An actual declared change: a member carrying a TRAILING backslash, the
+      // value the old spelling could not put into a statement at all.
+      const changed = createClient({ schema: widenedEnumSchema(), driver });
+      const applied = await push(changed, { force: true });
+      expect(applied.applied).toBe(true);
+      expect(applied.operations.length).toBeGreaterThan(0);
+      expect((await push(changed, { force: true })).operations).toEqual([]);
+      await driver._executeRaw(
+        `INSERT INTO \`${ENUM_TABLE}\` (\`id\`, \`kind\`) VALUES ('e2', 'end\\\\')`
+      );
+      const changedRows = await driver._executeRaw<{ kind: string }>(
+        `SELECT \`kind\` FROM \`${ENUM_TABLE}\` WHERE \`id\` = 'e2'`
+      );
+      expect(changedRows.rows[0]?.kind).toBe(DECLARED.trailing);
+    } finally {
+      await driver._executeRaw(`DROP TABLE IF EXISTS \`${ENUM_TABLE}\``);
+      await client.$disconnect();
     }
   });
 });

@@ -1,0 +1,11 @@
+
+ RUN  v3.1.4 /Users/arnaud/code/viborm
+
+ ✓ |provider-mysql2| tests/providers/docker/mysql2-scalars.test.ts (293 tests) 26155ms
+
+ Test Files  1 passed (1)
+      Tests  293 passed (293)
+   Start at  01:31:12
+   Duration  27.78s (transform 979ms, setup 9ms, collect 1.48s, tests 26.15s, environment 0ms, prepare 28ms)
+
+Vitest resources: 29.57s wall, 663.0 MiB peak sampled process-group RSS (sampled ceiling 1536 MiB). Teardown verified.
